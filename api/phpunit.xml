@@ -28,6 +28,10 @@
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="DNS_DRIVER" value="fake"/>
+        <env name="SOURCE_VALIDATOR" value="fake"/>
+        <env name="PLATFORM_DOMAIN" value="livezen.app"/>
+        <env name="PANEL_URL" value="https://panel.test"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
