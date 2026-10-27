@@ -98,7 +98,8 @@ class BillingService
             'month_to_date' => ['amount_cents' => $monthToDate, 'currency' => $plan->currency],
             'payment_method' => $org->payment_method,
             'billing_email' => $org->billing_email,
-            'payment_portal_url' => 'https://billing.example.com/portal/'.($org->payment_customer_id ?: 'setup'),
+            'payment_provider' => $this->payments->name(),
+            'payment_portal_url' => rescue(fn () => $this->payments->portalUrl($org, config('billing.stripe.return_url')), null, report: false),
         ];
     }
 
@@ -135,6 +136,11 @@ class BillingService
         return $summary;
     }
 
+    public function portalUrl(Organization $org): string
+    {
+        return $this->payments->portalUrl($org, config('billing.stripe.return_url'));
+    }
+
     public function invoiceApi(Invoice $invoice): array
     {
         return [
@@ -142,7 +148,11 @@ class BillingService
             'period_start' => $invoice->period_start->toDateString(), 'period_end' => $invoice->period_end->toDateString(),
             'period' => $invoice->period_start->format('M Y'),
             'amount_cents' => $invoice->amount_cents, 'currency' => $invoice->currency, 'status' => $invoice->status,
-            'pdf_url' => $invoice->pdf_url ?? url('/api/v1/app/billing/invoices/'.$invoice->id.'/pdf'),
+            'subtotal_cents' => $invoice->subtotal_cents, 'tax_cents' => $invoice->tax_cents, 'tax_rate' => (float) $invoice->tax_rate,
+            'line_items' => $invoice->line_items ?? [],
+            'paid_at' => $invoice->paid_at?->toIso8601ZuluString(),
+            // Signed, expiring link to the real PDF (UBIL-004); no bearer token needed to open it.
+            'pdf_url' => app(InvoiceService::class)->signedPdfUrl($invoice),
             'created_at' => $invoice->created_at?->toIso8601ZuluString(),
         ];
     }

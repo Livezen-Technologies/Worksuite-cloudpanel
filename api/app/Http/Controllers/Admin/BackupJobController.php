@@ -42,4 +42,20 @@ class BackupJobController extends Controller
 
         return $this->accepted(Job::find($restore->job_id), ['restore_job_id' => $restore->id]);
     }
+
+    /** UBAK-002 / admin: signed download URL (202 + job while the export runs). */
+    public function download(Request $request, string $id)
+    {
+        $result = $this->backups->download(BackupArtifact::findOrFail($id), $request->user()->id);
+
+        return response()->json(['data' => $result], $result['status'] === 'ready' ? 200 : 202);
+    }
+
+    /** BAK-005: run a restore test now. */
+    public function restoreTest(Request $request, string $id)
+    {
+        $job = $this->backups->restoreTest(BackupArtifact::findOrFail($id), $request->user()->id);
+
+        return $this->accepted($job, ['artifact_id' => $id]);
+    }
 }

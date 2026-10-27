@@ -27,6 +27,18 @@ type Config struct {
 	DockerSocket      string `json:"docker_socket,omitempty"`
 	// UpdatePublicKey (base64 ed25519) overrides the compiled-in release key.
 	UpdatePublicKey string `json:"update_public_key,omitempty"`
+	// CertFile/KeyFile hold the mTLS client certificate (SEC-003), written at
+	// enrolment and on renewal; presented on every panel and relay connection.
+	CertFile string `json:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"`
+	// RelayURL overrides the terminal relay base the panel advertises.
+	RelayURL string `json:"relay_url,omitempty"`
+	// TerminalShells is the fixed list of shells terminal.open may start.
+	TerminalShells []string `json:"terminal_shells,omitempty"`
+	// ProxyConfigDir is Traefik's file-provider directory (proxy.config writes here);
+	// AcmeJSON is Traefik's ACME store read by proxy.certs (names/expiry only).
+	ProxyConfigDir string `json:"proxy_config_dir,omitempty"`
+	AcmeJSON       string `json:"acme_json,omitempty"`
 }
 
 // ResolvePath picks flag value, then env, then default.

@@ -20,6 +20,7 @@ class Deployment extends Model
     {
         return [
             'logs_tail' => 'array',
+            'scan_result' => 'array',
             'approved_at' => 'datetime',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',

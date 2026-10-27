@@ -84,6 +84,56 @@ Artisan::command('audit:prune', function () {
     }
 })->purpose('Apply audit log retention (default 365 days)');
 
+Artisan::command('backups:restore-tests {--all : test the latest artifact of every policy now}', function (BackupService $backups) {
+    $artifacts = $this->option('all')
+        ? \App\Models\BackupPolicy::allTenants()->get()->map(fn ($p) => \App\Models\BackupArtifact::allTenants()->where('backup_policy_id', $p->id)->whereNotNull('snapshot_id')->latest()->first())->filter()
+        : $backups->dueRestoreTests();
+    $count = 0;
+    foreach ($artifacts as $artifact) {
+        app(Tenant::class)->as($artifact->organization_id, function () use ($backups, $artifact, &$count) {
+            rescue(function () use ($backups, $artifact, &$count) {
+                $backups->restoreTest($artifact);
+                $count++;
+            });
+        });
+    }
+    $this->info("Restore tests started: {$count}");
+})->purpose('Scheduled restore tests of the latest snapshot per policy (BAK-005)');
+
+Artisan::command('backups:recovery-key {policy : backup policy id} {--key= : BACKUP_RECOVERY_KEY if not configured}', function () {
+    $policy = \App\Models\BackupPolicy::allTenants()->findOrFail($this->argument('policy'));
+    if (! $policy->recovery_key || ! str_starts_with($policy->recovery_key, 'escrow:')) {
+        $this->error('No escrowed recovery key yet (it is created on the first backup run).');
+
+        return 1;
+    }
+    $this->line(\App\Support\BackupDestination::unescrow($policy->recovery_key, $this->option('key') ?: null));
+    $this->warn('restic repository: '.(new \App\Support\BackupDestination($policy, $policy->organization_id))->repository());
+})->purpose('Print the escrowed restic password of a policy (BAK-004 recovery; run on the panel host only)');
+
+Artisan::command('billing:meter', function (\App\Services\InvoiceService $invoices) {
+    $this->info('Usage records written: '.$invoices->meter());
+})->purpose('Record one app-hour per running customer app (usage_records)');
+
+Artisan::command('billing:invoice {--month= : YYYY-MM, default previous month} {--org= : organisation id}', function (\App\Services\InvoiceService $invoices) {
+    $month = $this->option('month') ? \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $this->option('month').'-01') : now()->subMonthNoOverflow();
+    if ($org = $this->option('org')) {
+        $invoice = app(Tenant::class)->as($org, fn () => $invoices->generate($month));
+        $this->info($invoice ? "Invoice {$invoice->number}: {$invoice->amount_cents} {$invoice->currency} ({$invoice->status}) {$invoice->pdf_path}" : 'Nothing to invoice.');
+
+        return;
+    }
+    $this->info('Invoices generated: '.$invoices->generateAll($month));
+})->purpose('Roll usage_records into monthly invoices with PDFs (UBIL-004)');
+
+Artisan::command('proxy:push {--force}', function (\App\Services\TraefikConfigService $traefik) {
+    $this->info('proxy.config commands queued: '.$traefik->push((bool) $this->option('force')));
+})->purpose('Push Traefik dynamic config to ingress servers (CERT_DRIVER=traefik)');
+
+Artisan::command('proxy:sync-certs', function (\App\Services\TraefikConfigService $traefik) {
+    $this->info('proxy.certs commands queued: '.($traefik::enabled() ? $traefik->syncCertificates() : 0));
+})->purpose('Read certificate expiry from Traefik acme.json on ingress servers (DOM-002)');
+
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
@@ -110,3 +160,9 @@ Artisan::command('agent:publish {--from= : directory holding install.sh and dock
     }
     $this->info($copied ? 'Published: '.implode(', ', $copied) : 'Nothing found to publish.');
 })->purpose('Copy the agent installer and binaries into storage/app/agent for /agent/v1/download');
+
+Schedule::command('backups:restore-tests')->everyMinute()->withoutOverlapping();
+Schedule::command('billing:meter')->hourly();
+Schedule::command('billing:invoice')->monthlyOn(1, '02:15');
+Schedule::command('proxy:push')->everyTenMinutes()->withoutOverlapping();
+Schedule::command('proxy:sync-certs')->everySixHours()->withoutOverlapping();

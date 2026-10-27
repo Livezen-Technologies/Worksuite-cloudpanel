@@ -64,13 +64,15 @@ export function Images() {
   const images = useList<R>('/images')
   const { run } = useAction()
   const [addReg, setAddReg] = useState(false)
+  const [pull, setPull] = useState(false)
+  const serverOptions = useServerOptions()
   const [prune, setPrune] = useState(false)
   const [del, setDel] = useState<R | null>(null)
   const dangling = images.rows.filter((i) => i.dangling || i.tag === '<none>')
   return (
     <>
       <PageHeader title="Images & Registry" subtitle="Images on each server, connected registries and vulnerability scans"
-        actions={<button type="button" className="btn btn-primary" onClick={() => setAddReg(true)}>Add registry</button>} />
+        actions={<><button type="button" className="btn" onClick={() => setPull(true)}>Pull image</button><button type="button" className="btn btn-primary" onClick={() => setAddReg(true)}>Add registry</button></>} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
         {regs.rows.map((r) => (
           <div key={r.id} className="card p-4 flex flex-col gap-1.5">
@@ -91,13 +93,16 @@ export function Images() {
             { key: 'size', header: 'Size', value: (r) => num(r.size_mb), render: (r) => r.size ?? mb(r.size_mb) },
             { key: 'containers', header: 'Used by', value: (r) => num(r.users ?? r.container_count ?? r.containers), render: (r) => `${num(r.users ?? r.container_count ?? r.containers)} containers` },
             { key: 'server', header: 'Server', value: (r) => serverName(r) },
-            { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); return !scanned ? <Badge tone="n">not scanned</Badge> : <Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium` : 'clean'}</Badge> } },
+            { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); if (r.scan_status === 'scanning') return <Badge tone="b">scanning…</Badge>; if (r.scan_status === 'failed') return <Badge tone="y">scan failed</Badge>; return !scanned ? <Badge tone="n">not scanned</Badge> : <span className="inline-flex gap-1.5 flex-wrap"><Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium · ${num(sr?.low ?? r.low)} low` : 'clean'}</Badge>{r.blocks_deploy && <Badge tone="r">blocks deploys</Badge>}</span> } },
             { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
           ]} />
       </Card>
       <FormModal open={addReg} onClose={() => setAddReg(false)} title="Add registry" submitLabel="Connect registry"
         fields={[{ name: 'name', label: 'Name', required: true }, { name: 'type', label: 'Type', type: 'select', options: ['ghcr', 'dockerhub', 'private'], required: true }, { name: 'url', label: 'Registry URL', mono: true, placeholder: 'ghcr.io' }, { name: 'username', label: 'Username' }, { name: 'password', label: 'Password or token', type: 'password', hint: 'Stored encrypted; never shown again' }]}
         initial={{ type: 'ghcr' }} onSubmit={(v) => run({ path: '/registries', body: v, label: 'Add registry', success: 'Registry connected' })} />
+      <FormModal open={pull} onClose={() => setPull(false)} title="Pull image" submitLabel="Pull image"
+        fields={[{ name: 'server_id', label: 'Server', type: 'select', options: serverOptions, required: true }, { name: 'image', label: 'Image', mono: true, required: true, placeholder: 'nginx:1.27-alpine' }, { name: 'registry_id', label: 'Registry credentials', type: 'select', options: [...regs.rows.map((r) => ({ value: String(r.id), label: String(r.name) }))] }]}
+        onSubmit={(v) => run({ path: '/images/pull', body: { ...v, registry_id: v.registry_id || null }, label: `Pull ${v.image}`, success: 'Pull started' })} />
       <PrunePreview open={prune} onClose={() => setPrune(false)} previewPath="/images/prune-preview" prunePath="/images/prune" noun="images" />
       <DeleteConfirm target={del} onClose={() => setDel(null)} path={(r) => `/registries/${r.id}`} noun="registry" />
     </>

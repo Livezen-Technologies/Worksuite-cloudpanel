@@ -26,6 +26,7 @@ class ServerController extends Controller
             'environment' => ['sometimes', Rule::in(['production', 'staging', 'development'])],
             'region' => 'nullable|string|max:60',
             'tags' => 'nullable|array', 'tags.*' => 'string|max:40',
+            'roles' => 'sometimes|array|min:1', 'roles.*' => 'in:app,builder',
             'provider' => 'nullable|string|max:40',
             'server_group_id' => 'nullable|uuid|exists:server_groups,id',
             'scheduling_weight' => 'sometimes|integer|min:0|max:1000',

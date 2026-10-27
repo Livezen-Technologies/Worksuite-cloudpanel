@@ -21,6 +21,9 @@ class TerminalSession extends Model
         return [
             'expires_at' => 'datetime',
             'ended_at' => 'datetime',
+            'connected_at' => 'datetime',
+            'recording_stored' => 'boolean',
+            'recording_bytes' => 'integer',
         ];
     }
 

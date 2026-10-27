@@ -21,6 +21,7 @@ import (
 	"github.com/livezen-technologies/cloudpanel/agent/internal/config"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/docker"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/facts"
+	"github.com/livezen-technologies/cloudpanel/agent/internal/mtls"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/protocol"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/update"
 )
@@ -82,6 +83,8 @@ func cmdEnroll(args []string) error {
 	sock := fs.String("docker-socket", "", "Docker socket (default /var/run/docker.sock)")
 	pub := fs.String("update-public-key", "", "base64 ed25519 key for agent updates (overrides built-in)")
 	insecureHTTP := fs.Bool("allow-http", false, "allow a plain http panel URL (development only)")
+	relayURL := fs.String("relay-url", "", "terminal relay base URL (default: advertised by the panel)")
+	noMTLS := fs.Bool("no-client-cert", false, "do not request an mTLS client certificate")
 	fs.Parse(args)
 	if *url == "" || *token == "" {
 		return errors.New("--url and --token are required")
@@ -89,7 +92,7 @@ func cmdEnroll(args []string) error {
 	if len(*url) < 8 || ((*url)[:8] != "https://" && !*insecureHTTP) {
 		return errors.New("panel URL must use https")
 	}
-	cfg := &config.Config{PanelURL: *url, StateDir: *stateDir, CAFile: *caFile, DockerSocket: *sock, UpdatePublicKey: *pub}
+	cfg := &config.Config{PanelURL: *url, StateDir: *stateDir, CAFile: *caFile, DockerSocket: *sock, UpdatePublicKey: *pub, RelayURL: *relayURL}
 	cfg.ApplyDefaults()
 	f := facts.Collector{}.Collect()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -107,14 +110,29 @@ func cmdEnroll(args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&protocol.Client{BaseURL: cfg.PanelURL, HTTP: hc}).Enroll(ctx, protocol.EnrollRequest{Token: *token, Hostname: h, Facts: f})
+	// SEC-003: the private key never leaves this host; the panel's CA signs the CSR.
+	var keyPEM, csrPEM []byte
+	if !*noMTLS {
+		if keyPEM, csrPEM, err = mtls.NewKeyAndCSR(h); err != nil {
+			return err
+		}
+	}
+	resp, err := (&protocol.Client{BaseURL: cfg.PanelURL, HTTP: hc}).Enroll(ctx, protocol.EnrollRequest{Token: *token, Hostname: h, Facts: f, CSR: string(csrPEM)})
 	if err != nil {
 		return fmt.Errorf("enrolment failed: %w", err)
+	}
+	p := config.ResolvePath(*cfgPath)
+	if resp.Certificate != "" && keyPEM != nil {
+		dir := filepath.Dir(p)
+		store := &mtls.Store{CertFile: filepath.Join(dir, "agent.crt"), KeyFile: filepath.Join(dir, "agent.key")}
+		if err := store.Save([]byte(resp.Certificate), keyPEM); err != nil {
+			return err
+		}
+		cfg.CertFile, cfg.KeyFile = store.CertFile, store.KeyFile
 	}
 	cfg.ServerID, cfg.AgentSecret, cfg.HMACKey = resp.ServerID, resp.AgentSecret, resp.HMACKey
 	cfg.HeartbeatInterval, cfg.Certificate = resp.HeartbeatInterval, resp.Certificate
 	cfg.ApplyDefaults()
-	p := config.ResolvePath(*cfgPath)
 	if err := config.Save(p, cfg); err != nil {
 		return err
 	}

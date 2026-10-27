@@ -19,6 +19,9 @@ class Invoice extends Model
     protected function casts(): array
     {
         return [
+            'line_items' => 'array',
+            'due_at' => 'datetime',
+            'paid_at' => 'datetime',
             'period_start' => 'date',
             'period_end' => 'date',
         ];

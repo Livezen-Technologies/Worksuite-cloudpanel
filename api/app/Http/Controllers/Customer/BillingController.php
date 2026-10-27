@@ -55,4 +55,17 @@ class BillingController extends Controller
 
         return $this->data($this->billing->summary());
     }
+
+    public function invoicePdf(string $id, \App\Services\InvoiceService $invoices)
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        return response($invoices->pdf($invoice), 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="'.$invoice->number.'.pdf"']);
+    }
+
+    /** Fresh Stripe Customer Portal (or Checkout setup) session; the browser is redirected there. */
+    public function portal()
+    {
+        return $this->data(['url' => $this->billing->portalUrl(Tenant::current())]);
+    }
 }

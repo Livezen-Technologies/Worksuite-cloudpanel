@@ -103,6 +103,28 @@ A malformed policy file fails closed (all commands refused). Reloaded on change.
 | `restore.run` | `{repository, snapshot? (latest), target (absolute), include?, env?}` |
 | `agent.update` | `{url (https), signature (base64/hex ed25519 over the binary), sha256?, version}` |
 | `agent.restart` | `{}` |
+| `image.build` | `{repo, ref? (main), dockerfile_path? (Dockerfile), context? (.), build_args?{}, labels?{}, git_auth?{token, username?}, image_tag, push?{registry, username, password}}` → output `{image, image_id, digest, repo_digest?, commit, log[]}` |
+| `image.scan` | `{image}` → output `{image, scanner: "trivy", total, counts{critical,high,…}, vulnerabilities[{id, package, installed, fixed?, severity, title?, target}] (≤1000, worst first)}` |
+| `container.healthcheck` | `{container_id, port?, path? (/), timeout_s? (60, ≤900), interval_s? (2), log_lines? (50)}` → output `{healthy, method: docker\|http\|running, url?, status?}`; on failure `{healthy:false, reason, logs}` |
+
+### Builds, scans and health checks
+
+- **`image.build`** (run it only on servers with the panel's `builder` role, SRS 2.4): shallow
+  `git -c core.hooksPath=/dev/null -c protocol.ext.allow=never clone --depth 1 --single-branch --no-tags --branch <ref> -- <repo> <dir>`
+  via exec with fixed arguments (no shell) into a temp dir under `<state_dir>/builds/`, with `GIT_TERMINAL_PROMPT=0`,
+  `HOME=<tmp>` and the token passed only through `GIT_CONFIG_*` env (`http.extraHeader: Authorization: Basic …`), never argv.
+  Repos must be `https://`; `file://` and absolute paths need `DOCKERMGR_ALLOW_LOCAL_GIT=1` in the agent environment.
+  `context`/`dockerfile_path` must stay inside the checkout (symlinks resolved). The context is tarred in Go (no `.git`,
+  symlinks stored as links, ≤1 GiB) and posted to Engine `/build` (classic builder, `networkmode=default`; host network,
+  extra hosts and privileged entitlements cannot be requested). Log lines are reported as `running` progress (batched per
+  second / 25 lines). With `push`, `/images/{name}/push` is called with `X-Registry-Auth` and the manifest digest is returned
+  (`repo_digest = name@sha256:…`). The temp dir is always removed.
+- **`image.scan`** runs `trivy image --format json --quiet --output <tmp>/report.json <image>` if `trivy` is on `PATH`,
+  otherwise fails with `trivy not installed`. Cache: `<state_dir>/trivy-cache`.
+- **`container.healthcheck`** polls `GET /containers/{id}/json`: a stopped container fails at once; Docker's own health
+  status wins when the image defines one; otherwise, with a `port`, `GET http://<container internal IP>:<port><path>`
+  (no proxy, redirects not followed; 2xx/3xx passes); without a port the container must stay up for two polls. On failure
+  the last `log_lines` lines of the container log are returned (UHOST-006).
 
 `container.create`:
 `{name?, image, registry_auth?, cmd?, entrypoint?, env ({K:V} or ["K=V"]), user?, working_dir?,
@@ -152,4 +174,6 @@ packaging/           systemd unit and installer
 - The binary download endpoint used by `install.sh` (`/agent/v1/download/...`) is not in API.md.
 - Auto-rollback only covers a new binary that starts but cannot reach the panel; a binary that
   crashes before `run` begins relies on the pre-swap `version` health check.
-- Commands run one at a time in arrival order.
+- Commands run one at a time in arrival order, so a long `image.build` delays other commands on that server (and a command
+  queued behind it for more than 10 min expires). Keep builders separate from app servers.
+- Builds use the classic builder (no BuildKit features such as `RUN --mount`); no build cache pruning yet.

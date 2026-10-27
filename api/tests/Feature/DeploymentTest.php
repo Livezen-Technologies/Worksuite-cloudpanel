@@ -49,6 +49,9 @@ class DeploymentTest extends TestCase
         $this->assertSame('8080', $payload['labels']['traefik.http.services.app-shop.loadbalancer.server.port']);
 
         $this->commandResult($secret, $commands[0]['id'], 'succeeded', ['output' => ['container_id' => 'd-1']])->assertOk();
+        $this->assertSame('running', Deployment::allTenants()->find($deploymentId)->status, 'waits for the health check');
+        [$check] = $this->passHealthChecks($secret);
+        $this->assertSame(['container_id' => 'app-shop', 'port' => 8080, 'path' => '/', 'timeout_s' => 60, 'log_lines' => 50], $check['payload']);
 
         $this->api($token)->getJson("/api/v1/deployments/{$deploymentId}")->assertOk()
             ->assertJsonPath('data.status', 'succeeded')->assertJsonPath('data.job.status', 'succeeded')->assertJsonPath('data.job.progress', 100);
@@ -65,6 +68,7 @@ class DeploymentTest extends TestCase
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
         $create = $this->heartbeat($secret)['commands'][0];
         $this->commandResult($secret, $create['id'], 'succeeded', ['output' => ['container_id' => 'd-1']])->assertOk();
+        $this->passHealthChecks($secret);
 
         $this->api($token)->deleteJson("/api/v1/applications/{$appId}")->assertNoContent();
         $commands = $this->heartbeat($secret)['commands'];
@@ -79,6 +83,7 @@ class DeploymentTest extends TestCase
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
         $cmd = $this->heartbeat($secret)['commands'][0];
         $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['container_id' => 'd-1']]);
+        $this->passHealthChecks($secret);
         $v1 = Release::allTenants()->where('application_id', $appId)->first();
 
         $this->api($token)->patchJson("/api/v1/applications/{$appId}", ['image' => 'ghcr.io/acme/shop:2.0'])->assertOk();
@@ -90,6 +95,7 @@ class DeploymentTest extends TestCase
         foreach ($commands as $c) {
             $this->commandResult($secret, $c['id'], 'succeeded', ['output' => ['container_id' => 'd-2']]);
         }
+        $this->passHealthChecks($secret);
         $this->assertSame(2, Release::allTenants()->where('application_id', $appId)->count());
 
         $rollback = $this->api($token)->postJson("/api/v1/applications/{$appId}/rollback", ['release_id' => $v1->id])->assertStatus(202)->json('data');
@@ -98,6 +104,7 @@ class DeploymentTest extends TestCase
         foreach (AgentCommand::allTenants()->where('job_id', $rollback['job_id'])->get() as $c) {
             $this->commandResult($secret, $c->id, 'succeeded');
         }
+        $this->passHealthChecks($secret);
         $latest = Release::allTenants()->where('application_id', $appId)->orderByDesc('version')->first();
         $this->assertSame(3, $latest->version);
         $this->assertSame('ghcr.io/acme/shop:1.0', $latest->image);
@@ -108,6 +115,7 @@ class DeploymentTest extends TestCase
         [, , $token, , $secret, $appId] = $this->setUpApp();
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId]);
         $this->commandResult($secret, $this->heartbeat($secret)['commands'][0]['id'], 'succeeded');
+        $this->passHealthChecks($secret);
 
         $this->api($token)->patchJson("/api/v1/applications/{$appId}", ['image' => 'ghcr.io/acme/shop:broken']);
         $jobId = $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->json('data.job_id');
@@ -174,6 +182,7 @@ class DeploymentTest extends TestCase
         $cmd = $this->heartbeat($secret)['commands'][0];
         $this->commandResult($secret, $cmd['id'], 'succeeded');
         $this->commandResult($secret, $cmd['id'], 'succeeded');
+        $this->passHealthChecks($secret);
         $this->artisan('deployments:resume')->assertSuccessful();
         $this->assertSame(1, Release::allTenants()->where('application_id', $appId)->count());
         $this->assertSame('succeeded', $deployment->fresh()->status);
@@ -184,6 +193,7 @@ class DeploymentTest extends TestCase
         [, , $token, , $secret, $appId] = $this->setUpApp();
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId]);
         $this->commandResult($secret, $this->heartbeat($secret)['commands'][0]['id'], 'succeeded');
+        $this->passHealthChecks($secret);
         $jobId = $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->json('data.job_id');
         $this->travel(11)->minutes();
         app(Tenant::class)->set(null);

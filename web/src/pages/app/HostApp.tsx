@@ -29,14 +29,14 @@ interface Env { key: string; value: string; secret: boolean }
 const pickStyle = (on: boolean) => (on ? { border: '2px solid var(--accent)', background: 'var(--sel)' } : undefined)
 
 /** Server field names → the wizard step that owns them. */
-const FIELD_STEP: Record<string, number> = { name: 1, port: 1, region: 1, env: 1, volume_path: 1, size: 2, source: 0, image: 0, repo: 0 }
+const FIELD_STEP: Record<string, number> = { name: 1, port: 1, region: 1, env: 1, volume_path: 1, health_path: 1, size: 2, source: 0, image: 0, repo: 0 }
 
 export default function HostApp() {
   const [step, setStep] = useState(0)
   const [max, setMax] = useState(0)
   const [src, setSrc] = useState<SourceType>('image')
   const [s, setS] = useState({ image: '', private: false, username: '', password: '', repo: '', branch: 'main', compose: '', template: '' })
-  const [c, setC] = useState({ name: '', port: '80', region: '', volume: false, volume_path: '/data' })
+  const [c, setC] = useState({ name: '', port: '80', region: '', volume: false, volume_path: '/data', health_path: '/' })
   const [env, setEnv] = useState<Env[]>([{ key: '', value: '', secret: false }])
   const [size, setSize] = useState<string>('standard')
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({})
@@ -99,6 +99,7 @@ export default function HostApp() {
         name: c.name.trim(), source: source(), port: Number(c.port), region: c.region || undefined,
         env: env.filter((e) => e.key.trim()).map((e) => ({ key: e.key.trim(), value: e.value, secret: e.secret })),
         volume_path: c.volume ? c.volume_path : undefined, size,
+        health_path: c.health_path && c.health_path !== '/' ? c.health_path : undefined,
       }))
       setDeploy(res)
     } catch (e) {
@@ -175,6 +176,7 @@ export default function HostApp() {
         const n = validateAppName(c.name); if (n) e.name = n
         const p = Number(c.port); if (!Number.isInteger(p) || p < 1 || p > 65535) e.port = 'Enter the port your app listens on (1–65535).'
         if (c.volume && !/^\/[\w./-]*$/.test(c.volume_path)) e.volume_path = 'Use an absolute path such as /data.'
+        if (c.health_path && !/^\/\S*$/.test(c.health_path)) e.health_path = 'Start with / , for example /healthz.'
         const keys = env.filter((x) => x.key.trim()).map((x) => x.key.trim())
         if (keys.some((k) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k))) e.env = 'Variable names can use letters, numbers and _ and cannot start with a number.'
         else if (new Set(keys).size !== keys.length) e.env = 'Each variable name can only be used once.'
@@ -206,6 +208,12 @@ export default function HostApp() {
           </fieldset>
           <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" checked={c.volume} onChange={(e) => setC({ ...c, volume: e.target.checked })} />Keep files between restarts (persistent storage, backed up daily)</label>
           {c.volume && <Field label="Folder inside your app" error={fieldErr.volume_path}><input className="input font-mono" value={c.volume_path} onChange={(e) => setC({ ...c, volume_path: e.target.value })} /></Field>}
+          <details className="text-sm">
+            <summary className="cursor-pointer font-semibold min-h-[44px] inline-flex items-center">Advanced</summary>
+            <Field label="Health check path" hint="After start we request this path on your app's port; any 2xx or 3xx answer within 60 s means healthy." error={fieldErr.health_path}>
+              <input className="input font-mono" value={c.health_path} onChange={(e) => setC({ ...c, health_path: e.target.value })} />
+            </Field>
+          </details>
         </div>
       ),
     },
@@ -259,7 +267,7 @@ export default function HostApp() {
           {failed && (
             <div className="flex flex-col gap-2">
               <div role="alert" className="font-semibold text-danger">Your app did not pass its health check, so we stopped it. Here is what it printed last:</div>
-              <pre className="m-0 p-3 rounded-lg bg-code text-code-fg font-mono text-xs max-h-64 overflow-auto whitespace-pre-wrap">{(failLogs.data ?? []).join('\n') || 'No output.'}</pre>
+              <pre className="m-0 p-3 rounded-lg bg-code text-code-fg font-mono text-xs max-h-64 overflow-auto whitespace-pre-wrap">{(((job?.result as R | undefined)?.logs_tail as string[] | undefined)?.length ? ((job?.result as R).logs_tail as string[]) : failLogs.data ?? []).join('\n') || 'No output.'}</pre>
               <p className="m-0 text-sm text-muted">Check the port number and environment variables, then try again.</p>
               <div className="flex gap-2 flex-wrap"><button type="button" className="btn btn-primary" disabled={busy} onClick={retry}>Retry</button><button type="button" className="btn" onClick={() => { setDeploy(null); setStep(1) }}>Change settings</button></div>
             </div>

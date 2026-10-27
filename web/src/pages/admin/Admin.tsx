@@ -77,6 +77,7 @@ const POLICIES = [
   ['mandatory_backup_encryption', 'Encrypt all remote backups', 'Mandatory — keys held separately from backup storage'],
   ['allow_host_network', 'Allow host networking', 'Only for approved system containers'],
   ['block_critical_cves', 'Block images with critical CVEs', 'Deployments fail if the scan finds a critical issue'],
+  ['allow_builds_on_deploy_targets', 'Allow builds on deploy targets', 'Only on servers with the builder role; otherwise builds run on separate builder nodes'],
 ] as const
 
 function SettingsForm({ tab }: { tab: 'general' | 'security' }) {

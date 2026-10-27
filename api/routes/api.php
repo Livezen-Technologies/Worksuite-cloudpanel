@@ -19,11 +19,13 @@ Route::pattern('id', $uuid);
 Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/register', [AuthController::class, 'register'])->name('auth.register');
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
+    Route::post('auth/passkey/options', [\App\Http\Controllers\PasskeyController::class, 'loginOptions'])->name('auth.passkey-options');
+    Route::post('auth/passkey/login', [\App\Http\Controllers\PasskeyController::class, 'login'])->name('auth.passkey-login');
 });
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
-Route::get('backup-download/{id}', fn (string $id) => response()->json(['data' => [
-    'artifact_id' => $id, 'message' => 'Backup archives are streamed from the restic repository by the agent; direct download is not available in this build.',
-]]))->middleware('signed')->name('backup.download');
+Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
+Route::get('invoices/{id}/pdf', [\App\Http\Controllers\SignedFileController::class, 'invoicePdf'])->middleware('signed')->name('invoice.pdf');
+Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
 
 Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audit'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
@@ -31,6 +33,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('me/mfa/enable', [AuthController::class, 'mfaEnable'])->name('me.mfa-enable');
     Route::post('me/mfa/confirm', [AuthController::class, 'mfaConfirm'])->name('me.mfa-confirm');
     Route::post('me/mfa/disable', [AuthController::class, 'mfaDisable'])->name('me.mfa-disable');
+    Route::get('me/passkeys', [\App\Http\Controllers\PasskeyController::class, 'index'])->name('me.passkeys.index');
+    Route::post('me/passkeys/options', [\App\Http\Controllers\PasskeyController::class, 'registrationOptions'])->name('me.passkeys.options');
+    Route::post('me/passkeys', [\App\Http\Controllers\PasskeyController::class, 'store'])->name('me.passkeys.store');
+    Route::patch('me/passkeys/{id}', [\App\Http\Controllers\PasskeyController::class, 'update'])->name('me.passkeys.update');
+    Route::delete('me/passkeys/{id}', [\App\Http\Controllers\PasskeyController::class, 'destroy'])->name('me.passkeys.destroy');
 
     Route::get('jobs', [JobController::class, 'index'])->name('jobs.index');
     Route::get('jobs/{id}', [JobController::class, 'show'])->name('jobs.show');
@@ -80,6 +87,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     });
     Route::post('containers/{id}/terminal-sessions', [Admin\ContainerController::class, 'terminal'])->middleware('perm:terminal')->name('containers.terminal');
     Route::delete('terminal-sessions/{id}', [Admin\ContainerController::class, 'endTerminal'])->middleware('perm:terminal')->name('terminal-sessions.end');
+    Route::get('terminal-sessions', [Admin\TerminalSessionController::class, 'index'])->middleware('perm:logs.view|terminal')->name('terminal-sessions.index');
+    Route::get('terminal-sessions/{id}/recording', [Admin\TerminalSessionController::class, 'recording'])->middleware('perm:logs.view')->name('terminal-sessions.recording');
 
     // Applications & deployments
     Route::middleware('perm:resources.view')->group(function () {
@@ -155,6 +164,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     $crud('backup-policies', Admin\BackupPolicyController::class, 'resources.view', 'deploy|network_storage.manage');
     Route::get('backup-jobs', [Admin\BackupJobController::class, 'index'])->middleware('perm:resources.view')->name('backup-jobs.index');
     Route::get('backup-artifacts', [Admin\BackupJobController::class, 'artifacts'])->middleware('perm:resources.view')->name('backup-artifacts.index');
+    Route::get('backup-artifacts/{id}/download', [Admin\BackupJobController::class, 'download'])->middleware('perm:deploy|network_storage.manage')->name('backup-artifacts.download');
+    Route::post('backup-artifacts/{id}/restore-test', [Admin\BackupJobController::class, 'restoreTest'])->middleware('perm:deploy|network_storage.manage')->name('backup-artifacts.restore-test');
     Route::post('backup-jobs', [Admin\BackupJobController::class, 'store'])->middleware('perm:deploy|network_storage.manage')->name('backup-jobs.store');
     Route::post('restore-jobs', [Admin\BackupJobController::class, 'restore'])->middleware('perm:deploy|network_storage.manage')->name('restore-jobs.store');
 
@@ -216,11 +227,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('billing', [Customer\BillingController::class, 'show'])->name('billing.show');
             Route::get('billing/plans', [Customer\BillingController::class, 'plans'])->name('billing.plans');
             Route::get('billing/invoices', [Customer\BillingController::class, 'invoices'])->name('billing.invoices');
-            Route::get('billing/invoices/{id}/pdf', fn (string $id) => response("Invoice {$id}\n(PDF rendering is provided by the payment provider in production.)\n", 200, ['Content-Type' => 'text/plain']))->name('billing.invoice-pdf');
+            Route::get('billing/invoices/{id}/pdf', [Customer\BillingController::class, 'invoicePdf'])->name('billing.invoice-pdf');
         });
         Route::middleware('perm:app.billing')->group(function () {
             Route::post('billing/plan', [Customer\BillingController::class, 'changePlan'])->middleware('perm:app.team')->name('billing.plan');
             Route::post('billing/payment-method', [Customer\BillingController::class, 'paymentMethod'])->name('billing.payment-method');
+            Route::post('billing/portal', [Customer\BillingController::class, 'portal'])->name('billing.portal');
         });
         Route::get('account', [Customer\AccountController::class, 'show'])->name('account.show');
         Route::patch('account', [Customer\AccountController::class, 'update'])->name('account.update');

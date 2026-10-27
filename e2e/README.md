@@ -37,12 +37,13 @@ containers named `e2e-*` / `app-e2e-*` on the local Docker host.
 | `mitm.py` | Pass-through proxy between agent and API used by `agent.sh` to tamper with / replay delivered commands. |
 | `browser/admin.js` | Login form, Overview KPIs equal `/dashboard` numbers, Servers + add-server wizard to the install command (then enrols a second real agent with that token and sees the heartbeat), Containers shows the agent's container and Restart restarts it on Docker, Applications create (image) / deploy twice / roll back through the agent, Compose YAML load + Validate (valid/invalid) + Diff, and Domains, Backups, Monitoring, Users, Settings (incl. save), Images, Networks, Volumes, Databases, Logs, Automation with real data. |
 | `browser/customer.js` | As `owner@example.com`: My apps, Host an app in 4 steps until live (real deploy), quota 402 upgrade prompt, app detail tabs + Save & restart, Domains add + Check DNS now, Backups restore confirm (202 job), Billing (cents/currency, card, invoices, plans), Account. |
+| `build.sh` | Builds a tiny Go web app (`gobuild/`, static binary compiled in the test, `FROM scratch`) from a local bare Git repo (`file://`, agent run with `DOCKERMGR_ALLOW_LOCAL_GIT=1`) through the real agent (`image.build`: git clone + Engine `/build`), deploys it and checks the pipeline stages, the streamed build log, the HTTP health check on the container IP and the release image; a `broken` branch answers 500 on `/healthz`, fails the health check with the last 50 log lines and is rolled back to v1; a branch without the binary fails in `build_scan` with the Docker error in the build log while v1 keeps serving. The single local server is given the builder role and `allow_builds_on_deploy_targets` for the run. |
 | `api-checks.js` | Registers org B and proves it cannot read or change org A's servers, containers, apps, domains, volumes, backups (404s, no ids in lists); audit chain verifies, a row tampered in PostgreSQL is detected (`broken_at`), restored afterwards. |
 | `browser/lib.js` | Tiny runner: every test fails on page errors, console errors and unexpected 4xx/5xx API responses (`w.allow(status, /url/)` marks intended ones); full-page screenshot per step. |
 | `browser/crawl.js`, `browser/dashes.js` | Dev helpers: visit every route and report errors / cells rendered as "—". |
 
 ## Not covered here
 
-Real HTTPS / Let's Encrypt, real DNS propagation, payments (Stripe), restic backups to remote
+Pushing built images to a registry (unit-tested against a fake Engine), Trivy scans (needs `trivy` on the host; unit-tested with a fake runner), real HTTPS / Let's Encrypt, real DNS propagation, payments (Stripe), restic backups to remote
 storage, the terminal WebSocket relay, mTLS enforcement at the proxy and multi-host outage simulation
 need a staging fleet or credentials (see `docs/PHASES.md`).

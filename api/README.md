@@ -36,7 +36,11 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
 | `AGENT_LATEST_VERSION` | `1.0.0` | Version sent with `agent.update` (signature from `storage/app/agent/release.json`) |
 | `DNS_DRIVER` | `native` | `native` (dns_get_record) or `fake` |
 | `SOURCE_VALIDATOR` | `http` | `http` (registry v2 API, `git ls-remote`) or `fake` |
-| `CERT_DRIVER`, `SCANNER_DRIVER`, `PAYMENT_DRIVER` | `fake` | Only fake drivers ship in 1.0 |
+| `CERT_DRIVER`, `PAYMENT_DRIVER` | `fake` | Only fake drivers ship in 1.0 |
+| `SCANNER_DRIVER` | `fake` | `fake` (deterministic, in-process) or `trivy` (agent `image.scan` on the builder/target; needs `trivy` there) |
+| `BUILD_PUSH_REGISTRY`, `…_USERNAME`, `…_PASSWORD` | — | Platform registry for built images when an app has no `push_registry_id` (e.g. customer Git apps) |
+| `BUILD_LOCAL_REPOSITORY` | `dmp-build` | Repository prefix of images that are built but not pushed |
+| `HEALTH_CHECK_TIMEOUT` | `60` | Default post-start health check timeout (s); per app `health_timeout` |
 
 ## Architecture
 
@@ -49,6 +53,11 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
   actions and terminals for a second approver when `security.require_approval_destructive` is on.
 - **Audit** — `audit` middleware writes one event per successful mutation; `AuditLogger` hash-chains rows
   (`hash = sha256(prev_hash + canonical_json(row))`), rows are append-only, `GET /audit-logs/verify` re-checks.
+- **Builds / scans / health** — `BuildService` picks a server with the `builder` role (never the deploy target unless it is a
+  builder and `security.allow_builds_on_deploy_targets` is on) and builds the `image.build` payload (Git token resolved from
+  `source.git_secret_id`; `source.git_token` on create/update is stored as an encrypted `Secret`). `DeploymentService` drives
+  build → scan (`ScanService`, IMG-003 gate) → push/placement → `container.create` → `container.healthcheck`, with rollback per
+  strategy; servers with only the `builder` role are never chosen by the `Scheduler`.
 - **Jobs** — `jobs` table (queue table renamed to `queue_jobs`) with stages/progress via `JobService`.
   Agent work is an `AgentCommand` (id = operation id) signed on delivery by `CommandBus`; results are idempotent
   and continue the owning job (`DeploymentService`, `BackupService`, `ComposeService`, `DatabaseService`).

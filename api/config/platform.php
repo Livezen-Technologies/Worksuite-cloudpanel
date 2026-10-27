@@ -22,10 +22,39 @@ return [
     // Driver selection; real drivers need credentials (see README).
     'drivers' => [
         'dns' => env('DNS_DRIVER', 'native'),            // native|fake
-        'certificates' => env('CERT_DRIVER', 'fake'),   // fake
-        'scanner' => env('SCANNER_DRIVER', 'fake'),     // fake
-        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake
+        'certificates' => env('CERT_DRIVER', 'fake'),   // fake|traefik
+        'scanner' => env('SCANNER_DRIVER', 'fake'),     // fake (in-process, deterministic) | trivy (agent `image.scan`)
+        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake|stripe
+        'metrics' => env('METRICS_DRIVER', 'database'), // database|prometheus
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
+    ],
+
+    // Image builds (APP-001/002) and post-start health checks (UHOST-006).
+    'builds' => [
+        'local_repository' => env('BUILD_LOCAL_REPOSITORY', 'dmp-build'), // tag prefix when the image is not pushed
+        'health_timeout' => (int) env('HEALTH_CHECK_TIMEOUT', 60),
+        'health_path' => '/',
+        'push_registry' => ['url' => env('BUILD_PUSH_REGISTRY'), 'username' => env('BUILD_PUSH_REGISTRY_USERNAME'), 'password' => env('BUILD_PUSH_REGISTRY_PASSWORD')],
+    ],
+
+    // CERT_DRIVER=traefik (DOM-002): the API renders Traefik file-provider YAML and pushes it with
+    // proxy.config to the ingress server(s); status comes from acme.json via proxy.certs.
+    'traefik' => [
+        'ingress_server_ids' => array_filter(explode(',', (string) env('TRAEFIK_INGRESS_SERVERS', ''))), // empty: servers tagged "ingress", else each app's server
+        'http_resolver' => env('TRAEFIK_HTTP_RESOLVER', 'le'),
+        'dns_resolver_prefix' => env('TRAEFIK_DNS_RESOLVER_PREFIX', 'le-dns-'), // + provider, e.g. le-dns-cloudflare
+        'entrypoint' => env('TRAEFIK_ENTRYPOINT', 'websecure'),
+        'docker_service_suffix' => '@docker',
+        'file_name' => 'dmp-domains.yml',
+    ],
+
+    // METRICS_DRIVER=prometheus (MON-001): /metrics reads query_range from Prometheus.
+    'prometheus' => [
+        'url' => env('PROMETHEUS_URL', 'http://127.0.0.1:9090'),
+        'token' => env('PROMETHEUS_TOKEN'),
+        'timeout' => 5,
+        // Series match the node-exporter / cAdvisor / Traefik exporters in docs/deploy/observability.
+        'instance_label' => env('PROMETHEUS_INSTANCE_LABEL', 'server_id'),
     ],
 
     'default_settings' => [
@@ -43,6 +72,8 @@ return [
             'mandatory_backup_encryption' => true,
             'allow_host_network' => false,
             'block_critical_cves' => false,
+            // SRS 2.4: builds run on builder nodes; a deploy target may build only if it is a builder and this is on.
+            'allow_builds_on_deploy_targets' => false,
         ],
     ],
 

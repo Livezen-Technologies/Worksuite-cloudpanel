@@ -21,6 +21,9 @@ class MetricsService
     {
         $range = isset(self::RANGES[$range]) ? $range : '1h';
         [, $step] = self::RANGES[$range];
+        if (\App\Support\PrometheusMetrics::enabled()) {
+            return $this->prometheusSeries($serverId, $range, $step);
+        }
         $rows = Metric::where('organization_id', Tenant::current()?->id)->whereNull('container_id')
             ->when($serverId, fn ($q) => $q->where('server_id', $serverId))
             ->where('recorded_at', '>=', self::since($range))->orderBy('recorded_at')->get();
@@ -42,6 +45,18 @@ class MetricsService
         }
 
         return ['range' => $range, 'server_id' => $serverId, 'step_seconds' => $step, 'series' => $series];
+    }
+
+    private function prometheusSeries(?string $serverId, string $range, int $step): array
+    {
+        $ids = $serverId ? [$serverId] : \App\Models\Server::pluck('id')->all();
+        $prom = app(\App\Support\PrometheusMetrics::class);
+        $series = [];
+        foreach (\App\Support\PrometheusMetrics::serverQueries(\App\Support\PrometheusMetrics::selector($ids)) as $key => $query) {
+            $series[$key] = $prom->range($query, self::since($range), now(), $step);
+        }
+
+        return ['range' => $range, 'server_id' => $serverId, 'step_seconds' => $step, 'series' => $series, 'source' => 'prometheus'];
     }
 
     public function average(string $serverId, string $column, int $minutes): ?float

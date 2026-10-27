@@ -71,7 +71,7 @@ export function AppDetail() {
   useEffect(() => {
     if (!a) return
     setEnv(((a.env ?? []) as R[]).map((e) => ({ key: e.key, value: e.secret ? '' : String(e.value ?? ''), secret: !!e.secret, masked: !!e.secret })))
-    setSettings({ size: a.size ?? 'standard', auto_deploy: !!a.auto_deploy, auto_restart: a.auto_restart !== false })
+    setSettings({ size: a.size ?? 'standard', auto_deploy: !!a.auto_deploy, auto_restart: a.auto_restart !== false, health_path: a.health_path ?? '/' })
   }, [a?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   if (isLoading || !a) return <Card>{isLoading ? 'Loading…' : 'We could not find this app.'}</Card>
   // Metrics are series ({range, cpu:[{t,v}], ram:[{t,v}] in MB}); the app itself carries the latest cpu_pct/ram_mb/limits.
@@ -113,6 +113,13 @@ export function AppDetail() {
       <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
       {tab === 'overview' && (
         <>
+          {a.last_deployment?.status === 'failed' && (
+            <Card title="Last deploy failed">
+              <p className="mt-0 text-sm text-danger font-semibold" role="alert">The new version did not pass its health check. Last lines it printed:</p>
+              <pre className="m-0 p-3 rounded-lg bg-code text-code-fg font-mono text-xs max-h-64 overflow-auto whitespace-pre-wrap">{((a.last_deployment.logs_tail ?? []) as string[]).join('\n') || 'No output.'}</pre>
+              <button type="button" className="btn btn-primary mt-3" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Retry ${a.name}` }).catch(() => {})}>Retry</button>
+            </Card>
+          )}
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
             {stats.map(([k, v, p]) => (
               <div key={k} className="card p-5"><div className="text-[13px] text-muted">{k}</div><div className="text-lg font-bold mt-1.5">{v}</div>{p >= 0 && <div className="mt-3"><Meter value={p} label={k} /></div>}</div>
@@ -161,6 +168,7 @@ export function AppDetail() {
           <div className="flex flex-col gap-4 max-w-[560px]">
             <Field label="Size"><select className="input" value={settings.size} onChange={(e) => setSettings({ ...settings, size: e.target.value })}>{SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_deploy} onChange={(v) => setSettings({ ...settings, auto_deploy: v })} label="Auto-deploy when I push" /><span className="text-sm">Auto-deploy when I push to my main branch</span></div>
+            <Field label="Health check path" hint="Requested on your app's port after each deploy; 2xx or 3xx means healthy."><input className="input font-mono" value={settings.health_path ?? '/'} onChange={(e) => setSettings({ ...settings, health_path: e.target.value })} /></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_restart} onChange={(v) => setSettings({ ...settings, auto_restart: v })} label="Restart automatically if it crashes" /><span className="text-sm">Restart automatically if it crashes</span></div>
             <button type="button" className="btn btn-primary self-start" disabled={busy} onClick={() => run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: settings, label: 'Save settings', success: 'Settings saved' }).catch(() => {})}>Save settings</button>
             <div className="flex flex-wrap items-center gap-3 justify-between p-4 rounded-xl border border-danger-line mt-4">

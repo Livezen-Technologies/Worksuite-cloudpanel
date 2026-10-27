@@ -40,9 +40,9 @@ class AppServiceProvider extends ServiceProvider
 
         $drivers = config('platform.drivers');
         $this->app->singleton(DnsResolver::class, fn () => $drivers['dns'] === 'fake' ? new FakeDnsResolver : new NativeDnsResolver);
-        $this->app->singleton(CertificateIssuer::class, FakeCertificateIssuer::class);
+        $this->app->singleton(CertificateIssuer::class, fn ($app) => config('platform.drivers.certificates') === 'traefik' ? $app->make(\App\Drivers\TraefikCertificateIssuer::class) : new FakeCertificateIssuer);
         $this->app->singleton(ImageScanner::class, FakeImageScanner::class);
-        $this->app->singleton(PaymentGateway::class, FakePaymentGateway::class);
+        $this->app->singleton(PaymentGateway::class, fn () => config('platform.drivers.payments') === 'stripe' ? new \App\Drivers\StripePaymentGateway(config('billing.stripe')) : new FakePaymentGateway);
         $this->app->singleton(SourceValidator::class, fn () => $drivers['source'] === 'fake' ? new FakeSourceValidator : new HttpSourceValidator);
     }
 
@@ -62,6 +62,8 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('agent', fn (Request $request) => Limit::perMinute(240)->by('agent:'.substr(hash('sha256', (string) $request->bearerToken()), 0, 16).$request->ip()));
 
         $this->registerApprovalExecutors();
+        // CERT_DRIVER=traefik: removing a domain removes its router from the ingress.
+        \App\Models\Domain::deleted(fn () => rescue(fn () => app(\App\Services\TraefikConfigService::class)->push(), report: false));
     }
 
     /** Actions that run when a second person approves them. */

@@ -191,8 +191,18 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return nil, d.RemoveVolume(ctx, p.Name, p.Force)
 	case "compose.up", "compose.down", "compose.restart":
 		return e.compose(ctx, c.Type, c.Payload)
-	case "backup.run", "restore.run":
-		return e.restic(ctx, c.Type, c.Payload)
+	case "backup.run":
+		return e.backupRun(ctx, c.Payload, progress)
+	case "restore.run":
+		return e.restoreRun(ctx, c.ID, c.Payload, progress)
+	case "backup.test":
+		return e.backupTest(ctx, c.ID, c.Payload, progress)
+	case "backup.export":
+		return e.backupExport(ctx, c.ID, c.Payload, progress)
+	case "proxy.config":
+		return e.proxyConfig(c.Payload)
+	case "proxy.certs":
+		return e.ProxyCerts()
 	case "agent.update":
 		var p struct {
 			URL       string `json:"url"`
@@ -214,6 +224,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			return nil, err
 		}
 		return map[string]any{"version": p.Version, "restarting": true}, nil
+	case "terminal.open":
+		return e.openTerminal(ctx, c.Payload)
 	case "agent.restart":
 		if e.Restart == nil {
 			return nil, errors.New("restart not supported")
@@ -421,114 +433,4 @@ func writeAtomic(p string, b []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, p)
-}
-
-// ---- restic ----
-
-var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_"}
-
-func (e *Executor) restic(ctx context.Context, typ string, raw []byte) (any, error) {
-	var p struct {
-		Repository string            `json:"repository"`
-		Env        map[string]string `json:"env"`
-		Paths      []string          `json:"paths"`
-		Tags       []string          `json:"tags"`
-		Exclude    []string          `json:"exclude"`
-		Snapshot   string            `json:"snapshot"`
-		Target     string            `json:"target"`
-		Include    []string          `json:"include"`
-		Init       bool              `json:"init"`
-	}
-	if err := decode(raw, &p); err != nil {
-		return nil, err
-	}
-	look := e.LookPath
-	if look == nil {
-		look = execLookPath
-	}
-	bin, err := look("restic")
-	if err != nil {
-		return nil, errors.New("restic is not installed on this server")
-	}
-	if p.Repository == "" || strings.HasPrefix(p.Repository, "-") || strings.ContainsAny(p.Repository, "\n\r") {
-		return nil, errors.New("invalid repository")
-	}
-	env := baseEnv()
-	keys := make([]string, 0, len(p.Env))
-	for k := range p.Env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		ok := false
-		for _, pre := range resticEnvPrefixes {
-			if strings.HasPrefix(k, pre) {
-				ok = true
-			}
-		}
-		if !ok || !reEnvKey.MatchString(k) {
-			return nil, fmt.Errorf("env %q not allowed for restic", k)
-		}
-		env = append(env, k+"="+p.Env[k])
-	}
-	checkPath := func(s string) error {
-		if !filepath.IsAbs(s) || strings.ContainsAny(s, "\x00\n") {
-			return fmt.Errorf("invalid path %q (must be absolute)", s)
-		}
-		return nil
-	}
-	cctx, cancel := context.WithTimeout(ctx, 6*time.Hour)
-	defer cancel()
-	base := []string{"--repo=" + p.Repository, "--json"}
-	if p.Init {
-		// Ignore "already initialized" errors.
-		_, _ = e.run(cctx, "/", env, bin, append(base, "init")...)
-	}
-	var args []string
-	if typ == "backup.run" {
-		if len(p.Paths) == 0 {
-			return nil, errors.New("paths required")
-		}
-		args = append(base, "backup")
-		for _, t := range p.Tags {
-			if !reSnap.MatchString(t) {
-				return nil, fmt.Errorf("invalid tag %q", t)
-			}
-			args = append(args, "--tag="+t)
-		}
-		for _, x := range p.Exclude {
-			if strings.ContainsAny(x, "\x00\n") {
-				return nil, fmt.Errorf("invalid exclude %q", x)
-			}
-			args = append(args, "--exclude="+x)
-		}
-		args = append(args, "--")
-		for _, s := range p.Paths {
-			if err := checkPath(s); err != nil {
-				return nil, err
-			}
-			args = append(args, s)
-		}
-	} else {
-		snap := firstNonEmpty(p.Snapshot, "latest")
-		if !reSnap.MatchString(snap) {
-			return nil, fmt.Errorf("invalid snapshot %q", snap)
-		}
-		if err := checkPath(p.Target); err != nil {
-			return nil, err
-		}
-		args = append(base, "restore", "--target="+p.Target, snap)
-		for _, inc := range p.Include {
-			if err := checkPath(inc); err != nil {
-				return nil, err
-			}
-			args = append(args, "--include="+inc)
-		}
-	}
-	out, err := e.run(cctx, "/", env, bin, args...)
-	o := map[string]any{"output": tailString(string(out), 64<<10)}
-	if err != nil {
-		return o, fmt.Errorf("restic: %w", err)
-	}
-	return o, nil
 }

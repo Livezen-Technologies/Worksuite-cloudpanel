@@ -112,7 +112,10 @@ class AgentService
             }
         });
 
-        return ['commands' => $this->bus->deliver($server, $agent->hmac_key)];
+        return array_filter([
+            'commands' => $this->bus->deliver($server, $agent->hmac_key),
+            'relay_url' => config('security.relay.secret') ? config('security.relay.agent_url') : null,
+        ], fn ($v) => $v !== null);
     }
 
     private function reconcileContainers(Server $server, array $reported, Carbon $now): void
@@ -220,41 +223,13 @@ class AgentService
         }
     }
 
-    /** Issues a client certificate bound to server+org (mTLS is enforced at the proxy). */
+    /** Issues a client certificate bound to server+org (SEC-003; verified via the proxy, see AgentCertificateService). */
     private function signCsr(Agent $agent, string $csrPem): ?string
     {
         try {
-            $ca = $this->ca();
-            $cert = openssl_csr_sign($csrPem, $ca['cert'], $ca['key'], 90, ['digest_alg' => 'sha256'], random_int(1, PHP_INT_MAX));
-            if (! $cert || ! openssl_x509_export($cert, $pem)) {
-                return null;
-            }
-            AgentCertificate::create([
-                'organization_id' => $agent->organization_id, 'agent_id' => $agent->id,
-                'fingerprint' => openssl_x509_fingerprint($cert, 'sha256'), 'certificate' => $pem, 'expires_at' => now()->addDays(90),
-            ]);
-
-            return $pem;
+            return app(AgentCertificateService::class)->sign($agent, $csrPem)[0];
         } catch (\Throwable) {
             return null;
         }
-    }
-
-    private function ca(): array
-    {
-        $dir = storage_path('app/private/ca');
-        if (! is_file("{$dir}/ca.key")) {
-            @mkdir($dir, 0700, true);
-            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-            $csr = openssl_csr_new(['commonName' => 'Docker Manager Portal Agent CA'], $key, ['digest_alg' => 'sha256']);
-            $cert = openssl_csr_sign($csr, null, $key, 3650, ['digest_alg' => 'sha256']);
-            openssl_pkey_export($key, $keyPem);
-            openssl_x509_export($cert, $certPem);
-            file_put_contents("{$dir}/ca.key", $keyPem);
-            chmod("{$dir}/ca.key", 0600);
-            file_put_contents("{$dir}/ca.crt", $certPem);
-        }
-
-        return ['cert' => file_get_contents("{$dir}/ca.crt"), 'key' => file_get_contents("{$dir}/ca.key")];
     }
 }

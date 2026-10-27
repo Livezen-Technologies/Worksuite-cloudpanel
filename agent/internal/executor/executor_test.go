@@ -277,7 +277,7 @@ func TestComposeAndRestic(t *testing.T) {
 	e.Run = func(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
 		got = append(got, append([]string{name}, args...))
 		gotEnv = env
-		return []byte("ok"), nil
+		return []byte(`{"message_type":"summary","snapshot_id":"abc123","total_bytes_processed":10}`), nil
 	}
 	ctx := context.Background()
 	if _, err := e.Handle(ctx, cmd("cu", "compose.up", `{"project":"shop","compose_yaml":"services:\n  web:\n    image: nginx\n","env":{"TAG":"1"}}`, now)); err != nil {
@@ -307,7 +307,7 @@ func TestComposeAndRestic(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := strings.Join(got[len(got)-1], " ")
-	if last != "/usr/bin/restic --repo=s3:x/y --json backup --tag=daily -- /data" || !strings.Contains(strings.Join(gotEnv, " "), "RESTIC_PASSWORD=p") {
+	if last != "/usr/bin/restic --repo=s3:x/y backup --json --tag=daily -- /data" || !strings.Contains(strings.Join(gotEnv, " "), "RESTIC_PASSWORD=p") {
 		t.Fatal(last, gotEnv)
 	}
 	if _, err := e.Handle(ctx, cmd("b3", "backup.run", `{"repository":"r","paths":["/d"],"env":{"LD_PRELOAD":"x"}}`, now)); err == nil {
@@ -316,7 +316,7 @@ func TestComposeAndRestic(t *testing.T) {
 	if _, err := e.Handle(ctx, cmd("r1", "restore.run", `{"repository":"r","snapshot":"abc123","target":"/restore"}`, now)); err != nil {
 		t.Fatal(err)
 	}
-	if last := strings.Join(got[len(got)-1], " "); last != "/usr/bin/restic --repo=r --json restore --target=/restore abc123" {
+	if last := strings.Join(got[len(got)-1], " "); last != "/usr/bin/restic --repo=r restore --target=/restore abc123" {
 		t.Fatal(last)
 	}
 }

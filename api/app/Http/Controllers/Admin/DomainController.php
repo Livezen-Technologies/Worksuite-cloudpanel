@@ -31,6 +31,7 @@ class DomainController extends Controller
             'name' => ['required', 'string', 'max:253', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i'],
             'application_id' => 'nullable|uuid|exists:applications,id', 'target_port' => 'nullable|integer|between:1,65535',
             'www_redirect' => 'sometimes|boolean', 'challenge' => 'sometimes|in:http-01,dns-01', 'options' => 'nullable|array',
+            'dns_provider' => 'nullable|in:'.implode(',', array_keys(\App\Services\TraefikConfigService::DNS_PROVIDERS)), 'dns_token' => 'nullable|string|max:4096',
         ]);
 
         return $this->data($this->domains->toApi($this->domains->create($data)), 201);
@@ -44,10 +45,16 @@ class DomainController extends Controller
     public function update(Request $request, string $id)
     {
         $domain = Domain::findOrFail($id);
-        $domain->update($request->validate([
+        $data = $request->validate([
             'application_id' => 'nullable|uuid|exists:applications,id', 'target_port' => 'nullable|integer|between:1,65535',
             'www_redirect' => 'sometimes|boolean', 'challenge' => 'sometimes|in:http-01,dns-01', 'options' => 'nullable|array',
-        ]));
+            'dns_provider' => 'nullable|in:'.implode(',', array_keys(\App\Services\TraefikConfigService::DNS_PROVIDERS)), 'dns_token' => 'nullable|string|max:4096',
+        ]);
+        $domain->update(collect($data)->except('dns_token')->all());
+        if (! empty($data['dns_token'])) {
+            $this->domains->setDnsToken($domain, $data['dns_token']);
+        }
+        app(\App\Services\TraefikConfigService::class)->push();
 
         return $this->data($this->domains->toApi($domain->fresh()));
     }

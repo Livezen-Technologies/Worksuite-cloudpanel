@@ -3,12 +3,18 @@
 namespace App\Drivers;
 
 use App\Contracts\PaymentGateway;
+use App\Models\Invoice;
 use App\Models\Organization;
 use App\Models\Plan;
 use Illuminate\Support\Str;
 
 class FakePaymentGateway implements PaymentGateway
 {
+    public function name(): string
+    {
+        return 'fake';
+    }
+
     public function ensureCustomer(Organization $organization): string
     {
         if (! $organization->payment_customer_id) {
@@ -31,5 +37,15 @@ class FakePaymentGateway implements PaymentGateway
         $this->ensureCustomer($organization);
 
         return 'sub_fake_'.$plan->code.'_'.Str::random(8);
+    }
+
+    public function portalUrl(Organization $organization, string $returnUrl): string
+    {
+        return 'https://billing.example.com/portal/'.($organization->payment_customer_id ?: 'setup');
+    }
+
+    public function collect(Organization $organization, Invoice $invoice): array
+    {
+        return ['status' => $organization->payment_method ? 'paid' : 'open', 'provider_invoice_id' => null];
     }
 }

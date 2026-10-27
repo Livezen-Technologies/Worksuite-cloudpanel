@@ -35,9 +35,11 @@ var Types = map[string]bool{
 	"network.create": true, "network.remove": true,
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,
-	"backup.run": true, "restore.run": true,
+	"backup.run": true, "restore.run": true, "backup.test": true, "backup.export": true,
+	"proxy.config": true, "proxy.certs": true,
 	"agent.update": true, "agent.restart": true,
-	"image.build": true, "image.scan": true, "container.healthcheck": true,
+	"terminal.open": true,
+	"image.build":   true, "image.scan": true, "container.healthcheck": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -56,12 +58,19 @@ func ExecRunner(ctx context.Context, dir string, env []string, name string, args
 
 // Executor holds dependencies for command handling.
 type Executor struct {
-	Docker   *docker.Client
-	Policy   *policy.Store
-	HMACKey  []byte
-	Journal  *Journal
-	Report   Reporter
-	Run      Runner
+	Docker  *docker.Client
+	Policy  *policy.Store
+	HMACKey []byte
+	Journal *Journal
+	Report  Reporter
+	Run     Runner
+	// Stream runs dumps / restic dump with stdin/stdout attached (default ExecStreamer).
+	Stream Streamer
+	// HTTP uploads exported backups (default: 6 h timeout client).
+	HTTP *http.Client
+	// ProxyDir is the Traefik file-provider directory; AcmeJSON Traefik's ACME store.
+	ProxyDir string
+	AcmeJSON string
 	LookPath func(string) (string, error)
 	StateDir string
 	// AllowedBindRoots limits host bind mounts in container.create.
@@ -72,6 +81,8 @@ type Executor struct {
 	HealthHTTP     *http.Client
 	HealthInterval time.Duration
 	Updater        *update.Updater
+	// Terminal enables terminal.open (nil = disabled).
+	Terminal *TerminalConfig
 	// Restart re-execs the agent; called after the result is reported.
 	Restart func()
 	Now     func() time.Time

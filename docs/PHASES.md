@@ -44,3 +44,5 @@ The contract between them is `docs/API.md`. Default platform domain: `livezen.ap
   with working `log`/`fake` drivers; live drivers need credentials.
 - Agent transport is HTTPS long-poll with a per-agent bearer secret and HMAC-signed commands; client
   certificates are issued at enrolment, enforcement is a reverse-proxy setting.
+- Git/Dockerfile builds run on servers with the `builder` role through the agent (`image.build`, Docker classic
+  builder); CVE scans use Trivy on the agent when `SCANNER_DRIVER=trivy` (the `fake` driver remains the default).

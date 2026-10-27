@@ -1,0 +1,28 @@
+{
+  "id": "evt_1PaidFixture",
+  "object": "event",
+  "api_version": "2024-06-20",
+  "created": 1793145600,
+  "type": "invoice.paid",
+  "livemode": false,
+  "pending_webhooks": 1,
+  "data": {
+    "object": {
+      "id": "in_1PaidFixture",
+      "object": "invoice",
+      "customer": "__CUSTOMER__",
+      "subscription": "sub_1Fixture",
+      "status": "paid",
+      "amount_paid": 1785,
+      "currency": "eur",
+      "period_start": 1790812800,
+      "period_end": 1793491200,
+      "lines": {
+        "object": "list",
+        "data": [
+          {"id": "il_1", "object": "line_item", "amount": 500, "description": "App site", "metadata": {"dmp_invoice_id": "__INVOICE__"}}
+        ]
+      }
+    }
+  }
+}

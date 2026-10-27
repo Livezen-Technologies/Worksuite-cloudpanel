@@ -29,13 +29,25 @@ class DomainService
             'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? 'http-01'),
             'platform_subdomain' => (bool) ($data['platform_subdomain'] ?? false),
             'options' => $data['options'] ?? null,
+            'dns_provider' => $data['dns_provider'] ?? null,
             'dns_status' => ! empty($data['platform_subdomain']) ? 'verified' : 'pending',
         ]);
+        if (! empty($data['dns_token'])) {
+            $this->setDnsToken($domain, $data['dns_token']);
+        }
         if ($domain->application_id) {
             Route::create(['domain_id' => $domain->id, 'application_id' => $domain->application_id, 'port' => $domain->target_port]);
         }
 
         return $domain;
+    }
+
+    /** DNS-01 provider token, stored encrypted and write-only. */
+    public function setDnsToken(Domain $domain, string $token): void
+    {
+        $secret = $domain->dns_secret_id ? \App\Models\Secret::find($domain->dns_secret_id) : null;
+        $secret ? $secret->update(['value' => $token])
+            : $domain->update(['dns_secret_id' => \App\Models\Secret::create(['name' => 'dns-token-'.$domain->name, 'value' => $token, 'owner_type' => 'Domain', 'owner_id' => $domain->id])->id]);
     }
 
     /** Refuses names used by any organisation (checked across tenants). */
@@ -109,6 +121,11 @@ class DomainService
 
             return Certificate::create(['domain_id' => $domain->id, 'status' => 'failed', 'names' => $names, 'last_error' => $e->getMessage()]);
         }
+        if (! empty($issued['pending'])) {
+            // Traefik (ACME) issues asynchronously; status/expiry come from acme.json (proxy.certs).
+            return Certificate::where('domain_id', $domain->id)->where('status', 'issuing')->first()
+                ?? Certificate::create(['domain_id' => $domain->id, 'issuer' => $issued['issuer'], 'status' => 'issuing', 'names' => $issued['names'], 'resolver' => $issued['resolver'] ?? null]);
+        }
         Certificate::where('domain_id', $domain->id)->where('status', 'active')->update(['status' => 'replaced']);
         $certificate = Certificate::create([
             'domain_id' => $domain->id, 'issuer' => $issued['issuer'], 'status' => 'active', 'names' => $issued['names'],
@@ -137,6 +154,8 @@ class DomainService
             'redirect_www' => $domain->www_redirect,
             'platform_subdomain' => $domain->platform_subdomain,
             'challenge' => $domain->challenge,
+            'dns_provider' => $domain->dns_provider,
+            'has_dns_token' => (bool) $domain->dns_secret_id,
             'dns_status' => $domain->dns_status,
             'https_status' => $domain->https_status,
             'records' => $this->expectedRecords($domain),
@@ -144,6 +163,7 @@ class DomainService
                 'issuer' => $certificate->issuer, 'status' => $certificate->status,
                 'expires_at' => $certificate->expires_at?->toIso8601ZuluString(),
                 'days_left' => $certificate->expires_at ? (int) now()->diffInDays($certificate->expires_at, false) : null,
+                'resolver' => $certificate->resolver, 'checked_at' => $certificate->checked_at?->toIso8601ZuluString(),
             ] : null,
             'renewal_at' => $certificate?->expires_at?->copy()->subDays(30)->toIso8601ZuluString(),
             'expiring' => $certificate?->expires_at && $certificate->expires_at->lt(now()->addDays(14)),

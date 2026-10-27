@@ -9,7 +9,6 @@ use App\Models\Job;
 use App\Services\BackupService;
 use App\Services\BillingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\URL;
 
 class BackupController extends Controller
 {
@@ -26,6 +25,9 @@ class BackupController extends Controller
             'id' => $a->id, 'app_id' => $a->application_id, 'app_name' => $names[$a->application_id] ?? null, 'size_mb' => $a->size_mb,
             'verified' => $a->verified, 'encrypted' => $a->encrypted, 'trigger' => $a->backupJob?->trigger,
             'created_at' => $a->created_at?->toIso8601ZuluString(), 'expires_at' => $a->expires_at?->toIso8601ZuluString(),
+            'verified_at' => $a->verified_at?->toIso8601ZuluString(),
+            'restore_test' => $a->restore_test_status ? ['status' => $a->restore_test_status, 'tested_at' => $a->restore_tested_at?->toIso8601ZuluString(), 'message' => $a->restore_test_message] : null,
+            'export_status' => $a->export_status,
         ]);
 
         return response()->json(['data' => $items, 'meta' => ['page' => 1, 'per_page' => $items->count(), 'total' => $items->count()]]);
@@ -51,12 +53,12 @@ class BackupController extends Controller
         return $this->accepted(Job::find($restore->job_id), ['restore_job_id' => $restore->id]);
     }
 
-    public function download(string $id)
+    /** UBAK-002: 200 {url, expires_at} once the archive is exported; 202 {job_id} while it is. */
+    public function download(Request $request, string $id)
     {
-        $artifact = $this->find($id);
-        $expires = now()->addMinutes(15);
+        $result = $this->backups->download($this->find($id), $request->user()->id);
 
-        return $this->data(['url' => URL::temporarySignedRoute('backup.download', $expires, ['id' => $artifact->id]), 'expires_at' => $expires->toIso8601ZuluString()]);
+        return response()->json(['data' => $result], $result['status'] === 'ready' ? 200 : 202);
     }
 
     private function find(string $id): BackupArtifact

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useJob, useList, useOne, useServerName } from '../../api/hooks'
@@ -21,14 +21,20 @@ function choice(on: boolean) { return on ? { border: '2px solid var(--accent)', 
 
 function NewApplication({ open, onClose }: { open: boolean; onClose: () => void }) {
   const servers = useList<Server>('/servers')
+  const registries = useList<R>('/registries')
   const { run, busy } = useAction()
-  const [f, setF] = useState({ name: '', source_type: 'git' as string, repo: '', branch: 'main', image: '', environment: 'production', strategy: 'rolling' as string, server_id: '', require_approval: true })
+  const [f, setF] = useState({ name: '', source_type: 'git' as string, repo: '', branch: 'main', image: '', environment: 'production', strategy: 'rolling' as string, server_id: '', require_approval: true,
+    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '' })
+  const builds = f.source_type === 'git' || f.source_type === 'dockerfile'
   const [errors, setErrors] = useState<Record<string, string>>({})
   const submit = async () => {
     try {
       const body = {
         name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
-        ...(f.source_type === 'image' ? { image: f.image } : { source: { repo: f.repo, branch: f.branch } }),
+        port: f.port ? Number(f.port) : null, health_path: f.health_path || null,
+        ...(f.source_type === 'image' ? { image: f.image } : {
+          source: { repo: f.repo, branch: f.branch, ...(builds ? { dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null, ...(f.git_token ? { git_token: f.git_token } : {}) } : {}) },
+        }),
       }
       await run({ path: '/applications', body, label: `Create ${f.name}`, success: 'Application created' })
       onClose()
@@ -52,6 +58,14 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
           {f.source_type === 'image' ? <Field label="Image" error={errors.image}><input className="input font-mono" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} /></Field>
             : <><Field label="Repository URL" error={errors.repo ?? errors['source.repo']}><input className="input font-mono" value={f.repo} onChange={(e) => setF({ ...f, repo: e.target.value })} /></Field>
               <Field label="Branch"><input className="input" value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} /></Field></>}
+          {builds && <>
+            <Field label="Dockerfile path" error={errors['source.dockerfile_path']}><input className="input font-mono" value={f.dockerfile_path} onChange={(e) => setF({ ...f, dockerfile_path: e.target.value })} /></Field>
+            <Field label="Build context" error={errors['source.context']}><input className="input font-mono" value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></Field>
+            <Field label="Push to registry" hint="Without one the image stays on the builder, which must then be the target"><select className="input" value={f.push_registry_id} onChange={(e) => setF({ ...f, push_registry_id: e.target.value })}><option value="">Do not push</option>{registries.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>
+            <Field label="Git access token" hint="Optional; stored as an encrypted secret"><input className="input font-mono" type="password" autoComplete="off" value={f.git_token} onChange={(e) => setF({ ...f, git_token: e.target.value })} /></Field>
+          </>}
+          <Field label="Container port" error={errors.port}><input className="input" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} /></Field>
+          <Field label="Health check path" hint="GET on the port after start; 2xx/3xx passes" error={errors.health_path}><input className="input font-mono" value={f.health_path} onChange={(e) => setF({ ...f, health_path: e.target.value })} /></Field>
           <Field label="Environment"><select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></select></Field>
           <Field label="Target server" hint="Leave empty to let the scheduler place it"><select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</select></Field>
         </div>
@@ -87,7 +101,19 @@ function Pipeline({ d }: { d: R }) {
   return (
     <Card title={`Pipeline · ${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}${d.environment ? ` → ${d.environment}` : ''}`} actions={<StatusBadge status={job?.status ?? d.status} />}>
       <JobTimeline job={job} stages={stages} />
+      {!!job?.build_log?.length && <BuildLog lines={job.build_log} />}
     </Card>
+  )
+}
+
+function BuildLog({ lines }: { lines: string[] }) {
+  const ref = useRef<HTMLPreElement>(null)
+  useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [lines.length])
+  return (
+    <details open className="mt-3">
+      <summary className="cursor-pointer text-sm font-semibold">Build log <span className="text-muted font-normal">({lines.length} lines)</span></summary>
+      <pre ref={ref} aria-label="Build log" className="m-0 mt-2 p-3 rounded-lg bg-head font-mono text-xs overflow-auto max-h-72 whitespace-pre-wrap">{lines.map((l, i) => <div key={i} style={/^ERROR|error/.test(l) ? { color: 'var(--r-fg)' } : undefined}>{l}</div>)}</pre>
+    </details>
   )
 }
 

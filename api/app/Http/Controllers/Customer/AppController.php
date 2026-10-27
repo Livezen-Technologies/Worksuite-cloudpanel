@@ -29,6 +29,7 @@ class AppController extends Controller
             'source.registry_auth' => 'nullable|array', 'source.registry_auth.username' => 'nullable|string', 'source.registry_auth.password' => 'nullable|string',
             'source.repo' => 'required_if:source.type,git|nullable|string|max:255',
             'source.branch' => 'nullable|string|max:120',
+            'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',
             'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(config('platform.app_templates')))],
         ];
@@ -55,6 +56,7 @@ class AppController extends Controller
             'env' => 'nullable|array', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string|max:10000', 'env.*.secret' => 'nullable|boolean',
             'volume_path' => 'nullable|string|max:255|starts_with:/',
             'size' => 'required|in:small,standard,pro',
+            'health_path' => ['nullable', 'string', 'max:255', 'regex:#^/[^\s]*$#'],
             // UHOST-007: customers can never request these.
             'privileged' => 'prohibited', 'network_mode' => 'prohibited', 'host_network' => 'prohibited',
         ], ['name.regex' => 'Use lowercase letters, numbers and hyphens (it becomes part of your web address).']);
@@ -78,11 +80,12 @@ class AppController extends Controller
             'auto_deploy' => 'sometimes|boolean',
             'auto_restart' => 'sometimes|boolean',
             'restart' => 'sometimes|boolean',
+            'health_path' => ['sometimes', 'nullable', 'string', 'max:255', 'regex:#^/[^\s]*$#'],
         ]);
         if (isset($data['size']) && $data['size'] !== $app->size) {
             $billing->assertQuota($data['size'], $app);
         }
-        $app->update(collect($data)->only(['size', 'auto_deploy', 'auto_restart'])->all());
+        $app->update(collect($data)->only(['size', 'auto_deploy', 'auto_restart', 'health_path'])->all());
         if (array_key_exists('env', $data)) {
             $keys = collect($data['env'])->pluck('key');
             EnvVar::where('application_id', $app->id)->whereNotIn('key', $keys)->delete();

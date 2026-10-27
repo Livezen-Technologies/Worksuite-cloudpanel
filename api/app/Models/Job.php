@@ -49,6 +49,14 @@ class Job extends Model
             'created_at' => $this->created_at?->toIso8601ZuluString(),
             'started_at' => $this->started_at?->toIso8601ZuluString(),
             'finished_at' => $this->finished_at?->toIso8601ZuluString(),
-        ];
+        ] + ($this->type === 'deployment' ? ['build_log' => $this->buildLog()] : []);
+    }
+
+    /** Lines streamed by the job's `image.build` command (APP-003 pipeline view); null when nothing was built. */
+    public function buildLog(): ?array
+    {
+        $build = AgentCommand::allTenants()->where('job_id', $this->id)->where('type', 'image.build')->latest()->first();
+
+        return $build ? array_values((array) ($build->output['log'] ?? [])) : null;
     }
 }

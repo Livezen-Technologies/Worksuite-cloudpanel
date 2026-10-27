@@ -18,6 +18,7 @@ class Server extends Model
     {
         return [
             'tags' => 'array',
+            'roles' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',
@@ -55,6 +56,19 @@ class Server extends Model
         return array_key_exists('containers_count', $this->attributes)
             ? (int) $this->attributes['containers_count']
             : $this->containers()->count();
+    }
+
+    /** Server roles: "app" (runs workloads, the default) and "builder" (runs untrusted image builds, SRS 2.4). */
+    public function getRolesAttribute($value): array
+    {
+        $roles = is_string($value) ? json_decode($value, true) : $value;
+
+        return $roles ?: ['app'];
+    }
+
+    public function hasRole(string $role): bool
+    {
+        return in_array($role, $this->roles, true);
     }
 
     public function isOnline(): bool

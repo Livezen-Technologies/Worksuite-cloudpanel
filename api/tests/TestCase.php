@@ -98,4 +98,15 @@ abstract class TestCase extends BaseTestCase
         return $this->withHeaders(['Authorization' => 'Bearer '.$secret, 'Accept' => 'application/json'])
             ->postJson("/agent/v1/commands/{$id}/result", array_merge(['status' => $status], $extra));
     }
+
+    /** Answer the post-start `container.healthcheck` commands queued for this agent (UHOST-006). */
+    protected function passHealthChecks(string $secret, string $status = 'succeeded', array $extra = ['output' => ['healthy' => true, 'method' => 'http', 'url' => 'http://10.0.0.2:8080/', 'status' => 200]]): array
+    {
+        $checks = array_values(array_filter($this->heartbeat($secret)['commands'], fn ($c) => $c['type'] === 'container.healthcheck'));
+        foreach ($checks as $c) {
+            $this->commandResult($secret, $c['id'], $status, $extra)->assertOk();
+        }
+
+        return $checks;
+    }
 }

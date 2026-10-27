@@ -28,7 +28,7 @@ The organisation is the token user's current organisation (`users.current_organi
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | /dashboard | {kpis, series{cpu[],ram[]}, alerts, deployments, top, status} `?range=1h|6h|24h|7d` |
-| GET/POST | /servers | server: {id,name,hostname,ip,environment,region,tags[],status: pending|online|warning|maintenance|offline,os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,cpu_pct,ram_pct,disk_pct,container_count,agent_version,last_heartbeat_at} |
+| GET/POST | /servers | server: {id,name,hostname,ip,environment,region,tags[],status: pending|online|warning|maintenance|offline,os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,cpu_pct,ram_pct,disk_pct,container_count,agent_version,last_heartbeat_at,roles[]: app|builder (default ["app"]; PATCH `roles`)} |
 | GET/PATCH/DELETE | /servers/{id} | |
 | POST | /servers/enrollment | {server_id} → {token (single use, 15 min), expires_at, install_command} |
 | POST | /servers/{id}/maintenance | {enabled} |
@@ -42,7 +42,7 @@ The organisation is the token user's current organisation (`users.current_organi
 | POST | /containers/prune-preview, /containers/prune | |
 | GET | /containers/{id}/logs?tail=200 | |
 | POST | /containers/{id}/terminal-sessions | → {session_id, ws_url, expires_at} |
-| GET/POST | /applications ; GET/PATCH/DELETE /applications/{id} | source_type: git|image|dockerfile|compose; strategy: recreate|rolling|blue_green |
+| GET/POST | /applications ; GET/PATCH/DELETE /applications/{id} | source_type: git|image|dockerfile|compose; strategy: recreate|rolling|blue_green; port, health_path (default `/`), health_timeout (s, default 60); git/dockerfile `source`: {repo (https:// or file:// / absolute path), branch|ref, dockerfile_path (Dockerfile), context (.), build_args{}, push_registry_id?, git_token? (write-only → encrypted secret, `git_secret_id`), git_username?} |
 | POST | /deployments | {application_id} → 202 job; GET /deployments, /deployments/{id} |
 | POST | /deployments/{id}/approve | |
 | GET | /applications/{id}/releases ; POST /applications/{id}/rollback {release_id} | |
@@ -89,7 +89,10 @@ The organisation is the token user's current organisation (`users.current_organi
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart.
+  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  image.build, image.scan, container.healthcheck (payloads in `agent/README.md`).
+- `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
+  lines in the command output and exposes them as the deployment job's `build_log`.
 - `POST /agent/v1/commands/{id}/result` {status: running|succeeded|failed, progress?, message?, output?} — idempotent per id.
 - Agent rejects unsigned/unknown/duplicate commands (local policy, no generic shell).
 
@@ -127,7 +130,19 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
   domains, addresses, last_deployment:{id,status,job_id,logs_tail}, requests_24h`. PATCH accepts `restart: true` (Save & restart) and returns `job_id`.
 - **Customer backups** `[{id, app_id, app_name, size_mb, verified, encrypted, trigger, created_at, expires_at}]`; download → `{data:{url, expires_at}}`.
 - **Deployment job stages**: admin `validate, checkout, build_scan, push, placement, deploy, health_check, complete` (+`approval` first when
-  gated, +`rollback` on failure); customer `pull_image, start_container, health_check, certificate_issued, live`.
+  gated, +`rollback` on failure); customer `pull_image, start_container, health_check, certificate_issued, live` (+`build` first for Git sources).
+  `GET /jobs/{id}` for a deployment adds `build_log: [string]|null`. Pipeline for git/dockerfile sources: `image.build` on a server with the
+  `builder` role (never the deploy target unless it is a builder **and** `security.allow_builds_on_deploy_targets`; without a push registry the
+  image is local, so the builder must be the target) → scan (`SCANNER_DRIVER=fake` in-process, `trivy` = agent `image.scan` on the builder or
+  target; `security.block_critical_cves` fails the deploy on any critical, and on a failed scan) → push by digest (`repo@sha256:…`, deploy pulls
+  with `pull: missing`) or local tag (`pull: never`) → `container.create` → `container.healthcheck`. A failed health check sets the deployment
+  `logs_tail` (last 50 lines, also in the failed job's `result.logs_tail`); recreate rolls back to the previous release, rolling/blue-green
+  remove the new container and keep the old one (`rolled_back`); a first deploy stops the container. Deployment rows add
+  `image_digest, builder_server_id, scan_result{critical,high,medium,low,unknown,total,scanner}`.
+- **Image** rows add `blocks_deploy` (critical CVEs while `block_critical_cves` is on); `scan_status: not_scanned|scanning|scanned|failed`;
+  `scan_result {critical, high, medium, low, unknown, total, scanner, vulnerabilities:[{id,severity,package,installed,fixed,title}]}`.
+  With `SCANNER_DRIVER=trivy`, `POST /images/{id}/scan` returns 202 and runs `image.scan` on the image's server.
+- **Customer app** also accepts/returns `health_path` (POST /app/apps, PATCH /app/apps/{id}); Git sources accept `source.dockerfile_path`.
 - **Extra endpoints**: `POST /images/pull {server_id, image, registry_id?}` (202), `POST /containers/prune` and `/images/prune` accept `{ids[]}`,
   `DELETE /terminal-sessions/{id}`, `POST /approvals/{id}/reject`, `GET /audit-logs/verify`, `GET /backup-artifacts`, `POST /me/mfa/disable`,
   `POST /notification-channels/{id}/test`, `GET /agent/v1/install.sh`, `GET /agent/v1/download/dockermgr-agent-linux-{amd64|arm64}`.

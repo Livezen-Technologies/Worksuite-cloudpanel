@@ -19,6 +19,7 @@ class Certificate extends Model
     protected function casts(): array
     {
         return [
+            'checked_at' => 'datetime',
             'names' => 'array',
             'issued_at' => 'datetime',
             'expires_at' => 'datetime',

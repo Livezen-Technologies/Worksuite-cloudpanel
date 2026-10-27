@@ -2,17 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/livezen-technologies/cloudpanel/agent/internal/config"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/docker"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/executor"
+	"github.com/livezen-technologies/cloudpanel/agent/internal/mtls"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/policy"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/protocol"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/stats"
@@ -30,13 +33,23 @@ type agent struct {
 	log     *log.Logger
 	queue   chan protocol.Command
 	sleep   func(context.Context, time.Duration)
+
+	tls             *tls.Config
+	certs           *mtls.Store
+	advertisedRelay atomic.Value // string
+	lastRenewTry    time.Time
 }
 
 func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, error) {
-	hc, err := protocol.NewHTTPClient(cfg.CAFile)
+	var certs *mtls.Store
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		certs = &mtls.Store{CertFile: cfg.CertFile, KeyFile: cfg.KeyFile}
+	}
+	tlsCfg, err := mtls.TLSConfig(cfg.CAFile, certs)
 	if err != nil {
 		return nil, err
 	}
+	hc := protocol.NewHTTPClientTLS(tlsCfg)
 	dc := docker.New(cfg.DockerSocket)
 	client := &protocol.Client{BaseURL: cfg.PanelURL, Secret: cfg.AgentSecret, HTTP: hc}
 	up := &update.Updater{BinaryPath: binary}
@@ -61,10 +74,14 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		AllowedBindRoots: []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
 		AllowLocalGit:    os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
 		Updater:          up,
+		ProxyDir:         cfg.ProxyConfigDir,
+		AcmeJSON:         cfg.AcmeJSON,
 		Log:              logger,
 	}
+	ex.Terminal = &executor.TerminalConfig{RelayURL: cfg.RelayURL, Secret: cfg.AgentSecret, Shells: cfg.TerminalShells,
+		TLS: func() *tls.Config { return tlsCfg }}
 	return &agent{cfg: cfg, client: client, docker: dc, sampler: &stats.Sampler{}, exec: ex, log: logger,
-		queue: make(chan protocol.Command, 64), sleep: sleepCtx}, nil
+		queue: make(chan protocol.Command, 64), sleep: sleepCtx, tls: tlsCfg, certs: certs}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
@@ -105,6 +122,7 @@ func (a *agent) Run(ctx context.Context) {
 			}
 		}
 	}()
+	go a.relayLoop(ctx)
 	failures := 0
 	for ctx.Err() == nil {
 		var wait time.Duration
@@ -141,6 +159,10 @@ func (a *agent) beat(ctx context.Context) error {
 		return err
 	}
 	a.clearUpdateMarker()
+	if resp.RelayURL != "" {
+		a.advertisedRelay.Store(resp.RelayURL)
+	}
+	a.maybeRenewCertificate(ctx)
 	for _, c := range resp.Commands {
 		select {
 		case a.queue <- c:

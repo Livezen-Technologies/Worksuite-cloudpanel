@@ -23,14 +23,21 @@ class ImageController extends Controller
         $users = Container::query()->get(['image'])->countBy('image');
 
         return response()->json(Lists::paginate(Image::query(), $request, ['repository', 'digest'], ['created_at', 'size_mb', 'repository'], ['server_id', 'scan_status'],
-            fn (Image $i) => $i->toArray() + ['users' => collect($i->tags ?? [])->sum(fn ($t) => $users[$t] ?? 0), 'dangling' => empty($i->tags)]));
+            fn (Image $i) => $i->toArray() + ['users' => collect($i->tags ?? [])->sum(fn ($t) => $users[$t] ?? 0), 'dangling' => empty($i->tags),
+                'blocks_deploy' => $i->scan_result ? \App\Support\ScanReport::blocks($i->scan_result) : false]));
     }
 
-    public function scan(string $id, ImageScanner $scanner)
+    public function scan(string $id, ImageScanner $scanner, \App\Services\ScanService $scans)
     {
         $image = Image::findOrFail($id);
+        if (\App\Services\ScanService::agentDriven()) {
+            // Trivy runs on the server that holds the image (agent `image.scan`).
+            $job = $scans->queueImageScan($image);
+
+            return $this->accepted($job->fresh(), ['image_id' => $image->id]);
+        }
         $job = $this->jobs->create('image.scan', ['scan'], $image);
-        $result = $scanner->scan($image->tags[0] ?? $image->docker_id, $image->digest);
+        $result = $scanner->scan($image->tags[0] ?? $image->docker_id, $image->digest) + ['scanner' => 'fake'];
         $image->update(['scan_status' => 'scanned', 'scan_result' => $result, 'scanned_at' => now()]);
         $this->jobs->succeed($job, $result);
 

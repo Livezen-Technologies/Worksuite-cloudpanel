@@ -14,11 +14,14 @@ class BackupArtifact extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = [];
+    protected $hidden = ['export_path'];
 
     protected function casts(): array
     {
         return [
+            'verified_at' => 'datetime',
+            'restore_tested_at' => 'datetime',
+            'exported_at' => 'datetime',
             'verified' => 'boolean',
             'encrypted' => 'boolean',
             'expires_at' => 'datetime',

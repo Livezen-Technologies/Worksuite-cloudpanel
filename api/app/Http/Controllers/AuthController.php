@@ -38,19 +38,31 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $data = $request->validate(['email' => 'required|email', 'password' => 'required|string', 'otp' => 'nullable|string']);
+        $data = $request->validate(['email' => 'required|email', 'password' => 'required|string', 'otp' => 'nullable|string',
+            'passkey' => 'nullable|array', 'passkey.challenge_id' => 'required_with:passkey|string', 'passkey.credential' => 'required_with:passkey|array']);
         $user = User::where('email', strtolower($data['email']))->first();
         if (! $user || ! Hash::check($data['password'], $user->password)) {
             throw new ApiException('unauthenticated', 'The email or password is incorrect.', 401);
         }
-        if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
-            throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']], ['mfa_required' => true]);
+        // Second factor: TOTP code or a passkey assertion for this user (UACC-002).
+        if (! empty($data['passkey'])) {
+            app(\App\Services\WebAuthnService::class)->authenticate($data['passkey']['challenge_id'], $data['passkey']['credential'], $user);
+        } elseif ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
+            throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app or use a passkey.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']],
+                ['mfa_required' => true, 'passkey_available' => \App\Models\Passkey::where('user_id', $user->id)->exists()]);
         }
+
+        return $this->completeLogin($user, ! empty($data['passkey']) ? 'password+passkey' : ($user->mfa_enabled ? 'password+totp' : 'password'));
+    }
+
+    /** Issues the session token after a successful sign-in (password(+2FA) or passkey). */
+    public function completeLogin(User $user, string $method)
+    {
         if (! $user->current_organization_id || ! $user->membership()) {
             $user->current_organization_id = $user->memberships()->where('status', 'active')->value('organization_id');
         }
         $user->forceFill(['last_login_at' => now()])->save();
-        $this->audit->log('auth.login', 'users', $user->id, [], $user->current_organization_id, $user->id, $user->email);
+        $this->audit->log('auth.login', 'users', $user->id, ['method' => $method], $user->current_organization_id, $user->id, $user->email);
 
         return $this->data(['token' => $this->issue($user), 'user' => $user]);
     }

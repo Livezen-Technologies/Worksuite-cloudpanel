@@ -52,10 +52,11 @@ run_suite() { # name, command...
   echo; echo "== $name"
   if "$@" 2>&1 | tee "$LOG/$name.out"; then RESULT[$name]=PASS; else RESULT[$name]=FAIL; fi
 }
-run_suite agent env AGENT_KEEP=1 "$HERE/agent.sh"
+run_suite agent env AGENT_KEEP=1 DOCKERMGR_ALLOW_LOCAL_GIT=1 "$HERE/agent.sh"   # local Git repos for build.sh
 run_suite browser-admin node "$HERE/browser/admin.js"
 run_suite browser-customer node "$HERE/browser/customer.js"
 run_suite api-checks node "$HERE/api-checks.js"
+run_suite build "$HERE/build.sh"
 
 if [ "${UNIT:-0}" = 1 ]; then
   # Unit suites run without the e2e environment overrides (env.sh), exactly as a developer would.
@@ -67,7 +68,7 @@ fi
 
 echo; echo "== summary (logs and screenshots in $LOG)"
 FAILED=0
-for k in agent browser-admin browser-customer api-checks unit-api unit-agent unit-web; do
+for k in agent browser-admin browser-customer api-checks build unit-api unit-agent unit-web; do
   [ -n "${RESULT[$k]:-}" ] || continue
   printf '%-18s %s\n' "$k" "${RESULT[$k]}"; [ "${RESULT[$k]}" = PASS ] || FAILED=1
 done

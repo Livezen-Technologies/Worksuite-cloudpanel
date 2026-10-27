@@ -137,29 +137,31 @@ class ContainerService
     public function openTerminal(User $user, Container $container, ?string $approvalId): array
     {
         $this->approvals->gate($user, 'terminal', 'terminal.open', $container, [], $approvalId);
+        if (! $container->docker_id || $container->state !== 'running') {
+            throw ApiException::conflict('The container must be running to open a terminal.');
+        }
         $token = Str::random(48);
         $session = TerminalSession::create([
             'container_id' => $container->id, 'user_id' => $user->id, 'token_hash' => hash('sha256', $token),
-            'shell_user' => 'app', 'expires_at' => now()->addMinutes(config('platform.terminal_ttl_minutes')),
+            'shell_user' => config('security.terminal.shell_user', 'app'), 'shell' => TerminalService::shell(),
+            'expires_at' => now()->addMinutes(config('platform.terminal_ttl_minutes')),
             'recording_path' => 'terminal-recordings/'.now()->format('Y/m/d').'/'.Str::uuid().'.cast', 'ip' => request()->ip(),
         ]);
         $this->audit->log('terminal.opened', 'containers', $container->id, ['session_id' => $session->id]);
 
         return [
             'session_id' => $session->id,
-            'ws_url' => rtrim(config('platform.terminal_ws_url'), '/').'/'.$session->id.'?token='.$token,
+            // Relay URL (agent/cmd/relay); a relative base resolves against the panel origin in the browser.
+            'ws_url' => rtrim(config('security.relay.ws_url'), '/').'/'.$session->id.'?token='.$token,
             'expires_at' => $session->expires_at->toIso8601ZuluString(),
             'shell_user' => $session->shell_user,
+            'shell' => $session->shell,
+            'recorded' => (bool) config('security.terminal.record', true),
         ];
     }
 
     public function endTerminal(TerminalSession $session): TerminalSession
     {
-        if (! $session->ended_at) {
-            $session->update(['ended_at' => now()]);
-            $this->audit->log('terminal.closed', 'containers', $session->container_id, ['session_id' => $session->id]);
-        }
-
-        return $session;
+        return app(TerminalService::class)->end($session, request()->user());
     }
 }

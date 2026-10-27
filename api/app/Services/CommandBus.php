@@ -26,7 +26,8 @@ class CommandBus
         'container.remove', 'container.create', 'container.logs', 'container.prune',
         'image.pull', 'image.remove', 'image.prune', 'network.create', 'network.remove',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
-        'backup.run', 'restore.run', 'agent.update', 'agent.restart',
+        'backup.run', 'restore.run', 'backup.test', 'backup.export', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
+        'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */
@@ -34,8 +35,12 @@ class CommandBus
         'deployment' => DeploymentService::class,
         'backup' => BackupService::class,
         'restore' => BackupService::class,
+        'backup.test' => BackupService::class,
+        'backup.export' => BackupService::class,
+        'proxy.certs' => \App\Services\TraefikConfigService::class,
         'compose.deploy' => ComposeService::class,
         'database.create' => DatabaseService::class,
+        'image.scan' => ScanService::class,
     ];
 
     public function __construct(private JobService $jobs) {}
@@ -102,6 +107,12 @@ class CommandBus
             $command->status = $status;
             $command->progress = $status === 'succeeded' ? 100 : ($progress ?? $command->progress);
             $command->message = $message ?? $command->message;
+            if ($status === 'running' && $message !== null && $message !== '' && $command->type === 'image.build') {
+                // Build log lines arrive as running progress; keep the last 1000 for the pipeline view.
+                $out = $command->output ?? [];
+                $out['log'] = array_slice(array_merge($out['log'] ?? [], explode("\n", $message)), -1000);
+                $command->output = $out;
+            }
             if ($output !== null) {
                 $command->output = is_array($output) ? $output : ['value' => $output];
             }

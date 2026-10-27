@@ -15,6 +15,10 @@ class TraefikLabels
             return [];
         }
         $router = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name));
+        if (config('platform.drivers.certificates') === 'traefik') {
+            // Routers + TLS come from the file provider (TraefikConfigService); labels only expose the service.
+            return ['traefik.enable' => 'true', "traefik.http.services.{$router}.loadbalancer.server.port" => (string) $port];
+        }
         $hosts = $domains->flatMap(fn (Domain $d) => $d->www_redirect ? [$d->name, 'www.'.$d->name] : [$d->name])
             ->map(fn ($h) => "Host(`{$h}`)")->implode(' || ');
 

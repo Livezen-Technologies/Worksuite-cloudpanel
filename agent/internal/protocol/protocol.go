@@ -110,6 +110,9 @@ type Command struct {
 
 type HeartbeatResponse struct {
 	Commands []Command `json:"commands"`
+	// RelayURL is the terminal relay base (wss://panel/relay); the agent keeps
+	// an outbound control connection there for low-latency terminal.open.
+	RelayURL string `json:"relay_url,omitempty"`
 }
 
 // Result reported to /agent/v1/commands/{id}/result.
@@ -146,6 +149,13 @@ func NewHTTPClient(caFile string) (*http.Client, error) {
 		tr.TLSClientConfig.RootCAs = pool
 	}
 	return &http.Client{Transport: tr, Timeout: 60 * time.Second}, nil
+}
+
+// NewHTTPClientTLS builds a client from a prepared TLS config (mTLS).
+func NewHTTPClientTLS(cfg *tls.Config) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = cfg
+	return &http.Client{Transport: tr, Timeout: 60 * time.Second}
 }
 
 // StatusError is returned for non-2xx responses.
@@ -223,4 +233,22 @@ func (c *Client) Heartbeat(ctx context.Context, r HeartbeatRequest) (*HeartbeatR
 
 func (c *Client) ReportResult(ctx context.Context, id string, r Result) error {
 	return c.post(ctx, "/agent/v1/commands/"+url.PathEscape(id)+"/result", r, nil, true)
+}
+
+// RenewResponse from /agent/v1/certificate/renew.
+type RenewResponse struct {
+	Certificate string `json:"certificate"`
+	ExpiresAt   string `json:"expires_at"`
+}
+
+// RenewCertificate sends a fresh CSR and returns the signed certificate.
+func (c *Client) RenewCertificate(ctx context.Context, csr string) (*RenewResponse, error) {
+	var out RenewResponse
+	if err := c.post(ctx, "/agent/v1/certificate/renew", map[string]string{"csr": csr}, &out, true); err != nil {
+		return nil, err
+	}
+	if out.Certificate == "" {
+		return nil, fmt.Errorf("renew response has no certificate")
+	}
+	return &out, nil
 }

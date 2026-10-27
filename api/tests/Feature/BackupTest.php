@@ -42,7 +42,8 @@ class BackupTest extends TestCase
         $this->assertSame('succeeded', Job::allTenants()->find($restore['job_id'])->status);
         $this->assertSame('succeeded', RestoreJob::allTenants()->find($restore['restore_job_id'])->status);
         $this->assertSame(2, BackupArtifact::allTenants()->count());
-        $this->api($token)->getJson("/api/v1/app/backups/{$backups[0]['id']}/download")->assertOk()->assertJsonStructure(['data' => ['url']]);
+        // Download starts an export first (BackupExportTest covers the full flow).
+        $this->api($token)->getJson("/api/v1/app/backups/{$backups[0]['id']}/download")->assertStatus(202)->assertJsonStructure(['data' => ['job_id', 'status']]);
     }
 
     public function test_policies_require_encryption_for_remote_and_run_on_schedule(): void
@@ -51,7 +52,8 @@ class BackupTest extends TestCase
         $server = $this->server($org);
         $volumeId = $this->api($token)->postJson('/api/v1/volumes', ['server_id' => $server->id, 'name' => 'data'])->assertStatus(202)->json('data.volume.id');
         $this->api($token)->postJson('/api/v1/backup-policies', ['name' => 'p', 'target_type' => 'volume', 'target_id' => $volumeId, 'destination' => 's3', 'encrypted' => false])->assertStatus(422);
-        $policy = $this->api($token)->postJson('/api/v1/backup-policies', ['name' => 'p', 'target_type' => 'volume', 'target_id' => $volumeId, 'destination' => 's3', 'schedule' => '* * * * *', 'retention_days' => 7])
+        $policy = $this->api($token)->postJson('/api/v1/backup-policies', ['name' => 'p', 'target_type' => 'volume', 'target_id' => $volumeId, 'destination' => 's3', 'schedule' => '* * * * *', 'retention_days' => 7,
+            'destination_config' => ['endpoint' => 'https://s3.example.test', 'bucket' => 'bk', 'access_key' => 'AK', 'secret_key' => 'SK']])
             ->assertCreated()->assertJsonMissingPath('data.recovery_key')->assertJsonCount(14, 'data.success_14d')->json('data');
         $this->api($token)->getJson('/api/v1/volumes')->assertJsonPath('data.0.has_backup_policy', true);
 

@@ -65,7 +65,7 @@ class HostingService
                 'source_type' => $source['type'], 'source' => array_merge($source, ['digest' => $check['digest'] ?? null]),
                 'image' => $image, 'strategy' => 'recreate', 'environment' => 'production',
                 'region' => $input['region'] ?? null, 'size' => $input['size'], 'port' => $input['port'] ?? 80,
-                'volume_path' => $input['volume_path'] ?? null, 'status' => 'deploying',
+                'volume_path' => $input['volume_path'] ?? null, 'status' => 'deploying', 'health_path' => $input['health_path'] ?? null,
             ]);
             foreach ($input['env'] ?? [] as $var) {
                 EnvVar::create(['application_id' => $app->id, 'key' => $var['key'], 'value' => (string) ($var['value'] ?? ''), 'secret' => (bool) ($var['secret'] ?? false)]);
@@ -107,6 +107,7 @@ class HostingService
             'region' => $app->region,
             'port' => $app->port,
             'volume_path' => $app->volume_path,
+            'health_path' => $app->health_path ?: '/',
             'auto_deploy' => $app->auto_deploy,
             'auto_restart' => $app->auto_restart,
             'last_deploy_at' => $app->last_deployed_at?->toIso8601ZuluString(),
@@ -119,7 +120,8 @@ class HostingService
                 'domains' => $domains->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'https_status' => $d->https_status, 'dns_status' => $d->dns_status]),
                 'addresses' => $domains->map(fn ($d) => 'https://'.$d->name)->values(),
                 'last_deployment' => $last ? ['id' => $last->id, 'status' => $last->status, 'job_id' => $last->job_id, 'logs_tail' => $last->logs_tail] : null,
-                'requests_24h' => null, // needs the Traefik/Prometheus pipeline (stubbed in 1.0)
+                // Traefik request counter via Prometheus when METRICS_DRIVER=prometheus; null otherwise.
+                'requests_24h' => \App\Support\PrometheusMetrics::enabled() ? rescue(fn () => app(\App\Support\PrometheusMetrics::class)->requests24h($app->name), null, report: false) : null,
             ];
         }
 
@@ -129,6 +131,13 @@ class HostingService
     public function metrics(Application $app, string $range): array
     {
         $container = Container::where('application_id', $app->id)->first();
+        if (\App\Support\PrometheusMetrics::enabled() && $container) {
+            $prom = app(\App\Support\PrometheusMetrics::class);
+            $step = MetricsService::RANGES[$range][1] ?? 300;
+            $q = \App\Support\PrometheusMetrics::containerQueries($container->name);
+
+            return ['range' => $range, 'cpu' => $prom->range($q['cpu'], MetricsService::since($range), now(), $step), 'ram' => $prom->range($q['ram'], MetricsService::since($range), now(), $step), 'source' => 'prometheus'];
+        }
         $points = $container ? Metric::where('container_id', $container->id)->where('recorded_at', '>=', MetricsService::since($range))->orderBy('recorded_at')->get() : collect();
 
         return [

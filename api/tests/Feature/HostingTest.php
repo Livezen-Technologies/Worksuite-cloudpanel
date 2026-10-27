@@ -43,6 +43,7 @@ class HostingTest extends TestCase
         $this->assertSame(512, $cmd['payload']['memory_mb']);
         $this->assertSame('Host(`my-site.livezen.app`)', $cmd['payload']['labels']['traefik.http.routers.app-my-site.rule']);
         $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['container_id' => 'x1']]);
+        $this->passHealthChecks($secret);
 
         $job->refresh();
         $this->assertSame('succeeded', $job->status);

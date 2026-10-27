@@ -27,7 +27,17 @@ class ApplicationController extends Controller
             'name' => [$req, 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'source_type' => [$req, Rule::in(['git', 'image', 'dockerfile', 'compose'])],
             'source' => 'nullable|array',
-            'source.repo' => 'nullable|string|max:255', 'source.branch' => 'nullable|string|max:120',
+            'source.repo' => ['nullable', 'string', 'max:512', 'regex:#^(https?://|file:///|/)[^\s]+$#'], 'source.branch' => 'nullable|string|max:120',
+            'source.ref' => ['nullable', 'string', 'max:200', 'regex:#^[A-Za-z0-9][A-Za-z0-9._/-]*$#'],
+            'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
+            'source.context' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
+            'source.build_args' => 'nullable|array', 'source.build_args.*' => 'nullable|string|max:4096',
+            'source.git_token' => 'nullable|string|max:4096', // write-only: stored as a secret, sent to the builder by reference
+            'source.git_username' => 'nullable|string|max:120',
+            'source.git_secret_id' => 'nullable|uuid|exists:secrets,id',
+            'source.push_registry_id' => 'nullable|uuid|exists:registries,id',
+            'health_path' => ['nullable', 'string', 'max:255', 'regex:#^/[^\s]*$#'],
+            'health_timeout' => 'nullable|integer|between:5,900',
             'image' => 'nullable|string|max:255',
             'strategy' => ['sometimes', Rule::in(['recreate', 'rolling', 'blue_green'])],
             'environment' => ['sometimes', Rule::in(['production', 'staging', 'development', 'preview'])],
@@ -59,6 +69,7 @@ class ApplicationController extends Controller
         if (Application::withTrashed()->where('name', $data['name'])->exists()) {
             throw ApiException::validation(['name' => ['An application with this name already exists.']]);
         }
+        $data = $this->storeGitToken($data, $data['name']);
         $app = Application::create(collect($data)->except(['env', 'member_ids'])->all() + ['kind' => 'admin']);
         $this->syncEnv($app, $data['env'] ?? null);
         $this->syncMembers($app, $data['member_ids'] ?? null);
@@ -78,7 +89,7 @@ class ApplicationController extends Controller
     {
         $app = Application::findOrFail($id);
         $this->authorizeFor($request, 'deploy', $app);
-        $data = $request->validate($this->rules(false));
+        $data = $this->storeGitToken($request->validate($this->rules(false)), $app->name, $app->source['git_secret_id'] ?? null);
         $app->update(collect($data)->except(['env', 'member_ids'])->all());
         $this->syncEnv($app, $data['env'] ?? null);
         $this->syncMembers($app, $data['member_ids'] ?? null);
@@ -115,6 +126,26 @@ class ApplicationController extends Controller
         $deployment = $this->deployments->start($app, $request->user(), 'rollback', $release);
 
         return $this->accepted($deployment->job, ['deployment_id' => $deployment->id]);
+    }
+
+    /** A Git token is never stored on the application: it becomes an encrypted secret referenced by id. */
+    private function storeGitToken(array $data, string $name, ?string $existingSecretId = null): array
+    {
+        if (! isset($data['source']) || ! array_key_exists('git_token', $data['source'])) {
+            if (isset($data['source']) && $existingSecretId && ! array_key_exists('git_secret_id', $data['source'])) {
+                $data['source']['git_secret_id'] = $existingSecretId; // keep the stored credential on source edits
+            }
+
+            return $data;
+        }
+        $token = $data['source']['git_token'];
+        unset($data['source']['git_token']);
+        if ($token) {
+            $secret = \App\Models\Secret::create(['name' => "app-{$name}-git-token", 'value' => $token, 'owner_type' => 'application']);
+            $data['source']['git_secret_id'] = $secret->id;
+        }
+
+        return $data;
     }
 
     private function syncEnv(Application $app, ?array $env): void

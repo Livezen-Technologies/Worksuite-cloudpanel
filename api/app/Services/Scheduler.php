@@ -21,7 +21,7 @@ class Scheduler
             ->whereNotNull('last_heartbeat_at')
             ->where('last_heartbeat_at', '>=', now()->subSeconds(config('platform.offline_after_seconds')))
             ->get()
-            ->filter(fn (Server $s) => $s->status === 'online');
+            ->filter(fn (Server $s) => $s->status === 'online' && $s->hasRole('app')); // builder-only nodes never run workloads
 
         if ($app->region) {
             $inRegion = $candidates->where('region', $app->region);

@@ -61,7 +61,7 @@ export default function ServerDetail() {
           </div>
           <Card title="System">
             <dl className="grid gap-x-6 gap-y-3 m-0 text-sm" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-              {([['Hostname', s.hostname], ['OS', s.os], ['Kernel', s.kernel], ['Docker', s.docker_version], ['Agent', s.agent_version], ['Last heartbeat', ago(s.last_heartbeat_at)], ['Environment', s.environment], ['Region', s.region], ['Tags', str(s.tags)]] as const).map(([k, v]) => (
+              {([['Hostname', s.hostname], ['OS', s.os], ['Kernel', s.kernel], ['Docker', s.docker_version], ['Agent', s.agent_version], ['Last heartbeat', ago(s.last_heartbeat_at)], ['Environment', s.environment], ['Region', s.region], ['Tags', str(s.tags)], ['Roles', (s.roles ?? ['app']).join(', ')]] as const).map(([k, v]) => (
                 <div key={k}><dt className="text-xs text-muted">{k}</dt><dd className="m-0 font-semibold">{v ?? '—'}</dd></div>
               ))}
             </dl>
@@ -111,6 +111,18 @@ export default function ServerDetail() {
               <Field label="Tags"><input className="input" value={f.tags} onChange={(e) => setEdit({ ...f, tags: e.target.value })} /></Field>
               <div className="flex items-end"><button className="btn btn-primary" disabled={busy}>Save changes</button></div>
             </form>
+          </Card>
+          <Card title="Roles">
+            <div className="flex items-center gap-3">
+              <Toggle checked={(s.roles ?? ['app']).includes('builder')} label="Builder"
+                onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('builder'); else { roles.delete('builder'); roles.add('app') } run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: v ? 'Make builder' : 'Remove builder role', success: 'Roles saved' }).catch(() => {}) }} />
+              <span className="text-sm"><span className="font-semibold">Builder</span> <span className="text-muted">— runs image builds from Git/Dockerfile sources. Keep builders separate from production hosts.</span></span>
+            </div>
+            <div className="flex items-center gap-3 mt-4">
+              <Toggle checked={(s.roles ?? ['app']).includes('app')} label="Runs applications"
+                onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('app'); else { roles.delete('app'); roles.add('builder') } run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: 'Save roles', success: 'Roles saved' }).catch(() => {}) }} />
+              <span className="text-sm"><span className="font-semibold">Runs applications</span> <span className="text-muted">— the scheduler may place workloads here.</span></span>
+            </div>
           </Card>
           <Card title="Remove server">
             <div className="flex flex-wrap gap-3 items-center justify-between rounded-lg p-4 border border-danger-line">

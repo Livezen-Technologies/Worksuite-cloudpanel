@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         then: function () {
             Route::prefix('agent/v1')->middleware(['api'])->group(base_path('routes/agent.php'));
+            Route::prefix('internal/relay')->middleware(['api', \App\Http\Middleware\VerifyRelaySecret::class])->group(base_path('routes/relay.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
