@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os/exec"
 	"time"
 
@@ -36,6 +37,7 @@ var Types = map[string]bool{
 	"compose.up": true, "compose.down": true, "compose.restart": true,
 	"backup.run": true, "restore.run": true,
 	"agent.update": true, "agent.restart": true,
+	"image.build": true, "image.scan": true, "container.healthcheck": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -64,7 +66,12 @@ type Executor struct {
 	StateDir string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
-	Updater          *update.Updater
+	// AllowLocalGit permits file:// and absolute-path repositories in image.build.
+	AllowLocalGit bool
+	// HealthHTTP / HealthInterval override container.healthcheck defaults (tests).
+	HealthHTTP     *http.Client
+	HealthInterval time.Duration
+	Updater        *update.Updater
 	// Restart re-execs the agent; called after the result is reported.
 	Restart func()
 	Now     func() time.Time

@@ -59,6 +59,7 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		Report:           client.ReportResult,
 		StateDir:         cfg.StateDir,
 		AllowedBindRoots: []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
+		AllowLocalGit:    os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
 		Updater:          up,
 		Log:              logger,
 	}

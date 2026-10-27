@@ -83,6 +83,12 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			}
 			return map[string]any{"logs": s}, nil
 		}
+	case "image.build":
+		return e.buildImage(ctx, c.Payload, progress)
+	case "image.scan":
+		return e.scanImage(ctx, c.Payload, progress)
+	case "container.healthcheck":
+		return e.healthCheck(ctx, c.Payload, progress)
 	case "container.create":
 		return e.createContainer(ctx, c.Payload, progress)
 	case "container.prune":

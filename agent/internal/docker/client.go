@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -150,14 +151,40 @@ type ContainerInspect struct {
 	ID    string `json:"Id"`
 	Name  string `json:"Name"`
 	State struct {
-		Status string `json:"Status"`
-		Health *struct {
+		Status   string `json:"Status"`
+		Running  bool   `json:"Running"`
+		ExitCode int    `json:"ExitCode"`
+		Health   *struct {
 			Status string `json:"Status"`
 		} `json:"Health"`
 	} `json:"State"`
 	Config struct {
 		Tty bool `json:"Tty"`
 	} `json:"Config"`
+	NetworkSettings struct {
+		IPAddress string `json:"IPAddress"`
+		Networks  map[string]struct {
+			IPAddress string `json:"IPAddress"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
+}
+
+// IP returns the container's first internal IPv4 address ("" if none).
+func (ci *ContainerInspect) IP() string {
+	if ci.NetworkSettings.IPAddress != "" {
+		return ci.NetworkSettings.IPAddress
+	}
+	names := make([]string, 0, len(ci.NetworkSettings.Networks))
+	for n := range ci.NetworkSettings.Networks {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if ip := ci.NetworkSettings.Networks[n].IPAddress; ip != "" {
+			return ip
+		}
+	}
+	return ""
 }
 
 // ImageExists reports whether the image reference is present locally.
