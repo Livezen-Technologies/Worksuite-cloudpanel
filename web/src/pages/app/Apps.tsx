@@ -14,7 +14,7 @@ export function appState(s?: string): string {
   const m: Record<string, string> = { running: 'running', exited: 'stopped', stopped: 'stopped', restarting: 'restarting', deploying: 'deploying', failed: 'failed', unhealthy: 'having trouble', created: 'starting', pending: 'starting' }
   return m[String(s)] ?? (s || 'unknown')
 }
-export const appDomain = (a: R) => a.primary_domain ?? a.domain ?? a.domains?.[0]?.hostname ?? a.free_address ?? a.url
+export const appDomain = (a: R): string | undefined => (a.address ? String(a.address).replace(/^https?:\/\//, '') : undefined) ?? a.primary_domain ?? a.domains?.[0]?.name
 
 export function MyApps() {
   const { rows, isLoading, error } = useList<R>('/app/apps', undefined, { refetchInterval: 15000 })
@@ -74,18 +74,26 @@ export function AppDetail() {
     setSettings({ size: a.size ?? 'standard', auto_deploy: !!a.auto_deploy, auto_restart: a.auto_restart !== false })
   }, [a?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   if (isLoading || !a) return <Card>{isLoading ? 'Loading…' : 'We could not find this app.'}</Card>
+  // Metrics are series ({range, cpu:[{t,v}], ram:[{t,v}] in MB}); the app itself carries the latest cpu_pct/ram_mb/limits.
   const m = (metrics.item ?? {}) as R
+  const last = (k: string) => { const xs = (m[k] ?? []) as R[]; return xs.length ? num(xs[xs.length - 1]) : null }
+  const cpu = last('cpu') ?? (a.cpu_pct != null ? num(a.cpu_pct) : null)
+  const ram = last('ram') ?? (a.ram_mb != null ? num(a.ram_mb) : null)
+  const ramLimit = a.ram_limit_mb != null ? num(a.ram_limit_mb) : null
   const stats = [
-    ['CPU', m.cpu_pct != null ? `${Math.round(m.cpu_pct)}% of ${m.cpu_limit ?? ''} vCPU` : '—', num(m.cpu_pct)],
-    ['Memory', `${mb(m.mem_mb ?? m.ram_mb)} of ${mb(m.mem_limit_mb ?? m.ram_limit_mb)}`, num(m.mem_limit_mb ?? m.ram_limit_mb) ? (num(m.mem_mb ?? m.ram_mb) / num(m.mem_limit_mb ?? m.ram_limit_mb)) * 100 : 0],
-    ['Storage', m.storage_gb != null ? `${m.storage_gb} GB of ${m.storage_limit_gb ?? '—'} GB` : '—', num(m.storage_limit_gb) ? (num(m.storage_gb) / num(m.storage_limit_gb)) * 100 : 0],
-    ['Requests (24 h)', m.requests_24h != null ? Number(m.requests_24h).toLocaleString() : '—', -1],
+    ['CPU', cpu != null ? `${Math.round(cpu)}%` : '—', cpu ?? 0],
+    ['Memory', ram != null ? `${mb(ram)}${ramLimit ? ` of ${mb(ramLimit)}` : ''}` : '—', ram != null && ramLimit ? (ram / ramLimit) * 100 : 0],
+    ['Storage', a.storage_gb != null ? `${num(a.storage_gb)} GB included` : '—', -1],
+    ['Requests (24 h)', a.requests_24h != null ? Number(a.requests_24h).toLocaleString() : 'not tracked yet', -1],
   ] as const
-  const addresses: string[] = [...new Set([...(a.domains ?? []).map((d: R | string) => (typeof d === 'string' ? d : d.hostname ?? d.domain)), a.free_address ?? a.url].filter(Boolean))] as string[]
+  const addresses: string[] = [...new Set([
+    ...((a.addresses ?? []) as string[]),
+    ...(a.domains ?? []).filter((d: R | string) => typeof d === 'string' || d.dns_status === 'verified').map((d: R | string) => (typeof d === 'string' ? d : d.name ?? d.domain)),
+  ].filter(Boolean).map((x) => String(x).replace(/^https?:\/\//, '')))]
   const saveEnv = async () => {
     // Secret values left blank keep their current value on the server.
-    await run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: { env: env.filter((e) => e.key).map((e) => ({ key: e.key, secret: e.secret, ...(e.masked && !e.value ? {} : { value: e.value }) })) }, label: 'Save settings', silent: true })
-    await run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` })
+    // PATCH with env (and restart: true) redeploys once and returns the job_id (docs/API.md appendix).
+    await run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: { restart: true, env: env.filter((e) => e.key).map((e) => ({ key: e.key, secret: e.secret, ...(e.masked && !e.value ? {} : { value: e.value }) })) }, label: `Save & restart ${a.name}` })
   }
   return (
     <>
@@ -135,13 +143,13 @@ export function AppDetail() {
       )}
       {tab === 'releases' && (
         <Card title="Releases">
-          {releases.isLoading ? 'Loading…' : releases.rows.length === 0 ? <Empty>No releases yet.</Empty> : releases.rows.map((r, i) => (
+          {releases.isLoading ? 'Loading…' : releases.rows.length === 0 ? <Empty>No releases yet.</Empty> : releases.rows.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center gap-3 py-3 border-t border-line first:border-t-0 text-sm">
               <span className="font-mono font-semibold">{r.version ?? r.id.slice(0, 7)}</span>
-              <StatusBadge status={r.status ?? (i === 0 ? 'live' : 'previous')} />
-              <span className="text-muted flex-1 min-w-[120px]">{r.note ?? r.message ?? ''}</span>
+              <StatusBadge status={r.current || r.status === 'active' ? 'live' : r.status ?? 'previous'} />
+              <span className="font-mono text-xs text-muted flex-1 min-w-[120px] truncate">{r.note ?? r.message ?? r.image ?? ''}</span>
               <span className="text-muted">{ago(r.created_at)}</span>
-              {(r.status ?? (i === 0 ? 'live' : 'previous')) !== 'live' && r.status !== 'failed' && <button type="button" className="btn" onClick={() => setRollback(r)}>Roll back</button>}
+              {!(r.current || r.status === 'active') && r.status !== 'failed' && <button type="button" className="btn" onClick={() => setRollback(r)}>Roll back</button>}
             </div>
           ))}
         </Card>

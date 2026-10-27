@@ -187,7 +187,7 @@ class AgentService
                 ['server_id' => $server->id, 'name' => $n['name']],
                 array_filter(['organization_id' => $server->organization_id, 'docker_id' => $n['id'] ?? null, 'driver' => $n['driver'] ?? 'bridge',
                     'scope' => $n['scope'] ?? null, 'internal' => (bool) ($n['internal'] ?? false), 'status' => 'active',
-                    'subnet' => $n['subnet'] ?? null], fn ($v) => $v !== null),
+                    'subnet' => $n['subnet'] ?? null, 'gateway' => $n['gateway'] ?? null], fn ($v) => $v !== null),
             );
         }
         Network::allTenants()->where('server_id', $server->id)->whereNotIn('name', $seen ?: [''])->where('status', 'active')->delete();

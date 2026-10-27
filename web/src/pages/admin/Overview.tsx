@@ -42,12 +42,21 @@ function statusCards(s: R | R[] | undefined): { label: string; state: string; va
   if (!s) return []
   if (Array.isArray(s)) return s.map((x) => ({ label: String(x.label), state: String(x.state ?? x.status), value: String(x.value ?? ''), detail: x.detail }))
   const out = []
-  const b = s.backups as R | undefined
-  if (b) out.push({ label: 'Backups (24 h)', state: num(b.failed) ? `${num(b.failed)} failed` : 'healthy', value: `${num(b.succeeded)} succeeded · ${num(b.failed)} failed`, detail: b.detail ?? b.last_failure })
-  const c = (s.certificates ?? s.certs) as R | undefined
-  if (c) out.push({ label: 'Certificates', state: num(c.expiring) ? 'expiring' : 'healthy', value: `${num(c.managed ?? c.total)} managed`, detail: c.detail ?? (num(c.expiring) ? `${num(c.expiring)} expiring within 14 days` : 'None expiring soon') })
-  const i = (s.images ?? s.image_scans) as R | undefined
-  if (i) out.push({ label: 'Image security', state: num(i.critical) ? 'critical' : 'healthy', value: `${num(i.critical)} critical CVEs`, detail: i.detail ?? `${num(i.high)} high · ${num(i.medium)} medium` })
+  // API shape (docs/API.md appendix): status{servers{<status>:n}, backups_24h{succeeded,failed,running}, certificates_expiring, image_scans{scanned,critical,high,not_scanned}}
+  const srv = s.servers as R | undefined
+  if (srv && typeof srv === 'object') {
+    const total = Object.values(srv).reduce((a: number, v) => a + num(v), 0)
+    const off = num(srv.offline)
+    out.push({ label: 'Servers', state: off ? `${off} offline` : 'healthy', value: `${num(srv.online)} online of ${total}`, detail: Object.entries(srv).map(([k, v]) => `${num(v)} ${k}`).join(' · ') })
+  }
+  const b = (s.backups_24h ?? s.backups) as R | undefined
+  if (b) out.push({ label: 'Backups (24 h)', state: num(b.failed) ? `${num(b.failed)} failed` : 'healthy', value: `${num(b.succeeded)} succeeded · ${num(b.failed)} failed`, detail: b.detail ?? (num(b.running) ? `${num(b.running)} running` : undefined) })
+  if (s.certificates_expiring != null) {
+    const n = num(s.certificates_expiring)
+    out.push({ label: 'Certificates', state: n ? 'expiring' : 'healthy', value: n ? `${n} expiring soon` : 'None expiring soon', detail: 'Expiring within 14 days' })
+  }
+  const i = (s.image_scans ?? s.images) as R | undefined
+  if (i) out.push({ label: 'Image security', state: num(i.critical) ? 'critical' : 'healthy', value: `${num(i.critical)} critical CVEs`, detail: `${num(i.high)} high · ${num(i.scanned)} scanned · ${num(i.not_scanned)} not scanned` })
   return out
 }
 
@@ -102,13 +111,13 @@ export default function Overview() {
         <Card className="flex-[2_1_520px]" pad={false} title="Recent deployments" actions={<Link to="/admin/applications" className="text-[13px] font-semibold">History</Link>}>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px] min-w-[620px]">
-              <thead><tr className="text-left text-muted text-xs bg-head"><th className="py-2.5 px-5">Application</th><th className="p-2.5">Environment</th><th className="p-2.5">Source</th><th className="p-2.5">Status</th><th className="p-2.5">Author</th><th className="py-2.5 pr-5 pl-2">When</th></tr></thead>
+              <thead><tr className="text-left text-muted text-xs bg-head"><th className="py-2.5 px-5">Application</th><th className="p-2.5">Trigger</th><th className="p-2.5">Source</th><th className="p-2.5">Status</th><th className="p-2.5">Author</th><th className="py-2.5 pr-5 pl-2">When</th></tr></thead>
               <tbody>
                 {deploys.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No deployments yet.</td></tr>}
                 {deploys.slice(0, 8).map((x, i) => (
                   <tr key={x.id ?? i} className="border-t border-line">
-                    <td className="py-3 px-5 font-semibold">{x.application_name ?? x.application ?? x.app} <span className="font-mono font-normal text-[11px] text-muted">{x.version}</span></td>
-                    <td className="p-2.5 text-muted">{x.environment ?? '—'}</td>
+                    <td className="py-3 px-5 font-semibold">{x.application_name ?? x.application ?? x.app}{x.version != null && <span className="font-mono font-normal text-[11px] text-muted"> {x.version}</span>}</td>
+                    <td className="p-2.5 text-muted">{x.trigger ?? x.environment ?? '—'}</td>
                     <td className="p-2.5 text-muted">{x.source ?? '—'}</td>
                     <td className="p-2.5"><StatusBadge status={x.status} /></td>
                     <td className="p-2.5 text-muted">{x.author ?? x.user ?? '—'}</td>
@@ -126,7 +135,7 @@ export default function Overview() {
                 const c = num(t.cpu_pct ?? t.cpu)
                 return (
                   <li key={t.id ?? i}>
-                    <div className="flex justify-between text-[13px] gap-2"><span className="font-semibold truncate">{t.name} <span className="font-normal text-muted">· {t.server_name ?? t.server}</span></span><span className="text-muted">{Math.round(c)}% CPU</span></div>
+                    <div className="flex justify-between text-[13px] gap-2"><span className="font-semibold truncate">{t.name}{(t.server_name ?? t.mem_mb) != null && <span className="font-normal text-muted"> · {t.server_name ?? `${Math.round(num(t.mem_mb))} MB`}</span>}</span><span className="text-muted">{Math.round(c)}% CPU</span></div>
                     <div className="mt-1.5"><Meter value={c} label={`${t.name} CPU`} color="var(--accent)" /></div>
                   </li>
                 )

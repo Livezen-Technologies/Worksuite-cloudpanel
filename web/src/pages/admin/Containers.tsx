@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
-import { useAction, useList, useOne } from '../../api/hooks'
+import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
 import { Field, PageHeader } from '../../components/Card'
 import { Dot, StatusBadge, type Tone } from '../../components/Badge'
@@ -12,7 +12,7 @@ import { LogView } from '../../components/LogView'
 import { TerminalDialog } from '../../components/Terminal'
 import { useToast } from '../../components/Toasts'
 import { mb, pct, str, unwrap } from '../../lib/format'
-import { serverName, type R } from '../../lib/util'
+import { type R } from '../../lib/util'
 
 const ports = (p: Container['ports']) => (Array.isArray(p) ? p.join(', ') : p) || '—'
 const dotTone = (c: Container): Tone => (c.state === 'running' ? (c.health === 'unhealthy' ? 'r' : 'g') : c.state === 'paused' ? 'y' : 'n')
@@ -33,6 +33,7 @@ function RemoveDialog({ c, open, onClose }: { c: Container; open: boolean; onClo
 }
 
 function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
+  const serverName = useServerName()
   const { item: c } = useOne<Container & R>(`/containers/${id}`, undefined, { refetchInterval: 10000 })
   const { run, busy } = useAction()
   const [term, setTerm] = useState(false)
@@ -72,6 +73,7 @@ function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function PruneDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const serverName = useServerName()
   const [preview, setPreview] = useState<R | null>(null)
   const [loading, setLoading] = useState(false)
   const toast = useToast()
@@ -193,6 +195,7 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
 }
 
 export default function Containers() {
+  const serverName = useServerName()
   const [params, setParams] = useSearchParams()
   const [server, setServer] = useState('')
   const servers = useList<Server>('/servers')

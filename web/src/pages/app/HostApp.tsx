@@ -60,7 +60,8 @@ export default function HostApp() {
 
   const sizePrice = (id: string, fallback: number) => {
     const list = (Array.isArray(plans.item) ? plans.item : (plans.item as R | undefined)?.sizes ?? []) as R[]
-    const p = list.find((x) => x.id === id || String(x.name ?? '').toLowerCase() === id)
+    const p = list.find((x) => x.code === id || x.id === id || String(x.name ?? '').toLowerCase() === id)
+    if (p?.price_cents != null) return money(Number(p.price_cents) / 100, p.currency)
     return p?.price != null ? money(p.price) : money(fallback)
   }
 
@@ -81,7 +82,10 @@ export default function HostApp() {
       const r = unwrap<R>(await api.post('/app/apps/validate-source', { source: source() }))
       if (r?.ok === false || r?.valid === false) { setErr(r.message ?? 'We could not reach that image. Check the name and credentials.'); return }
       if (src === 'image' && r?.suggested_port && c.port === '80') setC((x) => ({ ...x, port: String(r.suggested_port) }))
-      if (src === 'template' && !c.name) setC((x) => ({ ...x, name: s.template.toLowerCase().replace(/\s+/g, '-') }))
+      if (src === 'template') {
+        const t = (r?.template ?? templates.rows.find((x) => x.id === s.template)) as R | undefined
+        setC((x) => ({ ...x, name: x.name || s.template.toLowerCase().replace(/[^a-z0-9-]+/g, '-'), port: t?.port ? String(t.port) : x.port, ...(t?.volume_path ? { volume: true, volume_path: String(t.volume_path) } : {}) }))
+      }
       setSrcOk(true); setStep(1)
     } catch (e) {
       setErr(isApiError(e) ? (e.status === 422 ? (Object.values(e.fields)[0]?.[0] ?? e.message) : e.message) + ' Check the details and try again.' : 'Something went wrong.')
@@ -115,7 +119,8 @@ export default function HostApp() {
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const nameErr = c.name ? validateAppName(c.name) : null
-  const address = (job?.result as R | undefined)?.address ?? (job?.result as R | undefined)?.url ?? deploy?.app?.free_address ?? deploy?.app?.url ?? (deploy ? `${deploy.app.name ?? c.name}.${deploy.app.platform_domain ?? 'livezen.app'}` : '')
+  const rawAddress = (job?.result as R | undefined)?.address ?? (job?.result as R | undefined)?.url ?? deploy?.app?.address ?? deploy?.app?.primary_domain ?? (deploy ? `${deploy.app.name ?? c.name}.livezen.app` : '')
+  const address = String(rawAddress).replace(/^https?:\/\//, '')
   const stages = job?.stages?.length ? job.stages : STAGES.map((name) => ({ name, status: 'pending' }))
 
   const steps = [
@@ -156,8 +161,8 @@ export default function HostApp() {
           )}
           <div className="text-sm font-semibold">{src === 'template' ? 'Pick a template:' : 'Or start from a template:'}</div>
           <div className="flex flex-wrap gap-2">
-            {(templates.rows.length ? templates.rows.map((t) => String(t.name ?? t.id)) : TEMPLATES).map((t) => (
-              <button key={t} type="button" className="chip" aria-pressed={src === 'template' && s.template === t} onClick={() => { setSrc('template'); setS({ ...s, template: t }) }}>{t}</button>
+            {(templates.rows.length ? templates.rows.map((t) => ({ id: String(t.id), name: String(t.name ?? t.id) })) : TEMPLATES.map((t) => ({ id: t.toLowerCase().replace(/\s+/g, '-'), name: t }))).map((t) => (
+              <button key={t.id} type="button" className="chip" aria-pressed={src === 'template' && s.template === t.id} onClick={() => { setSrc('template'); setS({ ...s, template: t.id }) }}>{t.name}</button>
             ))}
           </div>
         </div>
@@ -227,7 +232,7 @@ export default function HostApp() {
           <h2 className="m-0 text-lg font-semibold">Ready to go</h2>
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted">App</dt><dd className="m-0 font-semibold">{c.name}</dd>
-            <dt className="text-muted">From</dt><dd className="m-0 font-mono text-xs break-all">{src === 'image' ? s.image : src === 'git' ? s.repo : src === 'template' ? s.template : 'compose file'}</dd>
+            <dt className="text-muted">From</dt><dd className="m-0 font-mono text-xs break-all">{src === 'image' ? s.image : src === 'git' ? s.repo : src === 'template' ? (templates.rows.find((t) => t.id === s.template)?.name ?? s.template) : 'compose file'}</dd>
             <dt className="text-muted">Size</dt><dd className="m-0">{SIZES.find((x) => x.id === size)?.name}</dd>
             <dt className="text-muted">Variables</dt><dd className="m-0">{env.filter((e) => e.key).length}</dd>
           </dl>

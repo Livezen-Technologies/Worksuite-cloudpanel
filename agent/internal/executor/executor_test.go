@@ -28,6 +28,10 @@ type fakeDocker struct {
 	mu    sync.Mutex
 	calls []string
 	body  map[string]any
+	// pullStatus, when set, is returned for POST /images/create (e.g. 429 rate limit).
+	pullStatus int
+	// localImages are answered by GET /images/{ref}/json; others are 404.
+	localImages map[string]bool
 }
 
 func (f *fakeDocker) handler(t *testing.T) http.Handler {
@@ -36,6 +40,17 @@ func (f *fakeDocker) handler(t *testing.T) http.Handler {
 		f.calls = append(f.calls, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
 		f.mu.Unlock()
 		switch {
+		case r.URL.Path == "/images/create" && f.pullStatus != 0:
+			w.WriteHeader(f.pullStatus)
+			w.Write([]byte(`{"message":"toomanyrequests: rate limit"}`))
+		case strings.HasPrefix(r.URL.Path, "/images/") && strings.HasSuffix(r.URL.Path, "/json"):
+			ref := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/images/"), "/json")
+			if !f.localImages[ref] {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"message":"No such image"}`))
+				return
+			}
+			w.Write([]byte(`{"Id":"sha256:abc"}`))
 		case r.URL.Path == "/containers/create":
 			b, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
@@ -318,5 +333,30 @@ func TestAgentRestart(t *testing.T) {
 	}
 	if _, err := e.Handle(context.Background(), cmd("au", "agent.update", `{"url":"https://x"}`, now)); err == nil {
 		t.Fatal("update without updater accepted")
+	}
+}
+
+func TestCreatePullAlwaysFallsBackToLocalImage(t *testing.T) {
+	e, fd, _, _ := setup(t)
+	fd.pullStatus = 429
+	fd.localImages = map[string]bool{"e2e/hello:1": true}
+	r, err := e.Handle(context.Background(), cmd("pa1", "container.create", `{"name":"a","image":"e2e/hello:1","pull":"always"}`, now))
+	if err != nil || r.Status != "succeeded" {
+		t.Fatalf("expected fallback to local image: %+v %v", r, err)
+	}
+	if !fd.has("POST /containers/create") {
+		t.Fatal(fd.calls)
+	}
+}
+
+func TestCreatePullAlwaysFailsWithoutLocalImage(t *testing.T) {
+	e, fd, _, _ := setup(t)
+	fd.pullStatus = 429
+	r, err := e.Handle(context.Background(), cmd("pa2", "container.create", `{"name":"a","image":"nginx:1.27","pull":"always"}`, now))
+	if err == nil && r.Status == "succeeded" {
+		t.Fatalf("expected failure: %+v", r)
+	}
+	if fd.has("POST /containers/create") {
+		t.Fatal("must not create without an image", fd.calls)
 	}
 }

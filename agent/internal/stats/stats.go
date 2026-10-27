@@ -203,7 +203,8 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 	}
 	if ns, err := dc.ListNetworks(ctx); err == nil {
 		for _, n := range ns {
-			inv.Networks = append(inv.Networks, protocol.Network{ID: n.ID, Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal})
+			subnet, gateway := n.FirstSubnet()
+			inv.Networks = append(inv.Networks, protocol.Network{ID: n.ID, Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal, Subnet: subnet, Gateway: gateway})
 		}
 	}
 	if vs, err := dc.ListVolumes(ctx); err == nil {

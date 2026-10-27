@@ -45,7 +45,7 @@ export function Users() {
                   {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{pretty(String(x))}</option>)}
                 </select>) },
               { key: 'auth', header: 'Sign-in', value: (r) => r.sign_in_method ?? (r.mfa_enabled ? 'MFA' : 'Password') },
-              { key: 'last', header: 'Last active', value: (r) => r.last_active_at ?? '', render: (r) => ago(r.last_active_at) },
+              { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
               { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? (r.invited ? 'pending' : 'active')} /> },
               { key: 'rm', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setRemove(r) }}>Remove</button> },
             ]} />

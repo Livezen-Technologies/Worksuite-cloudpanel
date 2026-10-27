@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { useAction, useList } from '../../api/hooks'
+import { useAction, useList, useServerName } from '../../api/hooks'
 import type { Server } from '../../api/types'
 import { Card, Meter, PageHeader, StatTile, Empty } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
@@ -9,7 +9,7 @@ import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { FormModal } from '../../components/FormModal'
 import { useToast } from '../../components/Toasts'
 import { ago, daysUntil, mb, str, unwrap } from '../../lib/format'
-import { num, serverName, type R } from '../../lib/util'
+import { num, type R } from '../../lib/util'
 
 const mono = (v: unknown) => <span className="font-mono text-[11.5px] text-muted">{str(v)}</span>
 function useServerOptions() {
@@ -28,6 +28,7 @@ function DeleteConfirm({ target, onClose, path, noun }: { target: R | null; onCl
 }
 
 function PrunePreview({ open, onClose, previewPath, prunePath, noun }: { open: boolean; onClose: () => void; previewPath: string; prunePath: string; noun: string }) {
+  const serverName = useServerName()
   const [items, setItems] = useState<R[] | null>(null)
   const [meta, setMeta] = useState<R>({})
   const { run, busy } = useAction()
@@ -51,7 +52,14 @@ function PrunePreview({ open, onClose, previewPath, prunePath, noun }: { open: b
   )
 }
 
+/** Image rows carry `tags: ["repo:tag", ...]` (docs/API.md); show just the tag parts. */
+function imageTags(r: R): string {
+  const tags = (r.tags ?? []) as string[]
+  return tags.map((t) => (t.includes(':') ? t.slice(t.lastIndexOf(':') + 1) : t)).join(', ') || '<none>'
+}
+
 export function Images() {
+  const serverName = useServerName()
   const regs = useList<R>('/registries')
   const images = useList<R>('/images')
   const { run } = useAction()
@@ -75,15 +83,15 @@ export function Images() {
       </div>
       <Card title="Images" pad={false} actions={<><span className="text-xs text-muted">{dangling.length} dangling</span><button type="button" className="btn btn-sm" onClick={() => setPrune(true)}>Prune unused</button></>}>
         <DataTable label="Images" rows={images.rows} loading={images.isLoading} rowKey={(r) => r.id} minWidth={900}
-          filters={[{ id: 'vuln', label: 'Critical / high', test: (r) => num(r.scan?.critical ?? r.critical) + num(r.scan?.high ?? r.high) > 0 }, { id: 'dangling', label: 'Dangling', test: (r) => !!r.dangling || r.tag === '<none>' }]}
+          filters={[{ id: 'vuln', label: 'Critical / high', test: (r) => num((r.scan_result ?? r.scan)?.critical ?? r.critical) + num((r.scan_result ?? r.scan)?.high ?? r.high) > 0 }, { id: 'dangling', label: 'Dangling', test: (r) => !!r.dangling || r.tag === '<none>' }]}
           columns={[
             { key: 'repository', header: 'Repository', value: (r) => r.repository ?? r.name, render: (r) => <span className="font-semibold">{r.repository ?? r.name}</span> },
-            { key: 'tag', header: 'Tag', render: (r) => mono(r.tag) },
+            { key: 'tag', header: 'Tag', render: (r) => mono(r.tag ?? imageTags(r)) },
             { key: 'digest', header: 'Digest', render: (r) => mono(String(r.digest ?? '').slice(0, 19)) },
             { key: 'size', header: 'Size', value: (r) => num(r.size_mb), render: (r) => r.size ?? mb(r.size_mb) },
-            { key: 'containers', header: 'Used by', value: (r) => num(r.container_count ?? r.containers), render: (r) => `${num(r.container_count ?? r.containers)} containers` },
+            { key: 'containers', header: 'Used by', value: (r) => num(r.users ?? r.container_count ?? r.containers), render: (r) => `${num(r.users ?? r.container_count ?? r.containers)} containers` },
             { key: 'server', header: 'Server', value: (r) => serverName(r) },
-            { key: 'scan', header: 'Scan', render: (r) => { const c = num(r.scan?.critical ?? r.critical), h = num(r.scan?.high ?? r.high), m = num(r.scan?.medium ?? r.medium); const scanned = r.scan || r.scanned_at || r.scan_status; return !scanned ? <Badge tone="n">not scanned</Badge> : <Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium` : 'clean'}</Badge> } },
+            { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); return !scanned ? <Badge tone="n">not scanned</Badge> : <Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium` : 'clean'}</Badge> } },
             { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
           ]} />
       </Card>
@@ -97,6 +105,7 @@ export function Images() {
 }
 
 export function Networks() {
+  const serverName = useServerName()
   const { rows, isLoading } = useList<R>('/networks')
   const servers = useServerOptions()
   const { run } = useAction()
@@ -148,6 +157,7 @@ export function Networks() {
 }
 
 export function Volumes() {
+  const serverName = useServerName()
   const pools = useList<R>('/storage-pools')
   const { rows, isLoading } = useList<R>('/volumes')
   const servers = useServerOptions()
@@ -189,13 +199,18 @@ export function Volumes() {
   )
 }
 
+/** Domain shape per docs/API.md appendix: name, app_name, target_port, dns_status, https_status, certificate{status,expires_at,days_left}. */
+const certExpiry = (d: R): string | null => d.certificate?.expires_at ?? d.certificate_expires_at ?? null
+const certDays = (d: R): number | null => (d.certificate?.days_left != null ? Math.floor(num(d.certificate.days_left)) : daysUntil(certExpiry(d)))
 function certState(d: R): string {
-  const days = daysUntil(d.certificate_expires_at ?? d.expires_at)
+  const days = certDays(d)
   if (d.dns_status && d.dns_status !== 'verified') return 'pending DNS'
   if (days !== null && days < 0) return 'expired'
   if (days !== null && days <= 14) return 'expiring'
-  return d.certificate_status ?? d.ssl_status ?? (days !== null ? 'valid' : 'pending')
+  if (d.https_status === 'active' || d.certificate?.status === 'active') return 'valid'
+  return d.https_status ?? d.certificate?.status ?? 'pending'
 }
+const domainName = (d: R): string => d.name ?? d.domain ?? d.hostname
 
 export function Domains() {
   const { rows, isLoading } = useList<R>('/domains')
@@ -218,27 +233,27 @@ export function Domains() {
         filters={[
           { id: 'expiring', label: 'Expiring', test: (d) => ['expiring', 'expired'].includes(certState(d)) },
           { id: 'pending', label: 'Pending', test: (d) => certState(d).startsWith('pending') },
-          { id: 'wildcard', label: 'Wildcard', test: (d) => String(d.hostname ?? d.name).startsWith('*') || !!d.wildcard },
+          { id: 'wildcard', label: 'Wildcard', test: (d) => String(domainName(d)).startsWith('*') || !!d.wildcard },
         ]}
         columns={[
-          { key: 'hostname', header: 'Domain', value: (r) => r.hostname ?? r.name, render: (r) => <span className="font-mono text-xs font-semibold">{r.hostname ?? r.name}</span> },
-          { key: 'app', header: 'Application', value: (r) => r.application_name ?? r.application?.name ?? '—' },
-          { key: 'org', header: 'Organisation', value: (r) => r.organization_name ?? r.organization?.name ?? '—' },
-          { key: 'port', header: 'Port', value: (r) => r.port ?? r.internal_port ?? '—' },
+          { key: 'hostname', header: 'Domain', value: (r) => domainName(r), render: (r) => <span className="font-mono text-xs font-semibold">{domainName(r)}</span> },
+          { key: 'app', header: 'Application', value: (r) => r.app_name ?? r.application_name ?? r.application?.name ?? '—' },
+          { key: 'https', header: 'HTTPS', render: (r) => <StatusBadge status={r.https_status ?? 'pending'} /> },
+          { key: 'port', header: 'Port', value: (r) => r.target_port ?? r.port ?? '—' },
           { key: 'cert', header: 'Certificate', value: (r) => certState(r), render: (r) => <Badge tone={toneFor(certState(r).split(' ')[0])}>{certState(r)}</Badge> },
-          { key: 'expires', header: 'Expires', value: (r) => daysUntil(r.certificate_expires_at ?? r.expires_at) ?? 9999, render: (r) => { const d = daysUntil(r.certificate_expires_at ?? r.expires_at); return d === null ? '—' : `${d} days` } },
+          { key: 'expires', header: 'Expires', value: (r) => certDays(r) ?? 9999, render: (r) => { const d = certDays(r); return d === null ? (r.https_status === 'active' ? 'n/a' : 'no certificate') : `${d} days` } },
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ?? '—' },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${r.hostname ?? r.name}` }).catch(() => {})}>Check DNS</button>
-              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.hostname ?? r.name}` }).catch(() => {})}>Issue cert</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel({ ...r, name: r.hostname ?? r.name })}>Delete</button>
+              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {})}>Check DNS</button>
+              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {})}>Issue cert</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel({ ...r, name: domainName(r) })}>Delete</button>
             </span>) },
         ]} />
-      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{d.hostname ?? d.name}: the certificate expires in {daysUntil(d.certificate_expires_at ?? d.expires_at)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}
-      <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'http-01', port: 80 }}
-        fields={[{ name: 'hostname', label: 'Domain', required: true, mono: true, placeholder: 'app.example.com' }, { name: 'application_id', label: 'Application', type: 'select', options: apps.rows.map((a) => ({ value: a.id, label: a.name })), required: true }, { name: 'port', label: 'Internal port', type: 'number' }, { name: 'challenge', label: 'Certificate challenge', type: 'select', options: ['http-01', 'dns-01'], required: true }, { name: 'wildcard', label: 'Wildcard certificate', type: 'checkbox', hint: 'requires DNS-01' }, { name: 'redirect_www', label: 'Redirect www', type: 'checkbox' }, { name: 'websocket', label: 'WebSocket routing', type: 'checkbox' }, { name: 'headers', label: 'Custom headers', type: 'textarea', mono: true, placeholder: 'X-Frame-Options: DENY' }]}
-        onSubmit={(v) => run({ path: '/domains', body: { ...v, headers: String(v.headers ?? '').split('\n').filter(Boolean) }, label: `Add ${v.hostname}`, success: 'Domain added — DNS check started' })} />
+      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}
+      <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'http-01', target_port: 80 }}
+        fields={[{ name: 'name', label: 'Domain', required: true, mono: true, placeholder: 'app.example.com' }, { name: 'application_id', label: 'Application', type: 'select', options: apps.rows.map((a) => ({ value: a.id, label: a.name })), required: true }, { name: 'target_port', label: 'Internal port', type: 'number' }, { name: 'challenge', label: 'Certificate challenge', type: 'select', options: ['http-01', 'dns-01'], required: true }, { name: 'wildcard', label: 'Wildcard certificate', type: 'checkbox', hint: 'requires DNS-01' }, { name: 'www_redirect', label: 'Redirect www', type: 'checkbox' }, { name: 'websocket', label: 'WebSocket routing', type: 'checkbox' }, { name: 'headers', label: 'Custom headers', type: 'textarea', mono: true, placeholder: 'X-Frame-Options: DENY' }]}
+        onSubmit={(v) => run({ path: '/domains', body: { name: v.name, application_id: v.application_id, target_port: v.target_port ? Number(v.target_port) : null, challenge: v.wildcard ? 'dns-01' : v.challenge, www_redirect: !!v.www_redirect, options: { websocket: !!v.websocket, headers: String(v.headers ?? '').split('\n').filter(Boolean) } }, label: `Add ${v.name}`, success: 'Domain added — DNS check started' })} />
       <DeleteConfirm target={del} onClose={() => setDel(null)} path={(r) => `/domains/${r.id}`} noun="domain" />
     </>
   )
@@ -246,6 +261,7 @@ export function Domains() {
 
 const ENGINES: Record<string, string> = { postgresql: 'PG', mysql: 'MY', mariadb: 'MD', redis: 'RD', mongodb: 'MG' }
 export function Databases() {
+  const serverName = useServerName()
   const { rows, isLoading } = useList<R>('/databases', undefined, { refetchInterval: 20000 })
   const servers = useServerOptions()
   const { run, busy } = useAction()

@@ -120,8 +120,14 @@ class ContainerService
     /** LOG-001: last known logs plus a fresh fetch request. */
     public function logs(Container $container, int $tail): array
     {
-        $job = $this->jobs->create('container.logs', ['execute'], $container);
-        $this->bus->dispatch($container->server, 'container.logs', ['container_id' => $container->dockerRef(), 'tail' => $tail, 'timestamps' => true], $job);
+        // Viewers poll every few seconds: reuse a fetch that is still in flight instead of queueing
+        // one agent command per poll (they would pile up for an offline server).
+        $job = \App\Models\Job::where('type', 'container.logs')->where('resource_type', 'Container')->where('resource_id', $container->id)
+            ->whereIn('status', ['queued', 'running'])->where('created_at', '>=', now()->subMinute())->latest()->first();
+        if (! $job) {
+            $job = $this->jobs->create('container.logs', ['execute'], $container);
+            $this->bus->dispatch($container->server, 'container.logs', ['container_id' => $container->dockerRef(), 'tail' => $tail, 'timestamps' => true], $job);
+        }
         $lines = $container->last_logs ? array_slice(explode("\n", rtrim($container->last_logs)), -$tail) : [];
 
         return ['container_id' => $container->id, 'lines' => $lines, 'fetched_at' => $container->logs_fetched_at?->toIso8601ZuluString(), 'job_id' => $job->id];

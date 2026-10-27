@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
-import { useAction, useJob, useList } from '../../api/hooks'
+import { useAction, useJob, useList, useOne, useServerName } from '../../api/hooks'
 import type { JobStage, Server } from '../../api/types'
 import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
@@ -11,7 +11,7 @@ import { JobTimeline } from '../../components/JobTimeline'
 import { CodeEditor } from '../../components/CodeEditor'
 import { useToast } from '../../components/Toasts'
 import { ago, unwrap } from '../../lib/format'
-import { serverName, type R } from '../../lib/util'
+import { type R } from '../../lib/util'
 
 const SOURCES = [['git', 'Git repository', 'GitHub · GitLab · Gitea'], ['image', 'Docker image', 'Public or private registry'], ['dockerfile', 'Dockerfile', 'Build from source, isolated runner'], ['compose', 'Compose stack', 'Multi-service application']] as const
 const STRATEGIES = [['recreate', 'Recreate', 'Simple; brief downtime'], ['rolling', 'Rolling update', 'Replace instances one by one'], ['blue_green', 'Blue-green', 'Switch traffic after health checks']] as const
@@ -26,7 +26,11 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const submit = async () => {
     try {
-      await run({ path: '/applications', body: f, label: `Create ${f.name}`, success: 'Application created' })
+      const body = {
+        name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval,
+        ...(f.source_type === 'image' ? { image: f.image } : { source: { repo: f.repo, branch: f.branch } }),
+      }
+      await run({ path: '/applications', body, label: `Create ${f.name}`, success: 'Application created' })
       onClose()
     } catch (e) { setErrors(Object.fromEntries(Object.entries((e as { fields?: Record<string, string[]> }).fields ?? {}).map(([k, v]) => [k, v[0]]))) }
   }
@@ -46,7 +50,7 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
           <Field label="Name" error={errors.name}><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
           {f.source_type === 'image' ? <Field label="Image" error={errors.image}><input className="input font-mono" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} /></Field>
-            : <><Field label="Repository URL" error={errors.repo}><input className="input font-mono" value={f.repo} onChange={(e) => setF({ ...f, repo: e.target.value })} /></Field>
+            : <><Field label="Repository URL" error={errors.repo ?? errors['source.repo']}><input className="input font-mono" value={f.repo} onChange={(e) => setF({ ...f, repo: e.target.value })} /></Field>
               <Field label="Branch"><input className="input" value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} /></Field></>}
           <Field label="Environment"><select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></select></Field>
           <Field label="Target server" hint="Leave empty to let the scheduler place it"><select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</select></Field>
@@ -81,7 +85,7 @@ function Pipeline({ d }: { d: R }) {
   const { job } = useJob(d.job_id)
   const stages: JobStage[] = job?.stages?.length ? job.stages : (d.stages as JobStage[] | undefined) ?? PIPELINE.map((name) => ({ name, status: 'pending' }))
   return (
-    <Card title={`Pipeline · ${d.application_name ?? d.application?.name ?? 'deployment'} ${d.version ?? ''} → ${d.environment ?? ''}`} actions={<StatusBadge status={job?.status ?? d.status} />}>
+    <Card title={`Pipeline · ${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}${d.environment ? ` → ${d.environment}` : ''}`} actions={<StatusBadge status={job?.status ?? d.status} />}>
       <JobTimeline job={job} stages={stages} />
     </Card>
   )
@@ -95,13 +99,13 @@ function Releases({ app }: { app: R }) {
     <Card title={`Releases · ${app.name}`}>
       {isLoading ? 'Loading…' : rows.length === 0 ? <Empty>No releases yet.</Empty> : (
         <ul className="list-none m-0 p-0">
-          {rows.map((r, i) => (
+          {rows.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-3 py-3 border-t border-line text-sm">
               <span className="font-mono font-semibold">{r.version ?? r.tag ?? r.id.slice(0, 8)}</span>
-              <StatusBadge status={i === 0 && !r.status ? 'live' : r.status ?? 'previous'} />
-              <span className="font-mono text-xs text-muted truncate max-w-[220px]">{r.image_digest ?? r.digest ?? r.commit}</span>
+              <StatusBadge status={r.current || r.status === 'active' ? 'live' : r.status ?? 'previous'} />
+              <span className="font-mono text-xs text-muted truncate max-w-[220px]">{r.image_digest ?? r.digest ?? r.image ?? r.commit}</span>
               <span className="text-muted ml-auto">{ago(r.created_at)}</span>
-              {i > 0 && <button type="button" className="btn btn-sm" onClick={() => setTarget(r)}>Roll back</button>}
+              {!(r.current || r.status === 'active') && <button type="button" className="btn btn-sm" onClick={() => setTarget(r)}>Roll back</button>}
             </li>
           ))}
         </ul>
@@ -115,6 +119,7 @@ function Releases({ app }: { app: R }) {
 }
 
 export function Applications() {
+  const serverName = useServerName()
   const [params, setParams] = useSearchParams()
   const apps = useList<R>('/applications')
   const deployments = useList<R>('/deployments', undefined, { refetchInterval: 10000 })
@@ -157,9 +162,9 @@ export function Applications() {
       <Card title="Release history" pad={false}>
         <DataTable label="Deployments" rows={deployments.rows} loading={deployments.isLoading} rowKey={(r) => r.id}
           columns={[
-            { key: 'application', header: 'Application', value: (r) => r.application_name ?? r.application?.name ?? r.application_id, render: (r) => <span className="font-semibold">{r.application_name ?? r.application?.name ?? r.application_id}</span> },
-            { key: 'version', header: 'Version', render: (r) => <span className="font-mono text-xs">{r.version ?? '—'}</span> },
-            { key: 'environment', header: 'Environment', render: (r) => <StatusBadge status={r.environment} /> },
+            { key: 'application', header: 'Application', value: (r) => appLabel(r), render: (r) => <span className="font-semibold">{appLabel(r)}</span> },
+            { key: 'version', header: 'Version', render: (r) => <span className="font-mono text-xs">{r.version ?? imageTag(r.image) ?? '—'}</span> },
+            { key: 'environment', header: 'Environment', render: (r) => <StatusBadge status={r.environment ?? apps.rows.find((a) => a.id === r.application_id)?.environment ?? 'unknown'} /> },
             { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
             { key: 'source', header: 'Source', render: (r) => <span className="font-mono text-xs text-muted">{r.source ?? r.commit ?? '—'}</span> },
             { key: 'author', header: 'Author', value: (r) => r.author ?? r.user_name },
@@ -173,29 +178,42 @@ export function Applications() {
   )
 }
 
+/** Deployment rows carry `application` as the app name string (docs/API.md appendix). */
+function appLabel(r: R): string {
+  return r.application_name ?? (typeof r.application === 'string' ? r.application : r.application?.name) ?? r.application_id
+}
+function imageTag(image?: string | null): string | null {
+  const m = image ? /:([^:/]+)$/.exec(image) : null
+  return m ? m[1] : null
+}
+
 const SAMPLE = `services:\n  web:\n    image: nginx:1.27-alpine\n    ports:\n      - "8080:80"\n    restart: unless-stopped\n`
 
-function StackEditor({ stack }: { stack: R }) {
-  const [yaml, setYaml] = useState<string>(stack.yaml ?? stack.compose ?? stack.content ?? '')
+function StackEditor({ stack: row }: { stack: R }) {
+  const serverName = useServerName()
+  // List rows omit the YAML; the detail endpoint carries the current revision's `yaml`.
+  const detail = useOne<R>(`/compose-projects/${row.id}`)
+  const stack = { ...row, ...(detail.item ?? {}) } as R
+  const [yaml, setYaml] = useState<string>(stack.yaml ?? '')
   const [result, setResult] = useState<{ kind: 'valid' | 'invalid' | 'diff'; text: string[]; line?: number } | null>(null)
   const revisions = useList<R>(`/compose-projects/${stack.id}/revisions`)
   const { run, busy } = useAction()
   const toast = useToast()
   const [confirm, setConfirm] = useState<null | 'remove' | R>(null)
-  useEffect(() => { setYaml(stack.yaml ?? stack.compose ?? stack.content ?? ''); setResult(null) }, [stack.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setYaml(stack.yaml ?? ''); setResult(null) }, [stack.id, stack.yaml]) // eslint-disable-line react-hooks/exhaustive-deps
   const validate = async () => {
     try {
       const r = unwrap<R>(await api.post(`/compose-projects/${stack.id}/validate`, { yaml }))
       const errs = (r.errors ?? []) as (string | R)[]
-      if (r.valid === false || errs.length) setResult({ kind: 'invalid', text: errs.map((e) => (typeof e === 'string' ? e : `line ${e.line ?? '?'}: ${e.message}`)), line: typeof errs[0] === 'object' ? (errs[0] as R).line : undefined })
-      else setResult({ kind: 'valid', text: ['Schema valid'] })
+      if (r.valid === false || errs.length) setResult({ kind: 'invalid', text: errs.map((e) => (typeof e === 'string' ? e : e.line != null ? `line ${e.line}: ${e.message}` : String(e.message))), line: typeof errs[0] === 'object' ? (errs[0] as R).line : undefined })
+      else setResult({ kind: 'valid', text: ['Schema valid', ...((r.warnings ?? []) as (string | R)[]).map((w) => (typeof w === 'string' ? w : String(w.message)))] })
     } catch (e) { toast.error(e, 'Validation failed') }
   }
   const diff = async () => {
     try {
       const r = unwrap<R>(await api.post(`/compose-projects/${stack.id}/diff`, { yaml }))
       const d = r.diff ?? r.lines ?? r
-      setResult({ kind: 'diff', text: typeof d === 'string' ? d.split('\n') : Array.isArray(d) ? d.map(String) : [JSON.stringify(d, null, 2)] })
+      setResult({ kind: 'diff', text: typeof d === 'string' ? d.split('\n') : Array.isArray(d) ? d.map((l: string | R) => (typeof l === 'string' ? l : `${l.op === '=' || l.op === ' ' ? ' ' : l.op} ${l.text}`)) : [JSON.stringify(d, null, 2)] })
     } catch (e) { toast.error(e, 'Diff failed') }
   }
   const services = (stack.services ?? []) as (string | R)[]
@@ -254,6 +272,7 @@ function StackEditor({ stack }: { stack: R }) {
 }
 
 export function Compose() {
+  const serverName = useServerName()
   const { rows, isLoading } = useList<R>('/compose-projects', undefined, { refetchInterval: 15000 })
   const servers = useList<Server>('/servers')
   const [sel, setSel] = useState<string | null>(null)

@@ -140,7 +140,7 @@ class DatabaseSeeder extends Seeder
             Certificate::create(['domain_id' => $blogFree->id, 'issuer' => 'letsencrypt', 'names' => [$blogFree->name], 'issued_at' => now()->subDays(20), 'expires_at' => now()->addDays(70)]);
 
             $policy = BackupPolicy::create(['name' => 'Main database nightly', 'target_type' => 'volume', 'target_id' => $dbVolume->id, 'method' => 'dump', 'schedule' => '0 3 * * *',
-                'destination' => 's3', 'destination_config' => ['endpoint' => 'https://s3.eu-central-1.amazonaws.com', 'bucket' => 'demo-backups'], 'retention_days' => 30, 'recovery_key' => 'demo-recovery-key', 'last_status' => 'succeeded']);
+                'destination' => 's3', 'destination_config' => ['endpoint' => 'https://s3.eu-central-1.amazonaws.com', 'bucket' => 'demo-backups'], 'retention_days' => 30, 'recovery_key' => 'demo-recovery-key', 'last_status' => 'succeeded', 'last_run_at' => now()]);
             for ($d = 13; $d >= 0; $d--) {
                 $ok = $d !== 4;
                 $bj = BackupJob::create(['backup_policy_id' => $policy->id, 'server_id' => $servers['prod-db-01']->id, 'target_type' => 'volume', 'target_id' => $dbVolume->id, 'trigger' => 'schedule',

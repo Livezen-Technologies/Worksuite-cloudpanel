@@ -78,3 +78,19 @@ export function useAction() {
   }, [qc, toast, jobs])
   return { run, busy }
 }
+
+/**
+ * List rows carry `server_id` only (docs/API.md); resolve the display name from the cached /servers list.
+ * Returns a formatter usable like the old `serverName(row)`.
+ */
+export function useServerName() {
+  const { rows } = useList<{ id: string; name: string }>('/servers', undefined, { staleTime: 60000 })
+  const names = new Map(rows.map((s) => [s.id, s.name]))
+  return (r: Record<string, unknown> | null | undefined): string => {
+    if (!r) return '—'
+    const nested = r.server as { name?: string } | string | undefined
+    const fromNested = typeof nested === 'object' ? nested?.name : nested
+    const id = r.server_id as string | undefined
+    return String(r.server_name ?? fromNested ?? (id ? names.get(id) ?? '…' : '—'))
+  }
+}

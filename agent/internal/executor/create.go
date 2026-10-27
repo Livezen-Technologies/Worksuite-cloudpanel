@@ -340,7 +340,12 @@ func (e *Executor) createContainer(ctx context.Context, raw []byte, progress fun
 	}
 	if s.Pull == "always" {
 		if err := pull(); err != nil {
-			return nil, err
+			// A registry outage or rate limit (e.g. HTTP 429) must not take down a redeploy of an
+			// image that is already on this host: fall back to the local copy and say so.
+			if ok, _ := d.ImageExists(ctx, s.Image); !ok {
+				return nil, err
+			}
+			progress(20, fmt.Sprintf("pull failed (%v); using the local image %s", err, s.Image))
 		}
 	}
 	id, err := d.CreateContainer(ctx, s.Name, body)

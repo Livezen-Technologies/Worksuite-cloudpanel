@@ -160,6 +160,18 @@ type ContainerInspect struct {
 	} `json:"Config"`
 }
 
+// ImageExists reports whether the image reference is present locally.
+func (c *Client) ImageExists(ctx context.Context, ref string) (bool, error) {
+	var out struct {
+		ID string `json:"Id"`
+	}
+	err := c.call(ctx, "GET", "/images/"+url.PathEscape(ref)+"/json", nil, nil, &out)
+	if IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil && out.ID != "", err
+}
+
 func (c *Client) InspectContainer(ctx context.Context, id string) (*ContainerInspect, error) {
 	var out ContainerInspect
 	return &out, c.call(ctx, "GET", "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out)
@@ -419,6 +431,22 @@ type NetworkSummary struct {
 	Scope    string            `json:"Scope"`
 	Internal bool              `json:"Internal"`
 	Labels   map[string]string `json:"Labels"`
+	IPAM     struct {
+		Config []struct {
+			Subnet  string `json:"Subnet"`
+			Gateway string `json:"Gateway"`
+		} `json:"Config"`
+	} `json:"IPAM"`
+}
+
+// FirstSubnet returns the first IPAM subnet and gateway, if any.
+func (n NetworkSummary) FirstSubnet() (subnet, gateway string) {
+	for _, c := range n.IPAM.Config {
+		if c.Subnet != "" {
+			return c.Subnet, c.Gateway
+		}
+	}
+	return "", ""
 }
 
 func (c *Client) ListNetworks(ctx context.Context) ([]NetworkSummary, error) {

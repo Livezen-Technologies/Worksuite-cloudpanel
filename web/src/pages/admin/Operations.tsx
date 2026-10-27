@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useAction, useList, useOne } from '../../api/hooks'
+import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
 import { Card, PageHeader, StatTile, Toggle, Empty } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
@@ -11,7 +11,7 @@ import { LogView } from '../../components/LogView'
 import { TerminalDialog } from '../../components/Terminal'
 import { Tabs } from '../../components/Tabs'
 import { ago, str } from '../../lib/format'
-import { num, serverName, type R } from '../../lib/util'
+import { num, type R } from '../../lib/util'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive']
 const POLICY_FIELDS: FieldDef[] = [
@@ -67,7 +67,7 @@ export function Backups() {
           { key: 'schedule', header: 'Schedule' },
           { key: 'destination', header: 'Destination' },
           { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? r.last_run?.status ?? 'never run'} /> },
-          { key: 'integrity', header: 'Integrity', render: (r) => <StatusBadge status={r.integrity ?? r.last_run?.integrity ?? '—'} /> },
+          { key: 'retention_days', header: 'Retention', value: (r) => (r.retention_days != null ? `${r.retention_days} days` : '—') },
           { key: 'encrypted', header: 'Encryption', render: (r) => <Badge tone={r.encrypted !== false ? 'g' : 'y'}>{r.encrypted !== false ? 'encrypted' : 'not encrypted'}</Badge> },
           { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at ?? r.last_run?.created_at) },
           { key: 'act', header: '', sortable: false, render: (r) => (
@@ -149,7 +149,7 @@ export function Monitoring() {
           columns={[
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'title', header: 'Alert', value: (r) => r.title ?? r.rule_name ?? r.name, render: (r) => <span className="font-semibold">{r.title ?? r.rule_name ?? r.name}</span> },
-            { key: 'detail', header: 'Detail', value: (r) => r.detail ?? r.message },
+            { key: 'detail', header: 'Detail', value: (r) => r.detail ?? r.message ?? [r.resource_type, r.value != null ? `value ${r.value}` : null, r.status].filter(Boolean).join(' · ') },
             { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
             { key: 'ack', header: '', sortable: false, render: (r) => r.acknowledged_at ? <Badge tone="n">acknowledged</Badge> : <button type="button" className="btn btn-sm" onClick={() => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {})}>Acknowledge</button> },
           ]} />
@@ -160,7 +160,7 @@ export function Monitoring() {
             { key: 'name', header: 'Rule', render: (r) => <span className="font-semibold">{r.name}</span> },
             { key: 'condition', header: 'Condition', value: (r) => `${r.metric} ${r.operator ?? '>'} ${r.threshold}${r.duration_minutes ? ` for ${r.duration_minutes} min` : ''}` },
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
-            { key: 'scope', header: 'Scope & channels', value: (r) => `${r.scope ?? 'organization'} · ${str(((r.channels ?? []) as R[]).map((c) => c.name ?? c))}` },
+            { key: 'scope', header: 'Scope & channels', value: (r) => `${r.scope ?? r.scope_type ?? 'organization'} · ${(r.channels ?? r.channel_ids ?? []).length ? str(((r.channels ?? []) as R[]).map((c) => c.name ?? c)) : 'no channels'}` },
             { key: 'enabled', header: 'Enabled', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`Enable ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/alert-rules/${r.id}`, body: { enabled: v }, label: 'Update rule', success: v ? 'Rule enabled' : 'Rule disabled' }).catch(() => {})} /> },
             { key: 'edit', header: '', sortable: false, render: (r) => <span className="flex gap-2"><button type="button" className="btn btn-sm" onClick={() => setEdit(toForm(r))}>Edit</button><button type="button" className="btn btn-sm btn-danger" onClick={() => run({ method: 'DELETE', path: `/alert-rules/${r.id}`, label: 'Delete rule', success: 'Rule deleted' }).catch(() => {})}>Delete</button></span> },
           ]} />
@@ -176,6 +176,7 @@ export function Monitoring() {
 }
 
 export function Logs() {
+  const serverName = useServerName()
   const [tab, setTab] = useState<'logs' | 'term' | 'audit'>('logs')
   const containers = useList<Container>('/containers')
   const [cid, setCid] = useState('')
@@ -206,7 +207,7 @@ export function Logs() {
           toolbar={<button type="button" className="btn btn-sm" onClick={exportCsv}>Export CSV</button>}
           columns={[
             { key: 'created_at', header: 'Time', render: (r) => <span className="font-mono text-xs">{String(r.created_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
-            { key: 'user', header: 'User', value: (r) => r.user_name ?? r.user?.name ?? r.user ?? 'system' },
+            { key: 'user', header: 'User', value: (r) => r.actor ?? r.user_name ?? r.user?.name ?? 'system' },
             { key: 'action', header: 'Action', render: (r) => <span className="font-mono text-xs">{r.action}</span> },
             { key: 'resource', header: 'Resource', value: (r) => r.resource ?? `${r.resource_type ?? ''} ${r.resource_id ?? ''}` },
             { key: 'ip', header: 'Source IP', render: (r) => <span className="font-mono text-xs">{r.ip ?? r.source_ip ?? '—'}</span> },
@@ -217,6 +218,7 @@ export function Logs() {
 }
 
 export function Automation() {
+  const serverName = useServerName()
   const jobs = useList<R>('/scheduled-jobs', undefined, { refetchInterval: 20000 })
   const windows = useList<R>('/maintenance-windows')
   const servers = useList<Server>('/servers')

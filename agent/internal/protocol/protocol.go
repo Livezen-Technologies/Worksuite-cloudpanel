@@ -75,6 +75,8 @@ type Network struct {
 	Driver   string `json:"driver"`
 	Scope    string `json:"scope"`
 	Internal bool   `json:"internal"`
+	Subnet   string `json:"subnet,omitempty"`
+	Gateway  string `json:"gateway,omitempty"`
 }
 
 type Volume struct {

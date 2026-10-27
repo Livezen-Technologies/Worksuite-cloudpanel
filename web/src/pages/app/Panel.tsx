@@ -103,7 +103,7 @@ export function UserDomains() {
             <tbody>
               {domains.rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No domains yet. Add one above.</td></tr>}
               {domains.rows.map((d) => {
-                const renew = daysUntil(d.renews_at ?? d.certificate_expires_at)
+                const renew = daysUntil(d.renewal_at ?? d.certificate?.expires_at ?? d.renews_at)
                 return (
                   <tr key={d.id} className="border-t border-line">
                     <td className="py-3 px-5 font-mono font-semibold">{d.domain ?? d.hostname}</td>
@@ -162,7 +162,7 @@ export function UserBackups() {
                 <span className="font-semibold min-w-[100px]">{b.app_name ?? appName(b.app_id)}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{b.created_at ? new Date(b.created_at).toLocaleString() : '—'}</span>
                 <span className="text-muted">{b.size ?? (b.size_mb ? `${b.size_mb} MB` : '—')}</span>
-                <StatusBadge status={b.status === 'succeeded' ? 'completed' : b.status} />
+                <StatusBadge status={b.status === 'succeeded' ? 'completed' : b.status ?? (b.verified ? 'verified' : 'completed')} />
                 <button type="button" className="btn" disabled={b.status === 'failed'} onClick={() => download(b)}>Download</button>
                 <button type="button" className="btn" disabled={b.status === 'failed'} onClick={() => setRestore(b)}>Restore</button>
               </li>
@@ -180,6 +180,12 @@ export function UserBackups() {
       </Modal>
     </>
   )
+}
+
+/** Plans carry `price_cents` + `currency` (docs/API.md appendix). */
+function planPrice(p: R): number | undefined {
+  if (p.price_cents != null) return num(p.price_cents) / 100
+  return p.price != null ? num(p.price) : undefined
 }
 
 export function Billing() {
@@ -203,13 +209,13 @@ export function Billing() {
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
         <Card>
           <div className="text-[13px] text-muted">Current plan</div>
-          <div className="text-xl font-bold mt-1.5">{plan.name ?? '—'}{plan.price != null ? ` · ${money(plan.price)} / month` : ''}</div>
+          <div className="text-xl font-bold mt-1.5">{plan.name ?? '—'}{planPrice(plan) != null ? ` · ${money(planPrice(plan), plan.currency)} / month` : ''}</div>
           <div className="text-sm text-muted mt-1">{b?.limits ? `${num(b.limits.apps)} apps · ${num(b.limits.ram_mb) / 1024} GB RAM · ${num(b.limits.storage_gb)} GB storage` : ''}</div>
           <div className="flex gap-2 mt-4 flex-wrap"><button type="button" className="btn btn-primary" onClick={() => setCompare(true)}>Upgrade</button><button type="button" className="btn" onClick={() => setCompare(true)}>Compare plans</button></div>
         </Card>
         <Card>
           <div className="flex justify-between text-[13px] text-muted"><span>This month so far</span>{b?.renews_at && <span>renews {new Date(b.renews_at).toLocaleDateString()}</span>}</div>
-          <div className="text-2xl font-bold mt-1.5 mb-3">{money(b?.month_to_date?.amount ?? b?.month_to_date)}</div>
+          <div className="text-2xl font-bold mt-1.5 mb-3">{b?.month_to_date?.amount_cents != null ? money(num(b.month_to_date.amount_cents) / 100, b.month_to_date.currency) : money(b?.month_to_date?.amount ?? b?.month_to_date)}</div>
           <div className="flex flex-col gap-3">
             {bars.map((x) => (
               <div key={x.label}>
@@ -224,7 +230,7 @@ export function Billing() {
           <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
           <div className="text-sm text-muted mt-2">Billing email: {b?.billing_email ?? '—'}</div>
           <p className="text-xs text-muted">Card details are handled by our payment provider; we never store them.</p>
-          {(b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
+          {(b?.payment_portal_url ?? b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.payment_portal_url ?? b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
         </Card>
       </div>
       <Card title="Invoices" pad={false}>
@@ -234,7 +240,7 @@ export function Billing() {
               <li key={iv.id ?? iv.number} className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-line first:border-t-0 text-sm">
                 <span className="font-mono font-semibold">{iv.number}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{iv.period ?? iv.period_label}</span>
-                <span className="font-semibold">{money(iv.amount ?? iv.total)}</span>
+                <span className="font-semibold">{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
                 <StatusBadge status={iv.status} />
                 {iv.pdf_url ? <a href={iv.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center min-h-[44px] font-semibold" aria-label={`Download invoice ${iv.number} as PDF`}>PDF</a> : <span className="text-muted text-xs">PDF soon</span>}
               </li>
@@ -246,13 +252,13 @@ export function Billing() {
         {planList.length === 0 ? <Empty>Plans are not available right now.</Empty> : (
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
             {planList.map((p) => {
-              const cur = (p.id ?? p.name) === (plan.id ?? plan.name) || p.name === plan.name
+              const cur = p.current === true || (p.code ?? p.id ?? p.name) === (plan.code ?? plan.id ?? plan.name)
               return (
-                <div key={p.id ?? p.name} className="card p-4 flex flex-col gap-2" style={cur ? { border: '2px solid var(--accent)' } : undefined}>
+                <div key={p.code ?? p.id ?? p.name} className="card p-4 flex flex-col gap-2" style={cur ? { border: '2px solid var(--accent)' } : undefined}>
                   <div className="font-bold">{p.name}</div>
-                  <div className="text-lg font-semibold">{money(p.price)} / mo</div>
+                  <div className="text-lg font-semibold">{money(planPrice(p), p.currency)} / mo</div>
                   <div className="text-xs text-muted">{p.limits ? `${num(p.limits.apps)} apps · ${num(p.limits.ram_mb) / 1024} GB RAM · ${num(p.limits.storage_gb)} GB storage · ${num(p.limits.bandwidth_gb)} GB bandwidth` : p.description}</div>
-                  {cur ? <Badge tone="g">current plan</Badge> : <button type="button" className="btn btn-primary mt-auto" disabled={busy} onClick={() => run({ path: '/app/billing/plan', body: { plan: p.id ?? p.name }, label: `Switch to ${p.name}`, success: `You are now on ${p.name}` }).then(() => setCompare(false)).catch(() => {})}>Switch to {p.name}</button>}
+                  {cur ? <Badge tone="g">current plan</Badge> : <button type="button" className="btn btn-primary mt-auto" disabled={busy} onClick={() => run({ path: '/app/billing/plan', body: { plan: p.code ?? p.id ?? p.name }, label: `Switch to ${p.name}`, success: `You are now on ${p.name}` }).then(() => setCompare(false)).catch(() => {})}>Switch to {p.name}</button>}
                 </div>
               )
             })}
