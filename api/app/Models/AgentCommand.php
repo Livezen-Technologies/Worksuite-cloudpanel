@@ -16,7 +16,7 @@ class AgentCommand extends Model
     protected function casts(): array
     {
         return [
-            'payload' => 'array',
+            'payload' => 'encrypted:array', // may carry secrets / registry auth
             'output' => 'array',
             'sent_at' => 'datetime',
             'finished_at' => 'datetime',

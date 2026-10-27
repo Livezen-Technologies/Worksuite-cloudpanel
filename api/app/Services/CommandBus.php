@@ -122,13 +122,14 @@ class CommandBus
             return $command;
         }
 
-        app(\App\Support\Tenant::class)->as($command->organization_id, function () use ($command, $job) {
-            $this->applySideEffects($command);
-            if ($job && ! $job->isFinished()) {
+        $this->applySideEffects($command);
+        if ($job && ! $job->isFinished()) {
+            // Continue the job in the job's organisation (shared-pool servers may belong to another).
+            app(\App\Support\Tenant::class)->as($job->organization_id, function () use ($command, $job) {
                 $handler = self::HANDLERS[$job->type] ?? null;
                 $handler ? app($handler)->onCommandFinished($command, $job) : $this->genericJobUpdate($job);
-            }
-        });
+            });
+        }
 
         return $command;
     }
@@ -155,14 +156,14 @@ class CommandBus
     {
         if ($command->status !== 'succeeded') {
             if ($command->type === 'container.create') {
-                Container::where('server_id', $command->server_id)->where('name', $command->payload['name'] ?? '')
+                Container::allTenants()->where('server_id', $command->server_id)->where('name', $command->payload['name'] ?? '')
                     ->whereNull('docker_id')->update(['state' => 'failed']);
             }
 
             return;
         }
         $p = $command->payload;
-        $container = isset($p['container_id']) ? Container::where('server_id', $command->server_id)
+        $container = isset($p['container_id']) ? Container::allTenants()->where('server_id', $command->server_id)
             ->where(fn ($q) => $q->where('docker_id', $p['container_id'])->orWhere('name', $p['container_id']))->first() : null;
 
         match ($command->type) {
@@ -171,13 +172,13 @@ class CommandBus
             'container.pause' => $container?->update(['state' => 'paused']),
             'container.remove' => $container?->delete(),
             'container.logs' => $container?->update(['last_logs' => is_array($command->output) ? ($command->output['logs'] ?? json_encode($command->output)) : null, 'logs_fetched_at' => now()]),
-            'container.create' => Container::where('server_id', $command->server_id)->where('name', $p['name'] ?? '')->whereNull('docker_id')
+            'container.create' => Container::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'] ?? '')->whereNull('docker_id')
                 ->update(['docker_id' => $command->output['container_id'] ?? null, 'state' => ($p['start'] ?? true) ? 'running' : 'created', 'started_at' => now()]),
-            'network.create' => Network::where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]),
-            'network.remove' => Network::where('server_id', $command->server_id)->where(fn ($q) => $q->where('name', $p['name'] ?? null)->orWhere('docker_id', $p['network_id'] ?? null))->delete(),
-            'volume.create' => Volume::where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active']),
-            'volume.remove' => Volume::where('server_id', $command->server_id)->where('name', $p['name'])->delete(),
-            'image.remove' => Image::where('server_id', $command->server_id)->where(fn ($q) => $q->where('docker_id', $p['image'])->orWhere('repository', $p['image']))->delete(),
+            'network.create' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]),
+            'network.remove' => Network::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('name', $p['name'] ?? null)->orWhere('docker_id', $p['network_id'] ?? null))->delete(),
+            'volume.create' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active']),
+            'volume.remove' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->delete(),
+            'image.remove' => Image::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('docker_id', $p['image'])->orWhere('repository', $p['image']))->delete(),
             default => null,
         };
     }

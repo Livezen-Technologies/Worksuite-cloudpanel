@@ -516,7 +516,7 @@ return new class extends Migration
             $t->foreignUuid('server_id')->constrained('servers')->cascadeOnDelete();
             $t->uuid('job_id')->nullable()->index();
             $t->string('type');
-            $t->json('payload');
+            $t->longText('payload'); // encrypted
             $t->string('status')->default('queued'); // queued|sent|running|succeeded|failed
             $t->unsignedTinyInteger('progress')->default(0);
             $t->text('message')->nullable();

@@ -28,7 +28,7 @@ class Container extends Model
         ];
     }
 
-    public function server() { return $this->belongsTo(Server::class); }
+    public function server() { return $this->belongsTo(Server::class)->withoutGlobalScope('organization'); }
     public function application() { return $this->belongsTo(Application::class); }
 
     public function getUptimeSecondsAttribute(): ?int

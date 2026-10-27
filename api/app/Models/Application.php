@@ -29,7 +29,7 @@ class Application extends Model
 
     protected $appends = ['source_summary'];
 
-    public function server() { return $this->belongsTo(Server::class); }
+    public function server() { return $this->belongsTo(Server::class)->withoutGlobalScope('organization'); }
     public function envVars() { return $this->hasMany(EnvVar::class); }
     public function releases() { return $this->hasMany(Release::class)->orderByDesc('version'); }
     public function deployments() { return $this->hasMany(Deployment::class)->latest(); }
