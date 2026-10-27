@@ -96,6 +96,7 @@ return new class extends Migration
             $t->boolean('maintenance')->default(false);
             $t->boolean('shared_pool')->default(false);
             $t->integer('scheduling_weight')->default(100);
+            $t->integer('max_containers')->nullable();
             $t->string('os')->nullable();
             $t->string('kernel')->nullable();
             $t->string('arch')->nullable();

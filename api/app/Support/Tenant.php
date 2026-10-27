@@ -22,6 +22,11 @@ class Tenant
         return $this->id;
     }
 
+    public static function current(): ?Organization
+    {
+        return app(self::class)->organization();
+    }
+
     public function organization(): ?Organization
     {
         return $this->id ? Organization::find($this->id) : null;
