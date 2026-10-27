@@ -6,7 +6,7 @@ import { StatusBadge } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { ConfirmDialog } from '../../components/Overlay'
 import { LogView } from '../../components/LogView'
-import { ago, mb, unwrap } from '../../lib/format'
+import { ago, mb } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 
 /** Customer-friendly state words (no Docker jargon). */
@@ -171,4 +171,3 @@ export function AppDetail() {
     </>
   )
 }
-void unwrap

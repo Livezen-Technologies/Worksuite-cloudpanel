@@ -154,8 +154,9 @@ class CommandBus
     private function applySideEffects(AgentCommand $command): void
     {
         if ($command->status !== 'succeeded') {
-            if ($command->type === 'container.create' && ($id = $command->payload['_container_row'] ?? null)) {
-                Container::whereKey($id)->update(['state' => 'failed']);
+            if ($command->type === 'container.create') {
+                Container::where('server_id', $command->server_id)->where('name', $command->payload['name'] ?? '')
+                    ->whereNull('docker_id')->update(['state' => 'failed']);
             }
 
             return;
