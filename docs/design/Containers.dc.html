@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Containers — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
+  <nav aria-label="Main" style="flex: 1 1 260px; max-width: 272px; box-sizing: border-box; padding: 20px 16px; background: {{c.side}}; border-right: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+      <span style="width: 34px; height: 34px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: center; color: #fff"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div><div style="font-weight: 700; font-size: 15px">Docker Manager</div><div style="font-size: 12px; color: {{c.muted}}">Acme Hosting</div></div>
+    </div>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="16">
+        <li><a href="{{n.href}}" style="{{n.style}}"><span style="width: 6px; height: 6px; border-radius: 3px; background: {{n.dot}}"></span>{{n.label}}</a></li>
+      </sc-for>
+    </ul>
+  </nav>
+
+  <div style="flex: 999 1 560px; min-width: 0; display: flex">
+    <main style="flex: 1; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 20px; box-sizing: border-box">
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+        <div style="flex: 1; min-width: 240px">
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Containers</h1>
+          <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Lifecycle, logs, exec sessions and resource limits across all servers</p>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 14px Inter; cursor: pointer">Safe cleanup</button>
+        <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">Create container</button>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="4">
+          <button type="button" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}} <span style="opacity: 0.7">{{f.count}}</span></button>
+        </sc-for>
+      </div>
+
+      <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid {{c.line}}">
+          <label style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; min-width: 240px; color: {{c.muted}}; font-size: 13px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5" stroke-linecap="round"/></svg>
+            <input aria-label="Filter containers" placeholder="Filter by name or image…" style="border: 0; outline: 0; background: transparent; font: inherit; color: {{c.text}}; flex: 1">
+          </label>
+          <select aria-label="Server" style="height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 13px Inter"><option>All servers</option><option>vps-eu-01</option><option>vps-eu-02</option><option>ded-eu-01</option></select>
+          <span style="margin-left: auto; font-size: 13px; color: {{c.muted}}">1 selected</span>
+          <button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Restart</button>
+          <button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Stop</button>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px">
+            <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}">
+              <th style="padding: 10px 16px; width: 20px"><input type="checkbox" aria-label="Select all"></th>
+              <th style="padding: 10px 8px; font-weight: 600">Name</th><th style="padding: 10px 8px; font-weight: 600">Image</th><th style="padding: 10px 8px; font-weight: 600">Server</th><th style="padding: 10px 8px; font-weight: 600">State</th><th style="padding: 10px 8px; font-weight: 600">Health</th><th style="padding: 10px 8px; font-weight: 600">CPU</th><th style="padding: 10px 8px; font-weight: 600">Memory</th><th style="padding: 10px 8px; font-weight: 600">Ports</th><th style="padding: 10px 16px 10px 8px; font-weight: 600"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Actions</span></th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+                <tr onClick="{{r.pick}}" style="{{r.rowStyle}}">
+                  <td style="padding: 12px 16px"><input type="checkbox" aria-label="Select {{r.name}}" checked="{{r.sel}}"></td>
+                  <td style="padding: 12px 8px; font-weight: 600"><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: {{r.dot}}"></span>{{r.name}}</span></td>
+                  <td style="padding: 12px 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: {{c.muted}}">{{r.image}}</td>
+                  <td style="padding: 12px 8px; color: {{c.muted}}">{{r.server}}</td>
+                  <td style="padding: 12px 8px"><span style="{{r.stBadge}}">{{r.state}}</span></td>
+                  <td style="padding: 12px 8px"><span style="{{r.hBadge}}">{{r.health}}</span></td>
+                  <td style="padding: 12px 8px; font-variant-numeric: tabular-nums">{{r.cpu}}</td>
+                  <td style="padding: 12px 8px; font-variant-numeric: tabular-nums">{{r.mem}}</td>
+                  <td style="padding: 12px 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: {{c.muted}}">{{r.ports}}</td>
+                  <td style="padding: 12px 16px 12px 8px; white-space: nowrap"><a href="#" style="font-weight: 600; font-size: 12px; margin-right: 12px">Logs</a><a href="#" style="font-weight: 600; font-size: 12px; color: {{c.danger}}">Remove</a></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <p style="margin: 0; font-size: 12px; color: {{c.muted}}">Removing a container never deletes attached production volumes by default. Sample data.</p>
+    </main>
+
+    <!-- Detail panel -->
+    <aside aria-label="Container details" style="flex: 0 0 340px; box-sizing: border-box; border-left: 1px solid {{c.line}}; background: {{c.card}}; padding: 24px; display: flex; flex-direction: column; gap: 18px">
+      <div>
+        <div style="font-size: 12px; color: {{c.muted}}">Container</div>
+        <div style="font-size: 20px; font-weight: 700; margin-top: 2px">{{sel.name}}</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: {{c.muted}}; margin-top: 4px">{{sel.image}}</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <button type="button" style="height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Restart</button>
+        <button type="button" style="height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Stop</button>
+        <button type="button" style="height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Terminal</button>
+        <button type="button" style="height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Duplicate</button>
+      </div>
+      <dl style="margin: 0; font-size: 13px">
+        <div style="display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.muted}}">Server</dt><dd style="margin: 0; font-weight: 600">{{sel.server}}</dd></div>
+        <div style="display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.muted}}">CPU / Memory</dt><dd style="margin: 0; font-weight: 600">{{sel.cpu}} · {{sel.mem}}</dd></div>
+        <div style="display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.muted}}">Limits</dt><dd style="margin: 0; font-weight: 600">2 vCPU · 1 GiB</dd></div>
+        <div style="display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.muted}}">User</dt><dd style="margin: 0; font-weight: 600">10001 (non-root)</dd></div>
+        <div style="display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.muted}}">Restart policy</dt><dd style="margin: 0; font-weight: 600">unless-stopped</dd></div>
+      </dl>
+      <div>
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px">Live logs</div>
+        <pre style="margin: 0; padding: 12px; border-radius: 8px; background: #0B1120; color: #CBD5E1; font: 11px/1.7 'JetBrains Mono', monospace; overflow: hidden; white-space: pre-line">14:10:02 GET /health 200 2ms
+14:10:05 POST /api/v1/deployments 202
+14:10:09 queue: BackupJob#4411 done
+14:10:12 WS session opened scope=logs
+14:10:15 GET /api/v1/containers 200 63ms</pre>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { filter: 'All', sel: 1 }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', side:'#0F172A', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', danger:'#F87171', selRow:'#1E1B4B' }
+      : { bg:'#F8FAFC', side:'#FFFFFF', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', danger:'#B91C1C', selRow:'#EEF2FF' };
+    const badge = (t) => {
+      const m = dark
+        ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], n:['#1E293B','#CBD5E1'] }
+        : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], n:['#F1F5F9','#475569'] };
+      const [bg, fg] = m[t];
+      return `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;background:${bg};color:${fg}`;
+    };
+    const navItems = [['Overview','Main.dc.html'],['Servers','Servers.dc.html'],['Containers','Containers.dc.html'],['Applications','Applications.dc.html'],['Compose Stacks','Compose.dc.html'],['Images & Registry','Images.dc.html'],['Networks','Networks.dc.html'],['Volumes & Storage','Volumes.dc.html'],['Domains & SSL','Domains.dc.html'],['Databases','Databases.dc.html'],['Backups','Backups.dc.html'],['Monitoring','Monitoring.dc.html'],['Logs & Terminal','Logs.dc.html'],['Automation','Automation.dc.html'],['Users & Teams','Users.dc.html'],['Settings','Settings.dc.html']];
+    const nav = navItems.map(([label, href], i) => { const on = i===2; return { label, href, dot: on?accent:'transparent',
+      style:`display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on?600:500};color:${on?(dark?'#fff':accent):c.muted};background:${on?(dark?'#1E293B':'#EEF2FF'):'transparent'}` }; });
+    const data = [
+      ['web-frontend','ghcr.io/acme/web:2.8.1','vps-eu-01','running','healthy','12%','412 MB','80→3000'],
+      ['api','ghcr.io/acme/api:5.2.0','vps-eu-02','running','healthy','44%','1.2 GB','443→8000'],
+      ['queue-worker','ghcr.io/acme/api:5.2.0','vps-eu-02','running','healthy','18%','640 MB','—'],
+      ['postgres-main','postgres:16.4','ded-eu-01','running','healthy','9%','2.8 GB','5432 private'],
+      ['redis','redis:7.4-alpine','ded-eu-01','running','healthy','2%','118 MB','6379 private'],
+      ['n8n','n8nio/n8n:1.64.0','vps-sg-01','running','unhealthy','31%','780 MB','443→5678'],
+      ['traefik','traefik:v3.1','vps-eu-01','running','healthy','3%','64 MB','80, 443'],
+      ['wordpress-blog','wordpress:6.6-php8.3','vps-sg-01','exited','—','0%','0 MB','—'],
+      ['legacy-cron','acme/cron:1.0','vps-us-01','paused','—','0%','48 MB','—'],
+    ];
+    const f = this.state.filter;
+    const shown = data.map((d,i)=>[d,i]).filter(([d]) => f==='All' || d[3]===f.toLowerCase() || (f==='Unhealthy' && d[4]==='unhealthy'));
+    const rows = shown.map(([d,i]) => { const sel = i===this.state.sel; return {
+      name:d[0], image:d[1], server:d[2], state:d[3], health:d[4], cpu:d[5], mem:d[6], ports:d[7], sel,
+      dot: d[3]==='running' ? (d[4]==='unhealthy' ? '#DC2626' : '#16A34A') : d[3]==='paused' ? '#D97706' : '#94A3B8',
+      stBadge: badge(d[3]==='running'?'g':d[3]==='paused'?'y':'n'),
+      hBadge: badge(d[4]==='healthy'?'g':d[4]==='unhealthy'?'r':'n'),
+      rowStyle:`border-top:1px solid ${c.line};cursor:pointer;background:${sel?c.selRow:'transparent'}`,
+      pick: () => this.setState({ sel: i }) }; });
+    const counts = { All: data.length, Running: data.filter(d=>d[3]==='running').length, Exited: data.filter(d=>d[3]==='exited').length, Unhealthy: data.filter(d=>d[4]==='unhealthy').length };
+    const filters = Object.keys(counts).map(k => ({ label:k, count:counts[k], pick:()=>this.setState({filter:k}),
+      style:`min-height:36px;padding:0 14px;border-radius:999px;font:600 13px Inter;cursor:pointer;border:1px solid ${f===k?accent:c.line};background:${f===k?accent:c.card};color:${f===k?'#fff':c.text}` }));
+    const s = data[this.state.sel];
+    return { c, accent, nav, rows, filters, sel: { name:s[0], image:s[1], server:s[2], cpu:s[5], mem:s[6] } };
+  }
+}
+</script>
+</body>
+</html>

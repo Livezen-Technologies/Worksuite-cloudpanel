@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Applications — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
+  <div style="flex: 1 1 260px; max-width: 272px"><dc-import name="Sidebar" active="3" dark="{{dark}}" accent="{{accent}}" hint-size="272px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Applications</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Deploy from Git, a Docker image, a Dockerfile or a Compose stack</p>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">New deployment</button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <sc-for list="{{sources}}" as="s" hint-placeholder-count="4">
+        <button type="button" onClick="{{s.pick}}" style="{{s.style}}">
+          <span style="font-size: 14px; font-weight: 700">{{s.title}}</span>
+          <span style="font-size: 12px; color: {{c.muted}}">{{s.sub}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px">
+      <section style="flex: 1 1 420px; min-width: 0; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+        <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px; font-weight: 600">Pipeline · billing-svc v0.9.4 → staging</h2><span style="{{runBadge}}">running</span></div>
+        <ol style="list-style: none; margin: 18px 0 0; padding: 0">
+          <sc-for list="{{pipeline}}" as="p" hint-placeholder-count="8">
+            <li style="display: flex; gap: 14px; min-height: 40px">
+              <div style="display: flex; flex-direction: column; align-items: center">
+                <span style="{{p.node}}"></span>
+                <span style="{{p.rail}}"></span>
+              </div>
+              <div style="flex: 1; display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding-top: 1px"><span style="{{p.textStyle}}">{{p.label}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{c.muted}}">{{p.time}}</span></div>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+      <section style="flex: 1 1 320px; min-width: 0; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 14px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">Release strategy</h2>
+        <sc-for list="{{strategies}}" as="st" hint-placeholder-count="3">
+          <button type="button" onClick="{{st.pick}}" style="{{st.style}}"><span style="font-weight: 600; font-size: 14px">{{st.name}}</span><span style="font-size: 12px; color: {{c.muted}}">{{st.note}}</span></button>
+        </sc-for>
+        <label style="display: flex; gap: 10px; align-items: center; font-size: 13px"><input type="checkbox" checked>Require approval for production</label>
+      </section>
+    </div>
+
+    <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+      <h2 style="margin: 0; padding: 18px 20px 10px; font-size: 15px; font-weight: 600">Release history</h2>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px">
+          <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><sc-for list="{{cols}}" as="h" hint-placeholder-count="7"><th style="padding: 10px 16px; font-weight: 600">{{h}}</th></sc-for></tr></thead>
+          <tbody>
+            <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+              <tr style="border-top: 1px solid {{c.line}}"><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td style="padding: 12px 16px"><span style="{{x.s}}">{{x.t}}</span></td></sc-for></tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { src: 0, strat: 1 }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', sel:'#1E1B4B' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', sel:'#EEF2FF' };
+    const tones = dark
+      ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], b:['#0C2340','#60A5FA'], n:['#1E293B','#CBD5E1'] }
+      : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], b:['#EFF6FF','#1D4ED8'], n:['#F1F5F9','#475569'] };
+    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
+    const T = (t, s='') => ({ t, s: s || `color:${c.muted};white-space:nowrap` });
+    const S = t => T(t, `font-weight:600;color:${c.text};white-space:nowrap`);
+    const M = t => T(t, `font-family:'JetBrains Mono',monospace;font-size:11.5px;color:${c.muted};white-space:nowrap`);
+    const tone = s => ({success:'g',failed:'r',running:'b',pending:'y','rolled back':'y',production:'n',staging:'b',preview:'b'})[s] || 'n';
+    const card = on => `display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:16px;border-radius:12px;text-align:left;cursor:pointer;font-family:Inter;color:${c.text};background:${on?c.sel:c.card};border:${on?'2px solid '+accent:'1px solid '+c.line}`;
+    const sources = [['Git repository','GitHub · GitLab · Gitea'],['Docker image','Public or private registry'],['Dockerfile','Build from source, isolated runner'],['Compose stack','Multi-service application']]
+      .map(([title, sub], i) => ({ title, sub, pick: () => this.setState({ src: i }), style: card(this.state.src===i) }));
+    const strategies = [['Recreate','Simple; brief downtime'],['Rolling update','Replace instances one by one'],['Blue-green','Switch traffic after health checks']]
+      .map(([name, note], i) => ({ name, note, pick: () => this.setState({ strat: i }), style: card(this.state.strat===i) }));
+    const steps = [['Webhook validated & authorised','done','00:01'],['Source checkout · main@c4e21a0','done','00:04'],['Build & image scan (0 critical)','done','02:41'],['Push image · sha256:9f2c…e81','done','00:18'],['Server selection · stg-eu-01','done','00:01'],['Deploy Compose project billing rev 3','run','—'],['Health check & traffic switch','todo','—'],['Complete or roll back','todo','—']];
+    const pipeline = steps.map(([label, st, time], i) => ({ label, time,
+      node: `width:14px;height:14px;border-radius:7px;box-sizing:border-box;flex:none;${st==='done'?`background:${accent}`:st==='run'?`border:3px solid ${accent};background:${c.card}`:`border:2px solid ${c.line};background:${c.card}`}`,
+      rail: i===steps.length-1 ? 'display:none' : `width:2px;flex:1;min-height:24px;background:${st==='done'?accent:c.line}`,
+      textStyle: st==='todo' ? `color:${c.muted}` : `font-weight:600` }));
+    const data = [
+      ['api','v5.2.0','production','success','main@a91f3c2','Nimal P.','12 min ago'],
+      ['web-frontend','v2.8.1','production','success','main@77be01d','Sara K.','1 h ago'],
+      ['n8n','1.64.0','production','rolled back','image update','auto-update','2 h ago'],
+      ['billing-svc','v0.9.4','staging','running','Dockerfile','Ravi D.','now'],
+      ['docs-site','v1.3.0','preview','success','PR #482','GitHub bot','3 h ago'],
+    ];
+    const rows = data.map(d => ({ cells: [S(d[0]), M(d[1]), T(d[2], B(tone(d[2]))), T(d[3], B(tone(d[3]))), M(d[4]), T(d[5]), T(d[6])] }));
+    return { c, dark, accent, sources, strategies, pipeline, rows, runBadge: B('b'),
+      cols: ['Application','Release','Environment','Status','Source','By','When'] };
+  }
+}
+</script>
+</body>
+</html>

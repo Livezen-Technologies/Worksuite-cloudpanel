@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Host an app — My Cloud</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 1100px">
+<dc-import name="UserPanel" start-page="host" start-step="0" dark="{{dark}}" accent="{{accent}}" hint-size="100%,1100px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() { return { dark: this.props.dark ?? false, accent: this.props.accent ?? '#4F46E5' }; }
+}
+</script>
+</body>
+</html>

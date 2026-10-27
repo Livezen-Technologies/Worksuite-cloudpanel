@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>User panel — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1100px; display: flex; flex-wrap: wrap">
+
+  <!-- Customer sidebar -->
+  <nav aria-label="Account" style="flex: 1 1 240px; max-width: 256px; box-sizing: border-box; padding: 20px 16px; background: {{c.side}}; border-right: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+      <span style="width: 34px; height: 34px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: center; color: #fff"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div><div style="font-weight: 700; font-size: 15px">My Cloud</div><div style="font-size: 12px; color: {{c.muted}}">Livezen Labs</div></div>
+    </div>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+        <li><button type="button" onClick="{{n.pick}}" style="{{n.style}}">{{n.label}}</button></li>
+      </sc-for>
+    </ul>
+    <div style="margin-top: auto; padding: 14px; border-radius: 10px; background: {{c.soft}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 12px; color: {{c.muted}}">Plan · Starter</div>
+      <div style="font-size: 13px; font-weight: 600">3 of 5 apps · 2.1 / 4 GB RAM</div>
+      <div style="height: 6px; border-radius: 3px; background: {{c.track}}"><div style="height: 6px; width: 52%; border-radius: 3px; background: {{accent}}"></div></div>
+      <a href="#" style="font-size: 13px; font-weight: 600">Upgrade plan</a>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1180px">
+
+    <!-- ===== MY APPS ===== -->
+    <sc-if value="{{isApps}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+          <div style="flex: 1; min-width: 240px">
+            <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">My apps</h1>
+            <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Everything you host, with its address and health</p>
+          </div>
+          <button type="button" onClick="{{goHost}}" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">+ Host a Docker app</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">
+          <sc-for list="{{apps}}" as="a" hint-placeholder-count="3">
+            <div style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: center; gap: 12px">
+                <span style="width: 40px; height: 40px; border-radius: 10px; background: {{c.soft}}; display: flex; align-items: center; justify-content: center; font-weight: 700; color: {{accent}}">{{a.initial}}</span>
+                <div style="flex: 1; min-width: 0"><div style="font-weight: 700">{{a.name}}</div><div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: {{c.muted}}">{{a.image}}</div></div>
+                <span style="{{a.badge}}">{{a.state}}</span>
+              </div>
+              <a href="#" style="font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{{a.domain}}</a>
+              <div style="display: flex; gap: 16px; font-size: 12px; color: {{c.muted}}"><span>CPU {{a.cpu}}</span><span>RAM {{a.ram}}</span><span>Deployed {{a.when}}</span></div>
+              <div style="display: flex; gap: 8px">
+                <button type="button" onClick="{{a.open}}" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter; cursor: pointer">Manage</button>
+                <button type="button" onClick="{{a.logs}}" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter; cursor: pointer">Logs</button>
+                <button type="button" onClick="{{goDomains}}" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Domain</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===== HOST AN APP (wizard) ===== -->
+    <sc-if value="{{isHost}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Host a Docker app</h1>
+          <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Four steps — we handle the server, HTTPS and restarts</p>
+        </div>
+        <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+            <li><button type="button" onClick="{{s.pick}}" style="{{s.style}}"><span style="font-size: 12px; font-weight: 600; color: {{s.numColor}}">Step {{s.n}}</span><span style="font-size: 14px; font-weight: 600">{{s.label}}</span></button></li>
+          </sc-for>
+        </ol>
+
+        <section style="padding: 24px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 20px">
+          <sc-if value="{{h0}}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 16px">
+              <h2 style="margin: 0; font-size: 17px">Where is your app?</h2>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px">
+                <sc-for list="{{sources}}" as="o" hint-placeholder-count="4">
+                  <button type="button" onClick="{{o.pick}}" style="{{o.style}}"><span style="font-weight: 700; font-size: 14px">{{o.title}}</span><span style="font-size: 12px; color: {{c.muted}}">{{o.sub}}</span></button>
+                </sc-for>
+              </div>
+              <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">{{srcLabel}}<input value="{{srcValue}}" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px 'JetBrains Mono', monospace"></label>
+              <div style="font-size: 13px; color: {{c.muted}}">Or start from a template:</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                <sc-for list="{{templates}}" as="t" hint-placeholder-count="6"><button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">{{t}}</button></sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{h1}}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 16px">
+              <h2 style="margin: 0; font-size: 17px">Configure</h2>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">App name<input value="my-shop" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Container port<input value="3000" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px 'JetBrains Mono', monospace"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Region<select style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>Singapore (closest)</option><option>Frankfurt</option><option>New York</option></select></label>
+              </div>
+              <div style="font-size: 13px; font-weight: 600">Environment variables</div>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <sc-for list="{{envs}}" as="e" hint-placeholder-count="3">
+                  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+                    <input aria-label="Key" value="{{e.k}}" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace">
+                    <input aria-label="Value" value="{{e.v}}" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace">
+                  </div>
+                </sc-for>
+                <button type="button" style="align-self: flex-start; min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px dashed {{c.line}}; background: transparent; color: {{c.text}}; font: 600 13px Inter">+ Add variable</button>
+              </div>
+              <label style="display: flex; gap: 10px; align-items: center; font-size: 13px"><input type="checkbox" checked>Persistent storage at <span style="font-family: 'JetBrains Mono', monospace">/data</span> (1 GB, backed up daily)</label>
+            </div>
+          </sc-if>
+          <sc-if value="{{h2}}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 16px">
+              <h2 style="margin: 0; font-size: 17px">Choose a size</h2>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+                <sc-for list="{{plans}}" as="p" hint-placeholder-count="3">
+                  <button type="button" onClick="{{p.pick}}" style="{{p.style}}"><span style="font-weight: 700; font-size: 15px">{{p.name}}</span><span style="font-size: 13px; color: {{c.muted}}">{{p.spec}}</span><span style="font-size: 20px; font-weight: 700; margin-top: 8px">{{p.price}}</span></button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{h3}}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 14px">
+              <h2 style="margin: 0; font-size: 17px">Deploying my-shop</h2>
+              <sc-for list="{{progress}}" as="g" hint-placeholder-count="5">
+                <div style="display: flex; align-items: center; gap: 12px; font-size: 14px"><span style="{{g.dot}}"></span><span style="{{g.text}}">{{g.label}}</span></div>
+              </sc-for>
+              <div style="padding: 14px; border-radius: 10px; background: {{c.soft}}; font-size: 14px">Your app is live at <a href="#" style="font-weight: 600; font-family: 'JetBrains Mono', monospace">my-shop.livezen.app</a></div>
+              <button type="button" onClick="{{goDomains}}" style="align-self: flex-start; height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">Connect your own domain →</button>
+            </div>
+          </sc-if>
+          <div style="display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid {{c.line}}; padding-top: 16px">
+            <button type="button" onClick="{{back}}" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 14px Inter; cursor: pointer">Back</button>
+            <button type="button" onClick="{{next}}" style="height: 40px; padding: 0 18px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">{{nextLabel}}</button>
+          </div>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- ===== DOMAINS ===== -->
+    <sc-if value="{{isDomains}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Domains</h1>
+          <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Point your domain at an app — HTTPS certificates are issued and renewed automatically</p>
+        </div>
+        <section style="padding: 24px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 16px">
+          <h2 style="margin: 0; font-size: 17px">Add a domain</h2>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
+            <label style="flex: 2 1 260px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Domain<input value="shop.mybrand.lk" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px 'JetBrains Mono', monospace"></label>
+            <label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">App<select style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>my-shop</option><option>blog</option><option>n8n</option></select></label>
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 13px; height: 40px"><input type="checkbox" checked>Redirect www</label>
+            <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">Add domain</button>
+          </div>
+          <div style="padding: 16px; border-radius: 10px; border: 1px solid {{c.line}}; background: {{c.bg}}; display: flex; flex-direction: column; gap: 12px">
+            <div style="font-size: 14px; font-weight: 600">Add these records at your DNS provider</div>
+            <div style="overflow-x: auto">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px">
+                <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px"><th style="padding: 8px 10px 8px 0; font-weight: 600">Type</th><th style="padding: 8px 10px; font-weight: 600">Name</th><th style="padding: 8px 10px; font-weight: 600">Value</th><th style="padding: 8px 10px; font-weight: 600">Status</th><th style="padding: 8px 0 8px 10px; font-weight: 600"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Copy</span></th></tr></thead>
+                <tbody>
+                  <sc-for list="{{dns}}" as="d" hint-placeholder-count="2">
+                    <tr style="border-top: 1px solid {{c.line}}">
+                      <td style="padding: 10px 10px 10px 0; font-weight: 700">{{d.type}}</td>
+                      <td style="padding: 10px; font-family: 'JetBrains Mono', monospace">{{d.name}}</td>
+                      <td style="padding: 10px; font-family: 'JetBrains Mono', monospace">{{d.value}}</td>
+                      <td style="padding: 10px"><span style="{{d.badge}}">{{d.status}}</span></td>
+                      <td style="padding: 10px 0 10px 10px"><button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 12px Inter">Copy</button></td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+              <button type="button" onClick="{{verify}}" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid {{accent}}; background: transparent; color: {{accent}}; font: 600 13px Inter; cursor: pointer">{{verifyLabel}}</button>
+              <span style="font-size: 13px; color: {{c.muted}}">{{verifyNote}}</span>
+            </div>
+          </div>
+        </section>
+        <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+          <h2 style="margin: 0; padding: 18px 20px 10px; font-size: 15px; font-weight: 600">Your domains</h2>
+          <div style="overflow-x: auto">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px">
+              <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.soft}}"><th style="padding: 10px 20px; font-weight: 600">Domain</th><th style="padding: 10px; font-weight: 600">App</th><th style="padding: 10px; font-weight: 600">DNS</th><th style="padding: 10px; font-weight: 600">HTTPS</th><th style="padding: 10px 20px 10px 10px; font-weight: 600">Renews</th></tr></thead>
+              <tbody>
+                <sc-for list="{{domains}}" as="d" hint-placeholder-count="3">
+                  <tr style="border-top: 1px solid {{c.line}}"><td style="padding: 12px 20px; font-family: 'JetBrains Mono', monospace; font-weight: 500">{{d.name}}</td><td style="padding: 12px 10px">{{d.app}}</td><td style="padding: 12px 10px"><span style="{{d.dnsB}}">{{d.dns}}</span></td><td style="padding: 12px 10px"><span style="{{d.sslB}}">{{d.ssl}}</span></td><td style="padding: 12px 20px 12px 10px; color: {{c.muted}}">{{d.renew}}</td></tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- ===== APP DETAIL ===== -->
+    <sc-if value="{{isDetail}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 20px">
+        <button type="button" onClick="{{goApps}}" style="align-self: flex-start; border: 0; background: transparent; padding: 0; min-height: 32px; color: {{accent}}; font: 600 13px Inter; cursor: pointer">← My apps</button>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px">
+          <span style="width: 48px; height: 48px; border-radius: 12px; background: {{c.soft}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; color: {{accent}}">{{app.initial}}</span>
+          <div style="flex: 1; min-width: 220px">
+            <h1 style="margin: 0; font-size: 26px; font-weight: 700">{{app.name}}</h1>
+            <div style="font-size: 13px; color: {{c.muted}}; margin-top: 4px"><span style="font-family: 'JetBrains Mono', monospace">{{app.image}}</span> · Standard plan · Singapore</div>
+          </div>
+          <span style="{{app.badge}}">{{app.state}}</span>
+          <button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 14px Inter">Restart</button>
+          <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">Redeploy</button>
+        </div>
+        <div role="tablist" style="display: flex; flex-wrap: wrap; gap: 24px; border-bottom: 1px solid {{c.line}}">
+          <sc-for list="{{appTabs}}" as="t" hint-placeholder-count="5"><button type="button" role="tab" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+        </div>
+        <sc-if value="{{at0}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+              <sc-for list="{{appStats}}" as="s" hint-placeholder-count="4">
+                <div style="padding: 18px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+                  <div style="font-size: 13px; color: {{c.muted}}">{{s.k}}</div><div style="font-size: 22px; font-weight: 700; margin-top: 6px">{{s.v}}</div>
+                  <div style="margin-top: 10px; height: 6px; border-radius: 3px; background: {{c.track}}"><div style="height: 6px; border-radius: 3px; width: {{s.pct}}; background: {{accent}}"></div></div>
+                </div>
+              </sc-for>
+            </div>
+            <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+              <h2 style="margin: 0 0 12px; font-size: 15px">Addresses</h2>
+              <div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px">
+                <a href="#" style="font-family: 'JetBrains Mono', monospace; font-weight: 500">https://{{app.domain}}</a>
+                <span style="font-family: 'JetBrains Mono', monospace; color: {{c.muted}}">https://{{app.name}}.livezen.app</span>
+              </div>
+            </section>
+          </div>
+        </sc-if>
+        <sc-if value="{{at1}}" hint-placeholder-val="{{ false }}">
+          <pre style="margin: 0; padding: 16px; border-radius: 12px; min-height: 320px; background: #0B1120; color: #CBD5E1; font: 12px/1.8 'JetBrains Mono', monospace; overflow-x: auto"><span style="color: #64748B">18:02:11</span> Server listening on :3000
+<span style="color: #64748B">18:02:14</span> GET / 200 18ms
+<span style="color: #64748B">18:02:20</span> GET /products 200 42ms
+<span style="color: #64748B">18:02:31</span> POST /cart 201 63ms
+<span style="color: #64748B">18:02:40</span> <span style="color: #FBBF24">warn: image cache miss /img/hero.webp</span>
+<span style="color: #64748B">18:02:44</span> GET /health 200 1ms
+<span style="color: #64748B">18:02:52</span> GET /checkout 200 77ms</pre>
+        </sc-if>
+        <sc-if value="{{at2}}" hint-placeholder-val="{{ false }}">
+          <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{envs}}" as="e" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+                <input aria-label="Key" value="{{e.k}}" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace">
+                <input aria-label="Value" value="{{e.v}}" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace">
+              </div>
+            </sc-for>
+            <div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 6px">
+              <button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px dashed {{c.line}}; background: transparent; color: {{c.text}}; font: 600 13px Inter">+ Add variable</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter">Save &amp; restart</button>
+            </div>
+          </section>
+        </sc-if>
+        <sc-if value="{{at3}}" hint-placeholder-val="{{ false }}">
+          <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+            <sc-for list="{{releases}}" as="r" hint-placeholder-count="4">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid {{c.line}}; font-size: 13px">
+                <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; min-width: 70px">{{r.v}}</span>
+                <span style="{{r.badge}}">{{r.state}}</span>
+                <span style="flex: 1; color: {{c.muted}}">{{r.note}}</span>
+                <span style="color: {{c.muted}}">{{r.when}}</span>
+                <button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 12px Inter">Roll back</button>
+              </div>
+            </sc-for>
+          </section>
+        </sc-if>
+        <sc-if value="{{at4}}" hint-placeholder-val="{{ false }}">
+          <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 16px">
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; max-width: 360px">Size<select style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>Standard — 1 vCPU · 1 GB · $10/mo</option><option>Pro — 2 vCPU · 4 GB · $24/mo</option></select></label>
+            <label style="display: flex; gap: 10px; align-items: center; font-size: 13px"><input type="checkbox" checked>Auto-deploy when I push to main</label>
+            <label style="display: flex; gap: 10px; align-items: center; font-size: 13px"><input type="checkbox" checked>Restart automatically if it crashes</label>
+            <div style="margin-top: 8px; padding: 16px; border-radius: 10px; border: 1px solid {{c.dangerLine}}; display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+              <div style="flex: 1; min-width: 220px"><div style="font-weight: 600; font-size: 14px">Delete this app</div><div style="font-size: 13px; color: {{c.muted}}">The container is removed. Your data volume is kept for 7 days.</div></div>
+              <button type="button" style="height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: #DC2626; color: #fff; font: 600 13px Inter">Delete app</button>
+            </div>
+          </section>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== BACKUPS ===== -->
+    <sc-if value="{{isBackups}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+          <div style="flex: 1; min-width: 240px">
+            <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Backups</h1>
+            <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Daily encrypted snapshots of every app’s data, kept for 14 days</p>
+          </div>
+          <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">Back up now</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <sc-for list="{{bkFilters}}" as="f" hint-placeholder-count="4"><button type="button" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button></sc-for>
+        </div>
+        <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+          <sc-for list="{{snapshots}}" as="s" hint-placeholder-count="6">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid {{c.line}}; font-size: 13px">
+              <span style="font-weight: 600; min-width: 90px">{{s.app}}</span>
+              <span style="flex: 1; min-width: 160px; color: {{c.muted}}">{{s.when}}</span>
+              <span style="color: {{c.muted}}; min-width: 70px">{{s.size}}</span>
+              <span style="{{s.badge}}">{{s.state}}</span>
+              <button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 12px Inter">Download</button>
+              <button type="button" onClick="{{s.restore}}" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{accent}}; background: transparent; color: {{accent}}; font: 600 12px Inter; cursor: pointer">Restore</button>
+            </div>
+          </sc-for>
+        </section>
+        <sc-if value="{{restoring}}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 16px; border-radius: 12px; background: {{c.soft}}; border: 1px solid {{accent}}; display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+            <div style="flex: 1; min-width: 240px; font-size: 14px"><b>Restore {{restoreName}}?</b> The app restarts with data from this snapshot. A fresh backup is taken first, so you can undo.</div>
+            <button type="button" onClick="{{cancelRestore}}" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter; cursor: pointer">Cancel</button>
+            <button type="button" onClick="{{cancelRestore}}" style="height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter; cursor: pointer">Restore now</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== BILLING ===== -->
+    <sc-if value="{{isBilling}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Billing</h1>
+          <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Your plan, this month’s usage and invoices</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 16px">
+          <section style="flex: 1 1 300px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 10px">
+            <div style="font-size: 13px; color: {{c.muted}}">Current plan</div>
+            <div style="font-size: 22px; font-weight: 700">Starter · $19 / month</div>
+            <div style="font-size: 13px; color: {{c.muted}}">5 apps · 4 GB RAM · 20 GB storage · daily backups</div>
+            <div style="display: flex; gap: 8px; margin-top: 6px">
+              <button type="button" style="height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter">Upgrade</button>
+              <button type="button" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Compare plans</button>
+            </div>
+          </section>
+          <section style="flex: 1 1 300px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; justify-content: space-between"><span style="font-size: 13px; color: {{c.muted}}">This month so far</span><span style="font-size: 13px; color: {{c.muted}}">renews Nov 1</span></div>
+            <div style="font-size: 22px; font-weight: 700">$21.40</div>
+            <sc-for list="{{usage}}" as="u" hint-placeholder-count="4">
+              <div>
+                <div style="display: flex; justify-content: space-between; font-size: 12px"><span>{{u.k}}</span><span style="color: {{c.muted}}">{{u.v}}</span></div>
+                <div style="margin-top: 5px; height: 6px; border-radius: 3px; background: {{c.track}}"><div style="height: 6px; border-radius: 3px; width: {{u.pct}}; background: {{u.color}}"></div></div>
+              </div>
+            </sc-for>
+          </section>
+          <section style="flex: 1 1 260px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 10px">
+            <div style="font-size: 13px; color: {{c.muted}}">Payment method</div>
+            <div style="display: flex; align-items: center; gap: 12px"><span style="width: 44px; height: 30px; border-radius: 6px; background: {{c.soft}}; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: {{accent}}">CARD</span><span style="font-size: 14px; font-weight: 600">Card ending [LAST 4]</span></div>
+            <div style="font-size: 13px; color: {{c.muted}}">Billing email: [BILLING EMAIL]</div>
+            <button type="button" style="align-self: flex-start; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Update</button>
+          </section>
+        </div>
+        <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+          <h2 style="margin: 0; padding: 18px 20px 10px; font-size: 15px">Invoices</h2>
+          <sc-for list="{{invoices}}" as="iv" hint-placeholder-count="4">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 14px 20px; border-top: 1px solid {{c.line}}; font-size: 13px">
+              <span style="font-family: 'JetBrains Mono', monospace; min-width: 110px">{{iv.no}}</span>
+              <span style="flex: 1; color: {{c.muted}}">{{iv.period}}</span>
+              <span style="font-weight: 600; min-width: 70px">{{iv.amount}}</span>
+              <span style="{{iv.badge}}">{{iv.state}}</span>
+              <a href="#" style="font-weight: 600">PDF</a>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- ===== ACCOUNT ===== -->
+    <sc-if value="{{isAccount}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px">
+        <div>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Account</h1>
+          <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Profile, team, sign-in security and API tokens</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+          <section style="flex: 1 1 380px; padding: 24px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 16px">
+            <h2 style="margin: 0; font-size: 15px">Profile</h2>
+            <div style="display: flex; align-items: center; gap: 14px"><span style="width: 56px; height: 56px; border-radius: 28px; background: {{accent}}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px">HA</span><button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Change photo</button></div>
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Full name<input value="[YOUR NAME]" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"></label>
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Email<input value="[YOUR EMAIL]" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"></label>
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Organisation<input value="Livezen Labs" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"></label>
+            <button type="button" style="align-self: flex-end; height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter">Save</button>
+          </section>
+          <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 16px">
+            <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+              <h2 style="margin: 0 0 6px; font-size: 15px">Sign-in security</h2>
+              <sc-for list="{{security}}" as="s" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid {{c.line}}">
+                  <div style="flex: 1"><div style="font-size: 14px; font-weight: 600">{{s.label}}</div><div style="font-size: 12px; color: {{c.muted}}">{{s.sub}}</div></div>
+                  <button type="button" onClick="{{s.toggle}}" aria-label="{{s.label}}" style="{{s.track}}"><span style="{{s.knob}}"></span></button>
+                </div>
+              </sc-for>
+            </section>
+            <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+              <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px">Team</h2><button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter">Invite</button></div>
+              <sc-for list="{{team}}" as="m" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid {{c.line}}; font-size: 13px">
+                  <span style="width: 32px; height: 32px; border-radius: 16px; background: {{c.soft}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px">{{m.ini}}</span>
+                  <span style="flex: 1; font-weight: 600">{{m.name}}</span>
+                  <span style="color: {{c.muted}}">{{m.role}}</span>
+                </div>
+              </sc-for>
+            </section>
+            <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px">API tokens</h2><button type="button" style="height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Create token</button></div>
+              <div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px"><span style="flex: 1; font-weight: 600">GitHub Actions deploy</span><span style="font-family: 'JetBrains Mono', monospace; color: {{c.muted}}">lz_live_9xQ…</span><a href="#" style="font-weight: 600; color: #DC2626">Revoke</a></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"startPage":{"editor":"enum","options":["apps","host","domains","detail","backups","billing","account"],"default":"apps"},"startStep":{"editor":"int","min":0,"max":3,"default":0},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { page: p.startPage || 'apps', step: Number(p.startStep || 0), src: 0, plan: 1, verified: false, appIdx: 0, appTab: 0, bk: 'All', restore: null, sec: [true, true, false] }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', side:'#0F172A', card:'#111827', soft:'#1E1B4B', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', track:'#1E293B' }
+      : { bg:'#F8FAFC', side:'#FFFFFF', card:'#FFFFFF', soft:'#EEF2FF', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', track:'#E2E8F0' };
+    const tones = dark
+      ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], b:['#0C2340','#60A5FA'], n:['#1E293B','#CBD5E1'] }
+      : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], b:['#EFF6FF','#1D4ED8'], n:['#F1F5F9','#475569'] };
+    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
+    const st = { page: this.props.startPage || 'apps', step: Number(this.props.startStep || 0), src:0, plan:1, verified:false, appIdx:0, appTab:0, bk:'All', restore:null, sec:[true,true,false], ...(this.state || {}) };
+    if (!Array.isArray(st.sec)) st.sec = [true,true,false];
+    const go = page => () => this.setState({ page, step: page==='host' ? 0 : st.step });
+    const pick = on => `display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:16px;border-radius:12px;text-align:left;cursor:pointer;font-family:Inter;color:${c.text};background:${on?c.soft:c.card};border:${on?'2px solid '+accent:'1px solid '+c.line}`;
+
+    const nav = [['apps','My apps'],['host','Host an app'],['domains','Domains'],['backups','Backups'],['billing','Billing'],['account','Account']].map(([id,label]) => { const on = st.page===id; return { label, pick: go(id),
+      style:`width:100%;text-align:left;border:0;cursor:pointer;display:flex;align-items:center;min-height:38px;padding:0 12px;border-radius:8px;font:${on?600:500} 14px Inter;color:${on?(dark?'#fff':accent):c.muted};background:${on?(dark?'#1E293B':'#EEF2FF'):'transparent'}` }; });
+
+    const apps = [
+      ['my-shop','ghcr.io/livezen/shop:1.4','shop.mybrand.lk','running','g','8%','310 MB','2 d ago'],
+      ['blog','wordpress:6.6','blog.mybrand.lk','running','g','3%','220 MB','9 d ago'],
+      ['n8n','n8nio/n8n:1.64','n8n-livezen.livezen.app','restarting','y','—','—','1 h ago'],
+    ].map((a, i) => ({ name:a[0], initial:a[0][0].toUpperCase(), image:a[1], domain:a[2], state:a[3], badge:B(a[4]), cpu:a[5], ram:a[6], when:a[7],
+      open: () => this.setState({ page:'detail', appIdx:i, appTab:0 }), logs: () => this.setState({ page:'detail', appIdx:i, appTab:1 }) }));
+    const app = apps[st.appIdx];
+    const tabStyle = on => `min-height:44px;padding:0 2px;border:0;border-bottom:2px solid ${on?accent:'transparent'};margin-bottom:-1px;background:transparent;cursor:pointer;font:600 14px Inter;color:${on?accent:c.muted}`;
+    const appTabs = ['Overview','Logs','Environment','Releases','Settings'].map((label, i) => ({ label, pick: () => this.setState({ appTab:i }), style: tabStyle(st.appTab===i) }));
+    const appStats = [['CPU','8% of 1 vCPU',8],['Memory','310 MB of 1 GB',31],['Storage','2.4 GB of 10 GB',24],['Requests (24 h)','48,210',60]].map(([k,v,p]) => ({ k, v, pct: p+'%' }));
+    const releases = [['v1.4.0','live','g','Checkout redesign','2 d ago'],['v1.3.2','previous','n','Fix cart totals','6 d ago'],['v1.3.1','previous','n','Image cache','9 d ago'],['v1.3.0','failed','r','Health check timed out — rolled back','12 d ago']]
+      .map(r => ({ v:r[0], state:r[1], badge:B(r[2]), note:r[3], when:r[4] }));
+    const snapData = [['my-shop','Today, 02:00','412 MB','ok'],['blog','Today, 02:05','1.1 GB','ok'],['n8n','Today, 02:10','88 MB','ok'],['my-shop','Yesterday, 02:00','409 MB','ok'],['blog','Yesterday, 02:05','1.1 GB','ok'],['n8n','Yesterday, 02:10','—','failed']];
+    const snapshots = snapData.filter(s => st.bk==='All' || s[0]===st.bk).map(s => ({ app:s[0], when:s[1], size:s[2], state: s[3]==='ok'?'completed':'failed', badge:B(s[3]==='ok'?'g':'r'),
+      restore: () => this.setState({ restore: `${s[0]} from ${s[1].toLowerCase()}` }) }));
+    const bkFilters = ['All','my-shop','blog','n8n'].map(label => ({ label, pick: () => this.setState({ bk: label }),
+      style:`min-height:36px;padding:0 14px;border-radius:999px;font:600 13px Inter;cursor:pointer;border:1px solid ${st.bk===label?accent:c.line};background:${st.bk===label?accent:c.card};color:${st.bk===label?'#fff':c.text}` }));
+    const usage = [['Apps','3 of 5',60,accent],['RAM','2.1 of 4 GB',52,accent],['Storage','14 of 20 GB',70,accent],['Bandwidth','186 of 200 GB',93,'#DC2626']].map(([k,v,p,color]) => ({ k, v, pct:p+'%', color }));
+    const invoices = [['INV-2026-010','October 2026 (open)','$21.40','due Nov 1','y'],['INV-2026-009','September 2026','$19.00','paid','g'],['INV-2026-008','August 2026','$19.00','paid','g'],['INV-2026-007','July 2026','$24.60','paid','g']]
+      .map(v => ({ no:v[0], period:v[1], amount:v[2], state:v[3], badge:B(v[4]) }));
+    const sec = st.sec;
+    const security = [['Two-factor authentication','Authenticator app'],['Passkey','MacBook · added Sep 2'],['Email me on new sign-ins','Alerts for unknown devices']].map(([label, sub], i) => ({ label, sub,
+      toggle: () => { const n = sec.slice(); n[i] = !n[i]; this.setState({ sec: n }); },
+      track:`position:relative;width:44px;height:26px;border-radius:13px;border:0;cursor:pointer;flex:none;background:${sec[i]?accent:c.track}`,
+      knob:`position:absolute;top:3px;left:${sec[i]?21:3}px;width:20px;height:20px;border-radius:10px;background:#fff` }));
+    const team = [['You','Owner'],['Dinithi P.','Developer'],['Accounts','Billing']].map(([name, role]) => ({ name, role, ini: name.slice(0,2).toUpperCase() }));
+
+    const stepLabels = ['Source','Configure','Size','Deploy'];
+    const steps = stepLabels.map((label, i) => ({ n:i+1, label, pick: () => this.setState({ step:i }), numColor: i<=st.step ? accent : c.muted,
+      style:`width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 0 0;border:0;border-top:4px solid ${i<=st.step?accent:c.line};background:transparent;color:${c.text};font-family:Inter;text-align:left;cursor:pointer` }));
+    const srcDefs = [['Docker image','Docker Hub, GHCR or private','Image','nginx:1.27-alpine'],['Git repository','We build it from your Dockerfile','Repository URL','https://github.com/you/my-shop'],['Compose file','Paste or upload compose.yaml','Compose file','compose.yaml'],['Template','WordPress, n8n, Ghost…','Template','WordPress']];
+    const sources = srcDefs.map(([title, sub], i) => ({ title, sub, pick: () => this.setState({ src:i }), style: pick(st.src===i) }));
+    const plans = [['Small','0.5 vCPU · 512 MB · 5 GB','$5 / mo'],['Standard','1 vCPU · 1 GB · 10 GB','$10 / mo'],['Pro','2 vCPU · 4 GB · 40 GB','$24 / mo']]
+      .map(([name, spec, price], i) => ({ name, spec, price, pick: () => this.setState({ plan:i }), style: pick(st.plan===i) }));
+    const prog = ['Pulling image','Starting container','Health check passed','HTTPS certificate issued','Live on my-shop.livezen.app'];
+    const progress = prog.map(label => ({ label, dot:`width:12px;height:12px;border-radius:6px;background:#16A34A;flex:none`, text:'font-weight:500' }));
+
+    const ok = st.verified;
+    const dns = [
+      { type:'A', name:'shop', value:'139.59.2.77', status: ok?'verified':'waiting', badge: B(ok?'g':'y') },
+      { type:'CNAME', name:'www.shop', value:'shop.mybrand.lk', status: ok?'verified':'waiting', badge: B(ok?'g':'y') },
+    ];
+    const domains = [
+      ['shop.mybrand.lk','my-shop', ok?'verified':'pending', ok?'g':'y', ok?'active':'waiting for DNS', ok?'g':'y', ok?'in 89 days':'—'],
+      ['blog.mybrand.lk','blog','verified','g','active','g','in 61 days'],
+      ['n8n-livezen.livezen.app','n8n','managed','b','active','g','auto'],
+    ].map(d => ({ name:d[0], app:d[1], dns:d[2], dnsB:B(d[3]), ssl:d[4], sslB:B(d[5]), renew:d[6] }));
+
+    return {
+      c: { ...c, dangerLine: dark ? '#7F1D1D' : '#FECACA' }, accent, nav, apps, steps, sources, plans, progress, dns, domains,
+      app, appTabs, appStats, releases, snapshots, bkFilters, usage, invoices, security, team,
+      isDetail: st.page==='detail', isBackups: st.page==='backups', isBilling: st.page==='billing', isAccount: st.page==='account',
+      at0: st.appTab===0, at1: st.appTab===1, at2: st.appTab===2, at3: st.appTab===3, at4: st.appTab===4,
+      goApps: go('apps'), restoring: !!st.restore, restoreName: st.restore || '', cancelRestore: () => this.setState({ restore: null }),
+      templates: ['WordPress','n8n','Ghost','PostgreSQL','Redis','Uptime Kuma'],
+      envs: [{k:'NODE_ENV',v:'production'},{k:'DATABASE_URL',v:'•••••••• (secret)'},{k:'PORT',v:'3000'}],
+      isApps: st.page==='apps', isHost: st.page==='host', isDomains: st.page==='domains',
+      h0: st.step===0, h1: st.step===1, h2: st.step===2, h3: st.step===3,
+      srcLabel: srcDefs[st.src][2], srcValue: srcDefs[st.src][3],
+      nextLabel: st.step===2 ? 'Deploy app' : st.step===3 ? 'Go to my apps' : 'Continue',
+      next: () => st.step===3 ? this.setState({ page:'apps' }) : this.setState({ step: st.step+1 }),
+      back: () => st.step===0 ? this.setState({ page:'apps' }) : this.setState({ step: st.step-1 }),
+      goHost: go('host'), goDomains: go('domains'),
+      verify: () => this.setState({ verified: true }),
+      verifyLabel: ok ? 'DNS verified ✓' : 'Check DNS now',
+      verifyNote: ok ? 'Certificate issued — https://shop.mybrand.lk is live.' : 'Changes can take a few minutes. We check every 2 minutes automatically.',
+    };
+  }
+}
+</script>
+</body>
+</html>

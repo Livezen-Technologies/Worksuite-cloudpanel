@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Domains &amp; SSL — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
+  <div style="flex: 1 1 260px; max-width: 272px"><dc-import name="Sidebar" active="8" dark="{{dark}}" accent="{{accent}}" hint-size="272px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Domains &amp; SSL</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Traefik routes, Let’s Encrypt certificates and DNS readiness for every organisation</p>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">Add domain</button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+        <div style="padding: 18px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}"><div style="font-size: 13px; color: {{c.muted}}">{{t.k}}</div><div style="font-size: 24px; font-weight: 700; margin-top: 6px">{{t.v}}</div><div style="font-size: 12px; color: {{c.muted}}; margin-top: 2px">{{t.s}}</div></div>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{filters}}" as="f" hint-placeholder-count="4"><button type="button" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button></sc-for>
+    </div>
+    <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+      <div style="overflow-x: auto">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px">
+          <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><sc-for list="{{cols}}" as="h" hint-placeholder-count="7"><th style="padding: 10px 16px; font-weight: 600">{{h}}</th></sc-for></tr></thead>
+          <tbody><sc-for list="{{rows}}" as="r" hint-placeholder-count="7"><tr style="border-top: 1px solid {{c.line}}"><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td style="padding: 12px 16px"><span style="{{x.s}}">{{x.t}}</span></td></sc-for></tr></sc-for></tbody>
+        </table>
+      </div>
+    </section>
+    <div style="padding: 14px 16px; border-radius: 10px; background: {{c.warnBg}}; color: {{c.warnFg}}; font-size: 13px">legacy.acme.io: DNS-01 renewal is failing (API token for the DNS provider expired). The certificate expires in 9 days.</div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { f: 'All' }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', warnBg:'#3A2A05', warnFg:'#FDE68A' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', warnBg:'#FEF9C3', warnFg:'#713F12' };
+    const tones = dark
+      ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], b:['#0C2340','#60A5FA'] }
+      : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], b:['#EFF6FF','#1D4ED8'] };
+    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
+    const T = (t, s) => ({ t, s: s || `color:${c.muted};white-space:nowrap` });
+    const M = t => T(t, `font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:${c.text};white-space:nowrap`);
+    const data = [
+      ['app.example.com','web-frontend','Acme Hosting','3000','valid','g','78 days','HTTP-01'],
+      ['api.example.com','api','Acme Hosting','8000','valid','g','78 days','HTTP-01'],
+      ['admin.example.com','admin-portal','Acme Hosting','8080','valid','g','61 days','DNS-01'],
+      ['*.preview.example.com','preview envs','Acme Hosting','—','valid','g','30 days','DNS-01 wildcard'],
+      ['shop.mybrand.lk','my-shop','Livezen Labs','3000','pending DNS','b','—','HTTP-01'],
+      ['blog.mybrand.lk','blog','Livezen Labs','80','valid','g','61 days','HTTP-01'],
+      ['legacy.acme.io','wordpress-blog','Acme Hosting','80','expiring','y','9 days','DNS-01'],
+    ];
+    const f = this.state.f;
+    const shown = data.filter(d => f==='All' || (f==='Expiring' && d[4]==='expiring') || (f==='Pending' && d[4].startsWith('pending')) || (f==='Wildcard' && d[0].startsWith('*')));
+    const filters = ['All','Expiring','Pending','Wildcard'].map(label => ({ label, pick: () => this.setState({ f: label }),
+      style:`min-height:36px;padding:0 14px;border-radius:999px;font:600 13px Inter;cursor:pointer;border:1px solid ${f===label?accent:c.line};background:${f===label?accent:c.card};color:${f===label?'#fff':c.text}` }));
+    return { c, dark, accent, filters,
+      tiles: [{k:'Domains',v:'7',s:'2 organisations'},{k:'Valid certificates',v:'5',s:'auto-renew on'},{k:'Expiring < 14 days',v:'1',s:'renewal failing'},{k:'Waiting for DNS',v:'1',s:'checked every 2 min'}],
+      cols: ['Domain','Application','Organisation','Port','Certificate','Expires in','Challenge'],
+      rows: shown.map(d => ({ cells: [M(d[0]), T(d[1]), T(d[2]), T(d[3]), T(d[4], B(d[5])), T(d[6]), T(d[7])] })) };
+  }
+}
+</script>
+</body>
+</html>

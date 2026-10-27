@@ -1,0 +1,1067 @@
+# Docker Manager Portal — Software Requirements Specification
+ ·  · Version 1.0
+## 1. Introduction
+### 1.1 Purpose
+This document specifies the requirements for the Docker Manager Portal: a self-hosted platform that lets operators manage Docker on many VPS and dedicated servers, and lets customers host Docker apps and connect their own domains. It is the reference for design, development, QA and acceptance of release 1.0.
+### 1.2 Scope
+The product has two web front ends on one control plane:
+Admin portal — for platform operators: servers, agents, containers, Compose stacks, images, networks, storage, domains and SSL, databases, backups, monitoring, logs and terminal, automation, users and settings.
+Customer (user) panel — for tenants: host a Docker app in four steps, connect a domain with automatic HTTPS, manage apps, restore backups, see billing and manage their account.
+A Go agent on every managed server executes Docker operations. Kubernetes and Swarm backends, high-availability control plane and automated scaling are out of scope for 1.0 (see section 9).
+### 1.3 Definitions
+Term
+ | Meaning
+ | 
+Control plane
+ | Central API, scheduler, job queue and database that store desired state
+ | 
+Agent
+ | Go service on each managed server; connects outbound to the control plane over mTLS
+ | 
+Organisation
+ | Tenant boundary; every resource belongs to exactly one organisation
+ | 
+App
+ | A customer-facing deployment: one container or one Compose project plus its domain and volume
+ | 
+Compose project
+ | A versioned Compose definition deployed to one target server
+ | 
+Job
+ | An asynchronous, idempotent operation (deploy, backup, restore, action) with an ID and status
+ | 
+Desired state
+ | Configuration stored in PostgreSQL; the agent reconciles actual Docker state to it
+ | 
+### 1.4 References
+Docker Manager Portal — Technical Blueprint v1.0 (source brief)
+Docker Manager Portal — Design canvas (admin portal and customer panel screens)
+Tailwind CSS v4 dashboard prototype (dashboard.html)
+### 1.5 Conventions
+Requirement IDs take the form AREA-NNN. Priority: M = must have for 1.0, S = should have, C = could have / later. "Shall" marks a binding requirement.
+## 2. Overall description
+### 2.1 Product perspective
+The portal is a centralised, agent-based control plane. PostgreSQL holds desired configuration; agents on each server execute typed, policy-checked Docker operations and report actual state back. Applications keep running if the control plane is unavailable.
+### 2.2 Technology stack
+Layer
+ | Technology
+ | 
+Admin portal and customer panel
+ | React + TypeScript + Tailwind CSS v4
+ | 
+Business API, auth, organisations, billing
+ | Laravel 12
+ | 
+Server agent
+ | Go (single static binary, x86_64 and ARM64)
+ | 
+Database
+ | PostgreSQL
+ | 
+Cache, queues, locks
+ | Redis
+ | 
+Deployment engine
+ | Docker Engine + Docker Compose
+ | 
+Reverse proxy and TLS
+ | Traefik + Let's Encrypt
+ | 
+Metrics
+ | Prometheus, Node Exporter, cAdvisor; Grafana for deep dives
+ | 
+Logs
+ | Loki + Fluent Bit
+ | 
+Real-time
+ | WebSocket / SSE
+ | 
+Backups
+ | Restic + S3-compatible storage; native DB dump tools
+ | 
+### 2.3 Operating environment
+Managed servers: Ubuntu 22.04/24.04, Debian 12, Rocky Linux 9, AlmaLinux 9 with Docker Engine 24+.
+Browsers: last two versions of Chrome, Edge, Firefox, Safari; layouts work from 360 px to desktop.
+Control plane: one management VPS for small installs; separate management, database, observability, worker and storage nodes for large installs.
+### 2.4 Design constraints
+The Docker daemon TCP socket shall never be exposed publicly; agents connect outbound on 443 only.
+Untrusted builds run on isolated worker nodes, never on the control plane or production hosts.
+Standard Compose targets one host; multi-server placement is done by the portal scheduler, not by Compose.
+Rebooting, resizing or reinstalling a server requires a provider API; Docker access alone cannot do it.
+S3-compatible storage is used for backups and object data, not as a POSIX volume.
+### 2.5 Assumptions and dependencies
+Customers control DNS for the domains they connect.
+Let's Encrypt is reachable from each ingress server; DNS-01 needs a DNS provider API token.
+A payment provider (e.g. Stripe) is available for the customer billing module.
+Provider integrations (Hetzner, DigitalOcean, Vultr, Linode, AWS, Proxmox) depend on account API permissions.
+## 3. User classes and roles
+Access is organisation-scoped, resource-scoped and action-scoped. Destructive production actions can require a second approver.
+### 3.1 Platform (admin portal) roles
+Role
+ | Deploy apps
+ | Servers & agents
+ | Start/stop containers
+ | Terminal
+ | Delete production
+ | Networks & storage
+ | Billing
+ | Logs & audit
+ | 
+Super Admin
+ | Yes
+ | Yes
+ | Yes
+ | Yes
+ | Yes
+ | Yes
+ | Yes
+ | Yes
+ | 
+Infrastructure Admin
+ | Yes
+ | Yes
+ | Yes
+ | Approved
+ | No
+ | Yes
+ | No
+ | Yes
+ | 
+Organisation Owner
+ | Yes
+ | Own org
+ | Yes
+ | Approved
+ | With approval
+ | Own org
+ | Yes
+ | Yes
+ | 
+DevOps Engineer
+ | Yes
+ | Yes
+ | Yes
+ | Approved
+ | With approval
+ | No
+ | No
+ | Yes
+ | 
+Developer
+ | Assigned apps
+ | No
+ | Assigned apps
+ | No
+ | No
+ | No
+ | No
+ | Assigned apps
+ | 
+Support Engineer
+ | Yes
+ | No
+ | No
+ | Approved
+ | No
+ | No
+ | No
+ | Yes
+ | 
+Billing Manager
+ | No
+ | No
+ | No
+ | No
+ | No
+ | No
+ | Yes
+ | Read
+ | 
+Viewer / Auditor
+ | No
+ | No
+ | No
+ | No
+ | No
+ | No
+ | No
+ | Read
+ | 
+### 3.2 Customer (user panel) roles
+Role
+ | Can do
+ | 
+Owner
+ | Everything in the organisation, including plan, payment and team
+ | 
+Developer
+ | Host, deploy, configure and view apps, domains and backups; no billing
+ | 
+Billing
+ | View usage, invoices and payment method only
+ | 
+### 3.3 Characteristics
+Operators are technical and expect dense tables, bulk actions and keyboard shortcuts.
+Customers may not know Docker well; the user panel hides servers, networks and images and uses plain language.
+## 4. Functional requirements — admin portal
+Every mutating action shall create a job, write an audit event and return a job ID. Lists shall support search, filters, sorting, pagination and bulk actions.
+### 4.1 Overview dashboard (DASH)
+ID
+ | Requirement
+ | Pri
+ | 
+DASH-001
+ | Show connected/total servers, running containers, fleet CPU and memory
+ | M
+ | 
+DASH-002
+ | Show a CPU/RAM chart with 1 h, 6 h, 24 h and 7 d ranges
+ | M
+ | 
+DASH-003
+ | List active alerts by severity with a link to Monitoring
+ | M
+ | 
+DASH-004
+ | List recent deployments with status, source, author and time
+ | M
+ | 
+DASH-005
+ | Show top resource-consuming containers
+ | S
+ | 
+DASH-006
+ | Show backup status (24 h), certificates expiring and image-scan summary
+ | M
+ | 
+DASH-007
+ | Update widgets live every 5–15 s without a page reload
+ | M
+ | 
+DASH-008
+ | Global command search (Ctrl/⌘ K) across servers, containers, apps and pages
+ | S
+ | 
+### 4.2 Servers and agents (SRV)
+ID
+ | Requirement
+ | Pri
+ | 
+SRV-001
+ | Six-step add-server wizard: information, connection, agent install, verification, configuration, completion
+ | M
+ | 
+SRV-002
+ | Generate a single-use enrolment token valid 15 min and a one-line install command
+ | M
+ | 
+SRV-003
+ | Verify Docker version, OS, kernel, CPU, RAM, disk, networking and agent health before registering
+ | M
+ | 
+SRV-004
+ | Show server cards with status (online, warning, maintenance, offline), CPU, RAM, disk, OS, Docker version and container count
+ | M
+ | 
+SRV-005
+ | Server detail tabs: Overview, Containers, Applications, Networks, Volumes, Storage, Monitoring, Logs, Security, Backups, Agent, Settings
+ | M
+ | 
+SRV-006
+ | Restart and update the agent without stopping running containers
+ | M
+ | 
+SRV-007
+ | Maintenance mode blocks new deployments to that server
+ | M
+ | 
+SRV-008
+ | Group servers by environment, region and tags; set capacity and scheduling weights
+ | S
+ | 
+SRV-009
+ | Power, snapshot and resize actions only through a connected provider API
+ | C
+ | 
+### 4.3 Containers (CTR)
+ID
+ | Requirement
+ | Pri
+ | 
+CTR-001
+ | List containers with name, image, server, state, health, CPU, memory, ports, uptime
+ | M
+ | 
+CTR-002
+ | Filter by state (all, running, exited, unhealthy) and server; multi-select bulk restart/stop
+ | M
+ | 
+CTR-003
+ | Lifecycle: create, start, stop, restart, pause, remove
+ | M
+ | 
+CTR-004
+ | Removal requires confirmation; attached volumes are kept unless explicitly unticked
+ | M
+ | 
+CTR-005
+ | Detail panel with limits, user, restart policy, live logs and actions
+ | M
+ | 
+CTR-006
+ | Create-container wizard with image, registry auth, env, secrets, ports, network, mounts, limits, restart policy, health check
+ | M
+ | 
+CTR-007
+ | Secure defaults: non-root, cap_drop ALL, no-new-privileges, read-only root where compatible
+ | M
+ | 
+CTR-008
+ | Authorised exec terminal sessions, time-limited and recorded
+ | M
+ | 
+CTR-009
+ | Safe prune with a preview of what will be removed
+ | S
+ | 
+CTR-010
+ | Duplicate a container from a reviewed configuration
+ | C
+ | 
+### 4.4 Applications and deployments (APP)
+ID
+ | Requirement
+ | Pri
+ | 
+APP-001
+ | Deploy from Git repository, Docker image, Dockerfile or Compose stack
+ | M
+ | 
+APP-002
+ | Pipeline stages: webhook validation, checkout, build and scan, push by digest, placement, deploy, health check, complete or roll back
+ | M
+ | 
+APP-003
+ | Show a live pipeline timeline with per-stage status and duration
+ | M
+ | 
+APP-004
+ | Strategies: recreate, rolling update, blue-green
+ | S
+ | 
+APP-005
+ | Optional approval gate for production
+ | M
+ | 
+APP-006
+ | Immutable release history with one-click rollback
+ | M
+ | 
+APP-007
+ | Preview environments per pull request on a wildcard domain
+ | C
+ | 
+### 4.5 Compose stacks (CMP)
+ID
+ | Requirement
+ | Pri
+ | 
+CMP-001
+ | Create stacks from Git, upload or pasted YAML; each has project name, target server, environment, revision
+ | M
+ | 
+CMP-002
+ | YAML editor with syntax highlighting and schema validation
+ | M
+ | 
+CMP-003
+ | Validate, diff against the running revision, deploy, stop, restart, remove
+ | M
+ | 
+CMP-004
+ | Versioned revisions and rollback to any earlier revision
+ | M
+ | 
+CMP-005
+ | Show service dependencies and health
+ | S
+ | 
+### 4.6 Images and registries (IMG)
+ID
+ | Requirement
+ | Pri
+ | 
+IMG-001
+ | List images per server with tag, digest, size, users and scan result
+ | M
+ | 
+IMG-002
+ | Connect registries (GHCR, Docker Hub, private) with encrypted credentials
+ | M
+ | 
+IMG-003
+ | Scan images for CVEs; optionally block deploys with critical CVEs
+ | M
+ | 
+IMG-004
+ | Prune dangling and unused images with a preview
+ | S
+ | 
+IMG-005
+ | Configure pull-through registry mirrors per server
+ | C
+ | 
+### 4.7 Networks (NET)
+ID
+ | Requirement
+ | Pri
+ | 
+NET-001
+ | List networks with driver, subnet, server, containers and exposure
+ | M
+ | 
+NET-002
+ | Create bridge networks with custom subnets; host networking only with approval
+ | M
+ | 
+NET-003
+ | Check port conflicts, IP conflicts and public exposure before applying a change
+ | M
+ | 
+NET-004
+ | WireGuard mesh between servers with peer health
+ | S
+ | 
+### 4.8 Volumes and storage (STO)
+ID
+ | Requirement
+ | Pri
+ | 
+STO-001
+ | Show capacity per storage pool: local SSD/NVMe, NFS/NAS, object storage
+ | M
+ | 
+STO-002
+ | List volumes with type, server, size, consumers and backup policy
+ | M
+ | 
+STO-003
+ | Create named volumes, bind mounts and NFS mounts; set quotas
+ | M
+ | 
+STO-004
+ | Flag volumes without a backup policy
+ | S
+ | 
+### 4.9 Domains and SSL (DOM)
+ID
+ | Requirement
+ | Pri
+ | 
+DOM-001
+ | Map domains to applications and internal ports via Traefik
+ | M
+ | 
+DOM-002
+ | Issue and renew Let's Encrypt certificates by HTTP-01 or DNS-01, including wildcards
+ | M
+ | 
+DOM-003
+ | Check DNS readiness before requesting a certificate
+ | M
+ | 
+DOM-004
+ | Detect domain conflicts before deployment
+ | M
+ | 
+DOM-005
+ | Filter by expiring, pending DNS and wildcard; warn 14 days before expiry
+ | M
+ | 
+DOM-006
+ | Redirects, custom headers, middleware and WebSocket routing
+ | S
+ | 
+### 4.10 Databases (DB)
+ID
+ | Requirement
+ | Pri
+ | 
+DB-001
+ | Create PostgreSQL, MySQL/MariaDB, Redis and MongoDB from templates
+ | M
+ | 
+DB-002
+ | Show size, connections and last backup; back up and restore on demand
+ | M
+ | 
+DB-003
+ | Store credentials as encrypted secrets, injected by reference
+ | M
+ | 
+### 4.11 Backups and recovery (BAK)
+ID
+ | Requirement
+ | Pri
+ | 
+BAK-001
+ | Policies per target: method, schedule (hourly to monthly), destination, retention
+ | M
+ | 
+BAK-002
+ | Application-consistent DB dumps; Restic snapshots for files and volumes
+ | M
+ | 
+BAK-003
+ | Destinations: local, S3, Backblaze B2, Cloudflare R2, Google Drive
+ | M
+ | 
+BAK-004
+ | Mandatory encryption for remote backups; recovery keys stored separately
+ | M
+ | 
+BAK-005
+ | Integrity check after each run and scheduled restore tests
+ | M
+ | 
+BAK-006
+ | 14-day success chart and per-policy status
+ | S
+ | 
+### 4.12 Monitoring and alerts (MON)
+ID
+ | Requirement
+ | Pri
+ | 
+MON-001
+ | Collect CPU, memory, disk, network, restarts, health checks and response times
+ | M
+ | 
+MON-002
+ | Fleet chart with per-series toggles and server filter
+ | M
+ | 
+MON-003
+ | Alert rules with threshold, duration, severity, scope and channels, configurable per organisation, group and app
+ | M
+ | 
+MON-004
+ | Default rules: CPU > 90% 10 min, RAM > 90% 5 min, disk > 85%, heartbeat timeout, unhealthy container, backup failed, SSL < 14 days
+ | M
+ | 
+MON-005
+ | Channels: email, Slack, Teams, Telegram, webhook
+ | M
+ | 
+### 4.13 Logs, terminal and audit (LOG)
+ID
+ | Requirement
+ | Pri
+ | 
+LOG-001
+ | Stream live logs per container with search and export
+ | M
+ | 
+LOG-002
+ | Terminal sessions as a non-root user, with expiry, recording and "end session"
+ | M
+ | 
+LOG-003
+ | Tamper-resistant audit log: time, user, action, resource, source IP
+ | M
+ | 
+### 4.14 Automation (AUT)
+ID
+ | Requirement
+ | Pri
+ | 
+AUT-001
+ | Scheduled jobs by cron, webhook or manual trigger, with enable/disable
+ | M
+ | 
+AUT-002
+ | Run now, last result and next run per job
+ | M
+ | 
+AUT-003
+ | Maintenance windows per server or group
+ | S
+ | 
+### 4.15 Users, teams and settings (USR / SET)
+ID
+ | Requirement
+ | Pri
+ | 
+USR-001
+ | Invite users, assign roles, see sign-in method and last activity
+ | M
+ | 
+USR-002
+ | Show the permission matrix of a selected role
+ | S
+ | 
+SET-001
+ | General: organisation name, default region, audit retention, heartbeat and refresh intervals
+ | M
+ | 
+SET-002
+ | Security policies: require MFA, approval for destructive actions, secure container defaults, mandatory backup encryption, host networking, CVE blocking
+ | M
+ | 
+SET-003
+ | Notification channels and provider integrations
+ | M
+ | 
+SET-004
+ | Scoped API tokens with expiry and revoke
+ | M
+ | 
+## 5. Functional requirements — customer panel
+A customer shall be able to host a Docker app and reach it on their own domain over HTTPS without seeing servers, networks or images. Placement, TLS, restarts and backups happen automatically.
+### 5.1 My apps (UAPP)
+ID
+ | Requirement
+ | Pri
+ | 
+UAPP-001
+ | Card per app: name, image, primary domain, state, CPU, RAM, last deploy
+ | M
+ | 
+UAPP-002
+ | Actions per card: Manage, Logs, Domain
+ | M
+ | 
+UAPP-003
+ | Plan usage in the sidebar: apps, RAM, upgrade link
+ | M
+ | 
+### 5.2 Host a Docker app (UHOST)
+Four steps; each step can be revisited before deploying.
+Source — Docker image (Docker Hub, GHCR, private with credentials), Git repository (built from its Dockerfile on an isolated runner), Compose file (pasted or uploaded), or a one-click template (WordPress, n8n, Ghost, PostgreSQL, Redis, Uptime Kuma).
+Configure — app name (unique per organisation, DNS-safe), container port, region, environment variables with secret values masked, optional persistent volume at a chosen path.
+Size — Small (0.5 vCPU, 512 MB, 5 GB), Standard (1 vCPU, 1 GB, 10 GB), Pro (2 vCPU, 4 GB, 40 GB); prices from the plan catalogue.
+Deploy — live progress: pull image, start container, health check, certificate issued, live; then the free address <app>.<platform-domain>.
+ID
+ | Requirement
+ | Pri
+ | 
+UHOST-001
+ | Support the four sources above
+ | M
+ | 
+UHOST-002
+ | Validate image reachability and registry credentials before step 2
+ | M
+ | 
+UHOST-003
+ | Reject the deploy if it would exceed the plan's app, RAM or storage quota, with an upgrade prompt
+ | M
+ | 
+UHOST-004
+ | Place the app with the scheduler (region, capacity, health) — the customer never picks a server
+ | M
+ | 
+UHOST-005
+ | Issue a free subdomain with HTTPS on first deploy
+ | M
+ | 
+UHOST-006
+ | On a failed health check, stop and show the last 50 log lines and a retry
+ | M
+ | 
+UHOST-007
+ | Apply secure container defaults; customers cannot request privileged mode or host networking
+ | M
+ | 
+### 5.3 App detail (UDET)
+ID
+ | Requirement
+ | Pri
+ | 
+UDET-001
+ | Overview: CPU, memory, storage, 24 h requests, addresses
+ | M
+ | 
+UDET-002
+ | Logs: live stream of the app's output
+ | M
+ | 
+UDET-003
+ | Environment: edit variables; "Save & restart" applies them
+ | M
+ | 
+UDET-004
+ | Releases: version list with status and roll back
+ | M
+ | 
+UDET-005
+ | Settings: change size, auto-deploy on push, auto-restart, delete app (data kept 7 days)
+ | M
+ | 
+UDET-006
+ | Restart and redeploy buttons in the header
+ | M
+ | 
+### 5.4 Domains (UDOM)
+ID
+ | Requirement
+ | Pri
+ | 
+UDOM-001
+ | Add a domain, choose the app, optional www redirect
+ | M
+ | 
+UDOM-002
+ | Show the exact DNS records to create (A to the ingress IP, CNAME for www) with copy buttons
+ | M
+ | 
+UDOM-003
+ | Check DNS automatically every 2 min and on "Check DNS now"; mark each record waiting or verified
+ | M
+ | 
+UDOM-004
+ | Issue the certificate as soon as DNS verifies; the domain goes live without a redeploy
+ | M
+ | 
+UDOM-005
+ | List domains with app, DNS status, HTTPS status and renewal date
+ | M
+ | 
+UDOM-006
+ | Refuse a domain already used by another organisation
+ | M
+ | 
+UDOM-007
+ | Email the owner if renewal fails or DNS stops pointing at the platform
+ | S
+ | 
+### 5.5 Backups (UBAK)
+ID
+ | Requirement
+ | Pri
+ | 
+UBAK-001
+ | Daily encrypted snapshot of each app's volume, kept 14 days (plan-dependent)
+ | M
+ | 
+UBAK-002
+ | Filter snapshots by app; download and restore
+ | M
+ | 
+UBAK-003
+ | Restore asks for confirmation and takes a fresh backup first so it can be undone
+ | M
+ | 
+UBAK-004
+ | "Back up now" on demand, limited per day by plan
+ | S
+ | 
+### 5.6 Billing (UBIL)
+ID
+ | Requirement
+ | Pri
+ | 
+UBIL-001
+ | Show current plan, limits and upgrade / compare plans
+ | M
+ | 
+UBIL-002
+ | Month-to-date charge and usage bars for apps, RAM, storage, bandwidth; red above 90%
+ | M
+ | 
+UBIL-003
+ | Payment method and billing email, updated through the payment provider (card data never stored)
+ | M
+ | 
+UBIL-004
+ | Invoice list with number, period, amount, status and PDF
+ | M
+ | 
+### 5.7 Account (UACC)
+ID
+ | Requirement
+ | Pri
+ | 
+UACC-001
+ | Edit profile: name, email, organisation, photo
+ | M
+ | 
+UACC-002
+ | Two-factor, passkeys and new-sign-in alerts
+ | M
+ | 
+UACC-003
+ | Invite team members as Owner, Developer or Billing
+ | M
+ | 
+UACC-004
+ | Create and revoke API tokens for CI deploys
+ | S
+ | 
+## 6. External interfaces
+### 6.1 User interface
+Two shells on one design system (Tailwind CSS v4): the admin portal with a 16-item sidebar and the customer panel with a 6-item sidebar.
+Light and dark themes, one accent colour, Inter for text and JetBrains Mono for code, IDs and addresses.
+Shared components: stat tiles, status badges, data tables, cards, side drawers, confirm dialogs, toasts, tabs, step wizards, command palette.
+Responsive from 360 px: the sidebar collapses to a drawer, toolbars wrap, wide tables scroll inside their card.
+Status is never shown by colour alone: every badge carries a word.
+### 6.2 REST API
+Base path /api/v1, JSON, bearer tokens (session or scoped API token), organisation taken from the token.
+Method
+ | Endpoint
+ | Purpose
+ | 
+GET
+ | /servers
+ | List authorised servers
+ | 
+POST
+ | /servers/enrollment
+ | Create a single-use agent enrolment
+ | 
+GET
+ | /servers/{id}/containers
+ | List containers on a server
+ | 
+POST
+ | /containers/{id}/actions
+ | Request start, stop, restart, pause, remove
+ | 
+POST
+ | /deployments
+ | Start a deployment (admin or customer)
+ | 
+GET
+ | /deployments/{id}
+ | Read deployment status and stages
+ | 
+GET / POST
+ | /apps
+ | Customer apps: list, create (host-an-app wizard)
+ | 
+PATCH
+ | /apps/{id}
+ | Change env, size, auto-deploy, auto-restart
+ | 
+POST
+ | /apps/{id}/rollback
+ | Roll back to a release
+ | 
+GET / POST
+ | /domains
+ | List or add a domain
+ | 
+POST
+ | /domains/{id}/verify
+ | Re-check DNS now
+ | 
+POST
+ | /backup-jobs
+ | Request a backup
+ | 
+POST
+ | /restore-jobs
+ | Request a restore
+ | 
+GET
+ | /billing/usage, /billing/invoices
+ | Usage and invoices
+ | 
+GET
+ | /audit-logs
+ | Review audit history
+ | 
+Long-running mutations return 202 with a job ID.
+Mutations accept an Idempotency-Key header.
+Errors use one structured format: code, message, field errors, request ID.
+Rate limits apply per token and per IP.
+### 6.3 Real-time channels
+Authenticated WebSocket channels for metrics, job progress, live logs and terminal sessions. Each session is authorised per resource, expires, and writes audit events on open and close.
+### 6.4 Agent protocol
+Outbound mTLS on port 443; the certificate is bound to one server and organisation and rotated automatically.
+Commands are typed, versioned and signed, with operation IDs to prevent duplicate execution.
+Every command is checked against a local policy; there is no generic remote shell.
+Heartbeat every 15–30 s; reconnect with exponential backoff.
+Agent upgrades are signed, staged, health-checked and reversible.
+### 6.5 Integrations
+Integration
+ | Use
+ | 
+Git (GitHub, GitLab, Gitea)
+ | Source, webhooks for auto-deploy
+ | 
+Registries (Docker Hub, GHCR, private)
+ | Image pulls and pushes
+ | 
+Let's Encrypt and DNS providers
+ | Certificates, DNS-01 challenges
+ | 
+S3, B2, R2, Google Drive
+ | Backup destinations
+ | 
+Email, Slack, Teams, Telegram, webhook
+ | Alerts and notifications
+ | 
+Hetzner, DigitalOcean, Vultr, Linode, AWS EC2, Proxmox VE
+ | Server provisioning, power, snapshots
+ | 
+Payment provider
+ | Subscriptions, card storage, invoices
+ | 
+OIDC identity providers
+ | SSO for organisations
+ | 
+## 7. Data requirements
+PostgreSQL is the source of truth for desired state; every row carries an organization_id. Docker runtime state is reconciled by agents, not treated as authoritative. Metrics go to Prometheus and logs to Loki, never to application tables.
+### 7.1 Core tables
+Domain
+ | Tables
+ | 
+Identity
+ | users, organizations, memberships, roles, permissions, sessions, passkeys
+ | 
+Infrastructure
+ | servers, server_groups, regions, agents, agent_certificates
+ | 
+Docker
+ | containers, images, registries, networks, volumes
+ | 
+Applications
+ | projects, applications, environments, deployments, releases, env_vars
+ | 
+Compose
+ | compose_projects, compose_revisions, compose_services
+ | 
+Networking
+ | domains, dns_checks, certificates, routes, proxy_rules
+ | 
+Storage
+ | storage_nodes, storage_pools, volume_mounts
+ | 
+Backup
+ | backup_policies, backup_jobs, backup_artifacts, restore_jobs
+ | 
+Operations
+ | jobs, job_attempts, agent_events, alerts, alert_rules, scheduled_jobs
+ | 
+Security
+ | secrets, access_tokens, audit_logs, approvals
+ | 
+Billing
+ | plans, subscriptions, usage_records, invoices
+ | 
+### 7.2 Retention
+Data
+ | Default retention
+ | 
+Audit logs
+ | 365 days, configurable
+ | 
+Metrics
+ | 15 days raw, 13 months downsampled
+ | 
+Container logs
+ | 14 days
+ | 
+Customer app backups
+ | 14 days (plan-dependent)
+ | 
+Deleted app volumes
+ | 7 days, then purged
+ | 
+Release history
+ | Last 20 releases per app
+ | 
+Invoices and usage records
+ | As required by tax law (minimum 7 years)
+ | 
+### 7.3 Data protection
+Secrets, registry credentials and DNS tokens are encrypted at rest with envelope encryption.
+Card data is held only by the payment provider.
+Customers can export their app configuration and download backups; account deletion removes their data after the retention window.
+## 8. Non-functional requirements
+These targets need load testing and operational validation before release.
+### 8.1 Performance and availability
+ID
+ | Requirement
+ | Target
+ | 
+NFR-001
+ | Control plane availability
+ | 99.9% per month
+ | 
+NFR-002
+ | API response for standard metadata queries
+ | p95 < 500 ms
+ | 
+NFR-003
+ | Dashboard refresh interval
+ | 5–15 s
+ | 
+NFR-004
+ | Agent heartbeat
+ | every 15–30 s
+ | 
+NFR-005
+ | Customer app first deploy from a public image, excluding pull time
+ | < 60 s to live
+ | 
+NFR-006
+ | Certificate issued after DNS verifies
+ | < 2 min
+ | 
+NFR-007
+ | Fleet size per control plane (1.0)
+ | 200 servers, 5,000 containers
+ | 
+NFR-008
+ | Running apps unaffected by control-plane or agent restarts
+ | 0 container restarts
+ | 
+### 8.2 Security
+ID
+ | Requirement
+ | 
+SEC-001
+ | Organisation-scoped RBAC with ownership checks on every request
+ | 
+SEC-002
+ | MFA, passkeys, SSO (OIDC) and session management
+ | 
+SEC-003
+ | Mutual TLS between agents and control plane; short-lived enrolment tokens; certificate rotation
+ | 
+SEC-004
+ | Secrets and credentials encrypted at rest
+ | 
+SEC-005
+ | Per-operation authorisation for terminal, deploy, backup, restore and delete
+ | 
+SEC-006
+ | Tamper-resistant audit log for every sensitive change
+ | 
+SEC-007
+ | Image vulnerability scanning and container security policies
+ | 
+SEC-008
+ | Signed agent releases and verified update packages
+ | 
+SEC-009
+ | Rate limiting, input validation, CSRF protection, strict CORS
+ | 
+SEC-010
+ | Untrusted tenants isolated on dedicated VMs or servers when required; shared-kernel containers are not treated as VM isolation
+ | 
+### 8.3 Reliability and recovery
+Agents reconnect automatically with exponential backoff.
+Interrupted jobs resume or roll back; no job runs twice for one operation ID.
+Recovery point and recovery time objectives are set per service tier and tested.
+Control-plane database backups are stored off-host.
+### 8.4 Usability and accessibility
+WCAG 2.2 AA: 4.5:1 text contrast, keyboard access to every action, visible focus, labelled icon buttons.
+Touch targets at least 44 px in the customer panel.
+Customer copy avoids Docker jargon; errors say what happened and what to do next.
+### 8.5 Portability and maintainability
+Agent runs on x86_64 and ARM64.
+The orchestration layer is modular so Swarm or Kubernetes backends can be added without changing the portals.
+The API is versioned; breaking changes go to a new version.

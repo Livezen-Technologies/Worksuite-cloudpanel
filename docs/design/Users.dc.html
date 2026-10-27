@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Users &amp; Teams — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
+  <div style="flex: 1 1 260px; max-width: 272px"><dc-import name="Sidebar" active="14" dark="{{dark}}" accent="{{accent}}" hint-size="272px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Users &amp; Teams</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Organisation-scoped roles with MFA, passkeys and approval workflows</p>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">Invite user</button>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section style="flex: 2 1 560px; min-width: 0; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px">
+            <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><th style="padding: 10px 16px; font-weight: 600">Member</th><th style="padding: 10px 16px; font-weight: 600">Role</th><th style="padding: 10px 16px; font-weight: 600">Sign-in</th><th style="padding: 10px 16px; font-weight: 600">Last active</th></tr></thead>
+            <tbody>
+              <sc-for list="{{users}}" as="u" hint-placeholder-count="7">
+                <tr onClick="{{u.pick}}" style="{{u.row}}">
+                  <td style="padding: 12px 16px"><span style="display: flex; align-items: center; gap: 12px"><span style="width: 34px; height: 34px; border-radius: 17px; background: {{c.chip}}; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">{{u.ini}}</span><span><span style="display: block; font-weight: 600">{{u.name}}</span><span style="display: block; font-size: 12px; color: {{c.muted}}">{{u.email}}</span></span></span></td>
+                  <td style="padding: 12px 16px"><span style="{{u.badge}}">{{u.role}}</span></td>
+                  <td style="padding: 12px 16px; color: {{c.muted}}">{{u.auth}}</td>
+                  <td style="padding: 12px 16px; color: {{c.muted}}">{{u.last}}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section style="flex: 1 1 300px; min-width: 0; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">{{sel.role}} can</h2>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{perms}}" as="p" hint-placeholder-count="8">
+            <li style="display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid {{c.line}}"><span>{{p.label}}</span><span style="{{p.style}}">{{p.v}}</span></li>
+          </sc-for>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { sel: 1 }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', chip:'#1E293B', sel:'#1E1B4B' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', chip:'#EEF2F7', sel:'#EEF2FF' };
+    const b = dark ? ['#0C2340','#60A5FA'] : ['#EFF6FF','#1D4ED8'];
+    const badge = `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${b[0]};color:${b[1]}`;
+    const data = [
+      ['Hasith A.','hasith@acme.io','Super Admin','MFA + passkey','now'],
+      ['Nimal P.','nimal@acme.io','DevOps Engineer','MFA','12 min ago'],
+      ['Sara K.','sara@acme.io','Developer','MFA','1 h ago'],
+      ['Ravi D.','ravi@acme.io','Infrastructure Admin','Passkey','3 h ago'],
+      ['Kasun W.','kasun@acme.io','Support Engineer','MFA','yesterday'],
+      ['Amaya F.','amaya@acme.io','Billing Manager','MFA','2 d ago'],
+      ['Audit bot','audit@acme.io','Viewer / Auditor','API token','continuous'],
+    ];
+    const P = {
+      'Super Admin':[1,1,1,1,1,1,1,1], 'Infrastructure Admin':[1,1,1,1,0,1,0,1], 'DevOps Engineer':[1,1,1,1,1,0,0,1],
+      'Developer':[1,0,1,0,0,0,0,1], 'Support Engineer':[1,0,0,1,0,0,0,1], 'Billing Manager':[0,0,0,0,0,0,1,1], 'Viewer / Auditor':[0,0,0,0,0,0,0,1],
+    };
+    const labels = ['Deploy applications','Manage servers & agents','Start / stop containers','Open terminal (approved)','Delete production resources','Edit networks & storage','Plans & invoices','View logs & audit trail'];
+    const users = data.map((d, i) => ({ name:d[0], email:d[1], role:d[2], auth:d[3], last:d[4], ini: d[0].split(' ').map(x=>x[0]).join(''), badge,
+      pick: () => this.setState({ sel: i }),
+      row:`border-top:1px solid ${c.line};cursor:pointer;background:${i===this.state.sel?c.sel:'transparent'}` }));
+    const role = data[this.state.sel][2];
+    const perms = labels.map((label, i) => { const yes = P[role][i]; return { label, v: yes ? (i===4 ? 'with approval' : 'Allowed') : 'No',
+      style:`font-weight:600;font-size:12px;color:${yes?(dark?'#4ADE80':'#15803D'):c.muted}` }; });
+    return { c, dark, accent, users, perms, sel: { role } };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Servers — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1100px; display: flex; flex-wrap: wrap">
+  <nav aria-label="Main" style="flex: 1 1 260px; max-width: 272px; box-sizing: border-box; padding: 20px 16px; background: {{c.side}}; border-right: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+      <span style="width: 34px; height: 34px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: center; color: #fff"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div><div style="font-weight: 700; font-size: 15px">Docker Manager</div><div style="font-size: 12px; color: {{c.muted}}">Acme Hosting</div></div>
+    </div>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="16">
+        <li><a href="{{n.href}}" style="{{n.style}}"><span style="width: 6px; height: 6px; border-radius: 3px; background: {{n.dot}}"></span>{{n.label}}</a></li>
+      </sc-for>
+    </ul>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Servers</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">VPS and dedicated servers connected through the outbound mTLS agent</p>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">Add server</button>
+    </div>
+
+    <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">
+      <sc-for list="{{servers}}" as="s" hint-placeholder-count="6">
+        <li style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 10px; height: 10px; border-radius: 5px; background: {{s.dot}}"></span>
+            <span style="flex: 1; font-weight: 700; font-size: 15px">{{s.name}}</span>
+            <span style="{{s.badge}}">{{s.status}}</span>
+          </div>
+          <div style="font-size: 12px; color: {{c.muted}}"><span style="font-family: 'JetBrains Mono', monospace">{{s.ip}}</span> · {{s.prov}} · {{s.region}}</div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+            <sc-for list="{{s.meters}}" as="m" hint-placeholder-count="3">
+              <div>
+                <div style="display: flex; justify-content: space-between; font-size: 12px"><span style="color: {{c.muted}}">{{m.k}}</span><span style="font-weight: 600">{{m.v}}</span></div>
+                <div style="margin-top: 6px; height: 6px; border-radius: 3px; background: {{c.track}}"><div style="height: 6px; border-radius: 3px; width: {{m.v}}; background: {{m.color}}"></div></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px">
+            <span style="padding: 3px 8px; border-radius: 6px; background: {{c.track}}">{{s.env}}</span>
+            <span style="padding: 3px 8px; border-radius: 6px; background: {{c.track}}">{{s.os}}</span>
+            <span style="padding: 3px 8px; border-radius: 6px; background: {{c.track}}">Docker {{s.docker}}</span>
+            <span style="padding: 3px 8px; border-radius: 6px; background: {{c.track}}">{{s.ctr}} containers</span>
+          </div>
+        </li>
+      </sc-for>
+    </ul>
+
+    <!-- Add-server wizard -->
+    <section style="padding: 24px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 22px">
+      <h2 style="margin: 0; font-size: 17px; font-weight: 700">Add server</h2>
+      <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px">
+        <sc-for list="{{steps}}" as="st" hint-placeholder-count="6">
+          <li><button type="button" onClick="{{st.pick}}" style="{{st.style}}"><span style="font-size: 12px; font-weight: 600; color: {{st.numColor}}">Step {{st.n}}</span><span style="font-size: 14px; font-weight: 600">{{st.label}}</span></button></li>
+        </sc-for>
+      </ol>
+
+      <sc-if value="{{showInfo}}" hint-placeholder-val="{{ true }}">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Server name<input value="vps-eu-03" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"></label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Provider<select style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>Hetzner</option><option>DigitalOcean</option><option>Vultr</option><option>Linode / Akamai</option><option>AWS EC2</option><option>Proxmox VE</option></select></label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">IP address<input value="203.0.113.10" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px 'JetBrains Mono', monospace"></label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Environment<select style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>production</option><option>staging</option></select></label>
+        </div>
+      </sc-if>
+      <sc-if value="{{showInstall}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <p style="margin: 0; font-size: 14px; color: {{c.muted}}">Run this on the server. The token is single-use and expires in 15 minutes. The agent connects outbound over 443 with mTLS — no Docker socket is exposed.</p>
+          <pre style="margin: 0; padding: 16px; border-radius: 8px; background: #0B1120; color: #E2E8F0; font: 13px/1.6 'JetBrains Mono', monospace; white-space: pre-wrap; word-break: break-all">curl -fsSL https://portal.example.com/agent/install.sh | sudo DMP_TOKEN=enr_7Kq2…x9 bash</pre>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: {{c.muted}}"><span style="width: 8px; height: 8px; border-radius: 4px; background: #D97706"></span>Waiting for agent heartbeat…</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{showOther}}" hint-placeholder-val="{{ false }}">
+        <p style="margin: 0; font-size: 14px; color: {{c.muted}}">{{otherText}}</p>
+      </sc-if>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px">
+        <button type="button" onClick="{{back}}" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 14px Inter; cursor: pointer">Back</button>
+        <button type="button" onClick="{{next}}" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter; cursor: pointer">Continue</button>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { step: 0 }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', side:'#0F172A', card:'#111827', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', track:'#1E293B' }
+      : { bg:'#F8FAFC', side:'#FFFFFF', card:'#FFFFFF', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0', track:'#EEF2F7' };
+    const badge = (t) => {
+      const m = dark
+        ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], b:['#0C2340','#60A5FA'] }
+        : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], b:['#EFF6FF','#1D4ED8'] };
+      const [bg, fg] = m[t];
+      return `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;background:${bg};color:${fg}`;
+    };
+    const navItems = [['Overview','Main.dc.html'],['Servers','Servers.dc.html'],['Containers','Containers.dc.html'],['Applications','Applications.dc.html'],['Compose Stacks','Compose.dc.html'],['Images & Registry','Images.dc.html'],['Networks','Networks.dc.html'],['Volumes & Storage','Volumes.dc.html'],['Domains & SSL','Domains.dc.html'],['Databases','Databases.dc.html'],['Backups','Backups.dc.html'],['Monitoring','Monitoring.dc.html'],['Logs & Terminal','Logs.dc.html'],['Automation','Automation.dc.html'],['Users & Teams','Users.dc.html'],['Settings','Settings.dc.html']];
+    const nav = navItems.map(([label, href], i) => { const on = i===1; return { label, href, dot: on?accent:'transparent',
+      style:`display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on?600:500};color:${on?(dark?'#fff':accent):c.muted};background:${on?(dark?'#1E293B':'#EEF2FF'):'transparent'}` }; });
+    const meterColor = v => v>=85 ? '#DC2626' : v>=70 ? '#D97706' : accent;
+    const raw = [
+      ['vps-eu-01','49.12.10.21','Hetzner','eu-central','production','Ubuntu 24.04','27.3.1',38,61,54,22,'online'],
+      ['vps-eu-02','49.12.10.22','Hetzner','eu-central','production','Ubuntu 24.04','27.3.1',72,83,71,31,'online'],
+      ['ded-eu-01','88.99.4.10','Hetzner Robot','eu-central','production','Debian 12','27.2.0',22,47,88,40,'warning'],
+      ['vps-sg-01','139.59.2.77','DigitalOcean','ap-southeast','production','Rocky Linux 9','27.3.1',41,58,33,18,'online'],
+      ['stg-eu-01','95.217.8.3','Hetzner','eu-central','staging','AlmaLinux 9','27.3.1',12,35,21,14,'maintenance'],
+      ['vps-us-01','45.32.9.18','Vultr','us-east','production','Ubuntu 22.04','26.1.4',0,0,62,9,'offline'],
+    ];
+    const servers = raw.map(r => ({ name:r[0], ip:r[1], prov:r[2], region:r[3], env:r[4], os:r[5], docker:r[6], ctr:r[10], status:r[11],
+      dot: r[11]==='online'?'#16A34A':r[11]==='offline'?'#DC2626':r[11]==='maintenance'?'#2563EB':'#D97706',
+      badge: badge(r[11]==='online'?'g':r[11]==='offline'?'r':r[11]==='maintenance'?'b':'y'),
+      meters: [['CPU',r[7]],['RAM',r[8]],['Disk',r[9]]].map(([k,v])=>({k, v:v+'%', color:meterColor(v)})) }));
+    const labels = ['Server information','Connection method','Agent installation','Verification','Configuration','Completion'];
+    const other = ['', 'Agent-based connection (recommended) or SSH-assisted installation.', '', 'Checks Docker version, OS, CPU, memory, disk, kernel, networking and agent health.', 'Assign server group, permissions, deployment labels, quotas and storage paths.', 'Server registered — metrics initialised and dashboard ready.'];
+    const step = this.state.step;
+    const steps = labels.map((label, i) => ({ n:i+1, label, pick:()=>this.setState({step:i}),
+      numColor: i<=step ? accent : c.muted,
+      style:`width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 0 0;border:0;border-top:4px solid ${i<=step?accent:c.line};background:transparent;color:${c.text};font-family:Inter;text-align:left;cursor:pointer` }));
+    return { c, accent, nav, servers, steps,
+      showInfo: step===0, showInstall: step===2, showOther: step!==0 && step!==2, otherText: other[step],
+      next: () => this.setState({ step: Math.min(5, step+1) }), back: () => this.setState({ step: Math.max(0, step-1) }) };
+  }
+}
+</script>
+</body>
+</html>

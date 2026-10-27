@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Databases — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
+  <div style="flex: 1 1 260px; max-width: 272px"><dc-import name="Sidebar" active="9" dark="{{dark}}" accent="{{accent}}" hint-size="272px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Databases</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Managed database containers with application-consistent backups</p>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">New database</button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">
+      <sc-for list="{{dbs}}" as="d" hint-placeholder-count="5">
+        <div style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span style="width: 40px; height: 40px; border-radius: 10px; background: {{d.tint}}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px">{{d.abbr}}</span>
+            <div style="flex: 1; min-width: 0"><div style="font-weight: 700">{{d.name}}</div><div style="font-size: 12px; color: {{c.muted}}">{{d.engine}} · {{d.server}}</div></div>
+            <span style="{{d.badge}}">{{d.state}}</span>
+          </div>
+          <dl style="margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 12px">
+            <div><dt style="color: {{c.muted}}">Size</dt><dd style="margin: 2px 0 0; font-weight: 600">{{d.size}}</dd></div>
+            <div><dt style="color: {{c.muted}}">Connections</dt><dd style="margin: 2px 0 0; font-weight: 600">{{d.conn}}</dd></div>
+            <div><dt style="color: {{c.muted}}">Last backup</dt><dd style="margin: 2px 0 0; font-weight: 600">{{d.backup}}</dd></div>
+          </dl>
+          <div style="display: flex; gap: 8px">
+            <button type="button" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Back up now</button>
+            <button type="button" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Restore</button>
+            <button type="button" style="flex: 1; height: 36px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">Credentials</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin: 0; font-size: 12px; color: {{c.muted}}">Credentials are stored as encrypted secrets and injected by reference — never shown in container environment listings.</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#4F46E5';
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0' };
+    const tones = dark
+      ? { g:['#052E1B','#4ADE80'], r:['#3B0D0D','#F87171'] }
+      : { g:['#ECFDF3','#15803D'], r:['#FEF2F2','#B91C1C'] };
+    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
+    const data = [
+      ['postgres-main','PostgreSQL 16.4','ded-eu-01','38 GB','42 / 200','6 h ago ✓','healthy','g','PG','#336791'],
+      ['redis','Redis 7.4','ded-eu-01','212 MB','18','RDB 1 h ago','healthy','g','RD','#B91C1C'],
+      ['billing-db','PostgreSQL 16.4','stg-eu-01','1.4 GB','6 / 100','daily ✓','healthy','g','PG','#336791'],
+      ['wp-mariadb','MariaDB 11.4','vps-sg-01','620 MB','9','failed 03:00','backup failed','r','MD','#7C4A1E'],
+      ['analytics','MongoDB 7.0','ded-eu-01','12 GB','24','4 h ago ✓','healthy','g','MG','#15803D'],
+    ];
+    return { c, dark, accent,
+      dbs: data.map(d => ({ name:d[0], engine:d[1], server:d[2], size:d[3], conn:d[4], backup:d[5], state:d[6], badge:B(d[7]), abbr:d[8], tint:d[9] })) };
+  }
+}
+</script>
+</body>
+</html>
