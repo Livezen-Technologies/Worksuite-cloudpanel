@@ -16,10 +16,11 @@ api()  { local m=$1 p=$2; shift 2; curl -sS -X "$m" "$API/api/v1$p" -H "Authoriz
 wait_for(){ local t=$1; shift; for _ in $(seq 1 "$t"); do eval "$*" && return 0; sleep 1; done; return 1; }
 job_ok(){ wait_for ${2:-60} "[ \"\$(api GET /jobs/$1 | jq -r .data.status)\" = succeeded ]"; }
 started(){ docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null; }
-cleanup(){ [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null; [ -n "${MITM_PID:-}" ] && kill "$MITM_PID" 2>/dev/null
-  docker rm -f e2e-hello >/dev/null 2>&1; docker compose -p e2estack down >/dev/null 2>&1; true; }
+cleanup(){ [ "${AGENT_KEEP:-0}" = 1 ] && { kill "$MITM_PID" 2>/dev/null; true; return; }
+  [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null; [ -n "${MITM_PID:-}" ] && kill "$MITM_PID" 2>/dev/null
+  docker rm -f e2e-hello >/dev/null 2>&1; [ -n "${CNAME:-}" ] && docker compose -p "$CNAME" down >/dev/null 2>&1; true; }
 trap cleanup EXIT
-docker rm -f e2e-hello >/dev/null 2>&1; docker compose -p e2estack down >/dev/null 2>&1
+docker rm -f e2e-hello >/dev/null 2>&1
 
 echo "== build agent"; (cd "$ROOT/agent" && CGO_ENABLED=0 go build -o "$OUT/dockermgr-agent" ./cmd/agent) || { bad build; exit 1; }
 python3 "$HERE/mitm.py" "$MITM_PORT" "$API" "$CTL" "$OUT/mitm.log" & MITM_PID=$!
@@ -57,7 +58,7 @@ J=$(echo "$R" | jq -r .data.job_id); echo "$R" > "$OUT/create.json"
 check "create job succeeded" 'job_ok "$J" 60'
 check "container running on Docker" '[ "$(docker inspect -f {{.State.Running}} e2e-hello 2>/dev/null)" = true ]'
 check "container serves HTTP" 'wait_for 10 "curl -sf http://127.0.0.1:18080/ | grep -q hello"'
-check "secure defaults (CapDrop ALL, no-new-privileges, managed label)" '[ "$(docker inspect -f "{{json .HostConfig.CapDrop}}{{json .HostConfig.SecurityOpt}}{{index .Config.Labels \"io.dockermgr.managed\"}}" e2e-hello)" = "[\"ALL\"][\"no-new-privileges\"]true" ]'
+check "secure defaults (CapDrop ALL, no-new-privileges, managed label)" '[ "$(docker inspect -f "{{json .HostConfig.CapDrop}}{{json .HostConfig.SecurityOpt}}{{index .Config.Labels \"io.dockermgr.managed\"}}" e2e-hello)" = "[\"ALL\"][\"no-new-privileges:true\"]true" ]'
 check "inventory shows container in API" 'wait_for 20 "api GET \"/containers?server_id=$SID&search=e2e-hello\" | jq -e \".data[0].state==\\\"running\\\"\" >/dev/null"'
 CID=$(api GET "/containers?server_id=$SID&search=e2e-hello" | jq -r '.data[0].id')
 echo "$CID" > "$OUT/container_id"
@@ -101,8 +102,9 @@ check "container gone from Docker" '! docker inspect e2e-hello >/dev/null 2>&1'
 check "volumes kept" 'docker volume inspect e2e-keep >/dev/null 2>&1'; docker volume rm e2e-keep >/dev/null
 
 echo "== compose up/down"
+CNAME="e2estack-$(date +%s)"
 YAML=$(printf 'services:\n  web:\n    image: e2e/hello:1\n    environment:\n      PORT: "8080"\n    ports:\n      - "18081:8080"\n')
-P=$(api POST /compose-projects -d "$(jq -n --arg y "$YAML" --arg s "$SID" '{name:"e2estack",server_id:$s,environment:"development",source:"editor",yaml:$y}')")
+P=$(api POST /compose-projects -d "$(jq -n --arg y "$YAML" --arg s "$SID" --arg n "$CNAME" '{name:$n,server_id:$s,environment:"development",source:"editor",yaml:$y}')")
 PID_=$(echo "$P" | jq -r .data.id); echo "$P" > "$OUT/compose.json"
 check "compose project created" '[ ${#PID_} -eq 36 ]'
 check "compose validate ok" 'api POST /compose-projects/$PID_/validate -d "{}" | jq -e ".data.valid==true" >/dev/null'
@@ -111,7 +113,17 @@ check "compose up job" 'job_ok "$J" 90'
 check "compose service serving" 'wait_for 15 "curl -sf http://127.0.0.1:18081/ | grep -q hello"'
 J=$(api POST /compose-projects/$PID_/actions -d '{"action":"remove"}' | jq -r .data.job_id)
 check "compose down job" 'job_ok "$J" 60'
-check "compose containers gone" '[ -z "$(docker ps -aq --filter label=com.docker.compose.project=e2estack)" ]'
+check "compose containers gone" '[ -z "$(docker ps -aq --filter label=com.docker.compose.project=$CNAME)" ]'
+
+if [ "${AGENT_KEEP:-0}" = 1 ]; then
+  # Leave the agent (pointed straight at the API) and one real container running for the browser tests.
+  kill "$AGENT_PID" 2>/dev/null; wait "$AGENT_PID" 2>/dev/null
+  jq --arg u "$API" '.panel_url=$u' "$CFG" > "$CFG.t" && mv "$CFG.t" "$CFG" && chmod 600 "$CFG"
+  start_agent; echo "$AGENT_PID" > "$OUT/agent.pid"
+  J=$(api POST /containers -d "{\"server_id\":\"$SID\",\"name\":\"e2e-web\",\"image\":\"e2e/hello:1\",\"ports\":[{\"container_port\":8080,\"host_port\":18082}]}" | jq -r .data.job_id)
+  check "keep-alive container e2e-web created" 'job_ok "$J" 60'
+  check "e2e-web in API inventory" 'wait_for 20 "api GET \"/containers?search=e2e-web\" | jq -e \".data[0].state==\\\"running\\\"\" >/dev/null"'
+fi
 
 echo; echo "agent e2e: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
