@@ -165,7 +165,8 @@ class ComposeService implements HandlesCommandResults
         return $out;
     }
 
-    public function deploy(ComposeProject $project, ?ComposeRevision $revision = null): Job
+    /** $pull forces `--pull always`; otherwise Compose pulls only missing images (local images keep working). */
+    public function deploy(ComposeProject $project, ?ComposeRevision $revision = null, bool $pull = false): Job
     {
         $revision ??= $project->currentRevision;
         if (! $revision) {
@@ -182,7 +183,7 @@ class ComposeService implements HandlesCommandResults
             'project' => $this->projectName($project),
             'compose_yaml' => $revision->yaml,
             'env' => $revision->env ? (object) $revision->env : null,
-            'pull' => true,
+            'pull' => $pull ?: null,
         ], fn ($v) => $v !== null), $job);
         $project->update(['status' => 'deploying']);
 

@@ -84,13 +84,13 @@ class ComposeProjectController extends Controller
     public function deploy(Request $request, string $id)
     {
         $project = ComposeProject::findOrFail($id);
-        $request->validate(['yaml' => 'nullable|string|max:200000', 'env' => 'nullable|array']);
+        $request->validate(['yaml' => 'nullable|string|max:200000', 'env' => 'nullable|array', 'pull' => 'sometimes|boolean']);
         if ($request->filled('yaml')) {
             $this->compose->addRevision($project, $request->input('yaml'), $request->input('env'));
             $project->refresh();
         }
 
-        return $this->accepted($this->compose->deploy($project), ['revision_id' => $project->current_revision_id]);
+        return $this->accepted($this->compose->deploy($project, null, $request->boolean('pull')), ['revision_id' => $project->current_revision_id]);
     }
 
     public function action(Request $request, string $id)
