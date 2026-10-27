@@ -27,7 +27,7 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
   const submit = async () => {
     try {
       const body = {
-        name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval,
+        name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
         ...(f.source_type === 'image' ? { image: f.image } : { source: { repo: f.repo, branch: f.branch } }),
       }
       await run({ path: '/applications', body, label: `Create ${f.name}`, success: 'Application created' })

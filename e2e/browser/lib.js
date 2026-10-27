@@ -16,7 +16,13 @@ function test(name, fn) { tests.push({ name, fn }) }
 function watch(page) {
   const w = { errors: [], allowed: [] }
   page.on('pageerror', (e) => w.errors.push(`pageerror: ${e.message}`))
-  page.on('console', (m) => { if (m.type() === 'error') w.errors.push(`console: ${m.text()}`) })
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return
+    // Chrome echoes every 4xx as "Failed to load resource"; intended statuses are allowed, others are caught by the response hook too.
+    const st = /Failed to load resource: the server responded with a status of (\d+)/.exec(m.text())
+    if (st && w.allowed.some((a) => a.status === Number(st[1]))) return
+    w.errors.push(`console: ${m.text()}`)
+  })
   page.on('response', (r) => {
     const u = r.url()
     if (!u.includes('/api/v1/') || r.status() < 400) return
@@ -44,7 +50,18 @@ async function apiLogin(email, password = 'password') {
   return r.json.data?.token ?? r.json.token
 }
 
-async function login(page, email) {
+const tokens = {}
+/** Signs in. Default: reuse one API token per user (the auth limiter allows 10 logins/min/email) by
+ *  seeding the web app's token storage; `{ ui: true }` drives the real login form instead. */
+async function login(page, email, opts = {}) {
+  if (!opts.ui) {
+    tokens[email] ??= await apiLogin(email)
+    await page.addInitScript(([t]) => { try { localStorage.setItem('dmp.token', t) } catch { /* */ } }, [tokens[email]])
+    await page.goto(WEB + '/')
+    await page.waitForURL(/\/(admin|app)/, { timeout: 15000 })
+    await settle(page)
+    return
+  }
   await page.goto(WEB + '/login')
   await page.getByLabel(/email/i).fill(email)
   await page.getByLabel(/password/i).fill('password')
@@ -63,7 +80,10 @@ async function shot(page, name) {
 }
 /** Text of the main region, and count of placeholder dashes. */
 async function mainText(page) { return (await page.locator('main').first().innerText().catch(() => page.innerText('body'))) }
-async function dashCount(page) { return (await mainText(page)).split('—').length - 1 }
+/** Number of elements whose whole text is the placeholder dash (an em dash inside a sentence is fine). */
+async function dashCount(page) {
+  return page.evaluate(() => [...document.querySelectorAll('main *')].filter((e) => e.children.length === 0 && e.textContent.trim() === '—').length)
+}
 
 function assert(cond, msg) { if (!cond) throw new Error(msg) }
 async function expectText(page, re, msg) {
@@ -74,7 +94,8 @@ async function expectText(page, re, msg) {
 async function run(title) {
   const browser = await chromium.launch({ args: ['--no-sandbox'] })
   let failed = 0
-  for (const t of tests) {
+  const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null
+  for (const t of tests.filter((x) => !only || only.test(x.name))) {
     const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } })
     const page = await ctx.newPage()
     const w = watch(page)

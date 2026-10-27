@@ -59,6 +59,20 @@ class DeploymentTest extends TestCase
         $this->assertSame('running', Application::allTenants()->find($appId)->status);
     }
 
+    public function test_admin_delete_stops_the_app_containers_and_keeps_volumes(): void
+    {
+        [, , $token, , $secret, $appId] = $this->setUpApp(['environment' => 'staging']);
+        $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
+        $create = $this->heartbeat($secret)['commands'][0];
+        $this->commandResult($secret, $create['id'], 'succeeded', ['output' => ['container_id' => 'd-1']])->assertOk();
+
+        $this->api($token)->deleteJson("/api/v1/applications/{$appId}")->assertNoContent();
+        $commands = $this->heartbeat($secret)['commands'];
+        $this->assertSame(['container.remove'], array_column($commands, 'type'));
+        $this->assertTrue($commands[0]['payload']['keep_volumes']);
+        $this->assertSoftDeleted('applications', ['id' => $appId]);
+    }
+
     public function test_redeploy_replaces_container_and_rollback_uses_previous_release(): void
     {
         [, , $token, , $secret, $appId] = $this->setUpApp();

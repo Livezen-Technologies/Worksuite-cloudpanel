@@ -107,11 +107,7 @@ class AppController extends Controller
     {
         $app = $this->find($id);
         // UDET-005: data kept 7 days, then purged.
-        $app->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
-        foreach (Container::where('application_id', $app->id)->get() as $container) {
-            app(ContainerService::class)->perform($container, 'remove', ['keep_volumes' => true]);
-        }
-        $app->delete();
+        $app->retire();
 
         return response()->noContent();
     }

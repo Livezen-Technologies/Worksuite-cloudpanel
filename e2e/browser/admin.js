@@ -13,12 +13,13 @@ async function waitFor(fn, ms = 60000, msg = 'condition') {
 }
 let TOKEN
 async function api(method, p, body) { TOKEN ??= await apiLogin('admin@example.com'); return apiCall(method, p, TOKEN, body) }
+// NB: lib.login caches its own token; this one is for direct API assertions.
 async function jobDone(id, ms = 90000) {
   return waitFor(async () => { const j = (await api('GET', `/jobs/${id}`)).json?.data; return j && ['succeeded', 'failed', 'cancelled'].includes(j.status) ? j : null }, ms, `job ${id}`)
 }
 
 test('admin: login and Overview shows real KPI numbers', async ({ page }) => {
-  await login(page, 'admin@example.com')
+  await login(page, 'admin@example.com', { ui: true })
   assert(page.url().endsWith('/admin'), `landed on ${page.url()}`)
   await page.getByText('Connected servers').waitFor()
   const k = (await api('GET', '/dashboard?range=6h')).json.data.kpis
@@ -39,9 +40,9 @@ test('admin: Servers list and add-server wizard reaches install command, real ag
   await shot(page, 'admin-02-servers')
   await page.getByRole('button', { name: 'Add server' }).click()
   const name = `e2e-wizard-${Date.now() % 100000}`
-  await page.getByLabel('Server name').fill(name)
+  await page.getByLabel('Server name', { exact: true }).fill(name)
   await page.getByLabel('IP address').fill('127.0.0.1')
-  await page.getByLabel('Environment').selectOption('development')
+  await page.getByRole('dialog').getByLabel('Environment').selectOption('development')
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
   const pre = page.locator('pre', { hasText: '--token' }); await pre.waitFor({ timeout: 15000 })
@@ -61,12 +62,19 @@ test('admin: Servers list and add-server wizard reaches install command, real ag
     await page.getByText(/Verification|checks/i).first().waitFor()
     await settle(page); await page.waitForTimeout(1500)
     await shot(page, 'admin-04-add-server-verification')
-  } finally { agent.kill() }
+  } finally {
+    agent.kill()
+    // The wizard agent shares this Docker host; drop its server so inventory is not reported twice.
+    const s = (await api('GET', `/servers?search=${name}`)).json.data[0]
+    if (s) await api('DELETE', `/servers/${s.id}`)
+  }
 })
 
 test('admin: Containers list shows the agent container; Restart produces a job that restarts it', async ({ page }) => {
   await login(page, 'admin@example.com')
   await page.goto(WEB + '/admin/containers'); await settle(page)
+  const sid = (await api('GET', '/servers?search=e2e-local')).json.data.find((s) => s.status === 'online').id
+  await page.getByLabel('Server', { exact: true }).selectOption(sid)
   await page.getByPlaceholder(/Filter by name/).fill('e2e-web')
   const row = page.locator('tr', { hasText: 'e2e-web' }).first(); await row.waitFor()
   const rowText = await row.innerText()
@@ -96,7 +104,7 @@ test('admin: Applications create (image), deploy twice via agent, roll back', as
   await dlg.getByLabel('Target server').selectOption(sid)
   await dlg.getByRole('button', { name: /Recreate/ }).click()
   await dlg.getByRole('button', { name: 'Create application' }).click()
-  const row = page.locator('tr', { hasText: name }); await row.waitFor()
+  const row = page.locator('tr', { hasText: name }).first(); await row.waitFor()
   const app = (await api('GET', `/applications?search=${name}`)).json.data[0]
   assert(app && app.image === 'e2e/hello:1' && app.source_type === 'image', `app not created as image: ${JSON.stringify(app)}`)
   for (let i = 0; i < 2; i++) {
@@ -144,7 +152,6 @@ const pages = [
   ['backups', /Main database nightly[\s\S]*0 3 \* \* \*[\s\S]*30 days/, []],
   ['monitoring', /CPU > 90% on edge-us-01/, ['CPU above 90%']],
   ['users', /Olivia Owner[\s\S]*owner/, ['Alex Admin']],
-  ['settings', /Demo Organisation/, []],
   ['images', /e2e\/hello[\s\S]*1[\s\S]*e2e-local/, []],
   ['networks', /bridge[\s\S]*172\.\d+\.\d+\.\d+\/\d+/, []],
   ['volumes', /db-main-data/, []],
@@ -164,5 +171,24 @@ for (const [p, re, more] of pages) {
     await shot(page, `admin-page-${p}`)
   })
 }
+
+test('admin: Settings shows org values and saves general + security policies', async ({ page }) => {
+  await login(page, 'admin@example.com')
+  await page.goto(WEB + '/admin/settings'); await settle(page)
+  const name = page.getByLabel('Organisation name')
+  await waitFor(async () => (await name.inputValue()) === 'Demo Organisation', 10000, 'org name in form')
+  assert(await page.getByLabel('Agent heartbeat (seconds)').inputValue() === '15', 'heartbeat value')
+  assert(await page.getByLabel('Dashboard refresh (seconds)').inputValue() === '10', 'refresh value')
+  await page.getByLabel('Agent heartbeat (seconds)').fill('20')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await waitFor(async () => (await api('GET', '/settings')).json.data.general.heartbeat_interval === 20, 10000, 'saved heartbeat')
+  await shot(page, 'admin-page-settings')
+  await page.getByRole('tab', { name: 'Security' }).click()
+  const t = page.getByRole('switch', { name: 'Approval for destructive production actions' })
+  await t.waitFor()
+  assert(await t.getAttribute('aria-checked') === 'true', 'approval policy should show as on (seeded true)')
+  await shot(page, 'admin-page-settings-security')
+  await api('PATCH', '/settings', { general: { heartbeat_interval: 15 } })
+})
 
 run('admin')

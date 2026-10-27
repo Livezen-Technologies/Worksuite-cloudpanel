@@ -80,8 +80,7 @@ class AppServiceProvider extends ServiceProvider
             });
             $approvals->register('application.delete', function (Approval $approval) {
                 $app = Application::findOrFail($approval->resource_id);
-                $app->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
-                $app->delete();
+                $app->retire();
 
                 return ['deleted' => true];
             });

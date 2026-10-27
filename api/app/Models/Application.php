@@ -51,4 +51,17 @@ class Application extends Model
     {
         return 'app-'.$this->name;
     }
+
+    /**
+     * Soft-delete the app (data kept for the retention window) and stop its containers, keeping volumes.
+     * Shared by the admin and customer delete paths and the approved `application.delete`.
+     */
+    public function retire(): void
+    {
+        $this->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
+        foreach (Container::where('application_id', $this->id)->get() as $container) {
+            app(\App\Services\ContainerService::class)->perform($container, 'remove', ['keep_volumes' => true]);
+        }
+        $this->delete();
+    }
 }

@@ -71,10 +71,11 @@ export function Users() {
 
 const POLICIES = [
   ['require_mfa', 'Require MFA for every member', 'Passkeys or TOTP before any session starts'],
-  ['approval_for_destructive', 'Approval for destructive production actions', 'Delete, restore and volume removal need a second approver'],
+  ['require_approval_destructive', 'Approval for destructive production actions', 'Delete, restore and volume removal need a second approver'],
+  ['require_production_deploy_approval', 'Approval for production deployments', 'Every production deployment waits for a second approver'],
   ['secure_container_defaults', 'Secure container defaults', 'Non-root user, dropped capabilities, no-new-privileges'],
-  ['encrypt_remote_backups', 'Encrypt all remote backups', 'Mandatory — keys held separately from backup storage'],
-  ['allow_host_networking', 'Allow host networking', 'Only for approved system containers'],
+  ['mandatory_backup_encryption', 'Encrypt all remote backups', 'Mandatory — keys held separately from backup storage'],
+  ['allow_host_network', 'Allow host networking', 'Only for approved system containers'],
   ['block_critical_cves', 'Block images with critical CVEs', 'Deployments fail if the scan finds a critical issue'],
 ] as const
 
@@ -86,10 +87,12 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
   if (isLoading) return <Card>Loading…</Card>
   const nested = !!item?.general || !!item?.security
   const save = (keys: string[], section: 'general' | 'security') => {
-    const vals = Object.fromEntries(keys.map((k) => [k, g[k]]))
-    return run({ method: 'PATCH', path: '/settings', body: nested ? { [section]: vals } : vals, label: 'Save settings', success: 'Settings saved' }).catch(() => {})
+    // API shape: {name, general:{default_region, audit_retention_days, heartbeat_interval, refresh_interval}, security:{<policy>: bool}}
+    const vals = Object.fromEntries(keys.filter((k) => k !== 'name').map((k) => [k, g[k]]))
+    const body = nested ? { [section]: vals, ...(keys.includes('name') ? { name: g.name } : {}) } : { ...vals, ...(keys.includes('name') ? { name: g.name } : {}) }
+    return run({ method: 'PATCH', path: '/settings', body, label: 'Save settings', success: 'Settings saved' }).catch(() => {})
   }
-  const GEN: [string, string, string][] = [['organization_name', 'Organisation name', 'text'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval_seconds', 'Agent heartbeat (seconds)', 'number'], ['dashboard_refresh_seconds', 'Dashboard refresh (seconds)', 'number']]
+  const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
   return (
     <>
       {tab === 'general' && (
@@ -111,7 +114,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
             {POLICIES.map(([k, l, s]) => (
               <li key={k} className="flex items-center gap-4 py-3.5 border-t border-line first:border-t-0">
                 <div className="flex-1"><div className="font-semibold text-sm">{l}</div><div className="text-xs text-muted">{s}</div></div>
-                <Toggle checked={k === 'encrypt_remote_backups' ? true : !!g[k]} disabled={k === 'encrypt_remote_backups'} label={l} onChange={(v) => setG({ ...g, [k]: v })} />
+                <Toggle checked={k === 'mandatory_backup_encryption' ? true : !!g[k]} disabled={k === 'mandatory_backup_encryption'} label={l} onChange={(v) => setG({ ...g, [k]: v })} />
               </li>
             ))}
           </ul>

@@ -124,9 +124,11 @@ class AgentService
             }
             $seen[] = $c['docker_id'];
             $name = ltrim($c['name'] ?? $c['docker_id'], '/');
-            $row = Container::allTenants()->where('server_id', $server->id)
-                ->where(fn ($q) => $q->where('docker_id', $c['docker_id'])->orWhere(fn ($q) => $q->whereNull('docker_id')->where('name', $name)))
-                ->first() ?? new Container(['organization_id' => $server->organization_id, 'server_id' => $server->id]);
+            // Exact docker_id first: during a recreate deploy the old container and the new placeholder
+            // (docker_id null) share a name, and the placeholder must not take over the old id.
+            $row = Container::allTenants()->where('server_id', $server->id)->where('docker_id', $c['docker_id'])->first()
+                ?? Container::allTenants()->where('server_id', $server->id)->whereNull('docker_id')->where('name', $name)->first()
+                ?? new Container(['organization_id' => $server->organization_id, 'server_id' => $server->id]);
             $state = $c['state'] ?? 'unknown';
             $row->fill([
                 'docker_id' => $c['docker_id'],

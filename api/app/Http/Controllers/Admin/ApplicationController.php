@@ -92,8 +92,7 @@ class ApplicationController extends Controller
         $app->environment === 'production'
             ? $approvals->gate($request->user(), 'production.delete', 'application.delete', $app, [], $request->input('approval_id'))
             : $this->authorizeFor($request, 'deploy', $app);
-        $app->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
-        $app->delete();
+        $app->retire();
 
         return response()->noContent();
     }

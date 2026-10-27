@@ -80,9 +80,11 @@ export function AppDetail() {
   const cpu = last('cpu') ?? (a.cpu_pct != null ? num(a.cpu_pct) : null)
   const ram = last('ram') ?? (a.ram_mb != null ? num(a.ram_mb) : null)
   const ramLimit = a.ram_limit_mb != null ? num(a.ram_limit_mb) : null
+  // A just-deployed app has no stats until the agent's next heartbeat.
+  const pending = (a.state ?? a.status) === 'running' ? 'collecting…' : '—'
   const stats = [
-    ['CPU', cpu != null ? `${Math.round(cpu)}%` : '—', cpu ?? 0],
-    ['Memory', ram != null ? `${mb(ram)}${ramLimit ? ` of ${mb(ramLimit)}` : ''}` : '—', ram != null && ramLimit ? (ram / ramLimit) * 100 : 0],
+    ['CPU', cpu != null ? `${Math.round(cpu)}%` : pending, cpu ?? 0],
+    ['Memory', ram != null ? `${mb(ram)}${ramLimit ? ` of ${mb(ramLimit)}` : ''}` : pending, ram != null && ramLimit ? (ram / ramLimit) * 100 : 0],
     ['Storage', a.storage_gb != null ? `${num(a.storage_gb)} GB included` : '—', -1],
     ['Requests (24 h)', a.requests_24h != null ? Number(a.requests_24h).toLocaleString() : 'not tracked yet', -1],
   ] as const
@@ -102,7 +104,7 @@ export function AppDetail() {
         <span aria-hidden="true" className="w-12 h-12 rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>
         <div className="flex-1 min-w-[200px]">
           <h1 className="m-0 text-[26px] font-bold">{a.name}</h1>
-          <div className="text-sm text-muted"><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span> · {String(a.size ?? '')} plan · {a.region}</div>
+          <div className="text-sm text-muted"><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</div>
         </div>
         <StatusBadge status={appState(a.state ?? a.status)} />
         <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>

@@ -73,6 +73,27 @@ class AgentProtocolTest extends TestCase
         $this->assertSame('offline', Server::allTenants()->find($server->id)->status);
     }
 
+    public function test_heartbeat_keeps_old_container_and_new_placeholder_apart_during_recreate(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org, ['last_heartbeat_at' => null]);
+        [$secret] = $this->enrollAgent($server, $token);
+        $old = ['docker_id' => 'old1', 'name' => '/app-shop', 'image' => 'shop:1', 'state' => 'running', 'health' => '', 'cpu_pct' => 1, 'mem_mb' => 10, 'ports' => [], 'created' => '2026-01-01T00:00:00Z'];
+        // A recreate deploy adds a placeholder (no docker_id yet) with the same name while the old one still runs.
+        // (Placeholder inserted first so a scan-order "first()" would pick it.)
+        Container::allTenants()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'name' => 'app-shop', 'image' => 'shop:2', 'state' => 'creating']);
+        Container::allTenants()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'docker_id' => 'old1', 'name' => 'app-shop', 'image' => 'shop:1', 'state' => 'running']);
+
+        $this->heartbeat($secret, ['containers' => [$old], 'images' => [], 'networks' => [], 'volumes' => []]);
+        $this->assertSame(1, Container::allTenants()->where('docker_id', 'old1')->count());
+        $this->assertSame(1, Container::allTenants()->whereNull('docker_id')->where('name', 'app-shop')->count());
+
+        // The new container appears: it takes over the placeholder; the old one is gone.
+        $new = ['docker_id' => 'new1', 'image' => 'shop:2'] + $old;
+        $this->heartbeat($secret, ['containers' => [$new], 'images' => [], 'networks' => [], 'volumes' => []]);
+        $this->assertSame(['new1'], Container::allTenants()->where('server_id', $server->id)->pluck('docker_id')->all());
+    }
+
     public function test_commands_are_signed_delivered_once_and_results_idempotent(): void
     {
         [, $org, $token] = $this->org();
