@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Exceptions\ApiException;
 use App\Models\Agent;
 use App\Models\Container;
-use App\Models\Server;
 use App\Models\TerminalSession;
 use App\Models\User;
 use App\Support\Tenant;

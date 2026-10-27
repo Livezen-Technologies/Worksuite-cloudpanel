@@ -61,7 +61,7 @@ var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", 
 var (
 	reContainer  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 	reDBIdent    = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,62}$`)
-	reSubset     = regexp.MustCompile(`^([0-9]{1,2}(\.[0-9]+)?%|[0-9]+/[0-9]+|[0-9]+[KMG])$`)
+	reSubset     = regexp.MustCompile(`^((100|[0-9]{1,2}(\.[0-9]+)?)%|[0-9]+/[0-9]+|[0-9]+[KMG])$`)
 	reYAMLName   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,120}\.ya?ml$`)
 	reSecretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 )

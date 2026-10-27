@@ -22,7 +22,7 @@ func main() {
 		if err := os.WriteFile(pw, []byte(os.Getenv("POSTGRES_PASSWORD")), 0o600); err != nil {
 			log.Fatal(err)
 		}
-		cmd := exec.Command(bin+"/initdb", "-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=scram-sha-256", "--pwfile="+pw)
+		cmd := exec.Command(bin+"/initdb", "-D", data, "-U", "postgres", "--auth-local=trust", "--locale=C", "--encoding=UTF8", "--auth-host=scram-sha-256", "--pwfile="+pw)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			log.Fatal("initdb: ", err)

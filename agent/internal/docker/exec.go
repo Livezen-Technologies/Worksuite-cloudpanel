@@ -65,12 +65,16 @@ func (c *Client) ExecResize(ctx context.Context, id string, rows, cols int) erro
 	return c.call(ctx, "POST", "/exec/"+url.PathEscape(id)+"/resize", q, nil, nil)
 }
 
-// ExecInspect returns whether the exec is still running and its exit code.
-func (c *Client) ExecInspect(ctx context.Context, id string) (running bool, exitCode int, err error) {
-	var out struct {
-		Running  bool `json:"Running"`
-		ExitCode int  `json:"ExitCode"`
-	}
-	err = c.call(ctx, "GET", "/exec/"+url.PathEscape(id)+"/json", nil, nil, &out)
-	return out.Running, out.ExitCode, err
+// ExecState is the subset of GET /exec/{id}/json the agent uses.
+type ExecState struct {
+	Running  bool `json:"Running"`
+	ExitCode int  `json:"ExitCode"`
+	Pid      int  `json:"Pid"` // host PID of the exec'd process
+}
+
+// ExecInspect returns whether the exec is still running, its exit code and host PID.
+func (c *Client) ExecInspect(ctx context.Context, id string) (ExecState, error) {
+	var out ExecState
+	err := c.call(ctx, "GET", "/exec/"+url.PathEscape(id)+"/json", nil, nil, &out)
+	return out, err
 }

@@ -30,7 +30,15 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
 | `PANEL_URL` | `APP_URL` | Public panel URL used in the agent install command |
 | `PLATFORM_DOMAIN` | `livezen.app` | Free customer subdomains `<app>.<domain>` |
 | `PLATFORM_INGRESS_IP` | `203.0.113.10` | A-record target when an app has no placed server yet |
-| `TERMINAL_WS_URL` | `wss://localhost/ws/terminal` | Base for terminal session `ws_url` |
+| `TERMINAL_WS_URL` | `/relay/terminal` | Base for terminal session `ws_url` (relative = panel origin) |
+| `RELAY_SECRET` | — | Shared secret of `dockermgr-relay` for `/internal/relay/*` (≥ 16 chars; unset = terminals disabled, 503) |
+| `RELAY_AGENT_URL` | `PANEL_URL/relay` | Relay base agents dial (signed into `terminal.open`, advertised in heartbeats) |
+| `TERMINAL_SHELLS`, `TERMINAL_SHELL_USER`, `TERMINAL_RECORD` | `/bin/sh`, `app`, `true` | Fixed shell list (first used), non-root exec user, asciicast recording |
+| `TERMINAL_RECORDING_DISK`, `TERMINAL_RECORDING_MAX_BYTES` | `local`, 8 MiB | Where recordings are stored (`terminal-recordings/Y/m/d/<uuid>.cast`) |
+| `AGENT_MTLS` | `header` | `off` \| `header` (verify a forwarded client cert when present) \| `required` (SEC-003) |
+| `AGENT_MTLS_VERIFY_HEADER`, `AGENT_MTLS_FINGERPRINT_HEADER`, `AGENT_MTLS_CERT_HEADER` | `X-SSL-Client-Verify`, `X-Client-Cert-Fingerprint`, `X-Client-Cert` | Headers set by the TLS proxy (Traefik: `X-Forwarded-Tls-Client-Cert`); see `docs/deploy/` |
+| `AGENT_CERT_DAYS` | `90` | Agent client certificate lifetime (agents renew at 2/3) |
+| `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`, `WEBAUTHN_ORIGINS` | APP_URL host, APP_NAME, `CORS_ALLOWED_ORIGINS` | Passkeys relying party and allowed web origins |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Strict CORS for the web app |
 | `AGENT_INSTALL_SCRIPT` | `../agent/packaging/install.sh` | Served at `/agent/v1/install.sh` if not published |
 | `AGENT_LATEST_VERSION` | `1.0.0` | Version sent with `agent.update` (signature from `storage/app/agent/release.json`) |
@@ -89,6 +97,10 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
   the deployed image is `registry.<PLATFORM_DOMAIN>/<org>/<app>:<commit>`.
 - Health check stage succeeds when the agent reports the container started (no HTTP probe yet).
 - Metrics live in the `metrics` table (no Prometheus); `requests_24h` is null.
-- Terminal sessions issue a token/ws_url and audit open/close; the WebSocket relay itself is not part of this API.
+- Terminal sessions go through `dockermgr-relay` (`../agent/cmd/relay`): `/internal/relay/*` (X-Relay-Secret) validates tokens, signs
+  `terminal.open`, receives close reasons and asciicast recordings (`App\Services\TerminalService`). Live logs still poll (`container.logs`).
 - Backup download returns a signed URL to a placeholder; archives stay in the restic repository.
-- mTLS: CSRs sent at enrolment are signed by a local CA in `storage/app/private/ca`; enforcement is at the proxy.
+- mTLS: CSRs (enrolment, `/agent/v1/certificate/renew`) are signed by a local CA in `storage/app/private/ca`
+  (`App\Services\AgentCertificateService`); TLS is terminated by the proxy and the API checks the forwarded certificate per `AGENT_MTLS`.
+  No CRL/OCSP: revocation is enforced by the API on each request. The CA key lives on the API host.
+- Passkeys (`App\Services\WebAuthnService`, web-auth/webauthn-lib) accept `none` attestation only (no metadata service / attestation trust).

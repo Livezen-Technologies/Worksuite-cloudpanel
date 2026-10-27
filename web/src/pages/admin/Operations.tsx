@@ -9,6 +9,7 @@ import { FormModal, type FieldDef } from '../../components/FormModal'
 import { DayBars, LineChart } from '../../components/Charts'
 import { LogView } from '../../components/LogView'
 import { TerminalDialog } from '../../components/Terminal'
+import { TerminalSessions } from '../../components/TerminalSessions'
 import { Tabs } from '../../components/Tabs'
 import { ago, str } from '../../lib/format'
 import { num, type R } from '../../lib/util'
@@ -197,11 +198,12 @@ export function Logs() {
       {tab === 'logs' && <Card actions={picker}>{c ? <LogView path={`/containers/${c.id}/logs`} title={`${c.name} · ${serverName(c as unknown as R)}`} height={440} /> : <Empty>No containers.</Empty>}</Card>}
       {tab === 'term' && (
         <Card title="Exec session" actions={picker}>
-          <p className="mt-0 text-sm text-muted">Sessions run as a non-root user, expire automatically and are recorded in the audit log.</p>
+          <p className="mt-0 text-sm text-muted">Sessions run a fixed shell as a non-root user through the relay, expire automatically, can be ended at any time and are recorded (see below) and audited.</p>
           <button type="button" className="btn btn-primary" disabled={!c || c.state !== 'running'} onClick={() => setTerm(true)}>Open terminal{c ? ` in ${c.name}` : ''}</button>
           {c && <TerminalDialog open={term} onClose={() => setTerm(false)} containerId={c.id} name={c.name} />}
         </Card>
       )}
+      {tab === 'term' && <div className="mt-4"><TerminalSessions /></div>}
       {tab === 'audit' && (
         <DataTable label="Audit log" rows={audit.rows} loading={audit.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
           toolbar={<button type="button" className="btn btn-sm" onClick={exportCsv}>Export CSV</button>}

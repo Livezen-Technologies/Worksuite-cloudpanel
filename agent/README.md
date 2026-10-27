@@ -14,7 +14,8 @@ make build VERSION=1.0.0 UPDATE_PUBLIC_KEY=<base64 ed25519 pubkey>
 # -> dist/dockermgr-agent-linux-amd64, dist/dockermgr-agent-linux-arm64
 ```
 
-Only the Go standard library is used.
+Only the Go standard library is used (both binaries; the WebSocket code in `internal/ws` is an own
+RFC 6455 implementation). `make build` also produces `dist/dockermgr-relay-linux-amd64`.
 
 ## Install
 
@@ -33,7 +34,7 @@ It detects the arch, downloads `<url>/agent/v1/download/dockermgr-agent-linux-<a
 
 | Command | Purpose |
 | --- | --- |
-| `agent enroll --url https://panel --token XYZ [--config P] [--hostname H] [--ca-file F] [--state-dir D] [--docker-socket S] [--update-public-key K]` | Collects facts (os from `/etc/os-release`, kernel, docker version, cpu cores, RAM MB, disk GB, arch), calls `POST /agent/v1/enroll`, writes config at mode 0600. |
+| `agent enroll --url https://panel --token XYZ [--config P] [--hostname H] [--ca-file F] [--state-dir D] [--docker-socket S] [--update-public-key K] [--relay-url U] [--no-client-cert]` | Collects facts (os from `/etc/os-release`, kernel, docker version, cpu cores, RAM MB, disk GB, arch), generates an ECDSA P-256 key + CSR, calls `POST /agent/v1/enroll`, stores the signed client certificate as `agent.crt`/`agent.key` (0600) next to the config, writes config at mode 0600. |
 | `agent run [--config P]` | Heartbeat loop + command execution. |
 | `agent rollback [--binary P]` | Restore `<binary>.old` after an update. |
 | `agent version` | Print version. |
@@ -41,7 +42,7 @@ It detects the arch, downloads `<url>/agent/v1/download/dockermgr-agent-linux-<a
 Config path: `--config`, else `$DOCKERMGR_AGENT_CONFIG`, else `/etc/dockermgr/agent.json`.
 Fields: `panel_url, server_id, agent_secret, hmac_key, heartbeat_interval, ca_file,
 state_dir (/var/lib/dockermgr), policy_path (/etc/dockermgr/policy.json), docker_socket,
-update_public_key`.
+update_public_key, cert_file, key_file, relay_url, terminal_shells`.
 
 ## Heartbeat
 
@@ -140,6 +141,36 @@ no host network, `root` user refused, pids limit, `init`, rotated json-file logs
 when the root is read-only, label `io.dockermgr.managed=true`. Bind mounts are only allowed
 under `<state_dir>/data` and `/srv/dockermgr`.
 
+## Terminal sessions (CTR-008 / LOG-002)
+
+`terminal.open` `{session_id, container_id, shell_user, shell, expires_at, relay_url?, cols?, rows?}` (signed like every
+command) makes the agent dial **out** to `<relay_url>/agent/session/{session_id}` (Bearer agent secret, client
+certificate) and attach a Docker exec (`POST /containers/{id}/exec` + hijacked `POST /exec/{id}/start`, TTY) to that
+container. Only a shell from `terminal_shells` (default `/bin/sh`, `/bin/bash`, `/bin/ash`) is started, never with
+arguments, never as `root`/`0`, at most 8 sessions at once, and the stream is cut at `expires_at`. Resize messages call
+`/exec/{id}/resize`; on exit the code is reported to the relay. There is still no generic shell: the command chooses
+neither the program nor its arguments.
+
+To avoid waiting for a heartbeat, the agent keeps one outbound control WebSocket to `<relay_url>/agent` (URL from the
+heartbeat response `relay_url`, or `relay_url` in the config). The relay forwards signed `terminal.open` commands on it;
+anything else on that path is ignored, and every command still goes through validation and the journal.
+
+## Relay (`cmd/relay`, `dockermgr-relay`)
+
+Pairs the browser WebSocket (`/relay/terminal/{session}?token=`) with the agent's dial-back, validates both through the
+API's `/internal/relay/*` endpoints (shared `RELAY_SECRET`), enforces expiry and "end session" (status poll every 2 s),
+records output as asciicast v2 (8 MiB cap) and uploads it with the close reason. Environment: `RELAY_LISTEN` (:8090),
+`RELAY_API_URL`, `RELAY_SECRET` (required), `RELAY_ALLOWED_ORIGINS` (default same-origin), `RELAY_TLS_CERT/KEY`,
+`RELAY_FORWARD_HEADERS` (client-cert headers passed to the API), `RELAY_ATTACH_TIMEOUT` (45 s). Run it behind the same
+reverse proxy as the panel (`docs/deploy/`, systemd unit `docs/deploy/dockermgr-relay.service`).
+
+## mTLS (SEC-003)
+
+The key never leaves the host. Every `/agent/v1` request and relay connection presents `cert_file`/`key_file` (reloaded
+when the file changes). After each heartbeat the agent checks the certificate: from 2/3 of its lifetime it generates a
+new key + CSR and calls `POST /agent/v1/certificate/renew` (retried at most every 10 min), then swaps both files
+atomically. The panel decides enforcement (`AGENT_MTLS`); the TLS proxy verifies against `/agent/v1/ca.crt`.
+
 ## Updates
 
 `agent.update` downloads (https only, ≤256 MB), checks optional sha256, verifies the ed25519
@@ -153,7 +184,11 @@ restart or update.
 ## Layout
 
 ```
-cmd/agent            CLI, heartbeat loop, re-exec, update-health marker
+cmd/agent            CLI, heartbeat loop, re-exec, update-health marker, relay control link, cert renewal
+cmd/relay            dockermgr-relay (terminal WebSocket relay)
+internal/ws          RFC 6455 WebSocket (server + client)
+internal/relay       relay server, API client, asciicast recorder
+internal/mtls        key/CSR, client certificate store, renewal timing
 internal/config      config file (0600, atomic write)
 internal/docker      Docker Engine API client over the unix socket (net/http)
 internal/facts       host facts for enrolment
@@ -168,9 +203,10 @@ packaging/           systemd unit and installer
 
 ## Limits / not yet implemented
 
-- mTLS client certificates (SRS 6.4 / SEC-003): `certificate` from enrolment is stored but no CSR
-  is sent and no client cert is presented yet; server TLS is verified against system roots
-  (+ optional `ca_file`).
+- Server TLS is verified against system roots (+ optional `ca_file`); the client certificate is enforced by the
+  reverse proxy, not by the agent. A revoked certificate is only refused once the proxy/API sees it (no CRL/OCSP).
+- The relay control connection and dial-back do not use `HTTPS_PROXY`.
+- One relay instance: sessions and agent control connections live in memory (no clustering).
 - The binary download endpoint used by `install.sh` (`/agent/v1/download/...`) is not in API.md.
 - Auto-rollback only covers a new binary that starts but cannot reach the panel; a binary that
   crashes before `run` begins relies on the pre-swap `version` health check.

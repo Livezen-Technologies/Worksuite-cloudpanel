@@ -5,6 +5,7 @@ namespace Tests\Support;
 /**
  * Minimal software WebAuthn authenticator for tests: ES256 key, "none" attestation,
  * hand-encoded CBOR, user presence + verification flags. Produces the JSON that
+ *
  * @simplewebauthn/browser posts (base64url fields).
  */
 class SoftAuthenticator

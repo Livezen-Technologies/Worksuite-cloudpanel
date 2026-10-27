@@ -15,6 +15,7 @@ import { Applications, Compose } from './pages/admin/Deploy'
 import { Images, Networks, Volumes, Domains, Databases } from './pages/admin/Resources'
 import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
 import { Users, Settings } from './pages/admin/Admin'
+import { AdminAccount } from './pages/admin/Account'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import HostApp from './pages/app/HostApp'
@@ -67,6 +68,7 @@ export function AppRoutes() {
         <Route path="automation" element={<Automation />} />
         <Route path="users" element={<Users />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="account" element={<AdminAccount />} />
       </Route>
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>
         <Route index element={<MyApps />} />

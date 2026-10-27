@@ -69,7 +69,7 @@ class CommandBus
     {
         return DB::transaction(function () use ($server, $hmacKey, $limit) {
             $commands = AgentCommand::allTenants()->where('server_id', $server->id)->where('status', 'queued')
-                ->orderBy('created_at')->limit($limit)->lockForUpdate()->get();
+                ->orderBy('created_at')->orderBy('id')->limit($limit)->lockForUpdate()->get();
 
             return $commands->map(function (AgentCommand $command) use ($hmacKey) {
                 $command->issued_at = now()->utc()->format('Y-m-d\TH:i:s\Z');

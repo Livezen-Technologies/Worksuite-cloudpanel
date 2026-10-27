@@ -381,6 +381,10 @@ func (s *Server) run(ctx context.Context, conn *ws.Conn, wt *waiter, sess *Sessi
 			}
 			return ""
 		}
+		// The API may shorten a session (policy change, admin action): honour the current expiry.
+		if !st.ExpiresAt.IsZero() && !time.Now().Before(st.ExpiresAt) {
+			return "expired"
+		}
 		if st.Ended {
 			return "ended"
 		}

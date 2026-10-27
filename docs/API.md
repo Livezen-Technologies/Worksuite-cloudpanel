@@ -20,9 +20,15 @@ The organisation is the token user's current organisation (`users.current_organi
 
 ## Auth
 - `POST /auth/register` {name,email,password,organization} → {token,user}
-- `POST /auth/login` {email,password,otp?} → {token,user} (otp required when MFA on)
+- `POST /auth/login` {email,password,otp?,passkey?{challenge_id,credential}} → {token,user} (otp **or** a passkey assertion required when MFA on;
+  the 401 carries `error.mfa_required` and `error.passkey_available`)
+- Passkeys: `POST /auth/passkey/options` {email?} → {challenge_id, options} (WebAuthn request options JSON; with email only that
+  account's credentials are allowed, for the second factor); `POST /auth/passkey/login` {challenge_id, credential} → {token,user}
+  (passwordless, discoverable credential, user verification required). See "Passkeys" below.
 - `POST /auth/logout`, `GET /me` → {user, organization, role, permissions[]}
 - `POST /me/mfa/enable` → {secret, otpauth_url}; `POST /me/mfa/confirm` {otp}
+- `GET /me/passkeys` → [Passkey]; `POST /me/passkeys/options` → {challenge_id, options}; `POST /me/passkeys` {challenge_id, credential, name?} → 201 Passkey;
+  `PATCH /me/passkeys/{id}` {name}; `DELETE /me/passkeys/{id}` → 204 (own passkeys only, both panels)
 
 ## Admin resources (role-checked)
 | Method | Path | Notes |
@@ -41,7 +47,8 @@ The organisation is the token user's current organisation (`users.current_organi
 | POST | /containers/bulk-actions | {ids[], action} 202 |
 | POST | /containers/prune-preview, /containers/prune | |
 | GET | /containers/{id}/logs?tail=200 | |
-| POST | /containers/{id}/terminal-sessions | → {session_id, ws_url, expires_at} |
+| POST | /containers/{id}/terminal-sessions | {approval_id?} → 201 {session_id, ws_url, expires_at, shell_user, shell, recorded} (container must be running; approval-gated) |
+| GET | /terminal-sessions?container_id= ; GET /terminal-sessions/{id}/recording ; DELETE /terminal-sessions/{id} | history, asciicast recording, end session (see "Terminal relay") |
 | GET/POST | /applications ; GET/PATCH/DELETE /applications/{id} | source_type: git|image|dockerfile|compose; strategy: recreate|rolling|blue_green; port, health_path (default `/`), health_timeout (s, default 60); git/dockerfile `source`: {repo (https:// or file:// / absolute path), branch|ref, dockerfile_path (Dockerfile), context (.), build_args{}, push_registry_id?, git_token? (write-only → encrypted secret, `git_secret_id`), git_username?} |
 | POST | /deployments | {application_id} → 202 job; GET /deployments, /deployments/{id} |
 | POST | /deployments/{id}/approve | |
@@ -81,14 +88,14 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /app/templates |
 
 ## Agent protocol (`/agent/v1`, outside the user API)
-- `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr?}
+- `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.
 - `POST /agent/v1/heartbeat` (Bearer agent_secret) {agent_version, stats{cpu_pct,ram_pct,disk_pct,net_rx,net_tx}, containers:[{docker_id,name,image,state,health,cpu_pct,mem_mb,ports,created}], images:[...], networks:[...], volumes:[...]}
-  → {commands:[Command]}
+  → {commands:[Command], relay_url?} (relay_url: terminal relay base for the agent's outbound control connection)
 - Command: {id (operation id), type, version:1, payload{}, issued_at, signature} where
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
-- Types: container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
+- Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
   network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
   image.build, image.scan, container.healthcheck (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
@@ -146,3 +153,39 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
 - **Extra endpoints**: `POST /images/pull {server_id, image, registry_id?}` (202), `POST /containers/prune` and `/images/prune` accept `{ids[]}`,
   `DELETE /terminal-sessions/{id}`, `POST /approvals/{id}/reject`, `GET /audit-logs/verify`, `GET /backup-artifacts`, `POST /me/mfa/disable`,
   `POST /notification-channels/{id}/test`, `GET /agent/v1/install.sh`, `GET /agent/v1/download/dockermgr-agent-linux-{amd64|arm64}`.
+
+## Terminal relay (CTR-008, LOG-002)
+`dockermgr-relay` (`agent/cmd/relay`) pairs two **inbound** WebSockets; neither the API nor the relay ever connects to an agent.
+
+1. `POST /containers/{id}/terminal-sessions` → `ws_url` = `TERMINAL_WS_URL/{session_id}?token=…` (default `/relay/terminal`, relative to the
+   panel origin). The token is single use; the session expires after 15 min.
+2. Browser opens `wss://panel/relay/terminal/{session_id}?token=…&cols=&rows=`. Binary frames = TTY bytes both ways; text frames are JSON:
+   browser → relay `{type:"resize",cols,rows}` | `{type:"close"}`; relay → browser `{type:"status"|"ready"|"error"|"exit"|"closed", message?, code?, reason?}`.
+3. Relay → API `POST /internal/relay/terminal-sessions/{id}/connect` {token, cols, rows, ip} (header `X-Relay-Secret: RELAY_SECRET`) →
+   `{session_id, server_id, container_id (docker id), container_name, user_id, user_email, shell_user, shell, expires_at, recording, command}`.
+   `command` is a signed `terminal.open` {session_id, container_id, shell_user, shell, expires_at, relay_url, cols, rows}; it is also queued for
+   the next heartbeat (fallback), the agent journal drops the duplicate.
+4. Agents keep `wss://…/relay/agent` open (Bearer agent_secret, verified with `POST /internal/relay/agents/verify` {agent_secret} incl. AGENT_MTLS);
+   the relay pushes `{type:"command", command}` there. The agent verifies it like any command (HMAC, age, policy, journal), then dials
+   `wss://…/relay/agent/session/{session_id}` and attaches a Docker exec (`Tty`, fixed shell from its allow-list, never root) to the container.
+5. The relay polls `GET /internal/relay/terminal-sessions/{id}` → {ended, ended_at, expires_at} every 2 s ("End session" = `DELETE /terminal-sessions/{id}`),
+   closes at `expires_at`, then `POST …/{id}/recording` (asciicast v2 JSON lines, output + resize events) and `POST …/{id}/closed` {reason}.
+- **Terminal session** `{id, container_id, container_name, server_id, user_id, user_email, shell_user, shell, status: pending|active|ended|expired,
+  close_reason, created_at, connected_at, expires_at, ended_at, recording:{bytes, format:"asciicast-v2"}|null, ip}`;
+  recording → `{data:{session_id, format, cast}}`. Audit: `terminal.opened`, `terminal.attached`, `terminal.closed` {reason}.
+
+## Agent mTLS (SEC-003)
+- Enrolment CSR → client certificate (EKU clientAuth, `AGENT_CERT_DAYS`, default 90) from the local agent CA. `GET /agent/v1/ca.crt` serves the CA for the proxy.
+- `POST /agent/v1/certificate/renew` {csr} (agent auth) → `{certificate, fingerprint, not_before, expires_at}`; the agent renews at 2/3 of the lifetime;
+  earlier certificates of the agent are revoked.
+- `AGENT_MTLS=off|header|required` (default `header`). The proxy terminates TLS and forwards `X-SSL-Client-Verify` (must be `SUCCESS` when sent),
+  `X-Client-Cert` (URL-encoded PEM or base64 DER, first of a chain) and/or `X-Client-Cert-Fingerprint` (SHA-256 or SHA-1 hex, colons allowed); header
+  names are configurable. `header`: verified when present; `required`: every `/agent/v1` call (except enrol/install/download/ca.crt) and every relay
+  agent connection must carry a non-revoked, unexpired certificate of that agent, else 401. Examples: `docs/deploy/`.
+
+## Passkeys (SEC-002, UACC-002)
+- WebAuthn via web-auth/webauthn-lib; options use the WebAuthn JSON format (`@simplewebauthn/browser` `optionsJSON`). RP id `WEBAUTHN_RP_ID`
+  (default APP_URL host), allowed origins `WEBAUTHN_ORIGINS` (default `CORS_ALLOWED_ORIGINS`). Registration requires a resident key and user
+  verification, attestation `none`, ES256/RS256. Challenges are single use, 5 min.
+- **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
+  (`password`, `password+totp`, `password+passkey`, `passkey`).

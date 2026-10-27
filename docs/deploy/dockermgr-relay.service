@@ -1,0 +1,20 @@
+# systemd unit for the terminal relay (agent/cmd/relay). Put RELAY_SECRET (same value as the API's)
+# and the other RELAY_* variables in /etc/dockermgr/relay.env (mode 0600).
+[Unit]
+Description=Docker Manager Portal terminal relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/dockermgr/relay.env
+ExecStart=/usr/local/bin/dockermgr-relay
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,7 @@ import { Card, Field, Meter, PageHeader, Toggle, Empty } from '../../components/
 import { Badge, StatusBadge } from '../../components/Badge'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { CopyButton } from '../../components/CopyButton'
+import { PasskeyManager } from '../../components/Passkeys'
 import { useToast } from '../../components/Toasts'
 import { ApiTokens } from '../admin/Admin'
 import { useAuth } from '../../lib/auth'
@@ -311,14 +312,11 @@ export function Account() {
               {mfaOn ? <Badge tone="g">on</Badge> : <button type="button" className="btn" onClick={startMfa}>Turn on</button>}
             </div>
             <div className="flex items-center gap-3 py-2 border-t border-line">
-              <div className="flex-1"><div className="font-semibold text-sm">Passkey</div><div className="text-xs text-muted">{acct?.passkeys?.length ? `${acct.passkeys.length} registered` : 'Sign in with your device instead of a password'}</div></div>
-              <Badge tone={acct?.passkeys?.length ? 'g' : 'n'}>{acct?.passkeys?.length ? 'on' : 'not set up'}</Badge>
-            </div>
-            <div className="flex items-center gap-3 py-2 border-t border-line">
               <div className="flex-1"><div className="font-semibold text-sm">Email me on new sign-ins</div><div className="text-xs text-muted">Alerts for unknown devices</div></div>
               <Toggle checked={!!acct?.sign_in_alerts} label="Email me on new sign-ins" onChange={(v) => run({ method: 'PATCH', path: '/app/account', body: { sign_in_alerts: v }, label: 'Update alerts', success: v ? 'Sign-in alerts on' : 'Sign-in alerts off' }).catch(() => {})} />
             </div>
           </Card>
+          <PasskeyManager />
           <Card title="Team" actions={<button type="button" className="btn" onClick={() => setInvite(true)}>Invite</button>}>
             {team.length === 0 ? <div className="text-sm text-muted">Only you so far.</div> : team.map((m, i) => (
               <div key={m.id ?? i} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">

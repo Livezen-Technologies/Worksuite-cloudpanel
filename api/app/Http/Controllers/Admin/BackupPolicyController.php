@@ -39,7 +39,7 @@ class BackupPolicyController extends CrudController
             'destination_config.access_key' => 'nullable|string|max:255',
             'destination_config.secret_key' => 'nullable|string|max:255',
             'destination_config.account_id' => 'nullable|string|max:64',
-            'check_subset' => ['sometimes', 'string', 'regex:/^([0-9]{1,2}(\.[0-9]+)?%|[0-9]+\/[0-9]+|[0-9]+[KMG])$/'],
+            'check_subset' => ['sometimes', 'string', 'regex:/^((100|[0-9]{1,2}(\.[0-9]+)?)%|[0-9]+\/[0-9]+|[0-9]+[KMG])$/'],
             'restore_test_schedule' => ['sometimes', 'nullable', 'string', function ($attr, $value, $fail) {
                 $value === null || CronExpression::isValidExpression($value) || $fail('Use a valid cron expression, e.g. "0 4 * * 0".');
             }],

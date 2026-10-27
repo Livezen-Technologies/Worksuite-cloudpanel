@@ -20,8 +20,10 @@ Logs, per-suite output and screenshots go to `$E2E_SCRATCH` (default `$TMPDIR/dm
 PHP 8.3 + composer deps in `api/vendor`, PostgreSQL with database/user `dmp`/`dmp` (override with
 `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`), Node 22 with `web/node_modules`, the `playwright` Node
 library with Chromium (the plain library; `@playwright/test` is not used), Go 1.24, Docker with Compose v2,
-`jq`, `python3`, `psql`. No registry access is needed: the test image `e2e/hello:1` is built locally
-`FROM scratch` from `hello/main.go`, and the run creates the `proxy` Docker network apps join.
+`jq`, `python3`, `psql`. No registry access is needed: the test images `e2e/hello:1` and `e2e/shell:1` (a static
+mini shell as `/bin/sh` with user `app`, uid 1000, from `shell/main.go`) are built locally `FROM scratch`, and the run
+creates the `proxy` Docker network apps join. `run.sh` also builds and starts `dockermgr-relay` on `127.0.0.1:8090`
+(log `relay.log`); Vite proxies `/relay` (WebSocket) to it, and `env.sh` sets `RELAY_SECRET`/`RELAY_AGENT_URL`.
 
 `env.sh` holds the environment overrides (PostgreSQL, `QUEUE_CONNECTION=database`, fake DNS/source
 drivers). Real environment variables beat `api/.env`, so the checked-in `.env` is left alone.
@@ -38,6 +40,7 @@ containers named `e2e-*` / `app-e2e-*` on the local Docker host.
 | `browser/admin.js` | Login form, Overview KPIs equal `/dashboard` numbers, Servers + add-server wizard to the install command (then enrols a second real agent with that token and sees the heartbeat), Containers shows the agent's container and Restart restarts it on Docker, Applications create (image) / deploy twice / roll back through the agent, Compose YAML load + Validate (valid/invalid) + Diff, and Domains, Backups, Monitoring, Users, Settings (incl. save), Images, Networks, Volumes, Databases, Logs, Automation with real data. |
 | `browser/customer.js` | As `owner@example.com`: My apps, Host an app in 4 steps until live (real deploy), quota 402 upgrade prompt, app detail tabs + Save & restart, Domains add + Check DNS now, Backups restore confirm (202 job), Billing (cents/currency, card, invoices, plans), Account. |
 | `build.sh` | Builds a tiny Go web app (`gobuild/`, static binary compiled in the test, `FROM scratch`) from a local bare Git repo (`file://`, agent run with `DOCKERMGR_ALLOW_LOCAL_GIT=1`) through the real agent (`image.build`: git clone + Engine `/build`), deploys it and checks the pipeline stages, the streamed build log, the HTTP health check on the container IP and the release image; a `broken` branch answers 500 on `/healthz`, fails the health check with the last 50 log lines and is rolled back to v1; a branch without the binary fails in `build_scan` with the Docker error in the build log while v1 keeps serving. The single local server is given the builder role and `allow_builds_on_deploy_targets` for the run. |
+| `browser/security.js` | Terminal: creates `e2e-term` (image `e2e/shell:1`) through the API, opens Logs & Terminal → Terminal, passes the approval gate with a second owner, types into xterm through Vite → relay → agent (outbound control link + dial-back) → Docker exec, sees `echo` and `id` (`uid=1000(app)`) output, resizes, shortens `expires_at` in PostgreSQL and sees the relay close it as expired (exec shell gone from the container), replays the asciicast recording from the list, checks the audit events; "End session" ends an active session. Passkeys with Chromium's virtual authenticator (CDP `WebAuthn.enable` + `addVirtualAuthenticator`): register + rename on the admin Account page, sign out, "Sign in with a passkey"; customer Account registers and deletes one. |
 | `api-checks.js` | Registers org B and proves it cannot read or change org A's servers, containers, apps, domains, volumes, backups (404s, no ids in lists); audit chain verifies, a row tampered in PostgreSQL is detected (`broken_at`), restored afterwards. |
 | `browser/lib.js` | Tiny runner: every test fails on page errors, console errors and unexpected 4xx/5xx API responses (`w.allow(status, /url/)` marks intended ones); full-page screenshot per step. |
 | `browser/crawl.js`, `browser/dashes.js` | Dev helpers: visit every route and report errors / cells rendered as "—". |
@@ -45,5 +48,5 @@ containers named `e2e-*` / `app-e2e-*` on the local Docker host.
 ## Not covered here
 
 Pushing built images to a registry (unit-tested against a fake Engine), Trivy scans (needs `trivy` on the host; unit-tested with a fake runner), real HTTPS / Let's Encrypt, real DNS propagation, payments (Stripe), restic backups to remote
-storage, the terminal WebSocket relay, mTLS enforcement at the proxy and multi-host outage simulation
+storage, mTLS enforcement at a real TLS proxy (covered by Go/PHP tests and `docs/deploy/`) and multi-host outage simulation
 need a staging fleet or credentials (see `docs/PHASES.md`).

@@ -25,13 +25,15 @@ cleanup() {
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   pkill -f "$LOG/agent/dockermgr-agent" 2>/dev/null
   # Only containers this run created: the keep-alive container and apps named e2e-*.
-  docker ps -aq --filter name='^/e2e-web$' --filter name='^/app-e2e-' | xargs -r docker rm -f >/dev/null 2>&1
+  docker ps -aq --filter name='^/e2e-web$' --filter name='^/e2e-term$' --filter name='^/app-e2e-' | xargs -r docker rm -f >/dev/null 2>&1
   true
 }
 trap cleanup EXIT
 
 echo "== test image e2e/hello:1 (FROM scratch, built locally; no registry pulls)"
 ( cd "$HERE/hello" && CGO_ENABLED=0 go build -o hello . && docker build -q -t e2e/hello:1 . >/dev/null && rm -f hello ) || { echo "image build failed"; exit 1; }
+echo "== test image e2e/shell:1 (static mini shell as /bin/sh, user app) for the terminal tests"
+( cd "$HERE/shell" && CGO_ENABLED=0 go build -o sh . && docker build -q -t e2e/shell:1 . >/dev/null && rm -f sh ) || { echo "shell image build failed"; exit 1; }
 docker network inspect proxy >/dev/null 2>&1 || docker network create proxy >/dev/null   # Traefik network apps join
 
 if [ "${REUSE_STACK:-0}" != 1 ]; then
@@ -44,6 +46,12 @@ if [ "${REUSE_STACK:-0}" != 1 ]; then
   [ -d "$ROOT/web/node_modules" ] || ( cd "$ROOT/web" && npm ci >"$LOG/npm-ci.log" 2>&1 )
   ( cd "$ROOT/web" && exec node node_modules/.bin/vite --port 5173 --strictPort >"$LOG/web.log" 2>&1 ) & PIDS+=($!)
 fi
+if ! curl -fsS -o /dev/null "http://$RELAY_LISTEN/relay/healthz" 2>/dev/null; then
+  echo "== terminal relay on $RELAY_LISTEN"
+  mkdir -p "$LOG/relay"
+  ( cd "$ROOT/agent" && CGO_ENABLED=0 go build -o "$LOG/relay/dockermgr-relay" ./cmd/relay ) || { echo "relay build failed"; exit 1; }
+  RELAY_API_URL=$API "$LOG/relay/dockermgr-relay" >"$LOG/relay.log" 2>&1 & PIDS+=($!)
+fi
 wait_http "$API/up" || wait_http "$API/api/v1/me" 2>/dev/null || true
 wait_http "$WEB_URL/" || exit 1
 
@@ -55,7 +63,9 @@ run_suite() { # name, command...
 run_suite agent env AGENT_KEEP=1 DOCKERMGR_ALLOW_LOCAL_GIT=1 "$HERE/agent.sh"   # local Git repos for build.sh
 run_suite browser-admin node "$HERE/browser/admin.js"
 run_suite browser-customer node "$HERE/browser/customer.js"
+run_suite browser-security node "$HERE/browser/security.js"   # terminal relay + passkeys
 run_suite api-checks node "$HERE/api-checks.js"
+run_suite backups "$HERE/backups.sh"
 run_suite build "$HERE/build.sh"
 
 if [ "${UNIT:-0}" = 1 ]; then
@@ -68,7 +78,7 @@ fi
 
 echo; echo "== summary (logs and screenshots in $LOG)"
 FAILED=0
-for k in agent browser-admin browser-customer api-checks build unit-api unit-agent unit-web; do
+for k in agent browser-admin browser-customer browser-security api-checks backups build unit-api unit-agent unit-web; do
   [ -n "${RESULT[$k]:-}" ] || continue
   printf '%-18s %s\n' "$k" "${RESULT[$k]}"; [ "${RESULT[$k]}" = PASS ] || FAILED=1
 done

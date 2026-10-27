@@ -212,13 +212,13 @@ class BackupService implements HandlesCommandResults
         $expires = now()->addHours(6);
         if ($dest->isS3()) {
             $key = trim($dest->prefix(), '/').'/exports/'.$artifact->id.'.tar.gz';
-            $upload = ['url' => $dest->presignPut($key, $expires), 'method' => 'PUT', 'headers' => (object) []];
+            $upload = ['url' => $dest->presignPut($key, $expires), 'method' => 'PUT'];
             $disk = 's3';
         } else {
             // Local destination: the agent streams the archive to the API's own storage.
             $key = 'backup-exports/'.$artifact->organization_id.'/'.$artifact->id.'.tar.gz';
             $relative = URL::temporarySignedRoute('agent.backup-export', $expires, ['id' => $artifact->id], absolute: false);
-            $upload = ['url' => rtrim(config('backups.agent_api_url'), '/').$relative, 'method' => 'PUT', 'headers' => (object) []];
+            $upload = ['url' => rtrim(config('backups.agent_api_url'), '/').$relative, 'method' => 'PUT'];
             $disk = 'local';
         }
         $artifact->update(['export_status' => 'exporting', 'export_disk' => $disk, 'export_path' => $key, 'export_job_id' => $job->id]);

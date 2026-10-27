@@ -21,6 +21,7 @@ export const ADMIN_NAV: NavItem[] = [
   { label: 'Automation', to: '/admin/automation' },
   { label: 'Users & Teams', to: '/admin/users' },
   { label: 'Settings', to: '/admin/settings' },
+  { label: 'Account', to: '/admin/account' },
 ]
 
 function AlertsBell() {

@@ -65,7 +65,7 @@ async function login(page, email, opts = {}) {
   await page.goto(WEB + '/login')
   await page.getByLabel(/email/i).fill(email)
   await page.getByLabel(/password/i).fill('password')
-  await page.getByRole('button', { name: /sign in|log in/i }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.waitForURL(/\/(admin|app)/, { timeout: 15000 })
   await settle(page)
 }

@@ -91,7 +91,7 @@ class TerminalRelayTest extends TestCase
         $this->relay()->call('POST', "/internal/relay/terminal-sessions/{$id}/recording", [], [], [],
             ['HTTP_X_RELAY_SECRET' => self::SECRET, 'HTTP_ACCEPT' => 'application/json', 'CONTENT_TYPE' => 'application/x-asciicast'], $cast)->assertOk();
         $this->relay()->call('POST', "/internal/relay/terminal-sessions/{$id}/recording", [], [], [],
-            ['HTTP_X_RELAY_SECRET' => self::SECRET, 'HTTP_ACCEPT' => 'application/json'], "not a cast")->assertStatus(422);
+            ['HTTP_X_RELAY_SECRET' => self::SECRET, 'HTTP_ACCEPT' => 'application/json'], 'not a cast')->assertStatus(422);
 
         $list = $this->api($x['token'])->getJson('/api/v1/terminal-sessions')->assertOk()->json('data');
         $this->assertSame($id, $list[0]['id']);

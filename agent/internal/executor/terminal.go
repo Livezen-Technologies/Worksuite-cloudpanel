@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/livezen-technologies/cloudpanel/agent/internal/docker"
@@ -232,11 +233,42 @@ func (e *Executor) runTerminal(target string, exp time.Time, p terminalPayload) 
 	case <-inDone:
 	case <-ctx.Done():
 	}
+	// Ctrl-C then Ctrl-D: interrupt a foreground program and end the shell at its prompt.
+	stream.Write([]byte{0x03, 0x04})
 	stream.Close()
-	ictx, icancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer icancel()
-	if running, code, err := e.Docker.ExecInspect(ictx, id); err == nil && !running {
-		sendJSON(map[string]any{"type": "exit", "code": code})
+	if st := e.reapExec(id); !st.Running {
+		sendJSON(map[string]any{"type": "exit", "code": st.ExitCode})
 	}
 	return nil
+}
+
+// reapExec makes sure the exec'd shell does not outlive the session: Docker keeps an exec
+// running after its attach stream closes, so the agent signals the exec's own host PID
+// (SIGHUP, then SIGKILL after a grace period).
+func (e *Executor) reapExec(id string) docker.ExecState {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	inspect := func() (docker.ExecState, bool) {
+		st, err := e.Docker.ExecInspect(ctx, id)
+		return st, err == nil
+	}
+	st, ok := inspect()
+	for i := 0; ok && st.Running && i < 10; i++ { // up to 1 s for a normal exit
+		time.Sleep(100 * time.Millisecond)
+		st, ok = inspect()
+	}
+	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGKILL} {
+		if !ok || !st.Running || st.Pid <= 1 {
+			return st
+		}
+		e.logf("terminal exec %s still running after the session ended; sending %s to pid %d", id, sig, st.Pid)
+		syscall.Kill(st.Pid, sig)
+		for i := 0; i < 20; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if st, ok = inspect(); !ok || !st.Running {
+				break
+			}
+		}
+	}
+	return st
 }
