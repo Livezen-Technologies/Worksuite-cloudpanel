@@ -115,7 +115,7 @@ export default function HostApp() {
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const nameErr = c.name ? validateAppName(c.name) : null
-  const address = (job?.result as R | undefined)?.address ?? (job?.result as R | undefined)?.url ?? deploy?.app?.free_address ?? deploy?.app?.url ?? (deploy ? `${deploy.app.name ?? c.name}.${deploy.app.platform_domain ?? 'apps'}` : '')
+  const address = (job?.result as R | undefined)?.address ?? (job?.result as R | undefined)?.url ?? deploy?.app?.free_address ?? deploy?.app?.url ?? (deploy ? `${deploy.app.name ?? c.name}.${deploy.app.platform_domain ?? 'livezen.app'}` : '')
   const stages = job?.stages?.length ? job.stages : STAGES.map((name) => ({ name, status: 'pending' }))
 
   const steps = [
@@ -180,8 +180,8 @@ export default function HostApp() {
         <div className="flex flex-col gap-4">
           <h2 className="m-0 text-lg font-semibold">Configure</h2>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-            <Field label="App name" error={fieldErr.name ?? nameErr ?? undefined} hint="Lowercase letters, numbers and hyphens. Used in your free address.">
-              <input className="input" value={c.name} aria-invalid={!!(fieldErr.name ?? nameErr)} onChange={(e) => { setC({ ...c, name: e.target.value }); setFieldErr({ ...fieldErr, name: '' }) }} placeholder="my-shop" />
+            <Field label="App name" error={fieldErr.name || nameErr || undefined} hint="Lowercase letters, numbers and hyphens. Used in your free address.">
+              <input className="input" value={c.name} aria-invalid={!!(fieldErr.name || nameErr)} onChange={(e) => { setC({ ...c, name: e.target.value }); setFieldErr({ ...fieldErr, name: '' }) }} placeholder="my-shop" />
             </Field>
             <Field label="Port your app listens on" error={fieldErr.port}><input className="input" inputMode="numeric" value={c.port} onChange={(e) => setC({ ...c, port: e.target.value.replace(/\D/g, '') })} /></Field>
             <Field label="Region" error={fieldErr.region}><select className="input" value={c.region} onChange={(e) => setC({ ...c, region: e.target.value })}><option value="">Closest to me</option><option value="ap-southeast">Singapore</option><option value="eu-central">Frankfurt</option><option value="us-east">New York</option></select></Field>

@@ -52,7 +52,7 @@ describe('api client', () => {
 
   it('parses the structured error envelope', async () => {
     fetchMock.mockResolvedValue(jsonResponse(422, { error: { code: 'validation_failed', message: 'The name is taken.', fields: { name: ['The name is taken.'] }, request_id: 'req-9' } }))
-    const err = await api.post('/app/apps', { name: 'x' }).catch((e) => e)
+    const err = (await api.post('/app/apps', { name: 'x' }).catch((e: ApiError) => e)) as ApiError
     expect(err).toBeInstanceOf(ApiError)
     expect(err.code).toBe('validation_failed')
     expect(err.status).toBe(422)
@@ -67,7 +67,7 @@ describe('api client', () => {
     fetchMock.mockResolvedValueOnce(new Response('<html>Bad gateway</html>', { status: 409 }))
     await expect(api.get('/x')).rejects.toMatchObject({ code: 'conflict', status: 409 })
     fetchMock.mockResolvedValueOnce(new Response('oops', { status: 503 }))
-    const e = await api.get('/x').catch((x) => x)
+    const e = (await api.get('/x').catch((x: ApiError) => x)) as ApiError
     expect(e.code).toBe('server_error')
     expect(e.message).toMatch(/Try again/)
   })
