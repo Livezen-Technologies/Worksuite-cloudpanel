@@ -44,7 +44,16 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
 | `AGENT_LATEST_VERSION` | `1.0.0` | Version sent with `agent.update` (signature from `storage/app/agent/release.json`) |
 | `DNS_DRIVER` | `native` | `native` (dns_get_record) or `fake` |
 | `SOURCE_VALIDATOR` | `http` | `http` (registry v2 API, `git ls-remote`) or `fake` |
-| `CERT_DRIVER`, `PAYMENT_DRIVER` | `fake` | Only fake drivers ship in 1.0 |
+| `CERT_DRIVER` | `fake` | `fake` or `traefik`: Traefik does ACME (HTTP-01 `le`, DNS-01 `le-dns-<provider>`, wildcards); the API pushes file-provider routers with `proxy.config` and reads expiry from acme.json with `proxy.certs` (`docs/deploy/traefik/`) |
+| `TRAEFIK_INGRESS_SERVERS`, `TRAEFIK_HTTP_RESOLVER`, `TRAEFIK_DNS_RESOLVER_PREFIX`, `TRAEFIK_ENTRYPOINT` | servers tagged `ingress` (else each app's server), `le`, `le-dns-`, `websecure` | Where/how routers are generated |
+| `PAYMENT_DRIVER` | `fake` | `fake` or `stripe` (`STRIPE_SECRET`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SMALL/STANDARD/PRO`, `STRIPE_RETURN_URL`). Webhook: `POST /api/v1/webhooks/stripe` |
+| `BILLING_TAX_RATE`, `BILLING_TAX_LABEL`, `BILLING_CURRENCY`, `BILLING_INVOICE_PREFIX`, `BILLING_SELLER_*` | `0.19`, `VAT`, `EUR`, `INV` | Monthly invoices (dompdf PDFs on the `local` disk, `invoices/<org>/<number>.pdf`) |
+| `METRICS_DRIVER` | `database` | `database` (heartbeat stats) or `prometheus` (`PROMETHEUS_URL`, `PROMETHEUS_TOKEN`; query_range over node-exporter/cAdvisor/Traefik, `docs/deploy/observability/`) |
+| `BACKUP_LOCAL_ROOT` | `/var/lib/dockermgr/backups` | Root of local restic repositories on target servers (`<root>/<org>/<policy-id\|org>`) |
+| `BACKUP_RECOVERY_KEY` | — | base64 32-byte key for the escrowed copy of repository passwords (BAK-004); unset = escrow under APP_KEY |
+| `BACKUP_CHECK_SUBSET`, `BACKUP_RESTORE_TEST_SCHEDULE` | `5%`, `0 4 * * 0` | `restic check --read-data-subset` after each run; restore-test cron for app backups without a policy |
+| `AGENT_API_URL` | `PANEL_URL` | Base URL agents use to upload exports of local-destination backups |
+| `BACKUP_EXPORT_TTL_HOURS`, `BACKUP_DOWNLOAD_TTL_MINUTES` | `24`, `15` | How long an exported archive is reused / a download link is valid |
 | `SCANNER_DRIVER` | `fake` | `fake` (deterministic, in-process) or `trivy` (agent `image.scan` on the builder/target; needs `trivy` there) |
 | `BUILD_PUSH_REGISTRY`, `…_USERNAME`, `…_PASSWORD` | — | Platform registry for built images when an app has no `push_registry_id` (e.g. customer Git apps) |
 | `BUILD_LOCAL_REPOSITORY` | `dmp-build` | Repository prefix of images that are built but not pushed |
@@ -88,18 +97,46 @@ Tests: `php artisan test` (SQLite in memory; also passes on PostgreSQL with `DB_
 
 `scheduled-jobs:run-due`, `backups:run-due`, `alerts:evaluate`, `servers:check-heartbeats` (every minute),
 `domains:check-dns` (2 min), `deployments:resume` (5 min), `backups:prune` (hourly), `apps:purge`,
-`metrics:prune`, `audit:prune` (daily).
+`metrics:prune`, `audit:prune` (daily), `backups:restore-tests` (every minute, per-policy cron), `billing:meter`
+(hourly app-hours into `usage_records`), `billing:invoice` (1st of the month: invoice + PDF per organisation),
+`proxy:push` (10 min) and `proxy:sync-certs` (6 h) when `CERT_DRIVER=traefik`.
+Manual: `backups:recovery-key {policy}` prints the escrowed restic password (BAK-004 recovery),
+`billing:invoice --month=YYYY-MM --org=<id>`.
+
+## Backups (BAK-001..006, UBAK)
+
+- **Repositories**: one restic repository per policy (`local` path, or `s3`/`r2`/`b2` through restic's S3 backend with
+  `AWS_ACCESS_KEY_ID/SECRET/DEFAULT_REGION`; endpoint/bucket/region/prefix in the encrypted `destination_config`,
+  keys write-only). Customer app backups without a policy share one repository per organisation.
+- **Keys (BAK-004)**: the repository password is random, stored as an encrypted `secrets` row; a recovery copy is
+  stored separately (`backup_policies.recovery_key` / `restic-recovery-escrow`), encrypted with `BACKUP_RECOVERY_KEY`.
+- **Run**: `backup.run` with `dump` (databases: `pg_dump -Fc` / `mysqldump` / `mariadb-dump` / redis `BGSAVE`+copy /
+  `mongodump --archive` via `docker exec`, streamed to `<agent state>/dumps/<container>/`), then `restic backup`,
+  `restic forget --prune --keep-within <retention>d --tag <scope>`, `restic check --read-data-subset`. A failed check
+  fails the job and leaves the artifact unverified. Restores of databases pipe the dump into `pg_restore --clean` etc.
+- **Restore tests (BAK-005)**: `backup.test` restores the latest snapshot to a scratch dir on the agent, validates
+  dump magic bytes, runs `restic check`, deletes the scratch dir; per-policy `restore_test_schedule`.
+- **Download (UBAK-002)**: `GET …/download` → 202 `{status:"exporting", job_id}` (agent `backup.export`: `restic dump
+  --archive tar` → gzip → PUT to a presigned S3 URL, or to the signed `PUT /agent/v1/backup-exports/{id}` for local
+  destinations) → 200 `{status:"ready", url, expires_at, bytes, sha256}` with a presigned S3 GET or signed
+  `/api/v1/backup-download/{id}` link.
+
 
 ## Known limits of this build
 
-- Certificates, CVE scanning and payments use fake drivers; Let's Encrypt/Trivy/Stripe need real drivers.
+- Defaults stay fake (`CERT_DRIVER`, `PAYMENT_DRIVER`, `SCANNER_DRIVER`); the Traefik ACME and Stripe drivers are tested
+  with fixtures/mocked HTTP only, never against Let's Encrypt or the live Stripe API.
+- Stripe: usage lines become invoice items on the customer's next subscription invoice; our invoice is marked paid
+  from `invoice.paid` (line metadata, or the period). Stripe Tax and refunds/credit notes are not handled.
+- DNS-01 tokens: one credential set per provider per ingress (Traefik reads env/`*_FILE` at start; restart after rotation).
+- Google Drive destinations need rclone configured on the server (no `RCLONE_*` env is passed). Redis restores copy
+  `dump.rdb` and restart the container; with AOF enabled (the template default) the AOF wins.
 - Git/Dockerfile sources record build stages, but image builds on isolated runners are not implemented;
   the deployed image is `registry.<PLATFORM_DOMAIN>/<org>/<app>:<commit>`.
 - Health check stage succeeds when the agent reports the container started (no HTTP probe yet).
-- Metrics live in the `metrics` table (no Prometheus); `requests_24h` is null.
+- Metrics: `METRICS_DRIVER=database` (default) keeps heartbeat stats; `requests_24h` needs `METRICS_DRIVER=prometheus` (Traefik counter), else null.
 - Terminal sessions go through `dockermgr-relay` (`../agent/cmd/relay`): `/internal/relay/*` (X-Relay-Secret) validates tokens, signs
   `terminal.open`, receives close reasons and asciicast recordings (`App\Services\TerminalService`). Live logs still poll (`container.logs`).
-- Backup download returns a signed URL to a placeholder; archives stay in the restic repository.
 - mTLS: CSRs (enrolment, `/agent/v1/certificate/renew`) are signed by a local CA in `storage/app/private/ca`
   (`App\Services\AgentCertificateService`); TLS is terminated by the proxy and the API checks the forwarded certificate per `AGENT_MTLS`.
   No CRL/OCSP: revocation is enforced by the API on each request. The CA key lives on the API host.

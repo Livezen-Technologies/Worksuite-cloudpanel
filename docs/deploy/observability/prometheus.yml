@@ -1,0 +1,20 @@
+# Prometheus for METRICS_DRIVER=prometheus (MON-001, SRS 2.2). The panel's /metrics endpoint runs
+# query_range against this server. Every target carries a `server_id` label equal to the panel's
+# server id so queries can be scoped per server and per organisation.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+scrape_configs:
+  # node-exporter (CPU, memory, disk, network) on each managed server.
+  - job_name: node
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/node.yml]
+  # cAdvisor (per-container CPU / memory; series named by container name, e.g. app-shop).
+  - job_name: cadvisor
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/cadvisor.yml]
+  # Traefik metrics entrypoint (:8082) on ingress servers -> requests_24h per app.
+  - job_name: traefik
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/traefik.yml]

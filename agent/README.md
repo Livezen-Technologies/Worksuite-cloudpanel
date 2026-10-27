@@ -42,7 +42,8 @@ It detects the arch, downloads `<url>/agent/v1/download/dockermgr-agent-linux-<a
 Config path: `--config`, else `$DOCKERMGR_AGENT_CONFIG`, else `/etc/dockermgr/agent.json`.
 Fields: `panel_url, server_id, agent_secret, hmac_key, heartbeat_interval, ca_file,
 state_dir (/var/lib/dockermgr), policy_path (/etc/dockermgr/policy.json), docker_socket,
-update_public_key, cert_file, key_file, relay_url, terminal_shells`.
+update_public_key, cert_file, key_file, relay_url, terminal_shells, proxy_config_dir (/etc/dockermgr/traefik/dynamic),
+acme_json (/etc/dockermgr/traefik/acme.json)`. Backups need `restic` (and the `docker` CLI for database dumps) on the server.
 
 ## Heartbeat
 
@@ -100,8 +101,18 @@ A malformed policy file fails closed (all commands refused). Reloaded on change.
 | `compose.up` | `{project, compose_yaml, env?{}, pull?}` — written to `<state_dir>/compose/<project>/compose.yaml` (+ `.env`), then `docker compose -p <project> up -d --remove-orphans` |
 | `compose.down` | `{project, remove_volumes? (false)}` |
 | `compose.restart` | `{project}` |
-| `backup.run` | `{repository, paths[] (absolute), tags?, exclude?, env?{RESTIC_*,AWS_*,B2_*,AZURE_*,GOOGLE_*,OS_*,ST_*}, init?}` → `restic --repo=R --json backup ...` |
-| `restore.run` | `{repository, snapshot? (latest), target (absolute), include?, env?}` |
+| `backup.run` | `{repository, paths[] (absolute), tags?, exclude?, env?{RESTIC_*,AWS_*,B2_*,AZURE_*,GOOGLE_*,OS_*,ST_*}, init?, dump?, forget?{keep_last,keep_daily,keep_weekly,keep_monthly,keep_within,tag}, check?{read_data_subset}}` → [dump] → `restic --repo=R backup --json ...` → [`forget --prune`] → [`check --read-data-subset`]; output `{snapshot_id, summary, dump?, forget?{removed}, check?{ok,subset,message?}}` |
+| `restore.run` | `{repository, snapshot? (latest), target (absolute), include?, env?, dump?}` — with `dump`, the dump is restored to a scratch dir and loaded with `docker exec -i` (`pg_restore --clean --if-exists`, `mysql`, `mariadb`, `mongorestore --drop`; redis: stop, `docker cp dump.rdb`, start) |
+| `backup.test` | `{repository, snapshot?, env?, engine?, check?}` — restore into `<state_dir>/tmp/test-*`, count files, validate dump magic (`PGDMP`, `REDIS`, gzip, SQL), optional `restic check`, remove scratch; output `{files, bytes, dump_valid?, check?}` |
+| `backup.export` | `{repository, snapshot?, path? (/), env?, upload{url (http/https), method PUT\|POST, headers?}}` — `restic dump --archive=tar` → gzip into a temp file → upload with Content-Length (S3 presigned PUT or the panel's signed URL); output `{bytes, sha256, format}` |
+| `proxy.config` | `{files{"<name>.yml": yaml}, prune_prefix?, secrets?{NAME: value}}` — atomic writes into `proxy_config_dir` (default `/etc/dockermgr/traefik/dynamic`), removes stale `<prefix>*.yml`, secrets → `../secrets/NAME` (0600) for Traefik `NAME_FILE` |
+| `proxy.certs` | `{}` — reads `acme_json` (default `/etc/dockermgr/traefik/acme.json`); output `{certificates[{resolver, domain, sans, not_before, not_after, issuer}]}` — certificates are parsed for dates only, keys are never read into the result |
+
+`dump` = `{engine: postgres|mysql|mariadb|redis|mongodb, container, database?, user?, password?}`: run as
+`docker exec [-e PGPASSWORD|MYSQL_PWD|REDISCLI_AUTH] <container> pg_dump -Fc | mysqldump --single-transaction --all-databases |
+mariadb-dump … | redis-cli BGSAVE (wait for LASTSAVE) + cat /data/dump.rdb | mongodump --archive --gzip`, streamed to
+`<state_dir>/dumps/<container>/` (stable path so retention groups snapshots). Passwords go through the docker CLI
+environment, never argv (mongodump is the exception: `--password=`).
 | `agent.update` | `{url (https), signature (base64/hex ed25519 over the binary), sha256?, version}` |
 | `agent.restart` | `{}` |
 | `image.build` | `{repo, ref? (main), dockerfile_path? (Dockerfile), context? (.), build_args?{}, labels?{}, git_auth?{token, username?}, image_tag, push?{registry, username, password}}` → output `{image, image_id, digest, repo_digest?, commit, log[]}` |
@@ -202,6 +213,8 @@ packaging/           systemd unit and installer
 ```
 
 ## Limits / not yet implemented
+
+- `backup.export` writes the tar.gz to `<state_dir>/tmp` before uploading (S3 needs Content-Length): it needs free disk for one archive.
 
 - Server TLS is verified against system roots (+ optional `ca_file`); the client certificate is enforced by the
   reverse proxy, not by the agent. A revoked certificate is only refused once the proxy/API sees it (no CRL/OCSP).

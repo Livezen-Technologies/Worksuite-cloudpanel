@@ -1,0 +1,71 @@
+# Traefik v3 static configuration for an ingress server managed by Docker Manager Portal
+# (CERT_DRIVER=traefik, DOM-002 / UDOM-004). The panel writes dynamic routers to
+# /etc/dockermgr/traefik/dynamic/dmp-domains.yml via the agent command `proxy.config`, and
+# reads certificate expiry from /etc/dockermgr/traefik/acme.json via `proxy.certs`.
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint: { to: websecure, scheme: https, permanent: true }
+  websecure:
+    address: ":443"
+    http:
+      tls: {}
+  metrics:
+    address: ":8082"            # Prometheus scrape target (keep it off the public interface)
+
+providers:
+  # App containers expose their service (port) with labels; routers come from the file provider.
+  docker:
+    exposedByDefault: false
+    network: proxy
+  file:
+    directory: /etc/dockermgr/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  # HTTP-01 for ordinary domains (the "le" resolver referenced by the generated routers).
+  le:
+    acme:
+      email: ops@example.com
+      storage: /etc/dockermgr/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+  # DNS-01 (wildcards). One resolver per provider: le-dns-<provider>. Credentials are written by
+  # proxy.config as files under /etc/dockermgr/traefik/secrets and read via the *_FILE variables
+  # set in docker-compose.yml (restart Traefik after rotating a token).
+  le-dns-cloudflare:
+    acme:
+      email: ops@example.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+  le-dns-digitalocean:
+    acme:
+      email: ops@example.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge: { provider: digitalocean }
+  le-dns-hetzner:
+    acme:
+      email: ops@example.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge: { provider: hetzner }
+  le-dns-route53:
+    acme:
+      email: ops@example.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge: { provider: route53 }
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addServicesLabels: true      # traefik_service_requests_total{service="app-<name>@docker"} -> requests_24h
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+
+api:
+  dashboard: false

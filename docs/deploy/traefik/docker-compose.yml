@@ -1,0 +1,22 @@
+# Ingress Traefik for CERT_DRIVER=traefik. Run on each ingress server (tag the server "ingress"
+# in the panel, or list its id in TRAEFIK_INGRESS_SERVERS).
+services:
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "127.0.0.1:8082:8082"]
+    networks: [proxy]
+    environment:
+      CF_DNS_API_TOKEN_FILE: /etc/dockermgr/traefik/secrets/CF_DNS_API_TOKEN
+      DO_AUTH_TOKEN_FILE: /etc/dockermgr/traefik/secrets/DO_AUTH_TOKEN
+      HETZNER_API_KEY_FILE: /etc/dockermgr/traefik/secrets/HETZNER_API_KEY
+      AWS_ACCESS_KEY_ID_FILE: /etc/dockermgr/traefik/secrets/AWS_ACCESS_KEY_ID
+      AWS_SECRET_ACCESS_KEY_FILE: /etc/dockermgr/traefik/secrets/AWS_SECRET_ACCESS_KEY
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - /etc/dockermgr/traefik:/etc/dockermgr/traefik   # dynamic/, secrets/, acme.json (0600)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/traefik:/var/log/traefik
+networks:
+  proxy:
+    external: true

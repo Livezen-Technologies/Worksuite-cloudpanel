@@ -13,18 +13,49 @@ import { TerminalSessions } from '../../components/TerminalSessions'
 import { Tabs } from '../../components/Tabs'
 import { ago, str } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import { useToast } from '../../components/Toasts'
+import { backupDownloadUrl } from '../../lib/download'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive']
+const S3_LIKE = ['s3', 'b2', 'r2']
+const isS3 = (v: Record<string, unknown>) => S3_LIKE.includes(String(v.destination))
 const POLICY_FIELDS: FieldDef[] = [
   { name: 'name', label: 'Name', required: true },
-  { name: 'target_type', label: 'Target type', type: 'select', required: true, options: ['volume', 'database', 'compose', 'server_config'] },
+  { name: 'target_type', label: 'Target type', type: 'select', required: true, options: [{ value: 'volume', label: 'Volume (restic snapshot)' }, { value: 'database', label: 'Database (app-consistent dump + snapshot)' }, { value: 'application', label: 'Application data' }, { value: 'server', label: 'Server config' }] },
   { name: 'target_id', label: 'Target ID', mono: true, required: true },
-  { name: 'method', label: 'Method', type: 'select', required: true, options: [{ value: 'restic', label: 'Restic snapshot' }, { value: 'db_dump', label: 'Database dump (app-consistent)' }, { value: 'git', label: 'Git revision' }, { value: 'archive', label: 'Encrypted archive' }] },
-  { name: 'schedule', label: 'Schedule', type: 'select', required: true, options: ['hourly', 'every 6 hours', 'daily', 'weekly', 'monthly'] },
-  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local' }, { value: 's3', label: 'Amazon S3' }, { value: 'b2', label: 'Backblaze B2' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive' }] },
-  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true },
-  { name: 'restore_test', label: 'Scheduled restore tests', type: 'checkbox', hint: 'monthly, in a sandbox' },
+  { name: 'schedule', label: 'Schedule (cron)', mono: true, required: true, placeholder: '0 3 * * *', hint: 'hourly 0 * * * * · daily 0 3 * * * · monthly 0 3 1 * *' },
+  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local (on the server)' }, { value: 's3', label: 'Amazon S3 / S3-compatible (MinIO)' }, { value: 'b2', label: 'Backblaze B2 (S3 API)' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive (rclone)' }] },
+  { name: 'dc_path', label: 'Repository root', mono: true, placeholder: '/var/lib/dockermgr/backups', show: (v) => v.destination === 'local' },
+  { name: 'dc_endpoint', label: 'Endpoint URL', mono: true, placeholder: 'https://s3.eu-central-1.amazonaws.com', show: isS3 },
+  { name: 'dc_bucket', label: 'Bucket', mono: true, show: isS3, required: true },
+  { name: 'dc_region', label: 'Region', mono: true, placeholder: 'us-east-1 (R2: auto)', show: isS3 },
+  { name: 'dc_account_id', label: 'Account ID', mono: true, show: (v) => v.destination === 'r2' },
+  { name: 'dc_access_key', label: 'Access key ID', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
+  { name: 'dc_secret_key', label: 'Secret access key', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
+  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true, hint: 'restic forget --prune after each run' },
+  { name: 'check_subset', label: 'Integrity check data subset', mono: true, placeholder: '5%', hint: 'restic check --read-data-subset after each run' },
+  { name: 'restore_test_schedule', label: 'Restore test schedule (cron)', mono: true, placeholder: '0 4 * * 0', hint: 'restores the latest snapshot into a scratch directory and validates it' },
 ]
+const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'access_key', 'secret_key'] as const
+
+/** Flat form values -> API body; credentials are only sent when typed (write-only). */
+export function policyBody(v: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = {}
+  const dc: Record<string, string> = {}
+  for (const [k, val] of Object.entries(v)) {
+    if (k.startsWith('dc_')) { if (val !== '' && val != null) dc[k.slice(3)] = String(val) } else body[k] = val
+  }
+  for (const k of ['destination_summary', 'success_14d', 'next_run_at', 'id', 'organization_id', 'created_at', 'updated_at', 'last_run_at', 'last_status', 'last_restore_test_at', 'last_restore_test_status']) delete body[k]
+  if (body.restore_test_schedule === '') body.restore_test_schedule = null
+  if (body.check_subset === '' || body.check_subset == null) delete body.check_subset
+  return { ...body, destination_config: dc, encrypted: true }
+}
+function policyInitial(r: R): R {
+  const sum = (r.destination_summary ?? {}) as R
+  const out: R = { ...r }
+  for (const k of DC_KEYS) if (k !== 'access_key' && k !== 'secret_key' && sum[k] != null) out[`dc_${k}`] = sum[k]
+  return out
+}
 
 function last14(jobs: R[]) {
   const days: { label: string; ok: number; failed: number }[] = []
@@ -40,6 +71,16 @@ function last14(jobs: R[]) {
 export function Backups() {
   const policies = useList<R>('/backup-policies')
   const jobs = useList<R>('/backup-jobs', { per_page: 500 }, { refetchInterval: 20000 })
+  const artifacts = useList<R>('/backup-artifacts', { per_page: 50, sort: '-created_at' }, { refetchInterval: 20000 })
+  const toast = useToast()
+  const [preparing, setPreparing] = useState<string | null>(null)
+  const download = async (a: R) => {
+    setPreparing(a.id)
+    try {
+      window.location.assign(await backupDownloadUrl(`/backup-artifacts/${a.id}/download`, { onExporting: () => toast.success('Exporting the snapshot as tar.gz…') }))
+    } catch (e) { toast.error(e, 'Download failed') } finally { setPreparing(null) }
+  }
+  const policyName = (id?: string) => policies.rows.find((p) => p.id === id)?.name ?? (id ? id.slice(0, 8) : 'app backup')
   const { run, busy } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
   const [restoreOpen, setRestoreOpen] = useState(false)
@@ -47,16 +88,16 @@ export function Backups() {
   const [del, setDel] = useState<R | null>(null)
   const days = useMemo(() => last14(jobs.rows), [jobs.rows])
   const day = jobs.rows.filter((j) => Date.now() - new Date(j.created_at).getTime() < 86400e3)
-  const restorable = jobs.rows.filter((j) => (j.status === 'succeeded' || j.status === 'success') && (j.artifact_id || j.artifact))
+  const restorable = artifacts.rows.filter((a) => a.snapshot_id)
   return (
     <>
       <PageHeader title="Backups" subtitle="Encrypted, integrity-checked and restore-tested"
-        actions={<><button type="button" className="btn" onClick={() => setRestoreOpen(true)}>Restore…</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: 'daily', destination: 'r2', retention_days: 14, method: 'restic', target_type: 'volume' })}>New backup policy</button></>} />
+        actions={<><button type="button" className="btn" onClick={() => setRestoreOpen(true)}>Restore…</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })}>New backup policy</button></>} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         <StatTile label="Policies" value={policies.rows.length} />
         <StatTile label="Succeeded (24 h)" value={day.filter((j) => j.status === 'succeeded' || j.status === 'success').length} />
         <StatTile label="Failed (24 h)" value={day.filter((j) => j.status === 'failed').length} deltaTone="r" delta={day.some((j) => j.status === 'failed') ? 'needs attention' : undefined} />
-        <StatTile label="Verified" value={jobs.rows.filter((j) => j.verified || j.integrity === 'verified').length} delta="integrity checked" />
+        <StatTile label="Verified" value={artifacts.rows.filter((a) => a.verified).length} delta="restic check passed" />
       </div>
       <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#DC2626]" />failed</span></span>}>
         <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
@@ -64,9 +105,10 @@ export function Backups() {
       <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
         columns={[
           { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
-          { key: 'method', header: 'Method' },
-          { key: 'schedule', header: 'Schedule' },
-          { key: 'destination', header: 'Destination' },
+          { key: 'target_type', header: 'Target' },
+          { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
+          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}{r.destination_summary?.bucket ? <span className="block text-xs text-muted font-mono">{r.destination_summary.bucket}</span> : null}{S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? <Badge tone="y">no keys</Badge> : null}</span> },
+          { key: 'last_restore_test_status', header: 'Restore test', render: (r) => r.last_restore_test_status ? <span title={r.last_restore_test_at ?? undefined}><StatusBadge status={r.last_restore_test_status} /></span> : <span className="text-muted text-xs">not yet</span> },
           { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? r.last_run?.status ?? 'never run'} /> },
           { key: 'retention_days', header: 'Retention', value: (r) => (r.retention_days != null ? `${r.retention_days} days` : '—') },
           { key: 'encrypted', header: 'Encryption', render: (r) => <Badge tone={r.encrypted !== false ? 'g' : 'y'}>{r.encrypted !== false ? 'encrypted' : 'not encrypted'}</Badge> },
@@ -78,21 +120,36 @@ export function Backups() {
               <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button>
             </span>) },
         ]} />
-      <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ?? {}} submitLabel="Save policy"
-        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. Recovery keys are stored separately from the backup storage.' : 'Local backups are encrypted by default.'}</p>}
-        onSubmit={(v) => run({ method: edit?.id ? 'PATCH' : 'POST', path: edit?.id ? `/backup-policies/${edit.id}` : '/backup-policies', body: { ...v, encrypted: true }, label: 'Save policy', success: 'Policy saved' })} />
+      <DataTable label="Snapshots" rows={artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
+        columns={[
+          { key: 'created_at', header: 'Taken', render: (r) => ago(r.created_at) },
+          { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
+          { key: 'snapshot_id', header: 'Snapshot', render: (r) => <span className="font-mono text-xs">{String(r.snapshot_id ?? '—').slice(0, 10)}</span> },
+          { key: 'size_mb', header: 'Size', value: (r) => `${r.size_mb ?? 0} MB` },
+          { key: 'verified', header: 'Integrity', render: (r) => <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span> },
+          { key: 'restore_test_status', header: 'Restore test', render: (r) => r.restore_test_status ? <span title={r.restore_test_message ?? undefined}><StatusBadge status={r.restore_test_status} /></span> : <span className="text-muted text-xs">—</span> },
+          { key: 'act', header: '', sortable: false, render: (r) => (
+            <span className="flex gap-2">
+              <button type="button" className="btn btn-sm" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test restore</button>
+              <button type="button" className="btn btn-sm" onClick={() => setArtifact(r)}>Restore</button>
+            </span>) },
+        ]} />
+      <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"
+        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}
+        onSubmit={(v) => run({ method: edit?.id ? 'PATCH' : 'POST', path: edit?.id ? `/backup-policies/${edit.id}` : '/backup-policies', body: policyBody(v), label: 'Save policy', success: 'Policy saved' })} />
       <Modal open={restoreOpen} onClose={() => setRestoreOpen(false)} title="Restore from backup" width={640}>
         {restorable.length === 0 ? <Empty>No restorable backups yet.</Empty> : (
           <ul className="list-none m-0 p-0">{restorable.slice(0, 30).map((j) => (
             <li key={j.id} className="flex items-center gap-3 py-2.5 border-t border-line">
-              <span className="font-semibold flex-1">{j.policy_name ?? j.policy?.name ?? j.policy_id}</span><span className="text-xs text-muted">{ago(j.created_at)}</span>
+              <span className="font-semibold flex-1">{policyName(j.backup_policy_id)}{j.dump_engine ? ` · ${j.dump_engine} dump` : ''}</span><span className="text-xs text-muted">{ago(j.created_at)}</span>
               <button type="button" className="btn btn-sm" onClick={() => setArtifact(j)}>Restore</button>
             </li>))}
           </ul>
         )}
       </Modal>
       <ConfirmDialog open={!!artifact} onClose={() => setArtifact(null)} danger confirmText="RESTORE" title="Restore this backup?" confirmLabel="Restore" busy={busy}
-        onConfirm={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.artifact_id ?? artifact!.artifact?.id }, label: 'Restore backup' }).then(() => { setArtifact(null); setRestoreOpen(false) }).catch(() => {})}>
+        onConfirm={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.id }, label: 'Restore backup' }).then(() => { setArtifact(null); setRestoreOpen(false) }).catch(() => {})}>
         <p className="m-0">Current data for the target is replaced with the backup from {ago(artifact?.created_at)}.</p>
       </ConfirmDialog>
       <ConfirmDialog open={!!del} onClose={() => setDel(null)} danger confirmText={del?.name} title={`Delete policy ${del?.name}?`} confirmLabel="Delete policy" busy={busy}

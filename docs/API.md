@@ -97,7 +97,7 @@ The organisation is the token user's current organisation (`users.current_organi
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
   network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
-  image.build, image.scan, container.healthcheck (payloads in `agent/README.md`).
+  image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
   lines in the command output and exposes them as the deployment job's `build_log`.
 - `POST /agent/v1/commands/{id}/result` {status: running|succeeded|failed, progress?, message?, output?} — idempotent per id.
@@ -127,15 +127,36 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
   pending|issuing|active|failed, records:[{type,name,value}], certificate:{issuer,status,expires_at,days_left}|null, renewal_at,
   expiring, options, dns_checked_at, created_at}`. Verify → `{domain_id, records:[{type,name,value,status: waiting|verified}],
   dns_status, https_status}`. Admin list filter `?filter=expiring|pending_dns|wildcard`.
-- **Invoice** `{id, number, period_start, period_end, period ("Sep 2026"), amount_cents, currency, status, pdf_url, created_at}`
+- **Invoice** `{id, number, period_start, period_end, period ("Sep 2026"), amount_cents, subtotal_cents, tax_cents, tax_rate, currency,
+  status: open|paid|failed|void, line_items:[{description, quantity, unit, unit_cents, amount_cents, kind: plan|app, application_id?, size?}], paid_at,
+  pdf_url, created_at}`. `pdf_url` is a signed link valid 30 min (`GET /api/v1/invoices/{id}/pdf?expires&signature`, no bearer needed) to the
+  dompdf-rendered PDF; `GET /app/billing/invoices/{id}/pdf` serves it with the bearer token. Invoices come from `billing:invoice` (monthly).
 - **GET /app/billing** `{plan:{code,name,vcpu,ram_mb,storage_gb,price_cents,currency,limits}, limits:{apps,ram_mb,storage_gb,bandwidth_gb,
   backups_per_day,backup_retention_days}, usage:{apps,ram_mb,storage_gb,bandwidth_gb}, usage_pct:{...}, month_to_date:{amount_cents,currency},
-  payment_method:{brand,last4,exp_month,exp_year}|null, billing_email, payment_portal_url}`. Payment method is updated with
+  payment_method:{brand,last4,exp_month,exp_year}|null, billing_email, payment_provider: fake|stripe, payment_portal_url}`.
+  `POST /app/billing/portal` → `{url}`: a fresh Stripe Customer Portal session (or Checkout in setup mode when no card is on file).
+  `POST /api/v1/webhooks/stripe` (no auth; `Stripe-Signature` verified, 400 otherwise; idempotent per event id) handles
+  `checkout.session.completed`, `customer.subscription.created|updated|deleted`, `invoice.paid|payment_succeeded|payment_failed`, `payment_method.attached`. Payment method is updated with
   `POST /app/billing/payment-method {payment_method_token: "pm_…", billing_email?}` (card fields are rejected).
 - **Customer app** `{id, name, image, source, state, status, primary_domain, address, cpu_pct, ram_mb, ram_limit_mb, storage_gb, size,
   region, port, volume_path, auto_deploy, auto_restart, last_deploy_at, created_at}`; detail adds `env:[{key, value (null when secret), secret}],
   domains, addresses, last_deployment:{id,status,job_id,logs_tail}, requests_24h`. PATCH accepts `restart: true` (Save & restart) and returns `job_id`.
-- **Customer backups** `[{id, app_id, app_name, size_mb, verified, encrypted, trigger, created_at, expires_at}]`; download → `{data:{url, expires_at}}`.
+- **Customer backups** `[{id, app_id, app_name, size_mb, verified, verified_at, encrypted, trigger, created_at, expires_at,
+  restore_test:{status: running|passed|failed, tested_at, message}|null, export_status}]`. Download (customer `GET /app/backups/{id}/download`,
+  admin `GET /backup-artifacts/{id}/download`): **202** `{data:{status:"exporting", job_id}}` while the agent exports the snapshot
+  (`backup.export`, job stages `export, upload`), then **200** `{data:{status:"ready", url, expires_at, bytes, sha256}}` — `url` is a presigned
+  S3 GET (S3/R2/B2 destinations) or a signed `/api/v1/backup-download/{id}` link (local), valid `BACKUP_DOWNLOAD_TTL_MINUTES`; the file is a
+  `tar.gz` of the snapshot (database backups contain `…/dumps/<container>/postgres.dump` etc.).
+- **Backup policy** adds `check_subset` (restic `--read-data-subset`, default `5%`), `restore_test_schedule` (cron|null),
+  `last_restore_test_at`, `last_restore_test_status`, `destination_summary:{endpoint,bucket,region,prefix,path,account_id,has_access_key,has_secret_key}`.
+  `destination_config` is write-only (`{endpoint, bucket, region, prefix, path, account_id, access_key, secret_key}`; blank keys keep the stored ones;
+  S3/R2/B2 require bucket + keys). Backup job stages: `[dump,] snapshot, retention, verify` (a failed `restic check` fails `verify` and the job).
+  `POST /backup-artifacts/{id}/restore-test` → 202 (`backup.test`, stage `restore_test`). Artifacts add `dump_engine, verified_at, verify_message,
+  restore_tested_at, restore_test_status, restore_test_message, export_status, exported_at, export_bytes, export_sha256`.
+- **Domain** (CERT_DRIVER=traefik) adds `dns_provider, has_dns_token`; admin create/update accept `dns_provider: cloudflare|digitalocean|hetzner|route53|gandiv5`
+  and write-only `dns_token`. `https_status` stays `issuing` until `proxy.certs` reports the certificate from acme.json; `certificate` adds `resolver, checked_at`.
+- **GET /metrics** and `GET /app/apps/{id}/metrics` add `source: "prometheus"` when `METRICS_DRIVER=prometheus` (same series shape); `requests_24h` is the
+  Traefik `traefik_service_requests_total` increase over 24 h, else null.
 - **Deployment job stages**: admin `validate, checkout, build_scan, push, placement, deploy, health_check, complete` (+`approval` first when
   gated, +`rollback` on failure); customer `pull_image, start_container, health_check, certificate_issued, live` (+`build` first for Git sources).
   `GET /jobs/{id}` for a deployment adds `build_log: [string]|null`. Pipeline for git/dockerfile sources: `image.build` on a server with the

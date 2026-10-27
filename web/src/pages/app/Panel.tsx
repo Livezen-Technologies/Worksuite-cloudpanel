@@ -13,6 +13,7 @@ import { useAuth } from '../../lib/auth'
 import { ago, daysUntil, money, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { usageOf } from './PanelLayout'
+import { backupDownloadUrl } from '../../lib/download'
 
 interface DnsRecord { type: string; name: string; value: string; status: 'waiting' | 'verified' | string }
 const RECHECK_MS = 120000
@@ -105,13 +106,17 @@ export function UserDomains() {
               {domains.rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No domains yet. Add one above.</td></tr>}
               {domains.rows.map((d) => {
                 const renew = daysUntil(d.renewal_at ?? d.certificate?.expires_at ?? d.renews_at)
+                const expires = d.certificate?.expires_at ? daysUntil(d.certificate.expires_at) : null
                 return (
                   <tr key={d.id} className="border-t border-line">
                     <td className="py-3 px-5 font-mono font-semibold">{d.domain ?? d.hostname}</td>
                     <td className="p-2.5">{d.app_name ?? d.app?.name ?? apps.rows.find((a) => a.id === d.app_id)?.name ?? '—'}</td>
                     <td className="p-2.5"><StatusBadge status={d.dns_status ?? 'pending'} /></td>
                     <td className="p-2.5"><StatusBadge status={d.https_status ?? 'waiting for DNS'} /></td>
-                    <td className="p-2.5 text-muted">{d.managed ? 'auto' : renew === null ? '—' : `in ${renew} days`}</td>
+                    <td className="p-2.5 text-muted" title={d.certificate?.expires_at ? `Certificate from ${d.certificate.issuer ?? 'Let’s Encrypt'} expires ${new Date(d.certificate.expires_at).toLocaleDateString()}` : undefined}>
+                      {d.managed ? 'auto' : renew === null ? (d.https_status === 'issuing' ? 'issuing…' : '—') : `in ${renew} days`}
+                      {expires !== null && <span className={`block text-xs ${expires < 14 ? 'text-danger font-semibold' : ''}`}>expires in {expires} days</span>}
+                    </td>
                     <td className="p-2.5"><span className="flex gap-2 justify-end"><button type="button" className="btn" onClick={() => { setActive(d); setCheck(null); verify(d, true) }}>DNS records</button><button type="button" className="btn btn-danger" onClick={() => setDel(d)}>Remove</button></span></td>
                   </tr>
                 )
@@ -138,13 +143,14 @@ export function UserBackups() {
   const [pickApp, setPickApp] = useState(false)
   const [newFor, setNewFor] = useState('')
   const appName = (id: string) => apps.rows.find((a) => a.id === id)?.name ?? id
+  const [preparing, setPreparing] = useState<string | null>(null)
   const download = async (b: R) => {
+    setPreparing(b.id)
     try {
-      const r = unwrap<R>(await api.get(`/app/backups/${b.id}/download`))
-      const url = r?.url ?? r?.download_url
-      if (url) window.open(url, '_blank', 'noopener')
-      else toast.error(new Error('The download link was not available. Try again in a minute.'))
-    } catch (e) { toast.error(e, 'Download failed') }
+      // First click exports the snapshot (tar.gz) on the server; the link is signed and expires.
+      const url = await backupDownloadUrl(`/app/backups/${b.id}/download`, { onExporting: () => toast.success('Preparing your archive… the download starts when it is ready.') })
+      window.location.assign(url)
+    } catch (e) { toast.error(e, 'Download failed') } finally { setPreparing(null) }
   }
   const backupNow = (id: string) => run({ path: '/app/backups', body: { app_id: id }, label: `Back up ${appName(id)}` }).then(() => setPickApp(false)).catch(() => {})
   return (
@@ -163,8 +169,9 @@ export function UserBackups() {
                 <span className="font-semibold min-w-[100px]">{b.app_name ?? appName(b.app_id)}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{b.created_at ? new Date(b.created_at).toLocaleString() : '—'}</span>
                 <span className="text-muted">{b.size ?? (b.size_mb ? `${b.size_mb} MB` : '—')}</span>
-                <StatusBadge status={b.status === 'succeeded' ? 'completed' : b.status ?? (b.verified ? 'verified' : 'completed')} />
-                <button type="button" className="btn" disabled={b.status === 'failed'} onClick={() => download(b)}>Download</button>
+                <StatusBadge status={b.status === 'succeeded' ? 'completed' : b.status ?? (b.verified ? 'verified' : 'unverified')} />
+                {b.restore_test && <span title={b.restore_test.message ?? undefined}><Badge tone={b.restore_test.status === 'passed' ? 'g' : b.restore_test.status === 'failed' ? 'r' : 'n'}>{b.restore_test.status === 'passed' ? `restore test passed ${ago(b.restore_test.tested_at)}` : b.restore_test.status === 'failed' ? 'restore test failed' : 'restore test running'}</Badge></span>}
+                <button type="button" className="btn" disabled={b.status === 'failed' || preparing === b.id} onClick={() => download(b)}>{preparing === b.id ? 'Preparing…' : 'Download'}</button>
                 <button type="button" className="btn" disabled={b.status === 'failed'} onClick={() => setRestore(b)}>Restore</button>
               </li>
             ))}
@@ -195,6 +202,16 @@ export function Billing() {
   const invoices = useList<R>('/app/billing/invoices')
   const { run, busy } = useAction()
   const [compare, setCompare] = useState(false)
+  const [portalBusy, setPortalBusy] = useState(false)
+  const toast = useToast()
+  // UBIL-003: a fresh Stripe Customer Portal / Checkout session; card data stays on Stripe.
+  const openPortal = async () => {
+    setPortalBusy(true)
+    try {
+      const r = unwrap<{ url?: string }>(await api.post('/app/billing/portal'))
+      if (r.url) window.location.assign(r.url)
+    } catch (e) { toast.error(e, 'Could not open the payment portal') } finally { setPortalBusy(false) }
+  }
   if (isLoading) return <Card>Loading…</Card>
   const plan = (typeof b?.plan === 'string' ? { name: b.plan } : b?.plan ?? {}) as R
   const planList = (Array.isArray(plans.item) ? plans.item : (plans.item as R | undefined)?.plans ?? []) as R[]
@@ -231,7 +248,9 @@ export function Billing() {
           <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
           <div className="text-sm text-muted mt-2">Billing email: {b?.billing_email ?? '—'}</div>
           <p className="text-xs text-muted">Card details are handled by our payment provider; we never store them.</p>
-          {(b?.payment_portal_url ?? b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.payment_portal_url ?? b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
+          {b?.payment_provider === 'stripe'
+            ? <button type="button" className="btn" disabled={portalBusy} onClick={openPortal}>{portalBusy ? 'Opening Stripe…' : (typeof pm === 'object' && pm?.last4 ? 'Manage in Stripe' : 'Add card with Stripe')}</button>
+            : (b?.payment_portal_url ?? b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.payment_portal_url ?? b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
         </Card>
       </div>
       <Card title="Invoices" pad={false}>
@@ -241,7 +260,7 @@ export function Billing() {
               <li key={iv.id ?? iv.number} className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-line first:border-t-0 text-sm">
                 <span className="font-mono font-semibold">{iv.number}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{iv.period ?? iv.period_label}</span>
-                <span className="font-semibold">{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
+                <span className="font-semibold" title={iv.tax_cents ? `incl. ${money(num(iv.tax_cents) / 100, iv.currency)} tax` : undefined}>{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
                 <StatusBadge status={iv.status} />
                 {iv.pdf_url ? <a href={iv.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center min-h-[44px] font-semibold" aria-label={`Download invoice ${iv.number} as PDF`}>PDF</a> : <span className="text-muted text-xs">PDF soon</span>}
               </li>
