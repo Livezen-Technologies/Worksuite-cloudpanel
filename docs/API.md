@@ -92,3 +92,42 @@ The organisation is the token user's current organisation (`users.current_organi
   network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart.
 - `POST /agent/v1/commands/{id}/result` {status: running|succeeded|failed, progress?, message?, output?} — idempotent per id.
 - Agent rejects unsigned/unknown/duplicate commands (local policy, no generic shell).
+
+## Implemented response shapes (api/ build 1.0)
+Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}` is a series point.
+
+- **Approval-gated action** (any destructive/terminal request whose role grant needs approval and
+  `security.require_approval_destructive` is on) → **202** `{data:{approval_id, status:"pending_approval", action, message}}`.
+  A second user approves with `POST /approvals/{id}/approve`; deletes then execute automatically. For terminals the
+  requester repeats the request with `{approval_id}`.
+- **Errors** add extras on some codes: `quota_exceeded` → `error.{limit, current, requested, max, upgrade_to, upgrade_url}`;
+  login with MFA → `error.mfa_required: true`; placement failure → `409 conflict` with `error.reason: "no_capacity"`.
+- **GET /dashboard** `{kpis:{servers_online, servers_total, containers_running, containers_total, cpu_pct, ram_pct, alerts_open},
+  series:{range, cpu:[{t,v}], ram:[{t,v}]}, alerts:[{id, severity, title, status, resource_type, resource_id, created_at}],
+  deployments:[{id, application_id, application, status, source, trigger, author, job_id, created_at, finished_at}],
+  top:[{id, name, server_id, cpu_pct, mem_mb}], status:{servers:{<status>:count}, backups_24h:{succeeded, failed, running},
+  certificates_expiring, image_scans:{scanned, critical, high, not_scanned}}, generated_at}`
+- **GET /metrics** `{range, server_id, step_seconds, series:{cpu, ram, disk, net_rx, net_tx: [{t,v}]}}` (cpu/ram/disk in %, net cumulative bytes).
+  `GET /app/apps/{id}/metrics` → `{range, cpu:[{t,v}], ram:[{t,v}]}` (ram in MB).
+- **GET /search?q=** `[{type: page|server|container|application|domain, id, label, sublabel, url}]`
+- **GET /containers/{id}/logs**, **GET /app/apps/{id}/logs** `{container_id, lines:[string], fetched_at, job_id}` — returns the last
+  fetched lines and queues a fresh `container.logs` fetch (poll again after the job finishes).
+- **Domain** (admin `/domains` and `/app/domains`) `{id, name, domain, application_id, app_id, app_name, target_port, wildcard,
+  www_redirect, redirect_www, platform_subdomain, challenge: http-01|dns-01, dns_status: pending|verified, https_status:
+  pending|issuing|active|failed, records:[{type,name,value}], certificate:{issuer,status,expires_at,days_left}|null, renewal_at,
+  expiring, options, dns_checked_at, created_at}`. Verify → `{domain_id, records:[{type,name,value,status: waiting|verified}],
+  dns_status, https_status}`. Admin list filter `?filter=expiring|pending_dns|wildcard`.
+- **Invoice** `{id, number, period_start, period_end, period ("Sep 2026"), amount_cents, currency, status, pdf_url, created_at}`
+- **GET /app/billing** `{plan:{code,name,vcpu,ram_mb,storage_gb,price_cents,currency,limits}, limits:{apps,ram_mb,storage_gb,bandwidth_gb,
+  backups_per_day,backup_retention_days}, usage:{apps,ram_mb,storage_gb,bandwidth_gb}, usage_pct:{...}, month_to_date:{amount_cents,currency},
+  payment_method:{brand,last4,exp_month,exp_year}|null, billing_email, payment_portal_url}`. Payment method is updated with
+  `POST /app/billing/payment-method {payment_method_token: "pm_…", billing_email?}` (card fields are rejected).
+- **Customer app** `{id, name, image, source, state, status, primary_domain, address, cpu_pct, ram_mb, ram_limit_mb, storage_gb, size,
+  region, port, volume_path, auto_deploy, auto_restart, last_deploy_at, created_at}`; detail adds `env:[{key, value (null when secret), secret}],
+  domains, addresses, last_deployment:{id,status,job_id,logs_tail}, requests_24h`. PATCH accepts `restart: true` (Save & restart) and returns `job_id`.
+- **Customer backups** `[{id, app_id, app_name, size_mb, verified, encrypted, trigger, created_at, expires_at}]`; download → `{data:{url, expires_at}}`.
+- **Deployment job stages**: admin `validate, checkout, build_scan, push, placement, deploy, health_check, complete` (+`approval` first when
+  gated, +`rollback` on failure); customer `pull_image, start_container, health_check, certificate_issued, live`.
+- **Extra endpoints**: `POST /images/pull {server_id, image, registry_id?}` (202), `POST /containers/prune` and `/images/prune` accept `{ids[]}`,
+  `DELETE /terminal-sessions/{id}`, `POST /approvals/{id}/reject`, `GET /audit-logs/verify`, `GET /backup-artifacts`, `POST /me/mfa/disable`,
+  `POST /notification-channels/{id}/test`, `GET /agent/v1/install.sh`, `GET /agent/v1/download/dockermgr-agent-linux-{amd64|arm64}`.

@@ -12,8 +12,9 @@ final class Lists
     {
         if (($search = trim((string) $request->query('search', ''))) !== '' && $searchable) {
             $query->where(function (Builder $q) use ($searchable, $search) {
+                $term = '%'.mb_strtolower(str_replace(['%', '_'], ['\%', '\_'], $search)).'%';
                 foreach ($searchable as $column) {
-                    $q->orWhere($column, 'like', '%'.str_replace(['%', '_'], ['\%', '\_'], $search).'%');
+                    $q->orWhereRaw('LOWER(CAST('.$q->getGrammar()->wrap($column).' AS TEXT)) LIKE ?', [$term]);
                 }
             });
         }

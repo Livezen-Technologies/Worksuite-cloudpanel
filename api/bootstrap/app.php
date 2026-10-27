@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'agent' => \App\Http\Middleware\AuthenticateAgent::class,
         ]);
         $middleware->redirectGuestsTo(fn () => null);
+        $middleware->trimStrings(except: ['yaml', 'source.compose', 'compose_yaml', 'password', 'value']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $error = function (Request $request, string $code, string $message, int $status, array $fields = [], array $extra = []) {

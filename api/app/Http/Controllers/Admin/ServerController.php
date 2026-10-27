@@ -41,7 +41,7 @@ class ServerController extends Controller
 
         $result = Lists::paginate($query, $request, ['name', 'hostname', 'ip'], ['name', 'created_at', 'last_heartbeat_at', 'cpu_pct', 'ram_pct'], [
             'environment', 'region', 'server_group_id',
-            'tag' => fn ($q, $v) => $q->where('tags', 'like', '%"'.$v.'"%'),
+            'tag' => fn ($q, $v) => $q->whereRaw('CAST(tags AS TEXT) LIKE ?', ['%"'.$v.'"%']),
             'status' => fn ($q, $v) => match ($v) {
                 'maintenance' => $q->where('maintenance', true),
                 'pending' => $q->whereNull('last_heartbeat_at')->where('maintenance', false),

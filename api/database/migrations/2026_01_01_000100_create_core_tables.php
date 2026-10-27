@@ -265,7 +265,7 @@ return new class extends Migration
             $t->string('name');
             $t->string('kind')->default('admin'); // admin|customer
             $t->string('source_type'); // git|image|dockerfile|compose|template
-            $t->json('source')->nullable();
+            $t->text('source')->nullable(); // encrypted (may hold registry credentials)
             $t->string('image')->nullable();
             $t->string('strategy')->default('recreate');
             $t->string('environment')->default('production');
@@ -347,7 +347,7 @@ return new class extends Migration
             $t->foreignUuid('compose_project_id')->constrained('compose_projects')->cascadeOnDelete();
             $t->integer('number');
             $t->longText('yaml');
-            $t->json('env')->nullable();
+            $t->text('env')->nullable(); // encrypted
             $t->foreignUuid('created_by')->nullable();
             $t->timestamp('created_at')->nullable();
             $t->unique(['compose_project_id', 'number']);

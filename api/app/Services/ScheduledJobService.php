@@ -20,7 +20,7 @@ class ScheduledJobService
 
     public function nextRun(ScheduledJob $job): ?\DateTimeInterface
     {
-        return $job->trigger === 'cron' && $job->cron && $job->enabled ? (new CronExpression($job->cron))->getNextRunDate(now()) : null;
+        return ($job->trigger ?? 'cron') === 'cron' && $job->cron && $job->enabled !== false ? (new CronExpression($job->cron))->getNextRunDate(now()) : null;
     }
 
     public function refreshNextRun(ScheduledJob $job): void

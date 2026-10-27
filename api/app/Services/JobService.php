@@ -84,9 +84,10 @@ class JobService
 
     public function succeed(Job $job, array $result = []): Job
     {
-        $stages = array_map(function ($s) {
+        $stages = array_map(function ($s) use ($job) {
             if (in_array($s['status'], ['pending', 'running'], true)) {
-                $s['status'] = $s['status'] === 'pending' ? 'skipped' : 'succeeded';
+                $s['status'] = 'succeeded';
+                $s['started_at'] ??= $job->started_at?->toIso8601ZuluString() ?? now()->toIso8601ZuluString();
                 $s['finished_at'] = now()->toIso8601ZuluString();
             }
 

@@ -54,6 +54,7 @@ abstract class TestCase extends BaseTestCase
     protected function api(string $token): static
     {
         app(Tenant::class)->set(null);
+        $this->app['auth']->forgetGuards();
 
         return $this->withHeaders(['Authorization' => 'Bearer '.$token, 'Accept' => 'application/json']);
     }
@@ -86,7 +87,7 @@ abstract class TestCase extends BaseTestCase
 
         return $this->withHeaders(['Authorization' => 'Bearer '.$secret, 'Accept' => 'application/json'])->postJson('/agent/v1/heartbeat', array_merge([
             'agent_version' => '1.0.0', 'stats' => ['cpu_pct' => 12.5, 'ram_pct' => 40, 'disk_pct' => 50, 'net_rx' => 100, 'net_tx' => 50],
-            'containers' => [], 'images' => [], 'networks' => [], 'volumes' => [],
+            'containers' => null, 'images' => null, 'networks' => null, 'volumes' => null,
         ], $body))->assertOk()->json();
     }
 

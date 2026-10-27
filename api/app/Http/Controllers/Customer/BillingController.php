@@ -43,7 +43,7 @@ class BillingController extends Controller
     public function paymentMethod(Request $request)
     {
         $data = $request->validate([
-            'payment_method_token' => 'required|string|max:255|regex:/^(pm|tok)_[A-Za-z0-9_]+$/',
+            'payment_method_token' => ['required', 'string', 'max:255', 'regex:/^(pm|tok)_[A-Za-z0-9_]+$/'],
             'billing_email' => 'nullable|email',
             'card_number' => 'prohibited', 'cvc' => 'prohibited',
         ]);

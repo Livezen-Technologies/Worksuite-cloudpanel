@@ -28,6 +28,6 @@ class Domain extends Model
     }
 
     public function application() { return $this->belongsTo(Application::class); }
-    public function certificate() { return $this->hasOne(Certificate::class)->latestOfMany(); }
+    public function certificate() { return $this->hasOne(Certificate::class)->orderByDesc('created_at'); }
     public function dnsChecks() { return $this->hasMany(DnsCheck::class); }
 }
