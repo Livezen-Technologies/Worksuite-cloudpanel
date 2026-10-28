@@ -19,6 +19,7 @@ class SettingsController extends Controller
         $data = $request->validate([
             'name' => 'sometimes|string|max:120',
             'general' => 'sometimes|array',
+            'general.panel_url' => 'sometimes|url|max:255',
             'general.default_region' => 'sometimes|string|max:60',
             'general.audit_retention_days' => 'sometimes|integer|min:30|max:3650',
             'general.heartbeat_interval' => 'sometimes|integer|min:15|max:30',

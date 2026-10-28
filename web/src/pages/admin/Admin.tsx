@@ -94,7 +94,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
     const body = nested ? { [section]: vals, ...(keys.includes('name') ? { name: g.name } : {}) } : { ...vals, ...(keys.includes('name') ? { name: g.name } : {}) }
     return run({ method: 'PATCH', path: '/settings', body, label: 'Save settings', success: 'Settings saved' }).catch(() => {})
   }
-  const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
+  const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['panel_url', 'Panel URL', 'url'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
   return (
     <>
       {tab === 'general' && (

@@ -59,6 +59,8 @@ return [
 
     'default_settings' => [
         'general' => [
+            // Public base URL of this panel; used in agent install commands and callbacks.
+            'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
             'default_region' => 'eu-central',
             'audit_retention_days' => 365,
             'heartbeat_interval' => 15,
