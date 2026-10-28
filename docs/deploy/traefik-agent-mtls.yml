@@ -1,0 +1,56 @@
+# Docker Manager Portal: Traefik v3 dynamic configuration (file provider) terminating agent mTLS
+# (SRS SEC-003). Pair with AGENT_MTLS=required and AGENT_MTLS_CERT_HEADER=X-Forwarded-Tls-Client-Cert
+# in api/.env: Traefik's passTLSClientCert forwards the verified leaf certificate as base64 DER,
+# from which the API computes the SHA-256 fingerprint and matches it to the agent.
+#
+# /etc/traefik/agent-ca.crt = curl https://panel.example.com/agent/v1/ca.crt
+tls:
+  options:
+    agent-mtls:
+      minVersion: VersionTLS12
+      clientAuth:
+        caFiles: [/etc/traefik/agent-ca.crt]
+        clientAuthType: RequireAndVerifyClientCert
+
+http:
+  middlewares:
+    agent-client-cert:
+      passTLSClientCert:
+        pem: true            # X-Forwarded-Tls-Client-Cert (Traefik always overwrites it)
+    strip-client-cert:       # public router: never accept a client-supplied header
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Tls-Client-Cert: ""
+          X-Client-Cert: ""
+          X-Client-Cert-Fingerprint: ""
+          X-SSL-Client-Verify: ""
+
+  routers:
+    agents-api:
+      rule: Host(`agents.panel.example.com`) && PathPrefix(`/agent/v1`)
+      entryPoints: [websecure]
+      tls: { options: agent-mtls, certResolver: letsencrypt }
+      middlewares: [agent-client-cert]
+      service: dmp-api
+    agents-relay:            # agent control connection + terminal dial-back (WebSocket)
+      rule: Host(`agents.panel.example.com`) && PathPrefix(`/relay/agent`)
+      entryPoints: [websecure]
+      tls: { options: agent-mtls, certResolver: letsencrypt }
+      middlewares: [agent-client-cert]
+      service: dmp-relay
+    panel-terminal:          # browsers: wss://panel.example.com/relay/terminal/{session}?token=…
+      rule: Host(`panel.example.com`) && PathPrefix(`/relay/terminal`)
+      entryPoints: [websecure]
+      tls: { certResolver: letsencrypt }
+      middlewares: [strip-client-cert]
+      service: dmp-relay
+    panel-api:
+      rule: Host(`panel.example.com`) && (PathPrefix(`/api`) || PathPrefix(`/agent/v1/install.sh`) || PathPrefix(`/agent/v1/download`) || PathPrefix(`/agent/v1/ca.crt`))
+      entryPoints: [websecure]
+      tls: { certResolver: letsencrypt }
+      middlewares: [strip-client-cert]
+      service: dmp-api
+
+  services:
+    dmp-api:   { loadBalancer: { servers: [{ url: "http://127.0.0.1:8000" }] } }
+    dmp-relay: { loadBalancer: { servers: [{ url: "http://127.0.0.1:8090" }] } }

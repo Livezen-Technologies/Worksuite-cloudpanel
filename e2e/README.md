@@ -1,0 +1,55 @@
+# End-to-end tests
+
+Full-stack tests for the Docker Manager Portal: the Laravel API on PostgreSQL with a queue worker,
+the React app (Vite dev server, `/api` proxied to `:8000`), and the real Go agent driving the local
+Docker daemon. Nothing is mocked except the drivers the API ships as fakes (DNS, certificates,
+source validation, payments, image scanning).
+
+```sh
+e2e/run.sh                  # fresh DB, start the stack, run every suite, stop what it started
+UNIT=1 e2e/run.sh           # ...then also api/agent/web unit suites (lint, tests, build)
+REUSE_STACK=1 e2e/run.sh    # use an API on :8000 and web on :5173 you already started (no migrate)
+ONLY='Compose|quota' node e2e/browser/admin.js   # run matching browser tests only
+```
+
+Logs, per-suite output and screenshots go to `$E2E_SCRATCH` (default `$TMPDIR/dmp-e2e`):
+`agent/` (agent log, MITM log, results), `browser/*.png`, `<suite>.out`, `api.log`, `queue.log`, `web.log`.
+
+## Requirements
+
+PHP 8.3 + composer deps in `api/vendor`, PostgreSQL with database/user `dmp`/`dmp` (override with
+`DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`), Node 22 with `web/node_modules`, the `playwright` Node
+library with Chromium (the plain library; `@playwright/test` is not used), Go 1.24, Docker with Compose v2,
+`jq`, `python3`, `psql`, `restic` (backups suite; static binary from the restic GitHub releases), optionally `minio`
+(S3 part; `go install github.com/minio/minio@RELEASE.2024-12-18T13-15-44Z` works when dl.min.io is unreachable) and PostgreSQL 16
+binaries under `/usr/lib/postgresql/16` (for the locally built `e2e/postgres:16` image). No registry access is needed: the test images `e2e/hello:1` and `e2e/shell:1` (a static
+mini shell as `/bin/sh` with user `app`, uid 1000, from `shell/main.go`) are built locally `FROM scratch`, and the run
+creates the `proxy` Docker network apps join. `run.sh` also builds and starts `dockermgr-relay` on `127.0.0.1:8090`
+(log `relay.log`); Vite proxies `/relay` (WebSocket) to it, and `env.sh` sets `RELAY_SECRET`/`RELAY_AGENT_URL`.
+
+`env.sh` holds the environment overrides (PostgreSQL, `QUEUE_CONNECTION=database`, fake DNS/source
+drivers). Real environment variables beat `api/.env`, so the checked-in `.env` is left alone.
+
+**Warning:** the run executes `migrate:fresh` on the configured database and creates and removes
+containers named `e2e-*` / `app-e2e-*` on the local Docker host.
+
+## Suites
+
+| File | What it covers |
+| --- | --- |
+| `agent.sh` | Builds the agent, creates a server + enrolment as `admin@example.com`, enrols (`--allow-http`) with a temp config/state dir, then: heartbeat marks the server online with real facts and stats; container create (local image, secure defaults checked on Docker), stop, start, restart, remove with volumes kept; compose up/down from a local-image compose file; agent killed and restarted plus `agent.restart` via API without the container restarting (`State.StartedAt` unchanged); a replayed command id is not executed twice; a tampered payload (signature unchanged) is rejected and reported failed. `AGENT_KEEP=1` leaves the agent and an `e2e-web` container running for the browser suites. |
+| `backups.sh` | Enrols its own agent (server `e2e-backup`), then real restic: volume policy to a local repository (backup with `restic check --read-data-subset=100%` + `forget --prune`, restore with a fresh safety backup first, restore test, export → signed download → tar.gz content and sha256 checked, tampered link 403); an S3 policy on MinIO when a `minio` binary is on PATH (presigned PUT export, presigned GET download); a PostgreSQL database created through the API on the locally built `e2e/postgres:16` image (`pg/build.sh`, from the host's PostgreSQL 16; tagged `postgres:16` locally for the run): `pg_dump -Fc` via `docker exec`, table dropped, `pg_restore`, rows back, restore test validates `PGDMP`, export contains the dump; `billing:invoice` → invoice PDF via signed URL starts with `%PDF` and has pages + `%%EOF`. Needs `restic` on the host. |
+| `mitm.py` | Pass-through proxy between agent and API used by `agent.sh` to tamper with / replay delivered commands. |
+| `browser/admin.js` | Login form, Overview KPIs equal `/dashboard` numbers, Servers + add-server wizard to the install command (then enrols a second real agent with that token and sees the heartbeat), Containers shows the agent's container and Restart restarts it on Docker, Applications create (image) / deploy twice / roll back through the agent, Compose YAML load + Validate (valid/invalid) + Diff, and Domains, Backups, Monitoring, Users, Settings (incl. save), Images, Networks, Volumes, Databases, Logs, Automation with real data. |
+| `browser/customer.js` | As `owner@example.com`: My apps, Host an app in 4 steps until live (real deploy), quota 402 upgrade prompt, app detail tabs + Save & restart, Domains add + Check DNS now, Backups restore confirm (202 job), Billing (cents/currency, card, invoices, plans), Account. |
+| `build.sh` | Builds a tiny Go web app (`gobuild/`, static binary compiled in the test, `FROM scratch`) from a local bare Git repo (`file://`, agent run with `DOCKERMGR_ALLOW_LOCAL_GIT=1`) through the real agent (`image.build`: git clone + Engine `/build`), deploys it and checks the pipeline stages, the streamed build log, the HTTP health check on the container IP and the release image; a `broken` branch answers 500 on `/healthz`, fails the health check with the last 50 log lines and is rolled back to v1; a branch without the binary fails in `build_scan` with the Docker error in the build log while v1 keeps serving. The single local server is given the builder role and `allow_builds_on_deploy_targets` for the run. |
+| `browser/security.js` | Terminal: creates `e2e-term` (image `e2e/shell:1`) through the API, opens Logs & Terminal → Terminal, passes the approval gate with a second owner, types into xterm through Vite → relay → agent (outbound control link + dial-back) → Docker exec, sees `echo` and `id` (`uid=1000(app)`) output, resizes, shortens `expires_at` in PostgreSQL and sees the relay close it as expired (exec shell gone from the container), replays the asciicast recording from the list, checks the audit events; "End session" ends an active session. Passkeys with Chromium's virtual authenticator (CDP `WebAuthn.enable` + `addVirtualAuthenticator`): register + rename on the admin Account page, sign out, "Sign in with a passkey"; customer Account registers and deletes one. |
+| `api-checks.js` | Registers org B and proves it cannot read or change org A's servers, containers, apps, domains, volumes, backups (404s, no ids in lists); audit chain verifies, a row tampered in PostgreSQL is detected (`broken_at`), restored afterwards. |
+| `browser/lib.js` | Tiny runner: every test fails on page errors, console errors and unexpected 4xx/5xx API responses (`w.allow(status, /url/)` marks intended ones); full-page screenshot per step. |
+| `browser/crawl.js`, `browser/dashes.js` | Dev helpers: visit every route and report errors / cells rendered as "—". |
+
+## Not covered here
+
+Pushing built images to a registry (unit-tested against a fake Engine), Trivy scans (needs `trivy` on the host; unit-tested with a fake runner), real HTTPS / Let's Encrypt (the Traefik driver is covered by PHP tests with acme.json data), real DNS propagation, live Stripe
+(PHP tests use webhook fixtures and a mocked Stripe HTTP client), B2/R2/Google Drive backups (S3 is covered via MinIO), Prometheus (PHP tests fake its API), mTLS enforcement at a real TLS proxy (covered by Go/PHP tests and `docs/deploy/`) and multi-host outage simulation
+need a staging fleet or credentials (see `docs/PHASES.md`).

@@ -1,0 +1,3 @@
+# One entry per managed server; generate from GET /api/v1/servers (id, ip).
+- targets: ["10.0.0.11:9100"]
+  labels: { server_id: "00000000-0000-0000-0000-000000000001", server: "web-1" }

@@ -1,0 +1,47 @@
+# Observability stack for METRICS_DRIVER=prometheus: Prometheus + Loki (+ Grafana) on the panel
+# side; node-exporter, cAdvisor and Fluent Bit on every managed server (profile "agent").
+#   panel host:    docker compose up -d prometheus loki grafana
+#   managed host:  SERVER_ID=<id> LOKI_HOST=<panel> docker compose --profile agent up -d
+# Panel .env: METRICS_DRIVER=prometheus PROMETHEUS_URL=http://127.0.0.1:9090
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets:/etc/prometheus/targets:ro
+      - prometheus:/prometheus
+  loki:
+    image: grafana/loki:3.1.1
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports: ["3100:3100"]
+    volumes: ["./loki.yml:/etc/loki/loki.yml:ro", "loki:/loki"]
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["127.0.0.1:3000:3000"]
+    volumes: ["grafana:/var/lib/grafana"]
+
+  node-exporter:
+    profiles: [agent]
+    image: prom/node-exporter:v1.8.2
+    pid: host
+    network_mode: host
+    command: ["--path.rootfs=/host"]
+    volumes: ["/:/host:ro,rslave"]
+  cadvisor:
+    profiles: [agent]
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    ports: ["8080:8080"]
+    privileged: true
+    volumes: ["/:/rootfs:ro", "/var/run:/var/run:ro", "/sys:/sys:ro", "/var/lib/docker/:/var/lib/docker:ro"]
+  fluent-bit:
+    profiles: [agent]
+    image: fluent/fluent-bit:3.1
+    environment: { SERVER_ID: "${SERVER_ID}", LOKI_HOST: "${LOKI_HOST}" }
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log/traefik:/var/log/traefik:ro
+volumes: { prometheus: {}, loki: {}, grafana: {} }

@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #F8FAFC; --side: #FFFFFF; --card: #FFFFFF; --head: #F8FAFC;
+  --text: #0F172A; --muted: #5B6475; --line: #E2E8F0; --track: #EEF2F7;
+  --sel: #EEF2FF; --accent: #4F46E5; --accent-hover: #4338CA; --accent-fg: #4F46E5;
+  --g-bg: #ECFDF3; --g-fg: #15803D; --y-bg: #FEF9C3; --y-fg: #854D0E;
+  --r-bg: #FEF2F2; --r-fg: #B91C1C; --b-bg: #EFF6FF; --b-fg: #1D4ED8;
+  --n-bg: #F1F5F9; --n-fg: #475569; --danger: #B91C1C; --danger-line: #FECACA;
+  --code-bg: #0F172A; --code-fg: #E2E8F0;
+  color-scheme: light;
+}
+.dark {
+  --bg: #0B1120; --side: #0F172A; --card: #111827; --head: #0F172A;
+  --text: #F1F5F9; --muted: #94A3B8; --line: #1E293B; --track: #1E293B;
+  --sel: #1E1B4B; --accent-fg: #A5B4FC;
+  --g-bg: #052E1B; --g-fg: #4ADE80; --y-bg: #3A2A05; --y-fg: #FACC15;
+  --r-bg: #3B0D0D; --r-fg: #F87171; --b-bg: #0C2340; --b-fg: #60A5FA;
+  --n-bg: #1E293B; --n-fg: #CBD5E1; --danger: #F87171; --danger-line: #7F1D1D;
+  --code-bg: #020617; --code-fg: #E2E8F0;
+  color-scheme: dark;
+}
+
+@theme {
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-bg: var(--bg);
+  --color-side: var(--side);
+  --color-card: var(--card);
+  --color-head: var(--head);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-track: var(--track);
+  --color-sel: var(--sel);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-danger-line: var(--danger-line);
+  --color-code: var(--code-bg);
+  --color-code-fg: var(--code-fg);
+}
+
+html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); margin: 0; }
+/* In the base layer so .btn / .btn-primary (components layer) can recolour link-buttons. */
+@layer base { a { color: var(--accent-fg); } }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+@layer components {
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:0 14px; border-radius:8px; font-size:14px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; white-space:nowrap; }
+  .btn:hover { background: var(--head); }
+  .btn:disabled { opacity:.55; cursor:not-allowed; }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn-primary:hover { background:var(--accent-hover); }
+  .btn-danger { background:transparent; border-color:var(--danger-line); color:var(--danger); }
+  .btn-danger:hover { background:var(--r-bg); }
+  .btn-sm { min-height:32px; padding:0 10px; font-size:13px; }
+  .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:14px; }
+  textarea.input { padding:10px 12px; }
+  .label { display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .chip { min-height:36px; padding:0 14px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
+  .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .panel-touch .btn, .panel-touch .input, .panel-touch .chip { min-height:44px; }
+}

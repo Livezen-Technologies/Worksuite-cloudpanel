@@ -20,15 +20,21 @@ The organisation is the token user's current organisation (`users.current_organi
 
 ## Auth
 - `POST /auth/register` {name,email,password,organization} → {token,user}
-- `POST /auth/login` {email,password,otp?} → {token,user} (otp required when MFA on)
+- `POST /auth/login` {email,password,otp?,passkey?{challenge_id,credential}} → {token,user} (otp **or** a passkey assertion required when MFA on;
+  the 401 carries `error.mfa_required` and `error.passkey_available`)
+- Passkeys: `POST /auth/passkey/options` {email?} → {challenge_id, options} (WebAuthn request options JSON; with email only that
+  account's credentials are allowed, for the second factor); `POST /auth/passkey/login` {challenge_id, credential} → {token,user}
+  (passwordless, discoverable credential, user verification required). See "Passkeys" below.
 - `POST /auth/logout`, `GET /me` → {user, organization, role, permissions[]}
 - `POST /me/mfa/enable` → {secret, otpauth_url}; `POST /me/mfa/confirm` {otp}
+- `GET /me/passkeys` → [Passkey]; `POST /me/passkeys/options` → {challenge_id, options}; `POST /me/passkeys` {challenge_id, credential, name?} → 201 Passkey;
+  `PATCH /me/passkeys/{id}` {name}; `DELETE /me/passkeys/{id}` → 204 (own passkeys only, both panels)
 
 ## Admin resources (role-checked)
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | /dashboard | {kpis, series{cpu[],ram[]}, alerts, deployments, top, status} `?range=1h|6h|24h|7d` |
-| GET/POST | /servers | server: {id,name,hostname,ip,environment,region,tags[],status: pending|online|warning|maintenance|offline,os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,cpu_pct,ram_pct,disk_pct,container_count,agent_version,last_heartbeat_at} |
+| GET/POST | /servers | server: {id,name,hostname,ip,environment,region,tags[],status: pending|online|warning|maintenance|offline,os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,cpu_pct,ram_pct,disk_pct,container_count,agent_version,last_heartbeat_at,roles[]: app|builder (default ["app"]; PATCH `roles`)} |
 | GET/PATCH/DELETE | /servers/{id} | |
 | POST | /servers/enrollment | {server_id} → {token (single use, 15 min), expires_at, install_command} |
 | POST | /servers/{id}/maintenance | {enabled} |
@@ -41,8 +47,9 @@ The organisation is the token user's current organisation (`users.current_organi
 | POST | /containers/bulk-actions | {ids[], action} 202 |
 | POST | /containers/prune-preview, /containers/prune | |
 | GET | /containers/{id}/logs?tail=200 | |
-| POST | /containers/{id}/terminal-sessions | → {session_id, ws_url, expires_at} |
-| GET/POST | /applications ; GET/PATCH/DELETE /applications/{id} | source_type: git|image|dockerfile|compose; strategy: recreate|rolling|blue_green |
+| POST | /containers/{id}/terminal-sessions | {approval_id?} → 201 {session_id, ws_url, expires_at, shell_user, shell, recorded} (container must be running; approval-gated) |
+| GET | /terminal-sessions?container_id= ; GET /terminal-sessions/{id}/recording ; DELETE /terminal-sessions/{id} | history, asciicast recording, end session (see "Terminal relay") |
+| GET/POST | /applications ; GET/PATCH/DELETE /applications/{id} | source_type: git|image|dockerfile|compose; strategy: recreate|rolling|blue_green; port, health_path (default `/`), health_timeout (s, default 60); git/dockerfile `source`: {repo (https:// or file:// / absolute path), branch|ref, dockerfile_path (Dockerfile), context (.), build_args{}, push_registry_id?, git_token? (write-only → encrypted secret, `git_secret_id`), git_username?} |
 | POST | /deployments | {application_id} → 202 job; GET /deployments, /deployments/{id} |
 | POST | /deployments/{id}/approve | |
 | GET | /applications/{id}/releases ; POST /applications/{id}/rollback {release_id} | |
@@ -81,14 +88,125 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /app/templates |
 
 ## Agent protocol (`/agent/v1`, outside the user API)
-- `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr?}
+- `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.
 - `POST /agent/v1/heartbeat` (Bearer agent_secret) {agent_version, stats{cpu_pct,ram_pct,disk_pct,net_rx,net_tx}, containers:[{docker_id,name,image,state,health,cpu_pct,mem_mb,ports,created}], images:[...], networks:[...], volumes:[...]}
-  → {commands:[Command]}
+  → {commands:[Command], relay_url?} (relay_url: terminal relay base for the agent's outbound control connection)
 - Command: {id (operation id), type, version:1, payload{}, issued_at, signature} where
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
-- Types: container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart.
+- Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
+  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
+- `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
+  lines in the command output and exposes them as the deployment job's `build_log`.
 - `POST /agent/v1/commands/{id}/result` {status: running|succeeded|failed, progress?, message?, output?} — idempotent per id.
 - Agent rejects unsigned/unknown/duplicate commands (local policy, no generic shell).
+
+## Implemented response shapes (api/ build 1.0)
+Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}` is a series point.
+
+- **Approval-gated action** (any destructive/terminal request whose role grant needs approval and
+  `security.require_approval_destructive` is on) → **202** `{data:{approval_id, status:"pending_approval", action, message}}`.
+  A second user approves with `POST /approvals/{id}/approve`; deletes then execute automatically. For terminals the
+  requester repeats the request with `{approval_id}`.
+- **Errors** add extras on some codes: `quota_exceeded` → `error.{limit, current, requested, max, upgrade_to, upgrade_url}`;
+  login with MFA → `error.mfa_required: true`; placement failure → `409 conflict` with `error.reason: "no_capacity"`.
+- **GET /dashboard** `{kpis:{servers_online, servers_total, containers_running, containers_total, cpu_pct, ram_pct, alerts_open},
+  series:{range, cpu:[{t,v}], ram:[{t,v}]}, alerts:[{id, severity, title, status, resource_type, resource_id, created_at}],
+  deployments:[{id, application_id, application, status, source, trigger, author, job_id, created_at, finished_at}],
+  top:[{id, name, server_id, cpu_pct, mem_mb}], status:{servers:{<status>:count}, backups_24h:{succeeded, failed, running},
+  certificates_expiring, image_scans:{scanned, critical, high, not_scanned}}, generated_at}`
+- **GET /metrics** `{range, server_id, step_seconds, series:{cpu, ram, disk, net_rx, net_tx: [{t,v}]}}` (cpu/ram/disk in %, net cumulative bytes).
+  `GET /app/apps/{id}/metrics` → `{range, cpu:[{t,v}], ram:[{t,v}]}` (ram in MB).
+- **GET /search?q=** `[{type: page|server|container|application|domain, id, label, sublabel, url}]`
+- **GET /containers/{id}/logs**, **GET /app/apps/{id}/logs** `{container_id, lines:[string], fetched_at, job_id}` — returns the last
+  fetched lines and queues a fresh `container.logs` fetch (poll again after the job finishes).
+- **Domain** (admin `/domains` and `/app/domains`) `{id, name, domain, application_id, app_id, app_name, target_port, wildcard,
+  www_redirect, redirect_www, platform_subdomain, challenge: http-01|dns-01, dns_status: pending|verified, https_status:
+  pending|issuing|active|failed, records:[{type,name,value}], certificate:{issuer,status,expires_at,days_left}|null, renewal_at,
+  expiring, options, dns_checked_at, created_at}`. Verify → `{domain_id, records:[{type,name,value,status: waiting|verified}],
+  dns_status, https_status}`. Admin list filter `?filter=expiring|pending_dns|wildcard`.
+- **Invoice** `{id, number, period_start, period_end, period ("Sep 2026"), amount_cents, subtotal_cents, tax_cents, tax_rate, currency,
+  status: open|paid|failed|void, line_items:[{description, quantity, unit, unit_cents, amount_cents, kind: plan|app, application_id?, size?}], paid_at,
+  pdf_url, created_at}`. `pdf_url` is a signed link valid 30 min (`GET /api/v1/invoices/{id}/pdf?expires&signature`, no bearer needed) to the
+  dompdf-rendered PDF; `GET /app/billing/invoices/{id}/pdf` serves it with the bearer token. Invoices come from `billing:invoice` (monthly).
+- **GET /app/billing** `{plan:{code,name,vcpu,ram_mb,storage_gb,price_cents,currency,limits}, limits:{apps,ram_mb,storage_gb,bandwidth_gb,
+  backups_per_day,backup_retention_days}, usage:{apps,ram_mb,storage_gb,bandwidth_gb}, usage_pct:{...}, month_to_date:{amount_cents,currency},
+  payment_method:{brand,last4,exp_month,exp_year}|null, billing_email, payment_provider: fake|stripe, payment_portal_url}`.
+  `POST /app/billing/portal` → `{url}`: a fresh Stripe Customer Portal session (or Checkout in setup mode when no card is on file).
+  `POST /api/v1/webhooks/stripe` (no auth; `Stripe-Signature` verified, 400 otherwise; idempotent per event id) handles
+  `checkout.session.completed`, `customer.subscription.created|updated|deleted`, `invoice.paid|payment_succeeded|payment_failed`, `payment_method.attached`. Payment method is updated with
+  `POST /app/billing/payment-method {payment_method_token: "pm_…", billing_email?}` (card fields are rejected).
+- **Customer app** `{id, name, image, source, state, status, primary_domain, address, cpu_pct, ram_mb, ram_limit_mb, storage_gb, size,
+  region, port, volume_path, auto_deploy, auto_restart, last_deploy_at, created_at}`; detail adds `env:[{key, value (null when secret), secret}],
+  domains, addresses, last_deployment:{id,status,job_id,logs_tail}, requests_24h`. PATCH accepts `restart: true` (Save & restart) and returns `job_id`.
+- **Customer backups** `[{id, app_id, app_name, size_mb, verified, verified_at, encrypted, trigger, created_at, expires_at,
+  restore_test:{status: running|passed|failed, tested_at, message}|null, export_status}]`. Download (customer `GET /app/backups/{id}/download`,
+  admin `GET /backup-artifacts/{id}/download`): **202** `{data:{status:"exporting", job_id}}` while the agent exports the snapshot
+  (`backup.export`, job stages `export, upload`), then **200** `{data:{status:"ready", url, expires_at, bytes, sha256}}` — `url` is a presigned
+  S3 GET (S3/R2/B2 destinations) or a signed `/api/v1/backup-download/{id}` link (local), valid `BACKUP_DOWNLOAD_TTL_MINUTES`; the file is a
+  `tar.gz` of the snapshot (database backups contain `…/dumps/<container>/postgres.dump` etc.).
+- **Backup policy** adds `check_subset` (restic `--read-data-subset`, default `5%`), `restore_test_schedule` (cron|null),
+  `last_restore_test_at`, `last_restore_test_status`, `destination_summary:{endpoint,bucket,region,prefix,path,account_id,has_access_key,has_secret_key}`.
+  `destination_config` is write-only (`{endpoint, bucket, region, prefix, path, account_id, access_key, secret_key}`; blank keys keep the stored ones;
+  S3/R2/B2 require bucket + keys). Backup job stages: `[dump,] snapshot, retention, verify` (a failed `restic check` fails `verify` and the job).
+  `POST /backup-artifacts/{id}/restore-test` → 202 (`backup.test`, stage `restore_test`). Artifacts add `dump_engine, verified_at, verify_message,
+  restore_tested_at, restore_test_status, restore_test_message, export_status, exported_at, export_bytes, export_sha256`.
+- **Domain** (CERT_DRIVER=traefik) adds `dns_provider, has_dns_token`; admin create/update accept `dns_provider: cloudflare|digitalocean|hetzner|route53|gandiv5`
+  and write-only `dns_token`. `https_status` stays `issuing` until `proxy.certs` reports the certificate from acme.json; `certificate` adds `resolver, checked_at`.
+- **GET /metrics** and `GET /app/apps/{id}/metrics` add `source: "prometheus"` when `METRICS_DRIVER=prometheus` (same series shape); `requests_24h` is the
+  Traefik `traefik_service_requests_total` increase over 24 h, else null.
+- **Deployment job stages**: admin `validate, checkout, build_scan, push, placement, deploy, health_check, complete` (+`approval` first when
+  gated, +`rollback` on failure); customer `pull_image, start_container, health_check, certificate_issued, live` (+`build` first for Git sources).
+  `GET /jobs/{id}` for a deployment adds `build_log: [string]|null`. Pipeline for git/dockerfile sources: `image.build` on a server with the
+  `builder` role (never the deploy target unless it is a builder **and** `security.allow_builds_on_deploy_targets`; without a push registry the
+  image is local, so the builder must be the target) → scan (`SCANNER_DRIVER=fake` in-process, `trivy` = agent `image.scan` on the builder or
+  target; `security.block_critical_cves` fails the deploy on any critical, and on a failed scan) → push by digest (`repo@sha256:…`, deploy pulls
+  with `pull: missing`) or local tag (`pull: never`) → `container.create` → `container.healthcheck`. A failed health check sets the deployment
+  `logs_tail` (last 50 lines, also in the failed job's `result.logs_tail`); recreate rolls back to the previous release, rolling/blue-green
+  remove the new container and keep the old one (`rolled_back`); a first deploy stops the container. Deployment rows add
+  `image_digest, builder_server_id, scan_result{critical,high,medium,low,unknown,total,scanner}`.
+- **Image** rows add `blocks_deploy` (critical CVEs while `block_critical_cves` is on); `scan_status: not_scanned|scanning|scanned|failed`;
+  `scan_result {critical, high, medium, low, unknown, total, scanner, vulnerabilities:[{id,severity,package,installed,fixed,title}]}`.
+  With `SCANNER_DRIVER=trivy`, `POST /images/{id}/scan` returns 202 and runs `image.scan` on the image's server.
+- **Customer app** also accepts/returns `health_path` (POST /app/apps, PATCH /app/apps/{id}); Git sources accept `source.dockerfile_path`.
+- **Extra endpoints**: `POST /images/pull {server_id, image, registry_id?}` (202), `POST /containers/prune` and `/images/prune` accept `{ids[]}`,
+  `DELETE /terminal-sessions/{id}`, `POST /approvals/{id}/reject`, `GET /audit-logs/verify`, `GET /backup-artifacts`, `POST /me/mfa/disable`,
+  `POST /notification-channels/{id}/test`, `GET /agent/v1/install.sh`, `GET /agent/v1/download/dockermgr-agent-linux-{amd64|arm64}`.
+
+## Terminal relay (CTR-008, LOG-002)
+`dockermgr-relay` (`agent/cmd/relay`) pairs two **inbound** WebSockets; neither the API nor the relay ever connects to an agent.
+
+1. `POST /containers/{id}/terminal-sessions` → `ws_url` = `TERMINAL_WS_URL/{session_id}?token=…` (default `/relay/terminal`, relative to the
+   panel origin). The token is single use; the session expires after 15 min.
+2. Browser opens `wss://panel/relay/terminal/{session_id}?token=…&cols=&rows=`. Binary frames = TTY bytes both ways; text frames are JSON:
+   browser → relay `{type:"resize",cols,rows}` | `{type:"close"}`; relay → browser `{type:"status"|"ready"|"error"|"exit"|"closed", message?, code?, reason?}`.
+3. Relay → API `POST /internal/relay/terminal-sessions/{id}/connect` {token, cols, rows, ip} (header `X-Relay-Secret: RELAY_SECRET`) →
+   `{session_id, server_id, container_id (docker id), container_name, user_id, user_email, shell_user, shell, expires_at, recording, command}`.
+   `command` is a signed `terminal.open` {session_id, container_id, shell_user, shell, expires_at, relay_url, cols, rows}; it is also queued for
+   the next heartbeat (fallback), the agent journal drops the duplicate.
+4. Agents keep `wss://…/relay/agent` open (Bearer agent_secret, verified with `POST /internal/relay/agents/verify` {agent_secret} incl. AGENT_MTLS);
+   the relay pushes `{type:"command", command}` there. The agent verifies it like any command (HMAC, age, policy, journal), then dials
+   `wss://…/relay/agent/session/{session_id}` and attaches a Docker exec (`Tty`, fixed shell from its allow-list, never root) to the container.
+5. The relay polls `GET /internal/relay/terminal-sessions/{id}` → {ended, ended_at, expires_at} every 2 s ("End session" = `DELETE /terminal-sessions/{id}`),
+   closes at `expires_at`, then `POST …/{id}/recording` (asciicast v2 JSON lines, output + resize events) and `POST …/{id}/closed` {reason}.
+- **Terminal session** `{id, container_id, container_name, server_id, user_id, user_email, shell_user, shell, status: pending|active|ended|expired,
+  close_reason, created_at, connected_at, expires_at, ended_at, recording:{bytes, format:"asciicast-v2"}|null, ip}`;
+  recording → `{data:{session_id, format, cast}}`. Audit: `terminal.opened`, `terminal.attached`, `terminal.closed` {reason}.
+
+## Agent mTLS (SEC-003)
+- Enrolment CSR → client certificate (EKU clientAuth, `AGENT_CERT_DAYS`, default 90) from the local agent CA. `GET /agent/v1/ca.crt` serves the CA for the proxy.
+- `POST /agent/v1/certificate/renew` {csr} (agent auth) → `{certificate, fingerprint, not_before, expires_at}`; the agent renews at 2/3 of the lifetime;
+  earlier certificates of the agent are revoked.
+- `AGENT_MTLS=off|header|required` (default `header`). The proxy terminates TLS and forwards `X-SSL-Client-Verify` (must be `SUCCESS` when sent),
+  `X-Client-Cert` (URL-encoded PEM or base64 DER, first of a chain) and/or `X-Client-Cert-Fingerprint` (SHA-256 or SHA-1 hex, colons allowed); header
+  names are configurable. `header`: verified when present; `required`: every `/agent/v1` call (except enrol/install/download/ca.crt) and every relay
+  agent connection must carry a non-revoked, unexpired certificate of that agent, else 401. Examples: `docs/deploy/`.
+
+## Passkeys (SEC-002, UACC-002)
+- WebAuthn via web-auth/webauthn-lib; options use the WebAuthn JSON format (`@simplewebauthn/browser` `optionsJSON`). RP id `WEBAUTHN_RP_ID`
+  (default APP_URL host), allowed origins `WEBAUTHN_ORIGINS` (default `CORS_ALLOWED_ORIGINS`). Registration requires a resident key and user
+  verification, attestation `none`, ES256/RS256. Challenges are single use, 5 min.
+- **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
+  (`password`, `password+totp`, `password+passkey`, `passkey`).
