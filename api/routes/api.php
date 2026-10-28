@@ -184,6 +184,18 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::patch('users/{id}', [Admin\UserController::class, 'update'])->name('users.update');
         Route::delete('users/{id}', [Admin\UserController::class, 'destroy'])->name('users.destroy');
     });
+    // Hosting packages (plans) and hosting customers (organisations).
+    Route::get('plans', [Admin\PlanController::class, 'index'])->middleware('perm:billing.manage|billing')->name('plans.index');
+    Route::get('plans/{id}', [Admin\PlanController::class, 'show'])->middleware('perm:billing.manage|billing')->name('plans.show');
+    Route::post('plans', [Admin\PlanController::class, 'store'])->middleware('perm:billing.manage')->name('plans.store');
+    Route::patch('plans/{id}', [Admin\PlanController::class, 'update'])->middleware('perm:billing.manage')->name('plans.update');
+    Route::delete('plans/{id}', [Admin\PlanController::class, 'destroy'])->middleware('perm:billing.manage')->name('plans.destroy');
+
+    Route::get('customers', [Admin\CustomerController::class, 'index'])->middleware('perm:users.manage|billing.manage')->name('customers.index');
+    Route::post('customers', [Admin\CustomerController::class, 'store'])->middleware('perm:users.manage')->name('customers.store');
+    Route::patch('customers/{id}', [Admin\CustomerController::class, 'update'])->middleware('perm:users.manage')->name('customers.update');
+    Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
+
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');
     Route::get('roles/{name}', [Admin\RoleController::class, 'show'])->middleware('perm:users.manage|audit.view')->where('name', '[a-z_]+')->name('roles.show');
     Route::get('settings', [Admin\SettingsController::class, 'show'])->middleware('perm:settings.manage')->name('settings.show');
