@@ -13,6 +13,7 @@ import { TerminalDialog } from '../../components/Terminal'
 import { useToast } from '../../components/Toasts'
 import { mb, pct, str, unwrap } from '../../lib/format'
 import { type R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const ports = (p: Container['ports']) => (Array.isArray(p) ? p.join(', ') : p) || '—'
 const dotTone = (c: Container): Tone => (c.state === 'running' ? (c.health === 'unhealthy' ? 'r' : 'g') : c.state === 'paused' ? 'y' : 'n')
@@ -147,13 +148,13 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
     { label: 'Image', validate: () => (!f.image.trim() ? 'Enter an image, for example nginx:1.27-alpine.' : null), content: (
       <div className={grid}>
         <Field label="Image"><input className="input font-mono" value={f.image} onChange={set('image')} placeholder="nginx:1.27-alpine" /></Field>
-        <Field label="Registry credentials"><select className="input" value={f.registry_id} onChange={set('registry_id')}><option value="">Public / none</option>{regs.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>
+        <Field label="Registry credentials"><Select className="input" value={f.registry_id} onChange={set('registry_id')}><option value="">Public / none</option>{regs.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>
       </div>) },
     { label: 'Placement & env', validate: () => (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]+$/.test(f.name) ? 'Enter a valid container name.' : !f.server_id ? 'Choose a server.' : null), content: (
       <div className="flex flex-col gap-4">
         <div className={grid}>
           <Field label="Name"><input className="input" value={f.name} onChange={set('name')} /></Field>
-          <Field label="Server"><select className="input" value={f.server_id} onChange={set('server_id')}><option value="">Choose…</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance' || s.status === 'offline'}>{s.name}{s.status !== 'online' ? ` (${s.status})` : ''}</option>)}</select></Field>
+          <Field label="Server"><Select className="input" value={f.server_id} onChange={set('server_id')}><option value="">Choose…</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance' || s.status === 'offline'}>{s.name}{s.status !== 'online' ? ` (${s.status})` : ''}</option>)}</Select></Field>
         </div>
         <KvEditor label="Environment variables" rows={env} onChange={setEnv} />
         <KvEditor label="Secrets" rows={secrets} onChange={setSecrets} secret />
@@ -161,7 +162,7 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
     { label: 'Network & storage', content: (
       <div className={grid}>
         <Field label="Ports" hint="host:container, comma separated"><input className="input font-mono" value={f.ports} onChange={set('ports')} placeholder="8080:80" /></Field>
-        <Field label="Network"><select className="input" value={f.network} onChange={set('network')}><option value="">Default bridge</option>{networks.rows.filter((n) => !f.server_id || n.server_id === f.server_id).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></Field>
+        <Field label="Network"><Select className="input" value={f.network} onChange={set('network')}><option value="">Default bridge</option>{networks.rows.filter((n) => !f.server_id || n.server_id === f.server_id).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</Select></Field>
         <label className="label">Mounts <span className="text-xs font-normal text-muted">One per line: volume:/path or /host:/path</span><textarea className="input font-mono" rows={3} value={f.mounts} onChange={(e) => setF({ ...f, mounts: e.target.value })} /></label>
       </div>) },
     { label: 'Limits & health', content: (
@@ -169,7 +170,7 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
         <div className={grid}>
           <Field label="CPU limit (vCPU)"><input className="input" type="number" step="0.25" min="0.25" value={f.cpus} onChange={set('cpus')} /></Field>
           <Field label="Memory limit (MB)"><input className="input" type="number" min="16" value={f.memory_mb} onChange={set('memory_mb')} /></Field>
-          <Field label="Restart policy"><select className="input" value={f.restart_policy} onChange={set('restart_policy')}>{['no', 'on-failure', 'unless-stopped', 'always'].map((x) => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="Restart policy"><Select className="input" value={f.restart_policy} onChange={set('restart_policy')}>{['no', 'on-failure', 'unless-stopped', 'always'].map((x) => <option key={x}>{x}</option>)}</Select></Field>
           <Field label="Health check command"><input className="input font-mono" value={f.health_cmd} onChange={set('health_cmd')} placeholder="curl -f http://localhost/health" /></Field>
           <Field label="Health interval (s)"><input className="input" type="number" value={f.health_interval} onChange={set('health_interval')} /></Field>
         </div>
@@ -219,7 +220,7 @@ export default function Containers() {
           { id: 'paused', label: 'Paused', test: (r) => r.state === 'paused' },
           { id: 'unhealthy', label: 'Unhealthy', test: (r) => r.health === 'unhealthy' },
         ]}
-        toolbar={<select className="input !w-auto" aria-label="Server" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        toolbar={<Select className="input !w-auto" aria-label="Server" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
         bulkActions={[{ label: 'Restart', onClick: bulk('restart') }, { label: 'Stop', onClick: bulk('stop') }]}
         minWidth={980}
         columns={[

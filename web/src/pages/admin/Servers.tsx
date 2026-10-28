@@ -11,6 +11,7 @@ import { StepWizard } from '../../components/StepWizard'
 import { CopyButton } from '../../components/CopyButton'
 import { unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const meterColor = (v: number) => (v >= 85 ? '#DC2626' : v >= 70 ? '#D97706' : 'var(--accent)')
 
@@ -128,9 +129,9 @@ export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () 
           <Field label="Server name" error={errors.name}><input className="input" value={form.name} onChange={set('name')} placeholder="vps-eu-03" /></Field>
           <Field label="Hostname" error={errors.hostname} hint="Defaults to the server name"><input className="input" value={form.hostname} onChange={set('hostname')} /></Field>
           <Field label="IP address" error={errors.ip}><input className="input font-mono" value={form.ip} onChange={set('ip')} placeholder="203.0.113.10" /></Field>
-          <Field label="Provider"><select className="input" value={form.provider} onChange={set('provider')}>{['Hetzner', 'DigitalOcean', 'Vultr', 'Linode / Akamai', 'AWS EC2', 'Proxmox VE', 'Other'].map((x) => <option key={x}>{x}</option>)}</select></Field>
-          <Field label="Environment"><select className="input" value={form.environment} onChange={set('environment')}><option>production</option><option>staging</option><option>development</option></select></Field>
-          <Field label="Region"><select className="input" value={form.region} onChange={set('region')}><option>eu-central</option><option>ap-southeast</option><option>us-east</option></select></Field>
+          <Field label="Provider"><Select className="input" value={form.provider} onChange={set('provider')}>{['Hetzner', 'DigitalOcean', 'Vultr', 'Linode / Akamai', 'AWS EC2', 'Proxmox VE', 'Other'].map((x) => <option key={x}>{x}</option>)}</Select></Field>
+          <Field label="Environment"><Select className="input" value={form.environment} onChange={set('environment')}><option>production</option><option>staging</option><option>development</option></Select></Field>
+          <Field label="Region"><Select className="input" value={form.region} onChange={set('region')}><option>eu-central</option><option>ap-southeast</option><option>us-east</option></Select></Field>
           <Field label="Tags" hint="Comma separated"><input className="input" value={form.tags} onChange={set('tags')} /></Field>
         </div>
       ),
@@ -228,7 +229,7 @@ export default function Servers() {
       <PageHeader title="Servers" subtitle="VPS and dedicated servers connected through the outbound agent"
         actions={<>
           <label className="flex items-center gap-2 text-sm text-muted">Group by
-            <select className="input !w-auto" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}><option value="none">None</option><option value="environment">Environment</option><option value="region">Region</option></select>
+            <Select className="input !w-auto" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}><option value="none">None</option><option value="environment">Environment</option><option value="region">Region</option></Select>
           </label>
           <button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>
         </>} />

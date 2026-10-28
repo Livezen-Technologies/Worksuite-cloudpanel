@@ -15,6 +15,7 @@ import { ago, str } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
+import Select from '../../components/Select'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive']
 const S3_LIKE = ['s3', 'b2', 'r2']
@@ -194,10 +195,10 @@ export function Monitoring() {
   return (
     <>
       <PageHeader title="Monitoring" subtitle="Metrics, alerts and alert rules"
-        actions={<select className="input !w-auto" aria-label="Server filter" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>} />
+        actions={<Select className="input !w-auto" aria-label="Server filter" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select>} />
       <Card title="Fleet resources" actions={<>
         {series.map((x) => <button key={x.label} type="button" className="chip !min-h-8 !text-xs" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}>{x.label}</button>)}
-        <select className="input !w-auto !min-h-8 text-xs" aria-label="Range" value={range} onChange={(e) => setRange(e.target.value)}>{['1h', '6h', '24h', '7d'].map((r) => <option key={r}>{r}</option>)}</select>
+        <Select className="input !w-auto !min-h-8 text-xs" aria-label="Range" value={range} onChange={(e) => setRange(e.target.value)}>{['1h', '6h', '24h', '7d'].map((r) => <option key={r}>{r}</option>)}</Select>
       </>}>
         <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} />
       </Card>
@@ -247,7 +248,7 @@ export function Logs() {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' })); a.download = 'audit-log.csv'; a.click()
   }
-  const picker = <select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</select>
+  const picker = <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</Select>
   return (
     <>
       <PageHeader title="Logs & Terminal" subtitle="Live log streams, audited exec sessions and the audit trail" />

@@ -9,6 +9,7 @@ import { JobTimeline } from '../../components/JobTimeline'
 import { logLines } from '../../lib/logs'
 import { money, unwrap, validateAppName } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 type SourceType = 'image' | 'git' | 'compose' | 'template'
 const SOURCES: [SourceType, string, string][] = [
@@ -191,7 +192,7 @@ export default function HostApp() {
               <input className="input" value={c.name} aria-invalid={!!(fieldErr.name || nameErr)} onChange={(e) => { setC({ ...c, name: e.target.value }); setFieldErr({ ...fieldErr, name: '' }) }} placeholder="my-shop" />
             </Field>
             <Field label="Port your app listens on" error={fieldErr.port}><input className="input" inputMode="numeric" value={c.port} onChange={(e) => setC({ ...c, port: e.target.value.replace(/\D/g, '') })} /></Field>
-            <Field label="Region" error={fieldErr.region}><select className="input" value={c.region} onChange={(e) => setC({ ...c, region: e.target.value })}><option value="">Closest to me</option><option value="ap-southeast">Singapore</option><option value="eu-central">Frankfurt</option><option value="us-east">New York</option></select></Field>
+            <Field label="Region" error={fieldErr.region}><Select className="input" value={c.region} onChange={(e) => setC({ ...c, region: e.target.value })}><option value="">Closest to me</option><option value="ap-southeast">Singapore</option><option value="eu-central">Frankfurt</option><option value="us-east">New York</option></Select></Field>
           </div>
           <fieldset className="border-0 p-0 m-0 flex flex-col gap-2">
             <legend className="text-sm font-semibold mb-2">Environment variables</legend>

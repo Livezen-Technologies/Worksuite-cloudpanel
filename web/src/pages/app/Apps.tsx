@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/Overlay'
 import { LogView } from '../../components/LogView'
 import { ago, mb } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import Select from '../../components/Select'
 
 /** Customer-friendly state words (no Docker jargon). */
 export function appState(s?: string): string {
@@ -166,7 +167,7 @@ export function AppDetail() {
       {tab === 'settings' && (
         <Card>
           <div className="flex flex-col gap-4 max-w-[560px]">
-            <Field label="Size"><select className="input" value={settings.size} onChange={(e) => setSettings({ ...settings, size: e.target.value })}>{SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+            <Field label="Size"><Select className="input" value={settings.size} onChange={(e) => setSettings({ ...settings, size: e.target.value })}>{SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_deploy} onChange={(v) => setSettings({ ...settings, auto_deploy: v })} label="Auto-deploy when I push" /><span className="text-sm">Auto-deploy when I push to my main branch</span></div>
             <Field label="Health check path" hint="Requested on your app's port after each deploy; 2xx or 3xx means healthy."><input className="input font-mono" value={settings.health_path ?? '/'} onChange={(e) => setSettings({ ...settings, health_path: e.target.value })} /></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_restart} onChange={(v) => setSettings({ ...settings, auto_restart: v })} label="Restart automatically if it crashes" /><span className="text-sm">Restart automatically if it crashes</span></div>

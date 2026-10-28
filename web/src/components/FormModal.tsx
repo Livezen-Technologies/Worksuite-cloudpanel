@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { isApiError } from '../api/client'
 import { Modal } from './Overlay'
 import { Field } from './Card'
+import Select from './Select'
 
 export interface FieldDef {
   name: string
@@ -49,11 +50,11 @@ export function FormModal({ open, onClose, title, fields, initial = {}, submitLa
               <div key={f.name} className={f.type === 'textarea' ? 'col-span-full' : ''}>
                 <Field label={f.label} error={errors[f.name]} hint={f.hint}>
                   {f.type === 'select' ? (
-                    <select className="input" value={String(val ?? '')} onChange={(e) => set(e.target.value)}>
+                    <Select className="input" value={String(val ?? '')} onChange={(e) => set(e.target.value)}>
                       {!f.required && <option value="">—</option>}
                       {f.required && !val && <option value="">Choose…</option>}
                       {(f.options ?? []).map((o) => typeof o === 'string' ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    </Select>
                   ) : f.type === 'textarea' ? (
                     <textarea className={`input ${f.mono ? 'font-mono' : ''}`} rows={5} value={String(val ?? '')} placeholder={f.placeholder} onChange={(e) => set(e.target.value)} />
                   ) : (

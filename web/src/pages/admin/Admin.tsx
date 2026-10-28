@@ -9,6 +9,7 @@ import { Tabs } from '../../components/Tabs'
 import { TokenReveal } from '../../components/TokenReveal'
 import { ago, daysUntil, unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const ROLE_FALLBACK = ['super_admin', 'infrastructure_admin', 'devops_engineer', 'developer', 'support_engineer', 'billing_manager', 'viewer']
 const pretty = (s: string) => s.replace(/[_.]/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
@@ -40,17 +41,17 @@ export function Users() {
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
               { key: 'role', header: 'Role', render: (r) => (
-                <select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
+                <Select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => run({ method: 'PATCH', path: `/users/${r.id}`, body: { role: e.target.value }, label: 'Change role', success: `${r.name} is now ${pretty(e.target.value)}` }).catch(() => {})}>
                   {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{pretty(String(x))}</option>)}
-                </select>) },
+                </Select>) },
               { key: 'auth', header: 'Sign-in', value: (r) => r.sign_in_method ?? (r.mfa_enabled ? 'MFA' : 'Password') },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
               { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? (r.invited ? 'pending' : 'active')} /> },
               { key: 'rm', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setRemove(r) }}>Remove</button> },
             ]} />
         </div>
-        <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</select>}>
+        <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<Select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</Select>}>
           {matrix.isLoading ? 'Loading…' : permRows(matrix.item).length === 0 ? <Empty>No permissions listed.</Empty> : (
             <ul className="list-none m-0 p-0">{permRows(matrix.item).map((p) => (
               <li key={p.label} className="flex justify-between gap-2 py-2 border-t border-line text-sm first:border-t-0"><span>{p.label}</span><Badge tone={p.v === 'No' ? 'n' : /approval/i.test(p.v) ? 'y' : 'g'}>{p.v}</Badge></li>
@@ -101,7 +102,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
           <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]" onSubmit={(e) => { e.preventDefault(); save(GEN.map((x) => x[0]), 'general') }}>
             {GEN.map(([k, l, t]) => (
               <Field key={k} label={l}>
-                {t === 'region' ? <select className="input" value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: e.target.value })}>{['eu-central', 'ap-southeast', 'us-east'].map((r) => <option key={r}>{r}</option>)}</select>
+                {t === 'region' ? <Select className="input" value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: e.target.value })}>{['eu-central', 'ap-southeast', 'us-east'].map((r) => <option key={r}>{r}</option>)}</Select>
                   : <input className="input" type={t} value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
               </Field>
             ))}
