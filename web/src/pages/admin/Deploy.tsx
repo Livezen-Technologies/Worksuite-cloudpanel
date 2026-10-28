@@ -158,7 +158,7 @@ export function Applications() {
   return (
     <>
       <PageHeader title="Applications" subtitle="Deploy from Git, a Docker image, a Dockerfile or a Compose stack"
-        actions={<><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
+        actions={<><a className="btn" href="/admin/catalog">Install from catalogue</a><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
       {approvals.rows.length > 0 && (
         <Card title="Waiting for approval">
           <ul className="list-none m-0 p-0">
@@ -177,7 +177,7 @@ export function Applications() {
       <DataTable label="Applications" rows={apps.rows} loading={apps.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setParams({ id: r.id })} selectedRowId={selected?.id}
         filters={[{ id: 'production', label: 'Production', test: (r) => r.environment === 'production' }, { id: 'staging', label: 'Staging', test: (r) => r.environment === 'staging' }]}
         columns={[
-          { key: 'name', header: 'Application', render: (r) => <span className="font-semibold">{r.name}</span> },
+          { key: 'name', header: 'Application', render: (r) => <a className="font-semibold" href={`/admin/applications/${r.id}`} onClick={(e) => e.stopPropagation()}>{r.name}</a> },
           { key: 'source_type', header: 'Source' },
           { key: 'environment', header: 'Environment', render: (r) => <StatusBadge status={r.environment} /> },
           { key: 'strategy', header: 'Strategy' },

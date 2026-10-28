@@ -18,8 +18,12 @@ import { Users, Settings } from './pages/admin/Admin'
 import { AdminAccount } from './pages/admin/Account'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
+import NewSite from './pages/app/NewSite'
 import HostApp from './pages/app/HostApp'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
+import Catalog from './pages/admin/Catalog'
+import { Packages, Customers } from './pages/admin/Hosting'
+import AppManage from './pages/admin/AppManage'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +60,10 @@ export function AppRoutes() {
         <Route path="servers/:id" element={<ServerDetail />} />
         <Route path="containers" element={<Containers />} />
         <Route path="applications" element={<Applications />} />
+        <Route path="catalog" element={<Catalog />} />
+        <Route path="applications/:id" element={<AppManage />} />
+        <Route path="packages" element={<Packages />} />
+        <Route path="customers" element={<Customers />} />
         <Route path="compose" element={<Compose />} />
         <Route path="images" element={<Images />} />
         <Route path="networks" element={<Networks />} />
@@ -73,6 +81,7 @@ export function AppRoutes() {
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>
         <Route index element={<MyApps />} />
         <Route path="host" element={<HostApp />} />
+        <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />
         <Route path="domains" element={<UserDomains />} />
         <Route path="backups" element={<UserBackups />} />
