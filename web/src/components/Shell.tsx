@@ -66,7 +66,7 @@ export function Shell({ nav, brand, sidebarFooter, headerExtra, touch = false, l
           <span className="w-[34px] h-[34px] rounded-full bg-accent text-white text-[13px] font-semibold flex items-center justify-center flex-none" title={me?.user?.name} aria-hidden="true">{initials}</span>
           <button type="button" className="btn btn-sm border-0 !min-h-[44px] !min-w-[44px]" aria-label="Sign out" onClick={() => logout()}><Icon name="logout" size={20} /></button>
         </header>
-        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 max-w-[1200px] w-full box-border">
+        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
           <Outlet />
         </main>
       </div>
