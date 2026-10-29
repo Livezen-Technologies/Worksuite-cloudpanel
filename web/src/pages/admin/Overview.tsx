@@ -31,11 +31,18 @@ function kpiTiles(k: R | R[] | undefined) {
   const ctot = num(pick(k, 'containers_total', 'total_containers')) || run
   const cpu = num(pick(k, 'cpu_pct', 'cpu'))
   const ram = num(pick(k, 'ram_pct', 'memory_pct', 'ram'))
+  const offline = Math.max(0, total - online)
+  const alerts = num(pick(k, 'alerts_open', 'open_alerts', 'active_alerts'))
+  // Each figure carries its own state, so the grid reads at a glance rather
+  // than label by label.
   return [
-    { label: 'Connected servers', value: `${online} / ${total}`, delta: total - online > 0 ? `${total - online} offline` : 'all connected', tone: (total - online > 0 ? 'r' : 'g') as 'r' | 'g', pct: total ? (online / total) * 100 : 0 },
+    { label: 'Servers', value: String(total || 0), delta: 'enrolled', tone: 'n' as const },
+    { label: 'Online', value: String(online), delta: total ? `${Math.round((online / total) * 100)}% of fleet` : undefined, tone: (online > 0 ? 'g' : 'r') as 'g' | 'r', pct: total ? (online / total) * 100 : 0 },
+    { label: 'Offline', value: String(offline), delta: offline ? 'needs attention' : 'none', tone: (offline > 0 ? 'r' : 'n') as 'r' | 'n' },
+    { label: 'Active alerts', value: String(alerts), delta: alerts ? 'open now' : 'all clear', tone: (alerts > 0 ? 'r' : 'g') as 'r' | 'g' },
     { label: 'Running containers', value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0 },
-    { label: 'CPU usage', value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: 'n' as const, pct: cpu },
-    { label: 'Memory usage', value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'y' : 'n') as 'y' | 'n', pct: ram, bar: ram >= 60 ? '#D97706' : undefined },
+    { label: 'CPU usage', value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: (cpu >= 85 ? 'r' : cpu >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: cpu },
+    { label: 'Memory usage', value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'r' : ram >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: ram },
   ]
 }
 
