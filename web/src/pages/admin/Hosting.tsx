@@ -121,6 +121,14 @@ export function Packages() {
 
 /* ----------------------------------------------------------------- customers */
 
+/** Ambiguous glyphs (I l O 0 1) are left out so the password survives being read aloud or retyped. */
+function generatePassword(length = 20): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^_+='
+  const bytes = new Uint32Array(length)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (n) => alphabet[n % alphabet.length]).join('')
+}
+
 const NEW_CUSTOMER = { name: '', billing_email: '', plan_id: '', owner_name: '', owner_email: '', owner_password: '' }
 
 export function Customers() {
@@ -128,6 +136,7 @@ export function Customers() {
   const plans = useList<Plan>('/plans')
   const { run, busy } = useAction()
   const [form, setForm] = useState<typeof NEW_CUSTOMER | null>(null)
+  const [showPw, setShowPw] = useState(false)
 
   const create = async () => {
     if (!form) return
@@ -161,8 +170,25 @@ export function Customers() {
               <input className="input" type="email" required value={form.owner_email}
                      onChange={(e) => setForm({ ...form, owner_email: e.target.value })} /></Field>
             <Field label="Owner password" hint="At least 12 characters. Share it securely; they should change it.">
-              <input className="input" type="password" required minLength={12} value={form.owner_password}
-                     onChange={(e) => setForm({ ...form, owner_password: e.target.value })} /></Field>
+              <div className="flex gap-2">
+                <input className="input" type={showPw ? 'text' : 'password'} required minLength={12}
+                       autoComplete="new-password" value={form.owner_password}
+                       onChange={(e) => setForm({ ...form, owner_password: e.target.value })} />
+                <button type="button" className="btn flex-none !px-3" title="Generate a strong password"
+                        aria-label="Generate a strong password"
+                        onClick={() => { setForm({ ...form, owner_password: generatePassword() }); setShowPw(true) }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 2l-2 2m-7.6 7.6a5 5 0 11-7.07 7.07 5 5 0 017.07-7.07zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3" />
+                  </svg>
+                </button>
+                <button type="button" className="btn flex-none !px-3" title={showPw ? 'Hide' : 'Show'}
+                        aria-label={showPw ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowPw((v) => !v)}>
+                  {showPw ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </Field>
             <div className="col-span-full flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button>
               <button className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create customer'}</button>
