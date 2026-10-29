@@ -28,7 +28,7 @@ class CommandBus
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
-        'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete',
+        'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete', 'fs.upload', 'fs.download',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */

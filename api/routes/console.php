@@ -157,6 +157,17 @@ Artisan::command('monitoring:prune', function () {
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
+// FM-002/003: transfer folders left by finished or abandoned uploads and downloads.
+Schedule::call(function () {
+    $disk = \Illuminate\Support\Facades\Storage::disk('local');
+    $cutoff = now()->subHours(config('files.download_ttl_hours'))->getTimestamp();
+    foreach ($disk->directories(\App\Services\FileService::TRANSFER_DIR) as $dir) {
+        $times = array_map(fn ($f) => $disk->lastModified($f), $disk->allFiles($dir));
+        if (! $times || max($times) < $cutoff) {
+            $disk->deleteDirectory($dir);
+        }
+    }
+})->hourly()->name('files:prune-transfers');
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();

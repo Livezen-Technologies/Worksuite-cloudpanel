@@ -42,7 +42,7 @@ var Types = map[string]bool{
 	"image.build":   true, "image.scan": true, "container.healthcheck": true,
 	"firewall.apply": true, "firewall.confirm": true,
 	"fs.list": true, "fs.read": true, "fs.write": true, "fs.mkdir": true,
-	"fs.rename": true, "fs.delete": true,
+	"fs.rename": true, "fs.delete": true, "fs.upload": true, "fs.download": true,
 }
 
 // Reporter sends a command result to the panel.

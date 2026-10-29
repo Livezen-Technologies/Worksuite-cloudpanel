@@ -49,4 +49,37 @@ class SignedFileController extends Controller
             'Content-Disposition' => 'inline; filename="'.$invoice->number.'.pdf"',
         ]));
     }
+
+    /** FM-003: what a finished download job left behind, served once its signed URL is opened. */
+    public function fileDownload(string $id)
+    {
+        $job = \App\Models\Job::allTenants()->where('type', 'files')->where('status', 'succeeded')->findOrFail($id);
+        abort_unless(($job->payload['operation'] ?? null) === 'download', 404);
+        $disk = Storage::disk('local');
+        $path = \App\Services\FileService::downloadPath($job->id);
+        abort_unless($disk->exists($path), 404);
+        $name = str_replace(['/', '\\', '"'], '_', (string) ($job->result['name'] ?? 'download'));
+
+        return $disk->download($path, $name, ['Content-Type' => ($job->result['format'] ?? '') === 'zip' ? 'application/zip' : 'application/octet-stream']);
+    }
+
+    /** FM-003: the agent sends a download here (signed relative URL, PUT body = the file or ZIP). */
+    public function fileTransferPut(Request $request, string $id)
+    {
+        $job = \App\Models\Job::allTenants()->where('type', 'files')->findOrFail($id);
+        abort_if($job->isFinished() || ($job->payload['operation'] ?? null) !== 'download', 409);
+        Storage::disk('local')->put(\App\Services\FileService::downloadPath($job->id), $request->getContent(true));
+
+        return response()->json(['data' => ['stored' => true]], 201);
+    }
+
+    /** FM-002: the agent fetches an uploaded file from here (signed relative URL). */
+    public function fileTransferGet(string $id, string $n)
+    {
+        $path = \App\Services\FileService::TRANSFER_DIR.'/'.$id.'/'.$n;
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($path), 404);
+
+        return $disk->download($path, $n, ['Content-Type' => 'application/octet-stream']);
+    }
 }

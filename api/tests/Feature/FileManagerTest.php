@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\Volume;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class FileManagerTest extends TestCase
@@ -108,5 +110,81 @@ class FileManagerTest extends TestCase
         $volume = $this->volume($org, $this->server($org));
 
         $this->api($other)->getJson("/api/v1/volumes/{$volume->id}/files")->assertNotFound();
+    }
+
+    /** The path and query of a signed agent URL, so the test client can call it. */
+    private function local(string $url): string
+    {
+        return substr($url, strlen(rtrim(config('backups.agent_api_url'), '/')));
+    }
+
+    public function test_upload_stores_files_for_the_agent_to_fetch_then_cleans_up(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->post("/api/v1/volumes/{$volume->id}/files/upload", [
+            'path' => 'wp-content',
+            'files' => [UploadedFile::fake()->createWithContent('style.css', 'a{}'), UploadedFile::fake()->createWithContent('logo.svg', '<svg/>')],
+            'relative_paths' => ['themes/acme/style.css', ''],
+        ], ['Accept' => 'application/json'])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.upload', $command['type']);
+        $this->assertSame(['wp-content/themes/acme/style.css', 'wp-content/logo.svg'], array_column($command['payload']['files'], 'path'));
+        $this->assertFalse($command['payload']['overwrite']);
+
+        // The agent fetches with the signed URL alone; a tampered one is refused.
+        $url = $this->local($command['payload']['files'][0]['url']);
+        $this->withHeaders(['Authorization' => ''])->get($url)->assertOk()->assertStreamedContent('a{}');
+        $this->withHeaders(['Authorization' => ''])->get(str_replace('/0?', '/1?', $url))->assertForbidden();
+
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['files' => 2, 'bytes' => 9]])->assertOk();
+        $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.status', 'succeeded');
+        $this->assertSame([], Storage::disk('local')->allFiles('file-transfers'));
+        $this->assertSame(['wp-content/themes/acme/style.css', 'wp-content/logo.svg'], AuditLog::where('organization_id', $org->id)->where('action', 'files.upload')->sole()->meta['paths']);
+    }
+
+    public function test_download_is_sent_by_the_agent_and_served_from_a_signed_link(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/download", ['paths' => ['wp-config.php']])->assertStatus(202)->json('data.job_id');
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.download', $command['type']);
+
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], "<?php // config")->assertCreated();
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['format' => 'file', 'name' => 'wp-config.php', 'bytes' => 15, 'files' => 1]])->assertOk();
+
+        $job = $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.status', 'succeeded')->json('data.result');
+        $this->assertNotEmpty($job['expires_at']);
+        $response = $this->withHeaders(['Authorization' => ''])->get(substr($job['download_url'], strpos($job['download_url'], '/api/')));
+        $response->assertOk()->assertDownload('wp-config.php');
+        $this->assertSame('<?php // config', $response->streamedContent());
+
+        // A finished job takes no further uploads.
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], 'replaced')->assertStatus(409);
+    }
+
+    public function test_viewers_cannot_upload_or_download(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $viewer] = $this->member($org, 'viewer');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($viewer)->postJson("/api/v1/volumes/{$volume->id}/files/download", ['paths' => ['wp-config.php']])->assertForbidden();
+        $this->api($viewer)->post("/api/v1/volumes/{$volume->id}/files/upload", ['files' => [UploadedFile::fake()->create('a.txt', 1)]], ['Accept' => 'application/json'])->assertForbidden();
     }
 }
