@@ -26,11 +26,15 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
       four-quadrant mark in token colours, product name at 19px, organisation
       switcher linking to settings. Assistant control omitted (no such feature);
       incidents triangle omitted (the alerts bell already serves it).
-- [ ] `Sidebar` pass against the canvas
-- [ ] `Main` / Overview: content below the KPI grid (canvas is 1360 tall)
+- [x] `Sidebar` → `Shell.tsx` — commit `79620c2`; rail icons labelled, sidebar headed by its section and description
+- [~] `Main` / Overview — commit `1de44e2`; alert severity breakdown added.
+      **Blocked on API:** Fleet health distribution and "Needs attention" need a
+      per-server health score and an `emergency` tier, neither of which `/dashboard` returns.
 
 ### Admin screens
-- [ ] Servers · Containers
+- [x] Servers — no change needed; the form already carries every field the artboard
+      shows, plus hostname, region and tags
+- [ ] Containers
 - [ ] Applications · Compose
 - [ ] Images · Networks · Volumes · Databases
 - [ ] Domains · Backups · Monitoring · Logs · Automation
