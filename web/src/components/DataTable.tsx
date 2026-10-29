@@ -102,9 +102,9 @@ export function DataTable<T>(p: DataTableProps<T>) {
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]" style={{ minWidth: p.minWidth ?? 640 }} aria-label={p.label}>
           <thead>
-            <tr className="text-left text-muted text-xs bg-head">
+            <tr className="text-left text-muted text-[11px] uppercase tracking-wider bg-head">
               {p.selectable && (
-                <th className="py-2.5 pl-4 pr-1 w-8">
+                <th className="py-3 pl-4 pr-1 w-8">
                   <input type="checkbox" aria-label="Select all on this page" checked={allOnPage}
                     onChange={() => setSel((s) => { const n = new Set(s); shown.forEach((r) => (allOnPage ? n.delete(rowKey(r)) : n.add(rowKey(r)))); return n })} />
                 </th>
@@ -112,7 +112,7 @@ export function DataTable<T>(p: DataTableProps<T>) {
               {columns.map((c) => {
                 const active = sort?.key === c.key
                 return (
-                  <th key={c.key} scope="col" className={`py-2.5 px-3 font-semibold whitespace-nowrap ${c.className ?? ''}`}
+                  <th key={c.key} scope="col" className={`py-3 px-3 font-semibold whitespace-nowrap ${c.className ?? ''}`}
                     aria-sort={active ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}>
                     {c.sortable !== false && c.header ? (
                       <button type="button" className="bg-transparent border-0 p-0 font-semibold text-muted cursor-pointer inline-flex gap-1" onClick={() => toggleSort(c.key)}>
@@ -131,10 +131,10 @@ export function DataTable<T>(p: DataTableProps<T>) {
               const id = rowKey(r)
               const isSel = p.selectedRowId === id
               return (
-                <tr key={id} className={`border-t border-line ${p.onRowClick ? 'cursor-pointer hover:bg-head' : ''}`} style={{ background: isSel ? 'var(--sel)' : undefined }}
+                <tr key={id} className={`border-t border-line transition-colors ${p.onRowClick ? 'cursor-pointer hover:bg-head' : ''}`} style={{ background: isSel ? 'var(--sel)' : undefined }}
                   onClick={p.onRowClick ? () => p.onRowClick!(r) : undefined}>
                   {p.selectable && (
-                    <td className="py-3 pl-4 pr-1" onClick={(e) => e.stopPropagation()}>
+                    <td className="py-3.5 pl-4 pr-1" onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" aria-label={`Select ${p.rowLabel ? p.rowLabel(r) : id}`} checked={sel.has(id)} onChange={() => toggle(id)} />
                     </td>
                   )}
