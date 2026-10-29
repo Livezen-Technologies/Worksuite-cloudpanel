@@ -156,23 +156,23 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               {acct && (
                 <>
                   <div className="fixed inset-0" onClick={() => setAcct(false)} aria-hidden="true" />
-                  <div role="menu" className="card absolute right-0 top-full mt-2 w-72 p-0 shadow-pop" style={{ zIndex: 'var(--z-popover)' }}>
-                    <div className="border-b border-line p-4">
-                      <div className="font-semibold">{me?.user?.name}</div>
+                  <div role="menu" className="card absolute right-0 top-full mt-2 w-72 overflow-hidden p-0 text-fg shadow-pop" style={{ zIndex: 'var(--z-popover)' }}>
+                    <div className="border-b border-line px-4 py-3.5">
+                      <div className="text-[15px] font-semibold leading-tight">{me?.user?.name}</div>
                       <div className="mt-0.5 truncate text-[13px] text-muted">{me?.user?.email}</div>
                       {(me?.role || me?.organization?.name) && (
                         <div className="mt-1 text-[13px] text-muted">
-                          {[me?.role, me?.organization?.name].filter(Boolean).join(" · ")}
+                          {[me?.role ? String(me.role).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null, me?.organization?.name].filter(Boolean).join(" · ")}
                         </div>
                       )}
                     </div>
                     <div className="flex flex-col p-1">
                       <Link to="/admin/account" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2.5 text-sm no-underline text-fg hover:bg-head">Account</Link>
+                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Account</Link>
                       <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2.5 text-sm no-underline text-fg hover:bg-head">Settings</Link>
+                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Settings</Link>
                       <button type="button" role="menuitem" onClick={() => { setAcct(false); logout() }}
-                        className="rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-sm text-danger hover:bg-head cursor-pointer">Sign out</button>
+                        className="mt-0.5 rounded-lg border-0 border-t border-line bg-transparent px-3 py-2 text-left text-sm font-medium text-danger hover:bg-r-bg cursor-pointer">Sign out</button>
                     </div>
                   </div>
                 </>
