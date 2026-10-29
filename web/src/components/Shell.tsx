@@ -52,11 +52,12 @@ export function Brand({ title, subtitle }: { title: string; subtitle?: string })
 /** The narrow icon rail: one entry per major area of the product. */
 function Rail({ items }: { items: RailItem[] }) {
   return (
-    <nav aria-label="Areas" className="hidden lg:flex w-14 flex-none flex-col items-center gap-1 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
+    <nav aria-label="Areas" className="hidden lg:flex w-[76px] flex-none flex-col items-center gap-1 px-1.5 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
-        <NavLink key={r.to} to={r.to} end={r.end} title={r.label} aria-label={r.label}
-          className={({ isActive }) => `relative grid h-11 w-11 place-content-center rounded-xl no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
+        <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
+          className={({ isActive }) => `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
           <Icon name={r.icon} size={20} />
+          <span className="w-full truncate text-center text-[10px] font-semibold leading-tight">{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
           )}
@@ -66,7 +67,7 @@ function Rail({ items }: { items: RailItem[] }) {
   )
 }
 
-export function Shell({ nav, rail, brand, status, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
   const [menu, setMenu] = useState(false)
   const [palette, setPalette] = useState(false)
   const { theme, toggle } = useTheme()
@@ -77,7 +78,11 @@ export function Shell({ nav, rail, brand, status, sidebarFooter, headerExtra, to
   const pages: PageLink[] = nav.map((n) => ({ label: n.label, to: n.to }))
   const side = (
     <div className="flex flex-col gap-6 h-full">
-      <Brand title={brand.title} subtitle={brand.subtitle ?? me?.organization?.name} />
+        {/* The brand moved to the top bar, so this names the section instead. */}
+        <div>
+          <div className="text-base font-semibold tracking-tight">{label}</div>
+          {sectionDesc && <div className="mt-0.5 text-[13px] text-muted">{sectionDesc}</div>}
+        </div>
       <nav aria-label={label}><NavList items={nav} touch={touch} onPick={() => setMenu(false)} /></nav>
       {sidebarFooter && <div className="mt-auto">{sidebarFooter}</div>}
     </div>
