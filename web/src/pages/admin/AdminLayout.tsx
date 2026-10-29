@@ -31,6 +31,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   ] },
   { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
+    { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
     { label: 'Packages', to: '/admin/packages', icon: 'tag' },
     { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
   ] },

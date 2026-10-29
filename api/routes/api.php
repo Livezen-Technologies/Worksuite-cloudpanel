@@ -181,7 +181,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
     Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('firewall.show');
     Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:resources.view|servers.view')->name('firewall.events');
-    Route::put('firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:deploy|settings.manage')->name('firewall.countries');
+    Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:deploy|settings.manage')->name('firewall.countries');
     Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.store');
     Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.update');
     Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.destroy');
