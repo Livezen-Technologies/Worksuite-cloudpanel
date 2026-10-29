@@ -178,9 +178,6 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
                 </>
               )}
             </div>
-            <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" aria-label="Sign out" onClick={() => logout()}>
-              <Icon name="logout" size={20} />
-            </button>
           </div>
         </header>
       <div className="flex flex-1 min-h-0">
