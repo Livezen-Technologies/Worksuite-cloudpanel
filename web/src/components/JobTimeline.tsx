@@ -32,7 +32,7 @@ export function JobTimeline({ job, compact = false, stages: given }: { job?: Job
             <li key={s.name + i} className="flex gap-3">
               <div className="flex flex-col items-center">
                 <span aria-hidden="true" className="w-3.5 h-3.5 rounded-full box-border flex-none mt-0.5"
-                  style={done ? { background: 'var(--accent)' } : fail ? { background: '#DC2626' } : run ? { border: '3px solid var(--accent)' } : { border: '2px solid var(--line)' }} />
+                  style={done ? { background: 'var(--accent)' } : fail ? { background: 'var(--r-fg)' } : run ? { border: '3px solid var(--accent)' } : { border: '2px solid var(--line)' }} />
                 {i < stages.length - 1 && <span aria-hidden="true" className="w-0.5 flex-1" style={{ minHeight: compact ? 14 : 24, background: done ? 'var(--accent)' : 'var(--line)' }} />}
               </div>
               <div className={`flex-1 min-w-0 flex justify-between gap-2 ${compact ? 'pb-1.5 text-xs' : 'pb-3 text-sm'}`}>

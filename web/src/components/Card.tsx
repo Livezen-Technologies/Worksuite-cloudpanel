@@ -28,7 +28,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 
 export function Meter({ value, label, color, thick = false }: { value: number; label?: string; color?: string; thick?: boolean }) {
   const v = Math.max(0, Math.min(100, value || 0))
-  const c = color ?? (v >= 90 ? '#DC2626' : 'var(--accent)')
+  const c = color ?? (v >= 90 ? 'var(--r-fg)' : 'var(--accent)')
   return (
     <div role="meter" aria-valuenow={Math.round(v)} aria-valuemin={0} aria-valuemax={100} aria-label={label}
       className={`${thick ? 'h-2' : 'h-1.5'} rounded bg-track overflow-hidden`}>

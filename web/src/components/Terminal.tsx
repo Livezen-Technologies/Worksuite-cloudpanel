@@ -50,7 +50,7 @@ export function TerminalDialog({ containerId, name, open, onClose }: { container
     const start = async () => {
       const { Terminal, FitAddon } = await loadXterm()
       if (disposed || !host.current) return
-      const t = new Terminal({ convertEol: false, cursorBlink: true, fontSize: 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', scrollback: 2000, theme: { background: '#0f172a' } })
+      const t = new Terminal({ convertEol: false, cursorBlink: true, fontSize: 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', scrollback: 2000, theme: { background: 'var(--text)' } })
       term = t
       const fit = new FitAddon()
       t.loadAddon(fit)
@@ -135,7 +135,7 @@ export function TerminalDialog({ containerId, name, open, onClose }: { container
           <button type="button" className="btn btn-sm btn-primary" onClick={() => setApprovalId(pending)}>Open with approval</button>
         </div>
       )}
-      <div ref={host} data-testid="terminal" className="rounded-lg overflow-hidden bg-[#0f172a] p-2 h-[380px]" />
+      <div ref={host} data-testid="terminal" className="rounded-lg overflow-hidden bg-[var(--text)] p-2 h-[380px]" />
     </Modal>
   )
 }
@@ -189,7 +189,7 @@ export function RecordingPlayer({ cast }: { cast: string }) {
     let gone = false
     loadXterm().then(({ Terminal }) => {
       if (gone || !host.current) return
-      t = new Terminal({ cols: header.width ?? 80, rows: Math.min(header.height ?? 24, 30), disableStdin: true, fontSize: 12, scrollback: 5000, theme: { background: '#0f172a' } })
+      t = new Terminal({ cols: header.width ?? 80, rows: Math.min(header.height ?? 24, 30), disableStdin: true, fontSize: 12, scrollback: 5000, theme: { background: 'var(--text)' } })
       t.open(host.current)
       term.current = t
       writeAll()
@@ -205,7 +205,7 @@ export function RecordingPlayer({ cast }: { cast: string }) {
         <button type="button" className="btn btn-sm" onClick={replay}>Replay</button>
         <button type="button" className="btn btn-sm" onClick={writeAll}>Show all</button>
       </div>
-      <div ref={host} data-testid="recording" className="rounded-lg overflow-auto bg-[#0f172a] p-2 max-h-[460px]" />
+      <div ref={host} data-testid="recording" className="rounded-lg overflow-auto bg-[var(--text)] p-2 max-h-[460px]" />
     </div>
   )
 }

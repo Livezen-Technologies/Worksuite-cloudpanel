@@ -30,6 +30,6 @@ export function StatusBadge({ status }: { status?: string | null }) {
 }
 
 export function Dot({ tone }: { tone: Tone }) {
-  const c = { g: '#16A34A', y: '#D97706', r: '#DC2626', b: '#2563EB', n: '#94A3B8' }[tone]
+  const c = { g: 'var(--g-fg)', y: 'var(--y-fg)', r: 'var(--r-fg)', b: 'var(--b-fg)', n: 'var(--n-fg)' }[tone]
   return <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full flex-none" style={{ background: c }} />
 }

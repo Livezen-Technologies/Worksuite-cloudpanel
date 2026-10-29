@@ -56,7 +56,7 @@ export default function ServerDetail() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <StatTile label="CPU" value={pct(s.cpu_pct)} delta={`${s.cpu_cores ?? '—'} cores`} pct={s.cpu_pct} />
             <StatTile label="Memory" value={pct(s.ram_pct)} delta={mb(s.ram_mb)} pct={s.ram_pct} />
-            <StatTile label="Disk" value={pct(s.disk_pct)} delta={s.disk_gb ? `${s.disk_gb} GB` : undefined} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? '#DC2626' : undefined} />
+            <StatTile label="Disk" value={pct(s.disk_pct)} delta={s.disk_gb ? `${s.disk_gb} GB` : undefined} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? 'var(--r-fg)' : undefined} />
             <StatTile label="Containers" value={s.container_count ?? containers.rows.length} />
           </div>
           <Card title="System">
@@ -76,7 +76,7 @@ export default function ServerDetail() {
       {tab === 'Storage' && <SimpleList label="Storage pools" path="/storage-pools" query={{ server_id: id }} columns={[{ key: 'name', header: 'Pool' }, { key: 'type', header: 'Type' }, { key: 'used', header: 'Used', render: (r) => <div className="w-40"><Meter value={num(r.used_pct ?? (r.capacity_gb ? (num(r.used_gb) / num(r.capacity_gb)) * 100 : 0))} label={`${r.name} used`} /></div> }]} />}
       {tab === 'Monitoring' && (
         <Card title="Resources — last 6 h">
-          <LineChart label="Server CPU, RAM and disk" series={[{ label: 'CPU', color: 'var(--accent)', data: ((series.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: '#0D9488', data: ((series.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: '#D97706', data: ((series.disk ?? []) as unknown[]).map(num) }]} />
+          <LineChart label="Server CPU, RAM and disk" series={[{ label: 'CPU', color: 'var(--accent)', data: ((series.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--b-fg)', data: ((series.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((series.disk ?? []) as unknown[]).map(num) }]} />
         </Card>
       )}
       {(tab === 'Logs' || tab === 'Security') && <DataTable label="Audit events" rows={audit.rows} loading={audit.isLoading} rowKey={(r) => String(r.id)}

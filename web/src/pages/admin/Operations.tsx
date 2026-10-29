@@ -100,7 +100,7 @@ export function Backups() {
         <StatTile label="Failed (24 h)" value={day.filter((j) => j.status === 'failed').length} deltaTone="r" delta={day.some((j) => j.status === 'failed') ? 'needs attention' : undefined} />
         <StatTile label="Verified" value={artifacts.rows.filter((a) => a.verified).length} delta="restic check passed" />
       </div>
-      <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#DC2626]" />failed</span></span>}>
+      <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
         <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
       </Card>
       <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
@@ -185,7 +185,7 @@ export function Monitoring() {
   const { run } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
   const s = (metrics.item?.series ?? metrics.item ?? {}) as R
-  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: '#0D9488', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: '#D97706', data: ((s.disk ?? []) as unknown[]).map(num) }]
+  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--b-fg)', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((s.disk ?? []) as unknown[]).map(num) }]
   const toForm = (r: R) => ({ ...r, ...Object.fromEntries(((r.channels ?? r.channel_ids ?? []) as (string | R)[]).map((c) => [`ch_${typeof c === 'string' ? c : c.id}`, true])) })
   const fromForm = (v: Record<string, unknown>) => {
     const ids = Object.keys(v).filter((k) => k.startsWith('ch_') && v[k]).map((k) => k.slice(3))

@@ -13,7 +13,7 @@ import { unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
 import Select from '../../components/Select'
 
-const meterColor = (v: number) => (v >= 85 ? '#DC2626' : v >= 70 ? '#D97706' : 'var(--accent)')
+const meterColor = (v: number) => (v >= 85 ? 'var(--r-fg)' : v >= 70 ? 'var(--y-fg)' : 'var(--accent)')
 
 export function ServerCard({ s }: { s: Server }) {
   const meters: [string, number | undefined][] = [['CPU', s.cpu_pct], ['RAM', s.ram_pct], ['Disk', s.disk_pct]]
@@ -163,7 +163,7 @@ export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () 
           </div>
           <div className="text-xs text-muted">Token <span className="font-mono">{enroll.token.slice(0, 8)}…</span></div>
           <div className="flex items-center gap-2 text-sm font-semibold" aria-live="polite">
-            {connected ? <><Badge tone="g">connected</Badge> Agent heartbeat received</> : <><span aria-hidden="true" className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse" />Waiting for agent heartbeat…</>}
+            {connected ? <><Badge tone="g">connected</Badge> Agent heartbeat received</> : <><span aria-hidden="true" className="w-2 h-2 rounded-full bg-[var(--y-fg)] animate-pulse" />Waiting for agent heartbeat…</>}
           </div>
           {left === 'expired' && !connected && <button type="button" className="btn self-start" onClick={createAndEnroll}>Generate a new token</button>}
         </div>

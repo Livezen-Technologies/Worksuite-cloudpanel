@@ -51,7 +51,7 @@ export function DayBars({ days, label }: { days: { label: string; ok: number; fa
           const tot = d.ok + d.failed
           return (
             <div key={d.label} className="flex-1 flex flex-col justify-end h-full" title={`${d.label}: ${d.ok} succeeded, ${d.failed} failed`}>
-              {d.failed > 0 && <div style={{ height: `${(d.failed / max) * 100}%`, background: '#DC2626' }} className="rounded-t" />}
+              {d.failed > 0 && <div style={{ height: `${(d.failed / max) * 100}%`, background: 'var(--r-fg)' }} className="rounded-t" />}
               <div style={{ height: `${(d.ok / max) * 100}%`, background: 'var(--accent)' }} className={d.failed ? '' : 'rounded-t'} />
               {tot === 0 && <div className="h-0.5 bg-line" />}
             </div>

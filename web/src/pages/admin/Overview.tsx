@@ -117,7 +117,7 @@ export default function Overview() {
             </div>
           }>
           <LineChart label={`CPU and RAM usage over the ${RANGE_LABEL[range]}`} xLabels={xLabels(range, cpu.length)}
-            series={[{ label: 'CPU', color: 'var(--accent)', data: cpu }, { label: 'RAM', color: '#0D9488', data: ram }]} />
+            series={[{ label: 'CPU', color: 'var(--accent)', data: cpu }, { label: 'RAM', color: 'var(--b-fg)', data: ram }]} />
         </Card>
         <Card className="flex-[1_1_300px]" title="Active alerts" actions={<Link to="/admin/monitoring" className="text-[13px] font-semibold">View all</Link>}>
           {alerts.length === 0 ? <Empty>No active alerts.</Empty> : (

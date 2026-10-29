@@ -35,7 +35,7 @@ export function LogView({ path, title, height = 320, query }: { path: string | n
       <pre ref={ref} tabIndex={0} aria-label={`${title ?? ''} log output`} aria-live="off"
         className="m-0 p-3.5 rounded-lg bg-code text-code-fg font-mono text-xs leading-relaxed overflow-auto whitespace-pre-wrap break-all" style={{ height }}>
         {error ? 'Could not load logs. They will retry automatically.' : lines.length ? lines.map((l, i) => {
-          const tone = /\berror\b/i.test(l) ? '#F87171' : /\bwarn/i.test(l) ? '#FACC15' : undefined
+          const tone = /\berror\b/i.test(l) ? 'var(--r-fg)' : /\bwarn/i.test(l) ? 'var(--y-fg)' : undefined
           return <div key={i} style={{ color: tone }}>{l}</div>
         }) : 'No log lines yet.'}
       </pre>

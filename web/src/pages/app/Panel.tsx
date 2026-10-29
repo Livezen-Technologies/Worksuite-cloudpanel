@@ -239,7 +239,7 @@ export function Billing() {
             {bars.map((x) => (
               <div key={x.label}>
                 <div className="flex justify-between text-[13px] mb-1"><span>{x.label}</span><span className={x.pct > 90 ? 'font-semibold text-danger' : 'text-muted'}>{x.text}{x.pct > 90 ? ' · almost full' : ''}</span></div>
-                <Meter value={x.pct} label={`${x.label} usage`} color={x.pct > 90 ? '#DC2626' : 'var(--accent)'} />
+                <Meter value={x.pct} label={`${x.label} usage`} color={x.pct > 90 ? 'var(--r-fg)' : 'var(--accent)'} />
               </div>
             ))}
           </div>

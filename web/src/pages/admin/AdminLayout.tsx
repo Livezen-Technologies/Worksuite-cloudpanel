@@ -56,7 +56,7 @@ function AlertsBell() {
   return (
     <Link to="/admin/monitoring" aria-label={n ? `Alerts, ${n} active` : 'Alerts'} className="relative w-10 h-10 flex items-center justify-center rounded-lg text-muted">
       <Icon name="bell" size={22} />
-      {n > 0 && <span aria-hidden="true" className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#DC2626]" />}
+      {n > 0 && <span aria-hidden="true" className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[var(--r-fg)]" />}
     </Link>
   )
 }
@@ -90,7 +90,7 @@ export function AdminLayout() {
       sidebarFooter={
         <div className="p-3.5 rounded-[10px] bg-head border border-line">
           <div className="text-xs text-muted">Control plane</div>
-          <div className="flex items-center gap-2 mt-1.5 text-[13px] font-semibold"><span aria-hidden="true" className="w-2 h-2 rounded-full bg-[#16A34A]" />All systems operational</div>
+          <div className="flex items-center gap-2 mt-1.5 text-[13px] font-semibold"><span aria-hidden="true" className="w-2 h-2 rounded-full bg-[var(--g-fg)]" />All systems operational</div>
         </div>
       } />
   )

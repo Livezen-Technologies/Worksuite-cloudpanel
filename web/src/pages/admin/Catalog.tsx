@@ -72,7 +72,7 @@ const CATALOG: Entry[] = [
   },
   {
     slug: 'custom', name: 'Custom Docker image', blurb: 'Install any image from a registry.', category: 'Custom',
-    image: '', port: 80, health: '/', accent: '#64748B',
+    image: '', port: 80, health: '/', accent: 'var(--muted)',
   },
 ]
 

@@ -179,7 +179,7 @@ export function Volumes() {
           return (
             <div key={p.id ?? p.name} className="card p-5">
               <div className="flex justify-between text-sm"><span className="font-semibold">{p.name}</span><span className="font-semibold">{Math.round(used)}%</span></div>
-              <div className="my-3"><Meter value={used} label={`${p.name} capacity used`} color={used >= 85 ? '#DC2626' : used >= 70 ? '#D97706' : undefined} thick /></div>
+              <div className="my-3"><Meter value={used} label={`${p.name} capacity used`} color={used >= 85 ? 'var(--r-fg)' : used >= 70 ? 'var(--y-fg)' : undefined} thick /></div>
               <div className="text-xs text-muted">{p.type} · {num(p.used_gb)} of {num(p.capacity_gb)} GB</div>
             </div>
           )

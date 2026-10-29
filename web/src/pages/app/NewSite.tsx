@@ -47,7 +47,7 @@ const TEMPLATES: Template[] = [
   },
   {
     kind: 'proxy', title: 'Reverse Proxy', blurb: 'Forward a domain to an upstream service.',
-    image: '', port: 80, health: '/', accent: '#64748B', available: false,
+    image: '', port: 80, health: '/', accent: 'var(--muted)', available: false,
     art: <><rect x="5" y="12" width="18" height="24" rx="3" /><rect x="29" y="12" width="14" height="24" rx="3" /><path d="M23 20h6M23 28h6M27 18l2 2-2 2M25 26l-2 2 2 2" /></>,
   },
 ]

@@ -6,8 +6,8 @@ export function CodeEditor({ value, onChange, label, rows = 18, errorLine }: { v
   const n = Math.max(rows, value.split('\n').length)
   return (
     <div className="flex rounded-lg overflow-hidden border border-line bg-code text-code-fg font-mono text-[12.5px] leading-[1.6]">
-      <div ref={gutter} aria-hidden="true" className="select-none text-right py-3 px-2.5 text-[#64748B] overflow-hidden flex-none" style={{ height: `${rows * 1.6 + 1.5}em` }}>
-        {Array.from({ length: n }, (_, i) => <div key={i} style={errorLine === i + 1 ? { color: '#F87171', fontWeight: 700 } : undefined}>{i + 1}</div>)}
+      <div ref={gutter} aria-hidden="true" className="select-none text-right py-3 px-2.5 text-[var(--muted)] overflow-hidden flex-none" style={{ height: `${rows * 1.6 + 1.5}em` }}>
+        {Array.from({ length: n }, (_, i) => <div key={i} style={errorLine === i + 1 ? { color: 'var(--r-fg)', fontWeight: 700 } : undefined}>{i + 1}</div>)}
       </div>
       <textarea aria-label={label} spellCheck={false} value={value} rows={rows} wrap="off"
         onChange={(e) => onChange(e.target.value)}
