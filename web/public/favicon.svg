@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Docker Manager Portal">
+  <!-- Rounded tile in the brand accent, with the panel's own cube mark.
+       Lightened slightly in dark UI so the tile does not sink into a dark tab bar. -->
+  <style>
+    .tile { fill: #4F46E5 }
+    @media (prefers-color-scheme: dark) { .tile { fill: #6366F1 } }
+  </style>
+  <rect class="tile" width="32" height="32" rx="7"/>
+  <g transform="translate(4 4) scale(1)" fill="none" stroke="#fff" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+  </g>
+</svg>
