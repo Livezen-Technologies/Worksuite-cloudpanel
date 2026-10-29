@@ -18,6 +18,17 @@ import Select from '../../components/Select'
 const ports = (p: Container['ports']) => (Array.isArray(p) ? p.join(', ') : p) || '—'
 const dotTone = (c: Container): Tone => (c.state === 'running' ? (c.health === 'unhealthy' ? 'r' : 'g') : c.state === 'paused' ? 'y' : 'n')
 
+/**
+ * Infrastructure the panel itself depends on. Removing or stopping the ingress
+ * proxy takes every site offline - including this panel - so those actions are
+ * withheld rather than merely confirmed.
+ */
+function isProtected(c: { name?: string; image?: string }): boolean {
+  const n = (c.name ?? '').toLowerCase()
+  const i = (c.image ?? '').toLowerCase()
+  return n.includes('traefik') || i.startsWith('traefik:') || n.includes('dockermgr-agent')
+}
+
 function RemoveDialog({ c, open, onClose }: { c: Container; open: boolean; onClose: () => void }) {
   const [keep, setKeep] = useState(true)
   const { run, busy } = useAction()
@@ -51,13 +62,21 @@ function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="flex gap-2 mt-2"><StatusBadge status={c.state} />{c.health && <StatusBadge status={c.health} />}</div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {c.state === 'running' ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button> : <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}>{c.state === 'paused' ? 'Unpause' : 'Start'}</button>}
+            {!isProtected(c) && (c.state === 'running'
+              ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button>
+              : <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}>{c.state === 'paused' ? 'Unpause' : 'Start'}</button>)}
             <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('restart')}>Restart</button>
-            {c.state === 'running' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('pause')}>Pause</button>}
+            {!isProtected(c) && c.state === 'running' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('pause')}>Pause</button>}
             <button type="button" className="btn btn-sm" disabled={c.state !== 'running'} onClick={() => setTerm(true)}>Terminal</button>
-            <button type="button" className="btn btn-sm" onClick={() => setDup(true)}>Duplicate</button>
-            <button type="button" className="btn btn-sm btn-danger" onClick={() => setRemove(true)}>Remove</button>
+            {!isProtected(c) && <button type="button" className="btn btn-sm" onClick={() => setDup(true)}>Duplicate</button>}
+            {!isProtected(c) && <button type="button" className="btn btn-sm btn-danger" onClick={() => setRemove(true)}>Remove</button>}
           </div>
+          {isProtected(c) && (
+            <p className="m-0 rounded-lg bg-y-bg px-3 py-2 text-sm text-y-fg">
+              Core infrastructure. Every site on this server, and this panel, is served through it,
+              so stop and remove are disabled here. Manage it from the server if you really need to.
+            </p>
+          )}
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             {([['Server', serverName(c)], ['CPU / Memory', `${pct(c.cpu_pct)} · ${mb(c.mem_mb)}`], ['Limits', c.limits ? `${c.limits.cpus ?? '—'} vCPU · ${mb(c.limits.memory_mb)}` : '—'], ['User', c.user ?? '—'], ['Restart policy', c.restart_policy ?? '—'], ['Ports', ports(c.ports)]] as const).map(([k, v]) => (
               <div key={k} className="contents"><dt className="text-muted">{k}</dt><dd className="m-0 font-semibold break-all">{v}</dd></div>
