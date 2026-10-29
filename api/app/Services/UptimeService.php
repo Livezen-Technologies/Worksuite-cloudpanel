@@ -138,4 +138,80 @@ class UptimeService
             }
         }
     }
+
+    /** Containers reported unhealthy or exited, and servers whose agent went quiet. */
+    public function checkInfrastructure(): array
+    {
+        $opened = $closed = 0;
+
+        foreach (\App\Models\Container::allTenants()->get() as $c) {
+            $bad = $c->health === 'unhealthy' || in_array($c->state, ['exited', 'dead'], true);
+            // Infrastructure the panel depends on is reported, never acted on.
+            $open = $this->incidentFor('container', $c->id);
+            if ($bad && ! $open) {
+                $this->raise($c->organization_id, 'container', $c->id, 'critical',
+                    "{$c->name} is {$c->state}" . ($c->health === 'unhealthy' ? ' and unhealthy' : ''),
+                    "The container stopped serving. Image {$c->image}.");
+                $opened++;
+            } elseif (! $bad && $open) {
+                $this->resolve($open, "{$c->name} recovered", "State {$c->state}, health {$c->health}.");
+                $closed++;
+            }
+        }
+
+        foreach (\App\Models\Server::allTenants()->get() as $srv) {
+            $last = $srv->last_heartbeat_at ? strtotime((string) $srv->last_heartbeat_at) : 0;
+            $stale = ! $last || (time() - $last) > 600;   // ten minutes of silence
+            $open = $this->incidentFor('server', $srv->id);
+            if ($stale && ! $open) {
+                $ago = $last ? round((time() - $last) / 60) . ' minutes ago' : 'never';
+                $this->raise($srv->organization_id, 'server', $srv->id, 'critical',
+                    "{$srv->name} stopped reporting", "Last heartbeat {$ago}.");
+                $opened++;
+            } elseif (! $stale && $open) {
+                $this->resolve($open, "{$srv->name} is reporting again", 'The agent resumed heartbeats.');
+                $closed++;
+            }
+        }
+
+        return ['opened' => $opened, 'closed' => $closed];
+    }
+
+    private function incidentFor(string $type, string $id): ?Alert
+    {
+        return Alert::allTenants()->where('resource_type', $type)->where('resource_id', $id)
+            ->where('status', 'open')->first();
+    }
+
+    private function raise(?string $orgId, string $type, string $id, string $severity, string $title, string $message): void
+    {
+        $a = new Alert();
+        $a->organization_id = $orgId;
+        $a->resource_type = $type;
+        $a->resource_id = $id;
+        $a->severity = $severity;
+        $a->status = 'open';
+        $a->title = $title;
+        $a->message = $message;
+        $a->save();
+        $this->notifyOrg($orgId, $title, $message);
+    }
+
+    private function resolve(Alert $a, string $title, string $message): void
+    {
+        $a->status = 'resolved';
+        $a->resolved_at = now();
+        $a->save();
+        $this->notifyOrg($a->organization_id, $title, $message);
+    }
+
+    private function notifyOrg(?string $orgId, string $title, string $message): void
+    {
+        foreach (NotificationChannel::allTenants()->where('organization_id', $orgId)->where('enabled', true)->get() as $ch) {
+            try {
+                $this->notifications->send($ch, $title, $message);
+            } catch (\Throwable) {
+            }
+        }
+    }
 }

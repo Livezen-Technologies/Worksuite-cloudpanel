@@ -136,7 +136,9 @@ Artisan::command('proxy:sync-certs', function (\App\Services\TraefikConfigServic
 
 Artisan::command('uptime:check', function (\App\Services\UptimeService $uptime) {
     $r = $uptime->checkAll();
-    $this->info("checked {$r['checked']}, down {$r['down']}, recovered {$r['recovered']}");
+    $i = $uptime->checkInfrastructure();
+    $this->info("sites: checked {$r['checked']}, down {$r['down']}, recovered {$r['recovered']}; "
+        ."infrastructure: opened {$i['opened']}, closed {$i['closed']}");
 })->purpose('Fetch every verified domain and open or close uptime incidents');
 
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
