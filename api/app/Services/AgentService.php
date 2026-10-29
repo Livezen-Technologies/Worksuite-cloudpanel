@@ -143,6 +143,15 @@ class AgentService
                 'mem_mb' => $c['mem_mb'] ?? null,
                 'ports' => $c['ports'] ?? [],
                 'docker_created_at' => isset($c['created']) ? $this->time($c['created']) : null,
+                'labels' => $c['labels'] ?? null,
+                // Inspect-only detail: limits, the user the process runs as and the
+                // restart policy. Older agents omit these, so keep what we have.
+                'spec' => array_filter([
+                    'user' => $c['user'] ?? null,
+                    'restart_policy' => $c['restart_policy'] ?? null,
+                    'cpus' => $c['cpus'] ?? null,
+                    'memory_mb' => $c['mem_limit_mb'] ?? null,
+                ], fn ($v) => $v !== null && $v !== '' && $v !== 0.0) ?: ($row->spec ?? null),
             ]);
             if ($state === 'running' && ($row->getOriginal('state') !== 'running' || ! $row->started_at)) {
                 $row->started_at = $now;
@@ -208,7 +217,15 @@ class AgentService
             $seen[] = $v['name'];
             Volume::allTenants()->updateOrCreate(
                 ['server_id' => $server->id, 'name' => $v['name']],
-                ['organization_id' => $server->organization_id, 'driver' => $v['driver'] ?? 'local', 'mountpoint' => $v['mountpoint'] ?? null, 'status' => 'active'],
+                array_filter([
+                    'organization_id' => $server->organization_id,
+                    'driver' => $v['driver'] ?? 'local',
+                    'mountpoint' => $v['mountpoint'] ?? null,
+                    'status' => 'active',
+                    'used_by' => $v['used_by'] ?? null,
+                    // Agents report megabytes; the column is gigabytes.
+                    'size_gb' => isset($v['size_mb']) ? round($v['size_mb'] / 1024, 2) : null,
+                ], fn ($x) => $x !== null),
             );
         }
         Volume::allTenants()->where('server_id', $server->id)->whereNotIn('name', $seen ?: [''])->where('status', 'active')->where('type', 'volume')->delete();

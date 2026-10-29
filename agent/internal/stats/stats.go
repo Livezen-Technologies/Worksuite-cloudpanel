@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -148,6 +149,8 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 		return nil, err
 	}
 	inv := &Inventory{Containers: make([]protocol.Container, len(cs))}
+	// Which named volumes each container mounts, so volumes can report a use count.
+	mounted := make([][]string, len(cs))
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	for i, c := range cs {
@@ -178,8 +181,24 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 			defer func() { <-sem }()
 			cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			if in, err := dc.InspectContainer(cctx, id); err == nil && in.State.Health != nil {
-				inv.Containers[i].Health = in.State.Health.Status
+			if in, err := dc.InspectContainer(cctx, id); err == nil {
+				if in.State.Health != nil {
+					inv.Containers[i].Health = in.State.Health.Status
+				}
+				inv.Containers[i].User = in.Config.User
+				inv.Containers[i].Labels = in.Config.Labels
+				inv.Containers[i].RestartPolicy = in.HostConfig.RestartPolicy.Name
+				if in.HostConfig.NanoCpus > 0 {
+					inv.Containers[i].CPUs = round(float64(in.HostConfig.NanoCpus) / 1e9)
+				}
+				if in.HostConfig.Memory > 0 {
+					inv.Containers[i].MemLimitMB = round(float64(in.HostConfig.Memory) / (1024 * 1024))
+				}
+				for _, m := range in.Mounts {
+					if m.Type == "volume" && m.Name != "" {
+						mounted[i] = append(mounted[i], m.Name)
+					}
+				}
 			}
 			if state != "running" {
 				return
@@ -208,9 +227,32 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 		}
 	}
 	if vs, err := dc.ListVolumes(ctx); err == nil {
-		for _, v := range vs {
-			inv.Volumes = append(inv.Volumes, protocol.Volume{Name: v.Name, Driver: v.Driver, Mountpoint: v.Mountpoint})
+		usedBy := map[string]int{}
+		for _, names := range mounted {
+			for _, n := range names {
+				usedBy[n]++
+			}
 		}
+		vols := make([]protocol.Volume, len(vs))
+		var vwg sync.WaitGroup
+		vsem := make(chan struct{}, 4)
+		for i, v := range vs {
+			vols[i] = protocol.Volume{Name: v.Name, Driver: v.Driver, Mountpoint: v.Mountpoint, UsedBy: usedBy[v.Name]}
+			if v.Mountpoint == "" {
+				continue
+			}
+			vwg.Add(1)
+			go func(i int, path string) {
+				defer vwg.Done()
+				vsem <- struct{}{}
+				defer func() { <-vsem }()
+				if mb, err := dirSizeMB(ctx, path); err == nil {
+					vols[i].SizeMB = mb
+				}
+			}(i, v.Mountpoint)
+		}
+		vwg.Wait()
+		inv.Volumes = append(inv.Volumes, vols...)
 	}
 	if inv.Images == nil {
 		inv.Images = []protocol.Image{}
@@ -222,4 +264,24 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 		inv.Volumes = []protocol.Volume{}
 	}
 	return inv, nil
+}
+
+// dirSizeMB measures a volume's mountpoint. Docker exposes no size for local
+// volumes, and walking a large one is slow, so it is bounded and best-effort.
+func dirSizeMB(ctx context.Context, path string) (float64, error) {
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "du", "-sb", "--one-file-system", path).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("du: empty output")
+	}
+	bytes, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return round(float64(bytes) / (1024 * 1024)), nil
 }
