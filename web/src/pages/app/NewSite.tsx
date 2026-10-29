@@ -57,7 +57,7 @@ export default function NewSite() {
   const { run, busy } = useAction()
   const { data: servers } = useList<{ id: string; name: string }>('/servers')
   const [picked, setPicked] = useState<Template | null>(null)
-  const [form, setForm] = useState({ name: '', server_id: '', environment: 'production', size: 'small' })
+  const [form, setForm] = useState({ name: '', domain: '', server_id: '', environment: 'production', size: 'small' })
 
   const create = async () => {
     if (!picked) return
@@ -77,7 +77,15 @@ export default function NewSite() {
         ...(form.server_id ? { server_id: form.server_id } : {}),
       },
     }).catch(() => null)
-    if (res?.data?.id) nav(`/app/apps/${res.data.id}`)
+    const id = res?.data?.id
+    if (!id) return
+    if (form.domain.trim()) {
+      await run({
+        path: '/domains', label: `Attach ${form.domain}`, success: `${form.domain} attached`,
+        body: { name: form.domain.trim(), application_id: id, target_port: picked.port },
+      }).catch(() => {})
+    }
+    nav(`/app/apps/${id}`)
   }
 
   if (!picked) {
@@ -100,7 +108,7 @@ export default function NewSite() {
                   <p className="m-0 mt-1 text-sm text-muted">{t.blurb}</p>
                 </div>
                 <button type="button" className="btn !rounded-full min-h-11" disabled={!t.available}
-                        onClick={() => { setPicked(t); setForm((f) => ({ ...f, name: '' })) }}>
+                        onClick={() => { setPicked(t); setForm((f) => ({ ...f, name: '', domain: '' })) }}>
                   {t.available ? `Create a ${t.title}` : 'Not available yet'}
                 </button>
               </div>
@@ -122,6 +130,10 @@ export default function NewSite() {
           <Field label="Site name" hint="Lowercase letters, numbers and dashes.">
             <input className="input" required autoFocus value={form.name}
                    onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="my-site" />
+          </Field>
+          <Field label="Domain" hint="Optional. Point its A record at this server; the certificate is issued automatically.">
+            <input className="input" value={form.domain} placeholder="example.com"
+                   onChange={(e) => setForm({ ...form, domain: e.target.value })} />
           </Field>
           <Field label="Server" hint="Leave unset to let the scheduler place it.">
             <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>

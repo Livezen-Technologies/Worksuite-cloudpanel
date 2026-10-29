@@ -94,7 +94,7 @@ export default function Catalog() {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState<string>('')
   const [picked, setPicked] = useState<Entry | null>(null)
-  const [form, setForm] = useState({ name: '', image: '', server_id: '', environment: 'production', size: 'small' })
+  const [form, setForm] = useState({ name: '', image: '', domain: '', server_id: '', environment: 'production', size: 'small' })
 
   const shown = CATALOG.filter((e) =>
     (!cat || e.category === cat) &&
@@ -102,7 +102,7 @@ export default function Catalog() {
 
   const choose = (e: Entry) => {
     setPicked(e)
-    setForm({ name: e.slug === 'custom' ? '' : e.slug, image: e.image, server_id: '', environment: 'production', size: 'small' })
+    setForm({ name: e.slug === 'custom' ? '' : e.slug, image: e.image, domain: '', server_id: '', environment: 'production', size: 'small' })
   }
 
   const install = async () => {
@@ -123,7 +123,15 @@ export default function Catalog() {
         ...(form.server_id ? { server_id: form.server_id } : {}),
       },
     }).catch(() => null)
-    if (res?.data?.id) nav(`/admin/applications?id=${res.data.id}`)
+    const id = res?.data?.id
+    if (!id) return
+    if (form.domain.trim()) {
+      await run({
+        path: '/domains', label: `Attach ${form.domain}`, success: `${form.domain} attached`,
+        body: { name: form.domain.trim(), application_id: id, target_port: picked.port },
+      }).catch(() => {})   // the application exists either way; the domain can be retried on its tab
+    }
+    nav(`/admin/applications/${id}`)
   }
 
   if (picked) {
@@ -141,6 +149,10 @@ export default function Catalog() {
             <Field label="Docker image" hint="Pin a tag rather than using latest.">
               <input className="input font-mono text-xs" required value={form.image} placeholder="registry/image:tag"
                      onChange={(e) => setForm({ ...form, image: e.target.value })} />
+            </Field>
+            <Field label="Domain" hint="Optional. Point its A record at this server; the certificate is issued automatically.">
+              <input className="input" value={form.domain} placeholder="example.com"
+                     onChange={(e) => setForm({ ...form, domain: e.target.value })} />
             </Field>
             <Field label="Server" hint="Leave automatic to let the scheduler place it.">
               <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
