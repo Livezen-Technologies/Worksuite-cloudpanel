@@ -177,6 +177,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('scheduled-jobs/{id}/run', [Admin\ScheduledJobController::class, 'run'])->middleware('perm:servers.manage')->name('scheduled-jobs.run');
     $crud('maintenance-windows', Admin\MaintenanceWindowController::class, 'resources.view|servers.view', 'servers.manage');
 
+    // Firewall (FW-001). Domain management governs it, as it changes the proxy.
+    $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
+    Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('firewall.show');
+    Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:resources.view|servers.view')->name('firewall.events');
+    Route::put('firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:deploy|settings.manage')->name('firewall.countries');
+    Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.store');
+    Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.update');
+    Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.destroy');
+
     // Users, roles, settings, integrations, audit
     Route::middleware('perm:users.manage')->group(function () {
         Route::get('users', [Admin\UserController::class, 'index'])->name('users.index');

@@ -31,12 +31,17 @@ final class Lists
             if ($value !== null && $value !== '' && $value !== 'all') {
                 // A filter value goes straight to the query builder, so a malformed uuid would
                 // reach the database as a cast error and surface as a 500 instead of a 422.
-                if (str_ends_with($param, '_id') && ! is_callable($column) && ! self::isUuid($value)) {
+                // A column is a column, never a callable: is_callable() is true for
+                // any string naming a global function, so a filter called 'action'
+                // or 'count' would be invoked as Laravel's helper of that name
+                // instead of being compared. Only a closure is a custom filter.
+                $custom = $column instanceof \Closure;
+                if (str_ends_with($param, '_id') && ! $custom && ! self::isUuid($value)) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
                         $param => ['The '.str_replace('_', ' ', $param).' field must be a valid UUID.'],
                     ]);
                 }
-                is_callable($column) ? $column($query, $value) : $query->where($column, $value);
+                $custom ? $column($query, $value) : $query->where($column, $value);
             }
         }
         $sort = (string) $request->query('sort', '-created_at');
