@@ -66,6 +66,14 @@ return [
             'heartbeat_interval' => 15,
             'refresh_interval' => 10,
         ],
+        'smtp' => [
+            'host' => env('MAIL_HOST', ''),
+            'port' => (int) env('MAIL_PORT', 587),
+            'username' => env('MAIL_USERNAME', ''),
+            'encryption' => env('MAIL_SCHEME', 'tls'),
+            'from_address' => env('MAIL_FROM_ADDRESS', ''),
+            'from_name' => env('MAIL_FROM_NAME', 'WorkSuite'),
+        ],
         'security' => [
             'require_mfa' => false,
             'require_approval_destructive' => true,

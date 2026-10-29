@@ -81,19 +81,22 @@ const POLICIES = [
   ['allow_builds_on_deploy_targets', 'Allow builds on deploy targets', 'Only on servers with the builder role; otherwise builds run on separate builder nodes'],
 ] as const
 
-function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
+function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
   const { item, isLoading } = useOne<R>('/settings')
   const { run, busy } = useAction()
   const [g, setG] = useState<R>({})
-  useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}) }) }, [item])
+  useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}), ...(item.smtp ?? {}) }) }, [item])
   if (isLoading) return <Card>Loading…</Card>
-  const nested = !!item?.general || !!item?.security
-  const save = (keys: string[], section: 'general' | 'security') => {
+  const nested = !!item?.general || !!item?.security || !!item?.smtp
+  const save = (keys: string[], section: 'general' | 'security' | 'smtp') => {
     // API shape: {name, general:{default_region, audit_retention_days, heartbeat_interval, refresh_interval}, security:{<policy>: bool}}
-    const vals = Object.fromEntries(keys.filter((k) => k !== 'name').map((k) => [k, g[k]]))
+    const vals = Object.fromEntries(keys.filter((k) => k !== 'name')
+        .filter((k) => !(section === 'smtp' && k === 'password' && !g[k]))
+        .map((k) => [k, g[k]]))
     const body = nested ? { [section]: vals, ...(keys.includes('name') ? { name: g.name } : {}) } : { ...vals, ...(keys.includes('name') ? { name: g.name } : {}) }
     return run({ method: 'PATCH', path: '/settings', body, label: 'Save settings', success: 'Settings saved' }).catch(() => {})
   }
+  const SMTP: [string, string, string][] = [['host', 'SMTP host', 'text'], ['port', 'Port', 'number'], ['username', 'Username', 'text'], ['password', 'Password', 'password'], ['encryption', 'Encryption', 'encryption'], ['from_address', 'From address', 'email'], ['from_name', 'From name', 'text']]
   const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['panel_url', 'Panel URL', 'url'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
   return (
     <>
@@ -107,6 +110,32 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
               </Field>
             ))}
             <div className="col-span-full flex justify-end gap-2"><button type="button" className="btn" onClick={() => setG({ ...(item?.general ?? item), ...(item?.security ?? {}) })}>Cancel</button><button className="btn btn-primary" disabled={busy}>Save changes</button></div>
+          </form>
+        </Card>
+      )}
+      {tab === 'smtp' && (
+        <Card>
+          <p className="m-0 mb-3 text-sm text-muted">
+            Outgoing mail for invitations, alerts and invoices. The password is stored encrypted and never shown again.
+            {g.password_set ? ' A password is currently set.' : ' No password is set.'}
+          </p>
+          <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
+                onSubmit={(e) => { e.preventDefault(); save(SMTP.map((x) => x[0]), 'smtp') }}>
+            {SMTP.map(([k, l, t]) => (
+              <Field key={k} label={l} hint={k === 'password' && g.password_set ? 'Leave blank to keep the current password.' : undefined}>
+                {t === 'encryption'
+                  ? <Select className="input" value={g[k] ?? 'tls'} onChange={(e) => setG({ ...g, [k]: e.target.value })}>
+                      <option value="tls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option>
+                    </Select>
+                  : <input className="input" type={t} value={t === 'password' ? (g[k] ?? '') : (g[k] ?? '')}
+                           autoComplete={t === 'password' ? 'new-password' : undefined}
+                           placeholder={k === 'password' && g.password_set ? '••••••••' : undefined}
+                           onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
+              </Field>
+            ))}
+            <div className="col-span-full flex justify-end gap-2">
+              <button className="btn btn-primary" disabled={busy}>Save changes</button>
+            </div>
           </form>
         </Card>
       )}
@@ -192,14 +221,14 @@ export function ApiTokens({ path, abilities }: { path: string; abilities: string
   )
 }
 
-type STab = 'general' | 'security' | 'notifications' | 'providers' | 'tokens'
+type STab = 'general' | 'security' | 'smtp' | 'notifications' | 'providers' | 'tokens'
 export function Settings() {
   const [tab, setTab] = useState<STab>('general')
   return (
     <>
       <PageHeader title="Settings" subtitle="Organisation, security, notifications and provider integrations" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'notifications', label: 'Notifications' }, { id: 'providers', label: 'Providers' }, { id: 'tokens', label: 'API tokens' }]} />
-      {(tab === 'general' || tab === 'security') && <SettingsForm tab={tab} />}
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'smtp', label: 'SMTP' }, { id: 'notifications', label: 'Notifications' }, { id: 'providers', label: 'Providers' }, { id: 'tokens', label: 'API tokens' }]} />
+      {(tab === 'general' || tab === 'security' || tab === 'smtp') && <SettingsForm tab={tab} />}
       {tab === 'notifications' && <CrudCards path="/notification-channels" noun="channel"
         fields={[{ name: 'name', label: 'Name', required: true }, { name: 'type', label: 'Type', type: 'select', required: true, options: ['email', 'slack', 'teams', 'telegram', 'webhook'] }, { name: 'target', label: 'Address, channel or URL', mono: true, required: true }, { name: 'secret', label: 'Token / signing secret', type: 'password', hint: 'Write-only' }, { name: 'enabled', label: 'Enabled', type: 'checkbox' }]}
         describe={(r) => ({ name: r.name ?? r.type, sub: `${r.type} · ${r.target ?? r.config?.target ?? ''}`, state: r.enabled === false ? 'off' : 'connected' })} />}
