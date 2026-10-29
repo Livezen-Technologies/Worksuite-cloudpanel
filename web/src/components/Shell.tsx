@@ -90,12 +90,31 @@ export function Shell({ nav, rail, brand, status, sidebarFooter, headerExtra, to
 
           {/* Brand lockup, on wide screens where the sidebar heading is not the first thing read. */}
           <div className="hidden lg:flex items-center gap-2 flex-none">
-            <span className="grid h-7 w-7 place-content-center rounded-lg bg-accent text-white"><Icon name="logo" size={16} /></span>
-            <span className="text-sm font-semibold tracking-tight">{brand.title}</span>
+            {/* Four quadrants, per the canvas mark. */}
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" className="flex-none">
+              <rect x="2" y="2" width="9" height="9" rx="2" fill="var(--accent)" />
+              <rect x="13" y="2" width="9" height="9" rx="2" fill="var(--accent)" opacity=".7" />
+              <rect x="2" y="13" width="9" height="9" rx="2" fill="var(--accent)" opacity=".7" />
+              <rect x="13" y="13" width="9" height="9" rx="2" fill="var(--accent)" />
+            </svg>
+            <span className="text-[19px] font-semibold tracking-tight">{brand.title}</span>
             {brand.subtitle && (
               <span className="rounded-md bg-n-bg px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-n-fg">{brand.subtitle}</span>
             )}
           </div>
+
+          {/* Which tenant the session is acting as - the canvas puts this next
+              to the brand, and the panel spans tenants for staff. */}
+          {me?.organization?.name && (
+            <Link to="/admin/settings" title="Organisation settings"
+              className="hidden xl:flex flex-none items-center gap-2 rounded-lg bg-head px-2 py-1.5 text-sm font-semibold no-underline text-fg hover:bg-sel">
+              <span className="grid h-[26px] w-[26px] place-content-center rounded-md bg-accent text-[13px] text-white" aria-hidden="true">
+                {me.organization.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="max-w-[14rem] truncate">{me.organization.name}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </Link>
+          )}
 
           {/* Search is the primary way into anything, so it sits centre. */}
           <button type="button" onClick={() => setPalette(true)}
