@@ -105,6 +105,21 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   .btn-danger { background:transparent; border-color:var(--danger-line); color:var(--danger); }
   .btn-danger:hover { background:var(--r-bg); }
   .btn-sm { min-height:32px; padding:0 10px; font-size:13px; }
+  /* A quiet action: no border or fill until it is pointed at, so a row of
+     actions does not compete with the data beside it. */
+  .btn-ghost { background:transparent; border-color:transparent; color:var(--muted); font-weight:600; }
+  .btn-ghost:hover { background:var(--head); color:var(--text); }
+  .btn-ghost.btn-danger { background:transparent; border-color:transparent; color:var(--muted); }
+  .btn-ghost.btn-danger:hover { background:var(--r-bg); color:var(--danger); border-color:transparent; }
+  /* Segmented group: related lifecycle actions read as one control rather
+     than as separate decisions. */
+  .btn-group { display:inline-flex; }
+  .btn-group > .btn { border-radius:0; margin-left:-1px; }
+  .btn-group > .btn:first-child { border-radius:var(--radius-md) 0 0 var(--radius-md); margin-left:0; }
+  .btn-group > .btn:last-child { border-radius:0 var(--radius-md) var(--radius-md) 0; }
+  .btn-group > .btn:only-child { border-radius:var(--radius-md); }
+  /* The focused or hovered segment must sit above its neighbours' borders. */
+  .btn-group > .btn:hover, .btn-group > .btn:focus-visible { position:relative; z-index:1; }
   .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 var(--space-3); border-radius:var(--radius-md); transition:border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:14px; }
   textarea.input { padding:10px 12px; }
   .label { display:flex; flex-direction:column; gap:var(--space-2); font-size:13px; font-weight:600; }

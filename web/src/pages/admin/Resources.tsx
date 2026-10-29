@@ -94,7 +94,7 @@ export function Images() {
             { key: 'containers', header: 'Used by', value: (r) => num(r.users ?? r.container_count ?? r.containers), render: (r) => `${num(r.users ?? r.container_count ?? r.containers)} containers` },
             { key: 'server', header: 'Server', value: (r) => serverName(r) },
             { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); if (r.scan_status === 'scanning') return <Badge tone="b">scanning…</Badge>; if (r.scan_status === 'failed') return <Badge tone="y">scan failed</Badge>; return !scanned ? <Badge tone="n">not scanned</Badge> : <span className="inline-flex gap-1.5 flex-wrap"><Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium · ${num(sr?.low ?? r.low)} low` : 'clean'}</Badge>{r.blocks_deploy && <Badge tone="r">blocks deploys</Badge>}</span> } },
-            { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
+            { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
           ]} />
       </Card>
       <FormModal open={addReg} onClose={() => setAddReg(false)} title="Add registry" submitLabel="Connect registry"
@@ -250,9 +250,9 @@ export function Domains() {
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ?? '—' },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {})}>Check DNS</button>
-              <button type="button" className="btn btn-sm" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {})}>Issue cert</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel({ ...r, name: domainName(r) })}>Delete</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {})}>Check DNS</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {})}>Issue cert</button>
+              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel({ ...r, name: domainName(r) })}>Delete</button>
             </span>) },
         ]} />
       {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}

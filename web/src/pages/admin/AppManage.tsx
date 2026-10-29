@@ -136,7 +136,7 @@ function DatabasesTab({ app }: { app: R }) {
           { key: 'version', header: 'Version', value: (r) => r.version ?? '—' },
           { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? 'unknown'} /> },
           { key: 'actions', header: '', sortable: false, render: (r) => (
-            <button type="button" className="btn btn-sm" disabled={busy}
+            <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
                     onClick={() => run({ path: `/databases/${r.id}/backup`, label: `Back up ${r.name}` }).catch(() => {})}>Back up</button>
           ) },
         ]} />
@@ -176,9 +176,9 @@ function DomainsTab({ app }: { app: R }) {
           { key: 'certificate_expires_at', header: 'Certificate expires', value: (r) => r.certificate_expires_at ?? '—' },
           { key: 'actions', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" disabled={busy}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
                       onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Verify ${r.name}` }).catch(() => {})}>Verify DNS</button>
-              <button type="button" className="btn btn-sm" disabled={busy}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
                       onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.name}` }).catch(() => {})}>Issue certificate</button>
             </span>
           ) },
@@ -232,9 +232,9 @@ function CronTab({ app }: { app: R }) {
           { key: 'next_run_at', header: 'Next run', value: (r) => r.next_run_at ?? '—' },
           { key: 'actions', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" disabled={busy}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
                       onClick={() => run({ path: `/scheduled-jobs/${r.id}/run`, label: `Run ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm" disabled={busy}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
                       onClick={() => run({ method: 'DELETE', path: `/scheduled-jobs/${r.id}`, label: `Delete ${r.name}`, success: 'Cron job deleted' }).catch(() => {})}>Delete</button>
             </span>
           ) },

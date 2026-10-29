@@ -61,15 +61,23 @@ function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="font-mono text-xs text-muted mt-1 break-all">{c.image}</div>
             <div className="flex gap-2 mt-2"><StatusBadge status={c.state} />{c.health && <StatusBadge status={c.health} />}</div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          {/* Three weights, so the row reads as a hierarchy rather than six
+              equal choices: the lifecycle state change is primary, the other
+              lifecycle actions are one segmented control, and everything else
+              is quiet until pointed at. Remove is pushed away from the rest. */}
+          <div className="flex flex-wrap items-center gap-2">
             {!isProtected(c) && (c.state === 'running'
-              ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button>
-              : <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}>{c.state === 'paused' ? 'Unpause' : 'Start'}</button>)}
-            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('restart')}>Restart</button>
-            {!isProtected(c) && c.state === 'running' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('pause')}>Pause</button>}
-            <button type="button" className="btn btn-sm" disabled={c.state !== 'running'} onClick={() => setTerm(true)}>Terminal</button>
-            {!isProtected(c) && <button type="button" className="btn btn-sm" onClick={() => setDup(true)}>Duplicate</button>}
-            {!isProtected(c) && <button type="button" className="btn btn-sm btn-danger" onClick={() => setRemove(true)}>Remove</button>}
+              ? <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act('stop')}>Stop</button>
+              : <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}>{c.state === 'paused' ? 'Unpause' : 'Start'}</button>)}
+            <span className="btn-group">
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('restart')}>Restart</button>
+              {!isProtected(c) && c.state === 'running' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('pause')}>Pause</button>}
+            </span>
+            <button type="button" className="btn btn-sm btn-ghost" disabled={c.state !== 'running'} onClick={() => setTerm(true)}>Terminal</button>
+            {!isProtected(c) && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDup(true)}>Duplicate</button>}
+            {!isProtected(c) && (
+              <button type="button" className="btn btn-sm btn-ghost btn-danger ml-auto" onClick={() => setRemove(true)}>Remove</button>
+            )}
           </div>
           {isProtected(c) && (
             <p className="m-0 rounded-lg bg-y-bg px-3 py-2 text-sm text-y-fg">
@@ -252,9 +260,11 @@ export default function Containers() {
           { key: 'mem_mb', header: 'Memory', value: (r) => r.mem_mb ?? 0, render: (r) => mb(r.mem_mb) },
           { key: 'ports', header: 'Ports', render: (r) => <span className="font-mono text-[11.5px] text-muted">{ports(r.ports)}</span> },
           { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-3 justify-end" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="bg-transparent border-0 p-0 font-semibold text-accent-fg cursor-pointer" onClick={() => setParams({ id: r.id })}>Logs</button>
-              <button type="button" className="bg-transparent border-0 p-0 font-semibold text-danger cursor-pointer" onClick={() => setRemoving(r)}>Remove</button>
+            // Quiet by default: a column of bold red on every row makes the
+            // destructive action the most prominent thing in the table.
+            <span className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setParams({ id: r.id })}>Logs</button>
+              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(r)}>Remove</button>
             </span>) },
         ]} />
       <p className="m-0 text-xs text-muted">Removing a container never deletes attached volumes unless you untick “Keep attached volumes”.</p>

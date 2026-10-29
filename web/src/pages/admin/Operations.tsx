@@ -116,9 +116,9 @@ export function Backups() {
           { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at ?? r.last_run?.created_at) },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm" onClick={() => setEdit(r)}>Edit</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
+              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
             </span>) },
         ]} />
       <DataTable label="Snapshots" rows={artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
@@ -131,9 +131,9 @@ export function Backups() {
           { key: 'restore_test_status', header: 'Restore test', render: (r) => r.restore_test_status ? <span title={r.restore_test_message ?? undefined}><StatusBadge status={r.restore_test_status} /></span> : <span className="text-muted text-xs">—</span> },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
-              <button type="button" className="btn btn-sm" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test restore</button>
-              <button type="button" className="btn btn-sm" onClick={() => setArtifact(r)}>Restore</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test restore</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setArtifact(r)}>Restore</button>
             </span>) },
         ]} />
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"

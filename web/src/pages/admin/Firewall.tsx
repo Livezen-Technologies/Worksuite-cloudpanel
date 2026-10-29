@@ -245,13 +245,13 @@ export default function Firewall() {
             ) },
             { key: 'act', header: '', render: (r) => (
               <span className="flex gap-2">
-                <button type="button" className="btn btn-sm" onClick={() => setForm({
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({
                   ...r,
                   paths_text: ((r.paths as string[]) ?? []).join(', '),
                   methods_text: ((r.methods as string[]) ?? []).join(', '),
                   domain_id: r.domain_id ?? '',
                 })}>Edit</button>
-                <button type="button" className="btn btn-sm btn-danger" onClick={() => setRemove(r)}>Delete</button>
+                <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemove(r)}>Delete</button>
               </span>
             ) },
           ]} />
