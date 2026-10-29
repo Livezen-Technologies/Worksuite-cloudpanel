@@ -1,46 +1,54 @@
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { Shell, type NavItem, type RailItem } from '../../components/Shell'
 import { Icon } from '../../components/Icon'
 import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
-/** The areas of the product, shown in the icon rail beside the sidebar. */
-export const ADMIN_RAIL: RailItem[] = [
-  { label: 'Infrastructure', to: '/admin', icon: 'grid', end: true },
-  { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
-  { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
-  { label: 'Hosting customers', to: '/admin/customers', icon: 'users' },
-  { label: 'Customer panel', to: '/app', icon: 'store' },
-  { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+/**
+ * Six primary categories. The rail switches between them; the sidebar shows
+ * only the items of the one in view, so a category's contents stay together
+ * instead of competing with every other area for attention.
+ */
+export interface AdminSection { id: string; label: string; icon: string; items: NavItem[] }
+
+export const ADMIN_SECTIONS: AdminSection[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'grid', items: [
+    { label: 'Overview', to: '/admin', end: true, icon: 'grid' },
+    { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
+  ] },
+  { id: 'deploy', label: 'Deploy', icon: 'rocket', items: [
+    { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
+    { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
+    { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
+    { label: 'Containers', to: '/admin/containers', icon: 'box' },
+    { label: 'Images & Registry', to: '/admin/images', icon: 'image' },
+  ] },
+  { id: 'resources', label: 'Resources', icon: 'server', items: [
+    { label: 'Servers', to: '/admin/servers', icon: 'server' },
+    { label: 'Databases', to: '/admin/databases', icon: 'db' },
+    { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
+    { label: 'Networks', to: '/admin/networks', icon: 'share' },
+  ] },
+  { id: 'hosting', label: 'Hosting', icon: 'globe', items: [
+    { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
+    { label: 'Packages', to: '/admin/packages', icon: 'tag' },
+    { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
+  ] },
+  { id: 'operations', label: 'Operations', icon: 'pulse', items: [
+    { label: 'Backups', to: '/admin/backups', icon: 'archive' },
+    { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file' },
+    { label: 'Automation', to: '/admin/automation', icon: 'clock' },
+  ] },
+  { id: 'settings', label: 'Settings', icon: 'gear', items: [
+    { label: 'Users & Teams', to: '/admin/users', icon: 'users' },
+    { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+    { label: 'Account', to: '/admin/account', icon: 'user' },
+  ] },
 ]
 
-export const ADMIN_NAV: NavItem[] = [
-  { label: 'Overview', to: '/admin', end: true, icon: 'grid', group: 'Infrastructure' },
-  { label: 'Servers', to: '/admin/servers', icon: 'server' },
-  { label: 'Containers', to: '/admin/containers', icon: 'box' },
-  { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
-
-  { label: 'Applications', to: '/admin/applications', icon: 'rocket', group: 'Deploy' },
-  { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
-  { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
-  { label: 'Images & Registry', to: '/admin/images', icon: 'image' },
-
-  { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe', group: 'Resources' },
-  { label: 'Databases', to: '/admin/databases', icon: 'db' },
-  { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
-  { label: 'Networks', to: '/admin/networks', icon: 'share' },
-  { label: 'Backups', to: '/admin/backups', icon: 'archive' },
-
-  { label: 'Packages', to: '/admin/packages', icon: 'tag', group: 'Hosting' },
-  { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
-
-  { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file', group: 'Operations' },
-  { label: 'Automation', to: '/admin/automation', icon: 'clock' },
-
-  { label: 'Users & Teams', to: '/admin/users', icon: 'users', group: 'Settings' },
-  { label: 'Settings', to: '/admin/settings', icon: 'gear' },
-  { label: 'Account', to: '/admin/account', icon: 'user' },
-]
+/** Flat list, still used by the command palette and the mobile drawer. */
+export const ADMIN_NAV: NavItem[] = ADMIN_SECTIONS.flatMap((s) =>
+  s.items.map((it, i) => (i === 0 ? { ...it, group: s.label } : it)))
 
 function AlertsBell() {
   const { rows } = useList<R>('/alerts', { status: 'active' }, { refetchInterval: 30000 })
@@ -54,8 +62,18 @@ function AlertsBell() {
 }
 
 export function AdminLayout() {
+  const { pathname } = useLocation()
+  // Longest matching route wins, so /admin/applications beats /admin.
+  const active = ADMIN_SECTIONS
+    .map((sec) => ({ sec, hit: Math.max(...sec.items.map((i) => (pathname === i.to || pathname.startsWith(i.to + '/')) ? i.to.length : 0)) }))
+    .reduce((best, c) => (c.hit > best.hit ? c : best), { sec: ADMIN_SECTIONS[0], hit: 0 }).sec
+
+  const rail: RailItem[] = ADMIN_SECTIONS.map((sec) => ({
+    label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end,
+  }))
+
   return (
-    <Shell rail={ADMIN_RAIL} label="Main" nav={ADMIN_NAV} brand={{ title: 'Docker Manager' }} headerExtra={<AlertsBell />}
+    <Shell rail={rail} label={active.label} nav={active.items} brand={{ title: 'Docker Manager' }} headerExtra={<AlertsBell />}
       sidebarFooter={
         <div className="p-3.5 rounded-[10px] bg-head border border-line">
           <div className="text-xs text-muted">Control plane</div>
