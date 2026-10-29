@@ -8,9 +8,13 @@ Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
                           monitoring, hardened SSH, backups in two places
 Firewall           ~70%   schema, API, renderer and page built; only rate
                           limits actually reach traffic
-Monitoring         ~55%   websites + containers + servers every 5 min
+Monitoring         ~85%   websites + containers + servers every 5 min,
+                          cooldowns, escalation, auto-restart, uptime
+                          reports, WhatsApp/SMS; no Grafana or status page
+New features         0%   file manager, DNS zones, WordPress toolkit,
+                          migration wizard, mail hosting (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~45%
+Overall            ~40%   down from ~45%: SRS scope grew (MIG, MAIL)
 ```
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -119,11 +123,13 @@ same service. Site-wide rules attach to the domain router.
 
 ## 4. Monitoring to 100%
 
-- [ ] Auto-restart policies for failed containers
-- [ ] Uptime reports and downtime history
-- [ ] Per-customer scoped incident views
-- [ ] Alert dedup, cooldowns, maintenance windows, escalation
-- [ ] WhatsApp / Telegram / SMS channels
+- [x] Auto-restart policies for failed containers
+- [x] Uptime reports and downtime history
+- [x] Per-customer scoped incident views
+- [x] Alert dedup, cooldowns, maintenance windows, escalation
+- [x] WhatsApp and SMS channels (`6d361b1`)
+- [ ] Telegram channel
+- [ ] Grafana dashboard and a public status page
 
 ## 5. WorkSuite Server v3.2
 
