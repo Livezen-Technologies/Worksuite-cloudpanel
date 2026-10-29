@@ -167,7 +167,7 @@ const RULE_FIELDS = (channels: R[]): FieldDef[] => [
   { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<=', '='] },
   { name: 'threshold', label: 'Threshold', type: 'number', required: true },
   { name: 'duration_minutes', label: 'For (minutes)', type: 'number' },
-  { name: 'severity', label: 'Severity', type: 'select', required: true, options: ['info', 'warning', 'critical'] },
+  { name: 'severity', label: 'Severity', type: 'select', required: true, options: ['info', 'warning', 'critical', 'emergency'] },
   { name: 'scope', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'application'], required: true },
   { name: 'scope_id', label: 'Scope ID (group or app)', mono: true, show: (v) => v.scope !== 'organization' },
   ...channels.map((c) => ({ name: `ch_${c.id}`, label: `Notify ${c.name ?? c.type}`, type: 'checkbox' as const })),
@@ -204,7 +204,7 @@ export function Monitoring() {
       </Card>
       <Card title="Active alerts" pad={false}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
-          filters={[{ id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
+          filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
           columns={[
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'title', header: 'Alert', value: (r) => r.title ?? r.rule_name ?? r.name, render: (r) => <span className="font-semibold">{r.title ?? r.rule_name ?? r.name}</span> },

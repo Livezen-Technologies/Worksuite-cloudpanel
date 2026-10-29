@@ -22,7 +22,7 @@ class AlertRuleController extends CrudController
             'operator' => 'sometimes|in:>,<,>=,<=',
             'threshold' => 'nullable|numeric',
             'duration_minutes' => 'sometimes|integer|min:0|max:1440',
-            'severity' => 'sometimes|in:info,warning,critical',
+            'severity' => 'sometimes|in:info,warning,critical,emergency',
             'scope_type' => 'sometimes|in:organization,server_group,server,application',
             'scope_id' => 'nullable|uuid',
             'channel_ids' => 'nullable|array', 'channel_ids.*' => 'uuid',

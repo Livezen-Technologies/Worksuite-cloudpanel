@@ -1,11 +1,16 @@
 import type { ReactNode } from 'react'
 
-export function Card({ title, actions, children, className = '', pad = true, id }: { title?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; id?: string }) {
+export function Card({ title, subtitle, actions, children, className = '', pad = true, id }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; id?: string }) {
   return (
     <section className={`card min-w-0 ${pad ? 'p-5' : 'overflow-hidden'} ${className}`} aria-labelledby={title && id ? id : undefined}>
       {(title || actions) && (
-        <div className={`flex flex-wrap items-center justify-between gap-2 ${pad ? 'mb-3' : 'px-5 pt-4 pb-3'}`}>
-          {title && <h2 id={id} className="m-0 text-[15px] font-semibold">{title}</h2>}
+        <div className={`flex flex-wrap items-start justify-between gap-2 ${pad ? 'mb-3' : 'px-5 pt-4 pb-3'}`}>
+          {title && (
+            <div className="min-w-0">
+              <h2 id={id} className="m-0 text-[15px] font-semibold">{title}</h2>
+              {subtitle && <div className="mt-1 text-[13px] text-muted">{subtitle}</div>}
+            </div>
+          )}
           {actions && <div className="flex flex-wrap gap-2 items-center">{actions}</div>}
         </div>
       )}

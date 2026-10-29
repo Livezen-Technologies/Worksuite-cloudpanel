@@ -5,7 +5,7 @@ const MAP: Record<string, Tone> = {
   connected: 'g', completed: 'g', paid: 'g', ok: 'g', live: 'g', enabled: 'g', approved: 'g', clean: 'g', yes: 'g',
   warning: 'y', paused: 'y', pending: 'y', waiting: 'y', expiring: 'y', degraded: 'y', restarting: 'y', 'rolled back': 'y',
   queued: 'y', due: 'y', open: 'y', medium: 'y', awaiting_approval: 'y',
-  offline: 'r', failed: 'r', unhealthy: 'r', critical: 'r', error: 'r', expired: 'r', high: 'r', cancelled: 'r', overdue: 'r',
+  offline: 'r', failed: 'r', unhealthy: 'r', critical: 'r', emergency: 'r', error: 'r', expired: 'r', high: 'r', cancelled: 'r', overdue: 'r',
   maintenance: 'b', deploying: 'b', info: 'b', scheduled: 'b', managed: 'b', staging: 'b', preview: 'b', building: 'b',
 }
 export function toneFor(status?: string | null): Tone {

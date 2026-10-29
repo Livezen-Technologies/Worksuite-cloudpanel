@@ -22,6 +22,39 @@ function xLabels(range: Range, n: number): string[] {
   })
 }
 
+/** Donut colours match the state legend beside it. */
+const STATES: [string, string, string][] = [
+  ['online', 'Online', 'var(--g-fg)'],
+  ['warning', 'Warning', 'var(--y-fg)'],
+  ['maintenance', 'Maintenance', 'var(--b-fg)'],
+  ['offline', 'Offline', 'var(--muted)'],
+  ['pending', 'Pending', 'var(--line)'],
+]
+
+/** A score reads red below 60, amber below 90, green above. */
+function scoreStyle(score: number) {
+  const tone = score < 60 ? 'r' : score < 90 ? 'y' : 'g'
+  return { background: `var(--${tone}-bg)`, color: `var(--${tone}-fg)` }
+}
+
+function Donut({ pct, label }: { pct: number; label: string }) {
+  const r = 62, circ = 2 * Math.PI * r
+  const on = (Math.max(0, Math.min(100, pct)) / 100) * circ
+  return (
+    <div className="relative h-[150px] w-[150px] flex-none">
+      <svg width="150" height="150" viewBox="0 0 150 150" role="img" aria-label={`${Math.round(pct)}% of servers ${label}`}>
+        <circle cx="75" cy="75" r={r} fill="none" stroke="var(--track)" strokeWidth="16" />
+        <circle cx="75" cy="75" r={r} fill="none" stroke="var(--g-fg)" strokeWidth="16"
+          strokeDasharray={`${on.toFixed(1)} ${(circ - on).toFixed(1)}`} transform="rotate(-90 75 75)" />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[26px] font-bold tabular-nums">{Math.round(pct)}%</span>
+        <span className="text-xs text-muted">{label}</span>
+      </div>
+    </div>
+  )
+}
+
 function kpiTiles(k: R | R[] | undefined) {
   if (Array.isArray(k)) return k.map((x) => ({ label: String(x.label), value: String(x.value), delta: x.delta as string | undefined, pct: x.pct != null ? num(x.pct) : undefined }))
   if (!k) return []
@@ -78,6 +111,9 @@ export default function Overview() {
   const alerts = (d?.alerts ?? []) as R[]
   const deploys = (d?.deployments ?? []) as R[]
   const top = (d?.top ?? []) as R[]
+  const fleet = d?.fleet as R | undefined
+  const fleetTotal = num(fleet?.total)
+  const attention = (d?.attention ?? []) as R[]
   const serverCount = d?.kpis && !Array.isArray(d.kpis) ? num(pick(d.kpis, 'servers_total', 'total_servers')) : undefined
   return (
     <>
@@ -122,7 +158,7 @@ export default function Overview() {
         <Card className="flex-[1_1_300px]" title="Active alerts" actions={<Link to="/admin/monitoring" className="text-[13px] font-semibold">View all</Link>}>
           {/* Severity first: how bad matters before which. */}
           <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
-            {([['critical', 'Critical', 'text-r-fg'], ['warning', 'Warning', 'text-y-fg'], ['info', 'Info', 'text-b-fg']] as const).map(([key, lbl, cls]) => {
+            {([['emergency', 'Emergency', 'text-r-fg'], ['critical', 'Critical', 'text-r-fg'], ['warning', 'Warning', 'text-y-fg'], ['info', 'Info', 'text-b-fg']] as const).map(([key, lbl, cls]) => {
               const n = alerts.filter((a) => String(a.severity ?? '').toLowerCase() === key).length
               return (
                 <span key={key} className="flex items-center gap-1.5">
@@ -138,6 +174,67 @@ export default function Overview() {
                 <li key={a.id ?? i} className="flex gap-3 py-3 border-t border-line">
                   <Badge tone={toneFor(a.severity)}>{a.severity ?? 'info'}</Badge>
                   <div className="min-w-0"><div className="text-sm font-semibold">{a.title ?? a.name ?? a.rule}</div><div className="text-xs text-muted mt-0.5">{a.detail ?? a.message}</div></div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+      <div className="flex flex-wrap gap-4">
+        <Card className="flex-[2_1_520px]" title="Fleet health" subtitle={fleetTotal ? `${fleetTotal} server${fleetTotal === 1 ? '' : 's'} in your scope` : undefined}
+          actions={<Link to="/admin/servers" className="text-[13px] font-semibold">All servers</Link>}>
+          {!fleet ? <Empty>No servers enrolled yet.</Empty> : (
+            <>
+              <div className="flex flex-wrap items-center gap-6">
+                <Donut pct={num(fleet.online_pct)} label="online" />
+                <ul className="list-none m-0 p-0 flex-1 min-w-[180px] flex flex-col gap-3">
+                  {STATES.map(([key, label, color]) => {
+                    const n = num((fleet.states as R)?.[key])
+                    return (
+                      <li key={key} className="flex items-center gap-2.5 text-sm">
+                        <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: color }} />
+                        <span className="flex-1">{label}</span>
+                        <span className="w-6 text-right font-semibold tabular-nums">{n}</span>
+                        <span className="w-10 text-right text-[13px] text-muted tabular-nums">{fleetTotal ? Math.round((n / fleetTotal) * 100) : 0}%</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+              <div className="mt-5">
+                <div className="text-xs font-semibold tracking-[0.04em] text-muted">HEALTH SCORE DISTRIBUTION</div>
+                <div className="mt-3 flex items-end gap-3" style={{ height: 76 }}>
+                  {Object.entries((fleet.distribution ?? {}) as Record<string, unknown>).map(([band, v]) => {
+                    const n = num(v)
+                    return (
+                      <div key={band} className="flex flex-1 flex-col items-center gap-1.5">
+                        <span className="text-xs font-semibold tabular-nums">{n || ''}</span>
+                        <div className="w-full max-w-[56px] rounded-t" aria-hidden="true"
+                          style={{ height: n ? Math.max(6, (n / fleetTotal) * 52) : 2, background: n ? 'var(--g-fg)' : 'var(--line)' }} />
+                        <span className="text-[11px] text-muted">{band.replace('-', '–')}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </Card>
+        <Card className="flex-[1_1_300px]" title="Needs attention" subtitle="Lowest health first"
+          actions={<Link to="/admin/servers" className="text-[13px] font-semibold">All servers</Link>}>
+          {attention.length === 0 ? <Empty>Every server is at full health.</Empty> : (
+            <ul className="list-none m-0 p-0">
+              {attention.map((a, i) => (
+                <li key={String(a.id ?? i)} className="flex items-center gap-3 py-3 border-t border-line first:border-t-0 first:pt-0">
+                  <span className="grid h-10 w-10 flex-none place-content-center rounded-full text-sm font-bold tabular-nums"
+                    style={scoreStyle(num(a.score))}>{num(a.score)}</span>
+                  <Link to={`/admin/servers/${a.id}`} className="min-w-0 flex-1 no-underline text-fg">
+                    <span className="block truncate text-sm font-semibold">{String(a.name)}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {[a.ip, a.provider, ...((a.reasons ?? []) as string[])].filter(Boolean).join(' · ')}
+                    </span>
+                  </Link>
+                  <StatusBadge status={String(a.state)} />
                 </li>
               ))}
             </ul>
