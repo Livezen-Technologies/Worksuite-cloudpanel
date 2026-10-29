@@ -41,6 +41,8 @@ var Types = map[string]bool{
 	"terminal.open": true,
 	"image.build":   true, "image.scan": true, "container.healthcheck": true,
 	"firewall.apply": true, "firewall.confirm": true,
+	"fs.list": true, "fs.read": true, "fs.write": true, "fs.mkdir": true,
+	"fs.rename": true, "fs.delete": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -82,6 +84,8 @@ type Executor struct {
 	HealthHTTP     *http.Client
 	HealthInterval time.Duration
 	Updater        *update.Updater
+	// VolumeRoot overrides the volume -> host directory lookup (tests).
+	VolumeRoot func(ctx context.Context, name string) (string, error)
 	// Terminal enables terminal.open (nil = disabled).
 	Terminal *TerminalConfig
 	// Restart re-execs the agent; called after the result is reported.

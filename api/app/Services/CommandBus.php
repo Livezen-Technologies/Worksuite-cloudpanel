@@ -28,6 +28,7 @@ class CommandBus
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
+        'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */
@@ -41,6 +42,7 @@ class CommandBus
         'compose.deploy' => ComposeService::class,
         'database.create' => DatabaseService::class,
         'image.scan' => ScanService::class,
+        'files' => FileService::class,
     ];
 
     public function __construct(private JobService $jobs) {}

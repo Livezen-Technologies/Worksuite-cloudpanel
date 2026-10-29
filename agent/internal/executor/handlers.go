@@ -83,6 +83,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			}
 			return map[string]any{"logs": s}, nil
 		}
+	case "fs.list", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.delete":
+		return e.files(ctx, c.Type, c.Payload)
 	case "firewall.apply":
 		return e.applyFirewall(ctx, c.Payload, progress)
 	case "firewall.confirm":
