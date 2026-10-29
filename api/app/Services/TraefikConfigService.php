@@ -33,7 +33,7 @@ class TraefikConfigService implements HandlesCommandResults
         'gandiv5' => ['GANDIV5_PERSONAL_ACCESS_TOKEN'],
     ];
 
-    public function __construct(private CommandBus $bus, private JobService $jobs) {}
+    public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall) {}
 
     public static function enabled(): bool
     {
@@ -106,6 +106,15 @@ class TraefikConfigService implements HandlesCommandResults
             if ($domain->www_redirect) {
                 $middlewares[$name.'-www'] = ['redirectRegex' => ['regex' => '^https?://www\\.'.preg_quote($domain->name).'/(.*)', 'replacement' => "https://{$domain->name}/\${1}", 'permanent' => true]];
                 $routers[$name]['middlewares'] = [$name.'-www'];
+            }
+            // FW-001: firewall rules for this domain. Path-scoped rules need
+            // their own higher-priority router, since a middleware cannot match
+            // a path; site-wide ones attach to the domain's router.
+            $fw = $this->firewall->renderFor($domain, $name, $service, $rule);
+            $middlewares += $fw['middlewares'];
+            $fw['routers'] && $routers += $fw['routers'];
+            if ($fw['site']) {
+                $routers[$name]['middlewares'] = array_merge($routers[$name]['middlewares'] ?? [], $fw['site']);
             }
         }
         // Traefik rejects an empty routers map ("routers cannot be a standalone
