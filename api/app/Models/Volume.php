@@ -14,6 +14,11 @@ class Volume extends Model
 
     protected $guarded = ['id'];
 
+    public function getConsumersAttribute(): int
+    {
+        return (int) ($this->attributes['used_by'] ?? 0);
+    }
+
     protected $hidden = [];
 
     protected function casts(): array
@@ -23,7 +28,8 @@ class Volume extends Model
         ];
     }
 
-    protected $appends = ['has_backup_policy'];
+    /** 'consumers' is what the volumes table shows as "Used by". */
+    protected $appends = ['has_backup_policy', 'consumers'];
     public function server() { return $this->belongsTo(Server::class); }
     public function mounts() { return $this->hasMany(VolumeMount::class); }
     public function getHasBackupPolicyAttribute(): bool

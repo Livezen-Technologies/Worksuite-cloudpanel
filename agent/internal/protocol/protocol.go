@@ -60,6 +60,12 @@ type Container struct {
 	MemMB    float64  `json:"mem_mb"`
 	Ports    []string `json:"ports"`
 	Created  string   `json:"created"`
+	// Inspect-only detail, so the panel can show what a container actually runs as.
+	Labels        map[string]string `json:"labels,omitempty"`
+	User          string            `json:"user,omitempty"`
+	RestartPolicy string            `json:"restart_policy,omitempty"`
+	CPUs          float64           `json:"cpus,omitempty"`
+	MemLimitMB    float64           `json:"mem_limit_mb,omitempty"`
 }
 
 type Image struct {
@@ -83,6 +89,10 @@ type Volume struct {
 	Name       string `json:"name"`
 	Driver     string `json:"driver"`
 	Mountpoint string `json:"mountpoint"`
+	// Docker does not report either, so the agent measures the mountpoint and
+	// counts the containers that mount it.
+	SizeMB float64 `json:"size_mb,omitempty"`
+	UsedBy int     `json:"used_by"`
 }
 
 type HeartbeatRequest struct {

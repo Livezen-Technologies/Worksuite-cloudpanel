@@ -20,6 +20,22 @@ abstract class Controller
         return response()->json(['data' => array_merge(['job_id' => $job->id, 'status' => $job->status], $extra)], 202);
     }
 
+    /**
+     * Staff hold a platform-scope role and administer every tenant, so their list
+     * views must not be limited to their own organisation.
+     */
+    protected function seesAllTenants(Request $request): bool
+    {
+        $userId = $request->user()?->id;
+        if (! $userId) {
+            return false;
+        }
+        $role = \Illuminate\Support\Facades\DB::table('memberships')->where('user_id', $userId)->value('role');
+
+        return $role !== null
+            && \Illuminate\Support\Facades\DB::table('roles')->where('name', $role)->value('scope') === 'platform';
+    }
+
     protected function authorizeFor(Request $request, string $permission, $resource = null): void
     {
         app(Authorizer::class)->authorize($request->user(), $permission, $resource, ! $request->isMethodSafe());

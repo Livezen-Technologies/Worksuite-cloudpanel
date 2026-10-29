@@ -35,7 +35,9 @@ class ServerService
 
     public function installCommand(string $token): string
     {
-        $panel = rtrim(config('platform.panel_url'), '/');
+        // Settings override the env default so the panel URL can be changed without a deploy.
+        $configured = data_get(\App\Support\Tenant::current()?->settings, 'general.panel_url');
+        $panel = rtrim($configured ?: config('platform.panel_url'), '/');
 
         return "curl -fsSL {$panel}/agent/v1/install.sh | sudo sh -s -- --url {$panel} --token {$token}";
     }

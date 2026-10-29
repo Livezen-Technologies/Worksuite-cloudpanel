@@ -12,6 +12,7 @@ import { CodeEditor } from '../../components/CodeEditor'
 import { useToast } from '../../components/Toasts'
 import { ago, unwrap } from '../../lib/format'
 import { type R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const SOURCES = [['git', 'Git repository', 'GitHub · GitLab · Gitea'], ['image', 'Docker image', 'Public or private registry'], ['dockerfile', 'Dockerfile', 'Build from source, isolated runner'], ['compose', 'Compose stack', 'Multi-service application']] as const
 const STRATEGIES = [['recreate', 'Recreate', 'Simple; brief downtime'], ['rolling', 'Rolling update', 'Replace instances one by one'], ['blue_green', 'Blue-green', 'Switch traffic after health checks']] as const
@@ -61,13 +62,13 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
           {builds && <>
             <Field label="Dockerfile path" error={errors['source.dockerfile_path']}><input className="input font-mono" value={f.dockerfile_path} onChange={(e) => setF({ ...f, dockerfile_path: e.target.value })} /></Field>
             <Field label="Build context" error={errors['source.context']}><input className="input font-mono" value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></Field>
-            <Field label="Push to registry" hint="Without one the image stays on the builder, which must then be the target"><select className="input" value={f.push_registry_id} onChange={(e) => setF({ ...f, push_registry_id: e.target.value })}><option value="">Do not push</option>{registries.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>
+            <Field label="Push to registry" hint="Without one the image stays on the builder, which must then be the target"><Select className="input" value={f.push_registry_id} onChange={(e) => setF({ ...f, push_registry_id: e.target.value })}><option value="">Do not push</option>{registries.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>
             <Field label="Git access token" hint="Optional; stored as an encrypted secret"><input className="input font-mono" type="password" autoComplete="off" value={f.git_token} onChange={(e) => setF({ ...f, git_token: e.target.value })} /></Field>
           </>}
           <Field label="Container port" error={errors.port}><input className="input" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} /></Field>
           <Field label="Health check path" hint="GET on the port after start; 2xx/3xx passes" error={errors.health_path}><input className="input font-mono" value={f.health_path} onChange={(e) => setF({ ...f, health_path: e.target.value })} /></Field>
-          <Field label="Environment"><select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></select></Field>
-          <Field label="Target server" hint="Leave empty to let the scheduler place it"><select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</select></Field>
+          <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></Select></Field>
+          <Field label="Target server" hint="Leave empty to let the scheduler place it"><Select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</Select></Field>
         </div>
         <fieldset className="border-0 p-0 m-0"><legend className="text-[13px] font-semibold mb-2">Release strategy</legend>
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
@@ -90,7 +91,7 @@ function DeployDialog({ open, onClose, apps }: { open: boolean; onClose: () => v
   return (
     <Modal open={open} onClose={onClose} title="New deployment"
       footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn btn-primary" disabled={!app || busy} onClick={() => run({ path: '/deployments', body: { application_id: app }, label: `Deploy ${apps.find((a) => a.id === app)?.name ?? ''}` }).then(onClose).catch(() => {})}>Deploy</button></>}>
-      <Field label="Application"><select className="input" value={app} onChange={(e) => setApp(e.target.value)}><option value="">Choose…</option>{apps.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.environment}</option>)}</select></Field>
+      <Field label="Application"><Select className="input" value={app} onChange={(e) => setApp(e.target.value)}><option value="">Choose…</option>{apps.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.environment}</option>)}</Select></Field>
     </Modal>
   )
 }
@@ -157,7 +158,7 @@ export function Applications() {
   return (
     <>
       <PageHeader title="Applications" subtitle="Deploy from Git, a Docker image, a Dockerfile or a Compose stack"
-        actions={<><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
+        actions={<><a className="btn" href="/admin/catalog">Install from catalogue</a><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
       {approvals.rows.length > 0 && (
         <Card title="Waiting for approval">
           <ul className="list-none m-0 p-0">
@@ -176,7 +177,7 @@ export function Applications() {
       <DataTable label="Applications" rows={apps.rows} loading={apps.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setParams({ id: r.id })} selectedRowId={selected?.id}
         filters={[{ id: 'production', label: 'Production', test: (r) => r.environment === 'production' }, { id: 'staging', label: 'Staging', test: (r) => r.environment === 'staging' }]}
         columns={[
-          { key: 'name', header: 'Application', render: (r) => <span className="font-semibold">{r.name}</span> },
+          { key: 'name', header: 'Application', render: (r) => <a className="font-semibold" href={`/admin/applications/${r.id}`} onClick={(e) => e.stopPropagation()}>{r.name}</a> },
           { key: 'source_type', header: 'Source' },
           { key: 'environment', header: 'Environment', render: (r) => <StatusBadge status={r.environment} /> },
           { key: 'strategy', header: 'Strategy' },
@@ -328,8 +329,8 @@ export function Compose() {
         <div className="flex flex-col gap-4">
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
             <Field label="Project name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-            <Field label="Target server"><select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Choose…</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
-            <Field label="Environment"><select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option></select></Field>
+            <Field label="Target server"><Select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Choose…</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>
+            <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option></Select></Field>
           </div>
           <Field label="Import from Git (optional)" hint="Repository URL containing compose.yaml"><input className="input font-mono" value={f.git_url} onChange={(e) => setF({ ...f, git_url: e.target.value })} /></Field>
           <label className="label">Upload compose.yaml<input type="file" accept=".yml,.yaml" className="text-sm font-normal" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setF({ ...f, yaml: await file.text() }) }} /></label>

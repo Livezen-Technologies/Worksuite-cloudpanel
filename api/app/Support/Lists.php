@@ -8,6 +8,11 @@ use Illuminate\Http\Request;
 /** List convention: ?search=&sort=field|-field&page=&per_page= plus filters. */
 final class Lists
 {
+    private static function isUuid(mixed $value): bool
+    {
+        return is_string($value) && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value) === 1;
+    }
+
     public static function paginate(Builder $query, Request $request, array $searchable = ['name'], array $sortable = ['created_at', 'name'], array $filters = [], ?callable $map = null): array
     {
         if (($search = trim((string) $request->query('search', ''))) !== '' && $searchable) {
@@ -24,6 +29,13 @@ final class Lists
             }
             $value = $request->query($param);
             if ($value !== null && $value !== '' && $value !== 'all') {
+                // A filter value goes straight to the query builder, so a malformed uuid would
+                // reach the database as a cast error and surface as a 500 instead of a 422.
+                if (str_ends_with($param, '_id') && ! is_callable($column) && ! self::isUuid($value)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        $param => ['The '.str_replace('_', ' ', $param).' field must be a valid UUID.'],
+                    ]);
+                }
                 is_callable($column) ? $column($query, $value) : $query->where($column, $value);
             }
         }

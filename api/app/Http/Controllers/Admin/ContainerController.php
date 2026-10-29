@@ -73,10 +73,25 @@ class ContainerController extends Controller
         return $this->accepted($this->containers->create($server, $data));
     }
 
+    /** Ingress and agent containers: removing one takes the whole server offline. */
+    private static function isInfrastructure(Container $container): bool
+    {
+        $name = strtolower((string) $container->name);
+        $image = strtolower((string) $container->image);
+
+        return str_contains($name, 'traefik') || str_starts_with($image, 'traefik:') || str_contains($name, 'dockermgr-agent');
+    }
+
     public function action(Request $request, string $id)
     {
         $data = $request->validate(['action' => ['required', Rule::in(ContainerService::ACTIONS)], 'keep_volumes' => 'sometimes|boolean', 'timeout' => 'nullable|integer|min:0|max:600', 'approval_id' => 'nullable|uuid']);
         $container = Container::findOrFail($id);
+        if (self::isInfrastructure($container) && in_array($data['action'], ['remove', 'stop', 'pause', 'kill'], true)) {
+            return response()->json(['error' => [
+                'code' => 'container_protected',
+                'message' => "{$container->name} serves every site on this server, including this panel. Manage it from the server itself.",
+            ]], 409);
+        }
         $job = $this->containers->action($request->user(), $container, $data['action'], $data);
 
         return $this->accepted($job, ['container_id' => $container->id, 'action' => $data['action']]);

@@ -159,8 +159,22 @@ type ContainerInspect struct {
 		} `json:"Health"`
 	} `json:"State"`
 	Config struct {
-		Tty bool `json:"Tty"`
+		Tty    bool              `json:"Tty"`
+		User   string            `json:"User"`
+		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
+	Mounts []struct {
+		Type string `json:"Type"`
+		Name string `json:"Name"`
+	} `json:"Mounts"`
+	HostConfig struct {
+		NanoCpus      int64 `json:"NanoCpus"`
+		Memory        int64 `json:"Memory"`
+		RestartPolicy struct {
+			Name              string `json:"Name"`
+			MaximumRetryCount int    `json:"MaximumRetryCount"`
+		} `json:"RestartPolicy"`
+	} `json:"HostConfig"`
 	NetworkSettings struct {
 		IPAddress string `json:"IPAddress"`
 		Networks  map[string]struct {

@@ -12,9 +12,19 @@ class DomainController extends Controller
 {
     public function __construct(private DomainService $domains) {}
 
+    /** Staff administer every tenant, so a lookup by id must not be organisation-scoped. */
+    private function findDomain(Request $request, string $id): Domain
+    {
+        return $this->seesAllTenants($request)
+            ? Domain::allTenants()->findOrFail($id)
+            : Domain::findOrFail($id);
+    }
+
     public function index(Request $request)
     {
-        return response()->json(Lists::paginate(Domain::with('certificate'), $request, ['name'], ['name', 'created_at'], [
+        $query = $this->seesAllTenants($request) ? Domain::allTenants()->with('certificate') : Domain::with('certificate');
+
+        return response()->json(Lists::paginate($query, $request, ['name'], ['name', 'created_at'], [
             'application_id', 'dns_status', 'https_status',
             'filter' => fn ($q, $v) => match ($v) {
                 'expiring' => $q->whereHas('certificate', fn ($c) => $c->where('status', 'active')->where('expires_at', '<', now()->addDays(14))),
@@ -37,14 +47,14 @@ class DomainController extends Controller
         return $this->data($this->domains->toApi($this->domains->create($data)), 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        return $this->data($this->domains->toApi(Domain::findOrFail($id)));
+        return $this->data($this->domains->toApi($this->findDomain($request, $id)));
     }
 
     public function update(Request $request, string $id)
     {
-        $domain = Domain::findOrFail($id);
+        $domain = $this->findDomain($request, $id);
         $data = $request->validate([
             'application_id' => 'nullable|uuid|exists:applications,id', 'target_port' => 'nullable|integer|between:1,65535',
             'www_redirect' => 'sometimes|boolean', 'challenge' => 'sometimes|in:http-01,dns-01', 'options' => 'nullable|array',
@@ -59,21 +69,21 @@ class DomainController extends Controller
         return $this->data($this->domains->toApi($domain->fresh()));
     }
 
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
-        Domain::findOrFail($id)->delete();
+        $this->findDomain($request, $id)->delete();
 
         return response()->noContent();
     }
 
-    public function verify(string $id)
+    public function verify(Request $request, string $id)
     {
-        return $this->data($this->domains->verify(Domain::findOrFail($id)));
+        return $this->data($this->domains->verify($this->findDomain($request, $id)));
     }
 
-    public function certificate(string $id)
+    public function certificate(Request $request, string $id)
     {
-        $domain = Domain::findOrFail($id);
+        $domain = $this->findDomain($request, $id);
         $this->domains->issueCertificate($domain);
 
         return $this->data($this->domains->toApi($domain->fresh()));

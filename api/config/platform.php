@@ -59,10 +59,20 @@ return [
 
     'default_settings' => [
         'general' => [
+            // Public base URL of this panel; used in agent install commands and callbacks.
+            'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
             'default_region' => 'eu-central',
             'audit_retention_days' => 365,
             'heartbeat_interval' => 15,
             'refresh_interval' => 10,
+        ],
+        'smtp' => [
+            'host' => env('MAIL_HOST', ''),
+            'port' => (int) env('MAIL_PORT', 587),
+            'username' => env('MAIL_USERNAME', ''),
+            'encryption' => env('MAIL_SCHEME', 'tls'),
+            'from_address' => env('MAIL_FROM_ADDRESS', ''),
+            'from_name' => env('MAIL_FROM_NAME', 'WorkSuite'),
         ],
         'security' => [
             'require_mfa' => false,

@@ -17,9 +17,8 @@ entryPoints:
 
 providers:
   # App containers expose their service (port) with labels; routers come from the file provider.
-  docker:
-    exposedByDefault: false
-    network: proxy
+  # docker provider removed: the panel pushes routers through the file provider,
+  # and Traefik's docker client negotiates API 1.24 which Docker 29 rejects.
   file:
     directory: /etc/dockermgr/traefik/dynamic
     watch: true
@@ -28,7 +27,7 @@ certificatesResolvers:
   # HTTP-01 for ordinary domains (the "le" resolver referenced by the generated routers).
   le:
     acme:
-      email: ops@example.com
+      email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       httpChallenge:
         entryPoint: web
@@ -37,24 +36,24 @@ certificatesResolvers:
   # set in docker-compose.yml (restart Traefik after rotating a token).
   le-dns-cloudflare:
     acme:
-      email: ops@example.com
+      email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge:
         provider: cloudflare
         resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
   le-dns-digitalocean:
     acme:
-      email: ops@example.com
+      email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge: { provider: digitalocean }
   le-dns-hetzner:
     acme:
-      email: ops@example.com
+      email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge: { provider: hetzner }
   le-dns-route53:
     acme:
-      email: ops@example.com
+      email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge: { provider: route53 }
 

@@ -14,6 +14,7 @@ import { ago, daysUntil, money, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { usageOf } from './PanelLayout'
 import { backupDownloadUrl } from '../../lib/download'
+import Select from '../../components/Select'
 
 interface DnsRecord { type: string; name: string; value: string; status: 'waiting' | 'verified' | string }
 const RECHECK_MS = 120000
@@ -69,7 +70,7 @@ export function UserDomains() {
       <Card title="Add a domain">
         <form className="flex flex-wrap gap-3 items-end" onSubmit={(e) => { e.preventDefault(); add() }}>
           <div className="flex-[2_1_220px]"><Field label="Domain" error={err ?? undefined}><input className="input font-mono" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="shop.mybrand.com" /></Field></div>
-          <div className="flex-[1_1_160px]"><Field label="App"><select className="input" value={f.app_id} onChange={(e) => setF({ ...f, app_id: e.target.value })}>{apps.rows.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field></div>
+          <div className="flex-[1_1_160px]"><Field label="App"><Select className="input" value={f.app_id} onChange={(e) => setF({ ...f, app_id: e.target.value })}>{apps.rows.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field></div>
           <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" checked={f.redirect_www} onChange={(e) => setF({ ...f, redirect_www: e.target.checked })} />Redirect www</label>
           <button className="btn btn-primary" disabled={busy || !f.app_id}>Add domain</button>
         </form>
@@ -184,7 +185,7 @@ export function UserBackups() {
       </ConfirmDialog>
       <Modal open={pickApp} onClose={() => setPickApp(false)} title="Back up now"
         footer={<><button type="button" className="btn" onClick={() => setPickApp(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={!newFor || busy} onClick={() => backupNow(newFor)}>Back up</button></>}>
-        <Field label="Which app?"><select className="input" value={newFor} onChange={(e) => setNewFor(e.target.value)}><option value="">Choose…</option>{apps.rows.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+        <Field label="Which app?"><Select className="input" value={newFor} onChange={(e) => setNewFor(e.target.value)}><option value="">Choose…</option>{apps.rows.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
       </Modal>
     </>
   )

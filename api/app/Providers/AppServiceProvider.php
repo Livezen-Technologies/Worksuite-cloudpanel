@@ -48,6 +48,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->applyStoredSmtp();
+
         Sanctum::usePersonalAccessTokenModel(AccessToken::class);
 
         // SEC-009: per token/user and per IP.
@@ -101,5 +103,40 @@ class AppServiceProvider extends ServiceProvider
             });
             // terminal.open has no executor: the requester retries with approval_id.
         });
+    }
+
+    /**
+     * Mail settings live in organisation settings so they can be changed from the
+     * panel; the environment remains the fallback. Runs per request and per queued
+     * job, so workers pick up a change without a restart.
+     */
+    private function applyStoredSmtp(): void
+    {
+        try {
+            if (! \Illuminate\Support\Facades\Schema::hasTable('organizations')) {
+                return;
+            }
+            $org = \App\Models\Organization::query()->orderBy('created_at')->first();
+            $smtp = data_get($org?->settings, 'smtp');
+            if (! $smtp || empty($smtp['host'])) {
+                return;
+            }
+            $password = null;
+            if (! empty($smtp['password_encrypted'])) {
+                $password = \Illuminate\Support\Facades\Crypt::decryptString($smtp['password_encrypted']);
+            }
+            config([
+                'mail.default' => 'smtp',
+                'mail.mailers.smtp.host' => $smtp['host'],
+                'mail.mailers.smtp.port' => (int) ($smtp['port'] ?? 587),
+                'mail.mailers.smtp.username' => $smtp['username'] ?? null,
+                'mail.mailers.smtp.password' => $password,
+                'mail.mailers.smtp.scheme' => ($smtp['encryption'] ?? 'tls') === 'none' ? null : ($smtp['encryption'] ?? 'tls'),
+                'mail.from.address' => $smtp['from_address'] ?: config('mail.from.address'),
+                'mail.from.name' => $smtp['from_name'] ?: config('mail.from.name'),
+            ]);
+        } catch (\Throwable) {
+            // Never let mail configuration break the request; fall back to env.
+        }
     }
 }

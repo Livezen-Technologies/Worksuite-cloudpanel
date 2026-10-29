@@ -19,7 +19,21 @@ function useEscapeAndFocus(open: boolean, onClose: () => void, ref: React.RefObj
       }
     }
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
+    // Lock the page behind the overlay, and count nesting so an inner dialog
+    // closing does not unlock while an outer one is still open.
+    const body = document.body
+    const depth = Number(body.dataset.overlayDepth ?? '0') + 1
+    body.dataset.overlayDepth = String(depth)
+    const prevOverflow = body.style.overflow
+    body.style.overflow = 'hidden'
+
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      const left = Number(body.dataset.overlayDepth ?? '1') - 1
+      body.dataset.overlayDepth = String(left)
+      if (left <= 0) { body.style.overflow = prevOverflow; delete body.dataset.overlayDepth }
+      prev?.focus?.()
+    }
   }, [open, onClose, ref])
 }
 
@@ -29,8 +43,8 @@ export function Drawer({ open, onClose, title, children, side = 'right', width =
   useEscapeAndFocus(open, onClose, ref)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
+    <div className="fixed inset-0" style={{ zIndex: 'var(--z-drawer)' }}>
+      <div className="absolute inset-0 bg-black/40 animate-[ovl-fade_var(--dur-base)_var(--ease-out)]" onClick={onClose} aria-hidden="true" />
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id}
         className={`absolute top-0 bottom-0 ${side === 'right' ? 'right-0 border-l' : 'left-0 border-r'} bg-card border-line flex flex-col max-w-full`}
         style={{ width }}>
@@ -51,9 +65,9 @@ export function Modal({ open, onClose, title, children, footer, width = 520 }: {
   useEscapeAndFocus(open, onClose, ref)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/45" onClick={onClose} aria-hidden="true" />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className="relative card w-full max-h-[90vh] flex flex-col shadow-xl" style={{ maxWidth: width }}>
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'var(--z-modal)' }}>
+      <div className="absolute inset-0 bg-black/45 animate-[ovl-fade_var(--dur-base)_var(--ease-out)]" onClick={onClose} aria-hidden="true" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className="relative card w-full max-h-[90vh] flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)]" style={{ maxWidth: width }}>
         <div className="flex items-center justify-between px-5 pt-4">
           <h2 id={id} className="m-0 text-base font-semibold">{title}</h2>
           <button type="button" aria-label="Close dialog" onClick={onClose} className="btn btn-sm border-0"><Icon name="close" /></button>
@@ -80,7 +94,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, children, confi
     <Modal open={open} onClose={onClose} title={title}
       footer={<>
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className={`btn ${danger ? 'btn-primary !bg-[#B91C1C] !border-[#B91C1C]' : 'btn-primary'}`} disabled={!ok || busy} onClick={onConfirm}>{busy ? 'Working…' : confirmLabel}</button>
+        <button type="button" className={`btn ${danger ? 'btn-primary !bg-danger !border-danger' : 'btn-primary'}`} disabled={!ok || busy} onClick={onConfirm}>{busy ? 'Working…' : confirmLabel}</button>
       </>}>
       <div className="flex flex-col gap-3">
         {children}

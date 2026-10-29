@@ -80,7 +80,7 @@ class TraefikConfigService implements HandlesCommandResults
             ->filter(fn (Domain $d) => $d->application && ($dedicated || $d->application->server_id === $server->id))->values();
     }
 
-    /** @return array{http: array} Traefik dynamic configuration for one ingress server. */
+    /** @return array{http: array}|array{} Dynamic configuration for one ingress server; empty when it routes nothing. */
     public function render(Server $server, bool $dedicated = true): array
     {
         $routers = [];
@@ -108,6 +108,14 @@ class TraefikConfigService implements HandlesCommandResults
                 $routers[$name]['middlewares'] = [$name.'-www'];
             }
         }
+        // Traefik rejects an empty routers map ("routers cannot be a standalone
+        // element") and drops the whole file-provider configuration when it sees
+        // one - taking every other site on the ingress down with it. With nothing
+        // to route, emit no dynamic section at all.
+        if (! $routers && ! $middlewares) {
+            return [];
+        }
+
         $http = ['routers' => (object) $routers];
         if ($middlewares) {
             $http['middlewares'] = $middlewares;
@@ -118,7 +126,10 @@ class TraefikConfigService implements HandlesCommandResults
 
     public function yaml(Server $server, bool $dedicated = true): string
     {
-        return "# Managed by Docker Manager Portal (proxy.config). Do not edit.\n".Yaml::dump(json_decode(json_encode($this->render($server, $dedicated)), true), 8, 2);
+        $config = $this->render($server, $dedicated);
+        $header = "# Managed by Docker Manager Portal (proxy.config). Do not edit.\n";
+
+        return $config === [] ? $header : $header.Yaml::dump(json_decode(json_encode($config), true), 8, 2);
     }
 
     /** DNS-01 credentials from encrypted secrets, as {VAR: value} for *_FILE files on the ingress. */

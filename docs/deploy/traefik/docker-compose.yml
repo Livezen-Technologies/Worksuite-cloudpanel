@@ -2,7 +2,7 @@
 # in the panel, or list its id in TRAEFIK_INGRESS_SERVERS).
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.3
     restart: unless-stopped
     ports: ["80:80", "443:443", "127.0.0.1:8082:8082"]
     networks: [proxy]
@@ -15,7 +15,6 @@ services:
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - /etc/dockermgr/traefik:/etc/dockermgr/traefik   # dynamic/, secrets/, acme.json (0600)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log/traefik:/var/log/traefik
 networks:
   proxy:

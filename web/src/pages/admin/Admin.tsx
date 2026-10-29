@@ -9,6 +9,7 @@ import { Tabs } from '../../components/Tabs'
 import { TokenReveal } from '../../components/TokenReveal'
 import { ago, daysUntil, unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const ROLE_FALLBACK = ['super_admin', 'infrastructure_admin', 'devops_engineer', 'developer', 'support_engineer', 'billing_manager', 'viewer']
 const pretty = (s: string) => s.replace(/[_.]/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
@@ -40,17 +41,17 @@ export function Users() {
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
               { key: 'role', header: 'Role', render: (r) => (
-                <select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
+                <Select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => run({ method: 'PATCH', path: `/users/${r.id}`, body: { role: e.target.value }, label: 'Change role', success: `${r.name} is now ${pretty(e.target.value)}` }).catch(() => {})}>
                   {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{pretty(String(x))}</option>)}
-                </select>) },
+                </Select>) },
               { key: 'auth', header: 'Sign-in', value: (r) => r.sign_in_method ?? (r.mfa_enabled ? 'MFA' : 'Password') },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
               { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? (r.invited ? 'pending' : 'active')} /> },
               { key: 'rm', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setRemove(r) }}>Remove</button> },
             ]} />
         </div>
-        <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</select>}>
+        <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<Select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</Select>}>
           {matrix.isLoading ? 'Loading…' : permRows(matrix.item).length === 0 ? <Empty>No permissions listed.</Empty> : (
             <ul className="list-none m-0 p-0">{permRows(matrix.item).map((p) => (
               <li key={p.label} className="flex justify-between gap-2 py-2 border-t border-line text-sm first:border-t-0"><span>{p.label}</span><Badge tone={p.v === 'No' ? 'n' : /approval/i.test(p.v) ? 'y' : 'g'}>{p.v}</Badge></li>
@@ -80,20 +81,23 @@ const POLICIES = [
   ['allow_builds_on_deploy_targets', 'Allow builds on deploy targets', 'Only on servers with the builder role; otherwise builds run on separate builder nodes'],
 ] as const
 
-function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
+function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
   const { item, isLoading } = useOne<R>('/settings')
   const { run, busy } = useAction()
   const [g, setG] = useState<R>({})
-  useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}) }) }, [item])
+  useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}), ...(item.smtp ?? {}) }) }, [item])
   if (isLoading) return <Card>Loading…</Card>
-  const nested = !!item?.general || !!item?.security
-  const save = (keys: string[], section: 'general' | 'security') => {
+  const nested = !!item?.general || !!item?.security || !!item?.smtp
+  const save = (keys: string[], section: 'general' | 'security' | 'smtp') => {
     // API shape: {name, general:{default_region, audit_retention_days, heartbeat_interval, refresh_interval}, security:{<policy>: bool}}
-    const vals = Object.fromEntries(keys.filter((k) => k !== 'name').map((k) => [k, g[k]]))
+    const vals = Object.fromEntries(keys.filter((k) => k !== 'name')
+        .filter((k) => !(section === 'smtp' && k === 'password' && !g[k]))
+        .map((k) => [k, g[k]]))
     const body = nested ? { [section]: vals, ...(keys.includes('name') ? { name: g.name } : {}) } : { ...vals, ...(keys.includes('name') ? { name: g.name } : {}) }
     return run({ method: 'PATCH', path: '/settings', body, label: 'Save settings', success: 'Settings saved' }).catch(() => {})
   }
-  const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
+  const SMTP: [string, string, string][] = [['host', 'SMTP host', 'text'], ['port', 'Port', 'number'], ['username', 'Username', 'text'], ['password', 'Password', 'password'], ['encryption', 'Encryption', 'encryption'], ['from_address', 'From address', 'email'], ['from_name', 'From name', 'text']]
+  const GEN: [string, string, string][] = [['name', 'Organisation name', 'text'], ['panel_url', 'Panel URL', 'url'], ['default_region', 'Default region', 'region'], ['audit_retention_days', 'Audit retention (days)', 'number'], ['heartbeat_interval', 'Agent heartbeat (seconds)', 'number'], ['refresh_interval', 'Dashboard refresh (seconds)', 'number']]
   return (
     <>
       {tab === 'general' && (
@@ -101,11 +105,37 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' }) {
           <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]" onSubmit={(e) => { e.preventDefault(); save(GEN.map((x) => x[0]), 'general') }}>
             {GEN.map(([k, l, t]) => (
               <Field key={k} label={l}>
-                {t === 'region' ? <select className="input" value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: e.target.value })}>{['eu-central', 'ap-southeast', 'us-east'].map((r) => <option key={r}>{r}</option>)}</select>
+                {t === 'region' ? <Select className="input" value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: e.target.value })}>{['eu-central', 'ap-southeast', 'us-east'].map((r) => <option key={r}>{r}</option>)}</Select>
                   : <input className="input" type={t} value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
               </Field>
             ))}
             <div className="col-span-full flex justify-end gap-2"><button type="button" className="btn" onClick={() => setG({ ...(item?.general ?? item), ...(item?.security ?? {}) })}>Cancel</button><button className="btn btn-primary" disabled={busy}>Save changes</button></div>
+          </form>
+        </Card>
+      )}
+      {tab === 'smtp' && (
+        <Card>
+          <p className="m-0 mb-3 text-sm text-muted">
+            Outgoing mail for invitations, alerts and invoices. The password is stored encrypted and never shown again.
+            {g.password_set ? ' A password is currently set.' : ' No password is set.'}
+          </p>
+          <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
+                onSubmit={(e) => { e.preventDefault(); save(SMTP.map((x) => x[0]), 'smtp') }}>
+            {SMTP.map(([k, l, t]) => (
+              <Field key={k} label={l} hint={k === 'password' && g.password_set ? 'Leave blank to keep the current password.' : undefined}>
+                {t === 'encryption'
+                  ? <Select className="input" value={g[k] ?? 'tls'} onChange={(e) => setG({ ...g, [k]: e.target.value })}>
+                      <option value="tls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option>
+                    </Select>
+                  : <input className="input" type={t} value={t === 'password' ? (g[k] ?? '') : (g[k] ?? '')}
+                           autoComplete={t === 'password' ? 'new-password' : undefined}
+                           placeholder={k === 'password' && g.password_set ? '••••••••' : undefined}
+                           onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
+              </Field>
+            ))}
+            <div className="col-span-full flex justify-end gap-2">
+              <button className="btn btn-primary" disabled={busy}>Save changes</button>
+            </div>
           </form>
         </Card>
       )}
@@ -191,14 +221,14 @@ export function ApiTokens({ path, abilities }: { path: string; abilities: string
   )
 }
 
-type STab = 'general' | 'security' | 'notifications' | 'providers' | 'tokens'
+type STab = 'general' | 'security' | 'smtp' | 'notifications' | 'providers' | 'tokens'
 export function Settings() {
   const [tab, setTab] = useState<STab>('general')
   return (
     <>
       <PageHeader title="Settings" subtitle="Organisation, security, notifications and provider integrations" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'notifications', label: 'Notifications' }, { id: 'providers', label: 'Providers' }, { id: 'tokens', label: 'API tokens' }]} />
-      {(tab === 'general' || tab === 'security') && <SettingsForm tab={tab} />}
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'smtp', label: 'SMTP' }, { id: 'notifications', label: 'Notifications' }, { id: 'providers', label: 'Providers' }, { id: 'tokens', label: 'API tokens' }]} />
+      {(tab === 'general' || tab === 'security' || tab === 'smtp') && <SettingsForm tab={tab} />}
       {tab === 'notifications' && <CrudCards path="/notification-channels" noun="channel"
         fields={[{ name: 'name', label: 'Name', required: true }, { name: 'type', label: 'Type', type: 'select', required: true, options: ['email', 'slack', 'teams', 'telegram', 'webhook'] }, { name: 'target', label: 'Address, channel or URL', mono: true, required: true }, { name: 'secret', label: 'Token / signing secret', type: 'password', hint: 'Write-only' }, { name: 'enabled', label: 'Enabled', type: 'checkbox' }]}
         describe={(r) => ({ name: r.name ?? r.type, sub: `${r.type} · ${r.target ?? r.config?.target ?? ''}`, state: r.enabled === false ? 'off' : 'connected' })} />}
