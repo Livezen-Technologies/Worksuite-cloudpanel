@@ -37,12 +37,14 @@ export function Meter({ value, label, color, thick = false }: { value: number; l
   )
 }
 
-export function StatTile({ label, value, delta, deltaTone, pct, barColor }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string }) {
+export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string }) {
+  // A figure that is its own status needs no separate badge.
+  const tone = valueTone && valueTone !== 'n' ? { g: 'text-g-fg', y: 'text-y-fg', r: 'text-r-fg' }[valueTone] : ''
   return (
     <div className="card p-5">
       <div className="text-[13px] text-muted font-medium">{label}</div>
       <div className="flex items-baseline gap-2 mt-2 flex-wrap">
-        <span className="text-[30px] font-bold tracking-tight">{value}</span>
+        <span className={`text-[30px] font-bold tracking-tight ${tone}`}>{value}</span>
         {delta && <span className="text-[13px] font-semibold" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</span>}
       </div>
       {pct !== undefined && <div className="mt-3.5"><Meter value={pct} label={label} color={barColor} /></div>}

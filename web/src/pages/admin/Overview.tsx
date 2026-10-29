@@ -77,9 +77,9 @@ export default function Overview() {
       <PageHeader title="Overview" subtitle={`Fleet health${serverCount ? ` across ${serverCount} servers` : ''} · updated every 15 s`}
         actions={<><Link to="/admin/servers?add=1" className="btn no-underline">Add server</Link><button type="button" className="btn btn-primary" onClick={() => nav('/admin/applications?deploy=1')}>New deployment</button></>} />
       {error && <div role="alert" className="card p-4 text-sm text-danger">Could not load the dashboard: {(error as Error).message}</div>}
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {isLoading && !d ? [0, 1, 2, 3].map((i) => <div key={i} className="card p-5 h-[118px] animate-pulse" />) :
-          tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined} />)}
+          tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} valueTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined} />)}
       </div>
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {([
