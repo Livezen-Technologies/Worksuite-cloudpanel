@@ -41,7 +41,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     <JobsCtx.Provider value={value}>
       {children}
       {items.length > 0 && (
-        <div className="fixed z-[55] bottom-4 left-4 w-[min(360px,calc(100vw-32px))] card shadow-lg">
+        <div className="fixed z-[55] bottom-4 right-4 w-[min(360px,calc(100vw-32px))] card shadow-lg">
           <button type="button" className="w-full flex justify-between items-center px-3 h-11 bg-transparent border-0 text-fg font-semibold text-sm cursor-pointer" aria-expanded={open} onClick={() => setOpen(!open)}>
             Activity ({items.length})<span aria-hidden="true">{open ? '▾' : '▴'}</span>
           </button>
