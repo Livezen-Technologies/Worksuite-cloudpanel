@@ -63,6 +63,19 @@ function AlertsBell() {
 
 export function AdminLayout() {
   const { pathname } = useLocation()
+  // A status light that cannot show a problem is worse than none, so derive it
+  // from the newest heartbeat rather than hard-coding green.
+  const { rows: servers } = useList<R>('/servers', undefined, { refetchInterval: 30000 })
+  const newest = servers.reduce<number>((max, s) => {
+    const t = s.last_heartbeat_at ? Date.parse(String(s.last_heartbeat_at)) : 0
+    return t > max ? t : max
+  }, 0)
+  const ageSec = newest ? (Date.now() - newest) / 1000 : Infinity
+  const status = servers.length === 0
+    ? { label: 'No agents', tone: 'y' as const }
+    : ageSec < 90 ? { label: 'Live', tone: 'g' as const }
+    : ageSec < 600 ? { label: 'Delayed', tone: 'y' as const }
+    : { label: 'Stale', tone: 'r' as const }
   // Longest matching route wins, so /admin/applications beats /admin.
   const active = ADMIN_SECTIONS
     .map((sec) => ({ sec, hit: Math.max(...sec.items.map((i) => (pathname === i.to || pathname.startsWith(i.to + '/')) ? i.to.length : 0)) }))
@@ -73,7 +86,7 @@ export function AdminLayout() {
   }))
 
   return (
-    <Shell rail={rail} label={active.label} nav={active.items} brand={{ title: 'WorkSuite', subtitle: active.label }} headerExtra={<AlertsBell />}
+    <Shell status={status} rail={rail} label={active.label} nav={active.items} brand={{ title: 'WorkSuite', subtitle: active.label }} headerExtra={<AlertsBell />}
       sidebarFooter={
         <div className="p-3.5 rounded-[10px] bg-head border border-line">
           <div className="text-xs text-muted">Control plane</div>

@@ -52,7 +52,7 @@ export function Brand({ title, subtitle }: { title: string; subtitle?: string })
 /** The narrow icon rail: one entry per major area of the product. */
 function Rail({ items }: { items: RailItem[] }) {
   return (
-    <nav aria-label="Areas" className="hidden lg:flex w-14 flex-none flex-col items-center gap-1 border-r border-line bg-side py-4 sticky top-0 h-screen">
+    <nav aria-label="Areas" className="hidden lg:flex w-14 flex-none flex-col items-center gap-1 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} title={r.label} aria-label={r.label}
           className={({ isActive }) => `relative grid h-11 w-11 place-content-center rounded-xl no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
@@ -66,7 +66,7 @@ function Rail({ items }: { items: RailItem[] }) {
   )
 }
 
-export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+export function Shell({ nav, rail, brand, status, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
   const [menu, setMenu] = useState(false)
   const [palette, setPalette] = useState(false)
   const { theme, toggle } = useTheme()
@@ -83,12 +83,8 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
     </div>
   )
   return (
-    <div className={`min-h-screen bg-bg text-fg flex ${touch ? 'panel-touch' : ''}`}>
+    <div className={`min-h-screen bg-bg text-fg flex flex-col ${touch ? 'panel-touch' : ''}`}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-[80] focus:p-3 focus:bg-card">Skip to content</a>
-      {rail && <Rail items={rail} />}
-      <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-0 h-screen overflow-y-auto">{side}</aside>
-      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
-      <div className="flex-1 min-w-0 flex flex-col">
         <header className="h-16 box-border px-4 sm:px-6 flex items-center gap-3 border-b border-line bg-side sticky top-0 z-30">
           <button type="button" className="btn btn-sm lg:hidden border-0 !min-h-[44px] !min-w-[44px]" aria-label="Open menu" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="menu" size={22} /></button>
 
@@ -110,9 +106,12 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
           </button>
 
           <div className="ml-auto flex flex-none items-center gap-1">
-            <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted" title="Agent reporting">
-              <span className="h-2 w-2 rounded-full bg-g-fg" aria-hidden="true" />Live
-            </span>
+            {status && (
+              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted" title="Agent heartbeat">
+                <span className={`h-2 w-2 rounded-full ${status.tone === 'g' ? 'bg-g-fg' : status.tone === 'y' ? 'bg-y-fg' : 'bg-r-fg'}`} aria-hidden="true" />
+                {status.label}
+              </span>
+            )}
             <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
               className="btn btn-sm border-0 !min-h-11 !min-w-11 no-underline text-muted hover:text-fg">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -137,9 +136,15 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
             </button>
           </div>
         </header>
+      <div className="flex flex-1 min-h-0">
+      {rail && <Rail items={rail} />}
+      <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">{side}</aside>
+      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
+      <div className="flex-1 min-w-0 flex flex-col">
         <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
           <Outlet />
         </main>
+      </div>
       </div>
       <CommandPalette pages={pages} open={palette} setOpen={setPalette} remote={!touch} />
     </div>
