@@ -69,6 +69,7 @@ function Rail({ items }: { items: RailItem[] }) {
 
 export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
   const [menu, setMenu] = useState(false)
+  const [acct, setAcct] = useState(false)
   const [palette, setPalette] = useState(false)
   const { theme, toggle } = useTheme()
   const { me, logout } = useAuth()
@@ -126,7 +127,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
 
           <div className="ml-auto flex flex-none items-center gap-1">
             {status && (
-              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted" title="Agent heartbeat">
+              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted">
                 <span className={`h-2 w-2 rounded-full ${status.tone === 'g' ? 'bg-g-fg' : status.tone === 'y' ? 'bg-y-fg' : 'bg-r-fg'}`} aria-hidden="true" />
                 {status.label}
               </span>
@@ -141,15 +142,42 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
             <div className="mx-1 hidden h-6 w-px bg-white/15 sm:block" aria-hidden="true" />
-            <Link to="/admin/account" className="flex items-center gap-2 rounded-lg px-1 py-1 no-underline text-[var(--header-fg)] hover:bg-white/10" title={me?.user?.email}>
-              <span className="relative flex-none">
-                <span className="grid h-8 w-8 place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
-                {/* Presence: the session is live, which is what the dot in the reference conveys. */}
-                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[var(--header-bg)] bg-g-fg" aria-hidden="true" />
-              </span>
-              <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
-              <svg className="hidden sm:block flex-none text-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-            </Link>
+            <div className="relative">
+              <button type="button" onClick={() => setAcct((v) => !v)}
+                aria-haspopup="menu" aria-expanded={acct}
+                className="flex items-center gap-2 rounded-lg px-1 py-1 text-[var(--header-fg)] hover:bg-white/10 cursor-pointer border-0 bg-transparent">
+                <span className="relative flex-none">
+                  <span className="grid h-8 w-8 place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
+                  <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[var(--header-bg)] bg-g-fg" aria-hidden="true" />
+                </span>
+                <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
+                <svg className="hidden sm:block flex-none opacity-60" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              {acct && (
+                <>
+                  <div className="fixed inset-0" onClick={() => setAcct(false)} aria-hidden="true" />
+                  <div role="menu" className="card absolute right-0 top-full mt-2 w-72 p-0 shadow-pop" style={{ zIndex: 'var(--z-popover)' }}>
+                    <div className="border-b border-line p-4">
+                      <div className="font-semibold">{me?.user?.name}</div>
+                      <div className="mt-0.5 truncate text-[13px] text-muted">{me?.user?.email}</div>
+                      {(me?.role || me?.organization?.name) && (
+                        <div className="mt-1 text-[13px] text-muted">
+                          {[me?.role, me?.organization?.name].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col p-1">
+                      <Link to="/admin/account" role="menuitem" onClick={() => setAcct(false)}
+                        className="rounded-lg px-3 py-2.5 text-sm no-underline text-fg hover:bg-head">Account</Link>
+                      <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
+                        className="rounded-lg px-3 py-2.5 text-sm no-underline text-fg hover:bg-head">Settings</Link>
+                      <button type="button" role="menuitem" onClick={() => { setAcct(false); logout() }}
+                        className="rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-sm text-danger hover:bg-head cursor-pointer">Sign out</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" aria-label="Sign out" onClick={() => logout()}>
               <Icon name="logout" size={20} />
             </button>
