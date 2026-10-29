@@ -120,6 +120,18 @@ export default function Overview() {
             series={[{ label: 'CPU', color: 'var(--accent)', data: cpu }, { label: 'RAM', color: 'var(--b-fg)', data: ram }]} />
         </Card>
         <Card className="flex-[1_1_300px]" title="Active alerts" actions={<Link to="/admin/monitoring" className="text-[13px] font-semibold">View all</Link>}>
+          {/* Severity first: how bad matters before which. */}
+          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            {([['critical', 'Critical', 'text-r-fg'], ['warning', 'Warning', 'text-y-fg'], ['info', 'Info', 'text-b-fg']] as const).map(([key, lbl, cls]) => {
+              const n = alerts.filter((a) => String(a.severity ?? '').toLowerCase() === key).length
+              return (
+                <span key={key} className="flex items-center gap-1.5">
+                  <span className={`font-semibold tabular-nums ${n ? cls : 'text-muted'}`}>{n}</span>
+                  <span className="text-muted">{lbl}</span>
+                </span>
+              )
+            })}
+          </div>
           {alerts.length === 0 ? <Empty>No active alerts.</Empty> : (
             <ul className="list-none m-0 p-0">
               {alerts.slice(0, 6).map((a, i) => (
