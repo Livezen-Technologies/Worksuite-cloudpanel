@@ -10,6 +10,8 @@
   --r-bg: #FEF2F2; --r-fg: #B91C1C; --b-bg: #EFF6FF; --b-fg: #1D4ED8;
   --n-bg: #F1F5F9; --n-fg: #475569; --danger: #B91C1C; --danger-line: #FECACA;
   --code-bg: #0F172A; --code-fg: #E2E8F0;
+  /* The top bar stays dark in both themes, as the canvas specifies. */
+  --header-bg: #0F1115; --header-fg: #F3F4F6; --header-line: #2D313A;
   color-scheme: light;
 }
 .dark {

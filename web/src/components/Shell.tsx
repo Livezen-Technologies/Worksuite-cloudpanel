@@ -90,19 +90,14 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
   return (
     <div className={`min-h-screen bg-bg text-fg flex flex-col ${touch ? 'panel-touch' : ''}`}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-[80] focus:p-3 focus:bg-card">Skip to content</a>
-        <header className="h-16 box-border px-4 sm:px-6 flex items-center gap-3 border-b border-line bg-side sticky top-0 z-30">
+        <header className="h-16 box-border px-4 sm:px-6 flex items-center gap-3 border-b border-[var(--header-line)] sticky top-0 z-30 bg-[var(--header-bg)] text-[var(--header-fg)]">
           <button type="button" className="btn btn-sm lg:hidden border-0 !min-h-[44px] !min-w-[44px]" aria-label="Open menu" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="menu" size={22} /></button>
 
           {/* Brand lockup, on wide screens where the sidebar heading is not the first thing read. */}
           <div className="hidden lg:flex items-center gap-2 flex-none">
-            {/* Four quadrants, per the canvas mark. */}
-            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" className="flex-none">
-              <rect x="2" y="2" width="9" height="9" rx="2" fill="var(--accent)" />
-              <rect x="13" y="2" width="9" height="9" rx="2" fill="var(--accent)" opacity=".7" />
-              <rect x="2" y="13" width="9" height="9" rx="2" fill="var(--accent)" opacity=".7" />
-              <rect x="13" y="13" width="9" height="9" rx="2" fill="var(--accent)" />
-            </svg>
-            <span className="text-[19px] font-semibold tracking-tight">{brand.title}</span>
+            {/* The header is dark in both themes, per the canvas, so the
+                light-on-dark lockup is always the right one. */}
+            <img src="/worksuite-logo-dark.png" alt="WorkSuite" className="h-7 w-auto flex-none" />
             {brand.subtitle && (
               <span className="rounded-md bg-n-bg px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-n-fg">{brand.subtitle}</span>
             )}
@@ -112,7 +107,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               to the brand, and the panel spans tenants for staff. */}
           {me?.organization?.name && (
             <Link to="/admin/settings" title="Organisation settings"
-              className="hidden xl:flex flex-none items-center gap-2 rounded-lg bg-head px-2 py-1.5 text-sm font-semibold no-underline text-fg hover:bg-sel">
+              className="hidden xl:flex flex-none items-center gap-2 rounded-lg bg-white/10 px-2 py-1.5 text-sm font-semibold no-underline text-[var(--header-fg)] hover:bg-white/15">
               <span className="grid h-[26px] w-[26px] place-content-center rounded-md bg-accent text-[13px] text-white" aria-hidden="true">
                 {me.organization.name.slice(0, 1).toUpperCase()}
               </span>
@@ -123,7 +118,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
 
           {/* Search is the primary way into anything, so it sits centre. */}
           <button type="button" onClick={() => setPalette(true)}
-            className="input !rounded-full mx-auto flex max-w-xl flex-1 items-center gap-2.5 text-left text-muted lg:flex-none lg:w-[min(36rem,40vw)]"
+            className="!rounded-full mx-auto flex max-w-xl flex-1 items-center gap-2.5 border px-3 text-left min-h-10 lg:flex-none lg:w-[min(36rem,40vw)] bg-white/5 border-[var(--header-line)] text-white/60"
             aria-label="Search (Ctrl K)">
             <Icon name="search" size={16} /><span className="flex-1 truncate text-sm">Search servers, containers, apps…</span>
             <kbd className="hidden sm:inline rounded border border-line px-1.5 py-0.5 font-sans text-[11px]">⌘K</kbd>
@@ -137,7 +132,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               </span>
             )}
             <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
-              className="btn btn-sm border-0 !min-h-11 !min-w-11 no-underline text-muted hover:text-fg">
+              className="!min-h-11 !min-w-11 grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </Link>
             {headerExtra}
@@ -145,8 +140,8 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
-            <div className="mx-1 hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
-            <Link to="/admin/account" className="flex items-center gap-2 rounded-lg px-1 py-1 no-underline text-fg hover:bg-head" title={me?.user?.email}>
+            <div className="mx-1 hidden h-6 w-px bg-white/15 sm:block" aria-hidden="true" />
+            <Link to="/admin/account" className="flex items-center gap-2 rounded-lg px-1 py-1 no-underline text-[var(--header-fg)] hover:bg-white/10" title={me?.user?.email}>
               <span className="relative flex-none">
                 <span className="grid h-8 w-8 place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
                 {/* Presence: the session is live, which is what the dot in the reference conveys. */}
