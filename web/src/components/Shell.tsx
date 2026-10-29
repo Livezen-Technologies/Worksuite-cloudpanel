@@ -7,16 +7,30 @@ import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 
-export interface NavItem { label: string; to: string; end?: boolean }
+export interface NavItem { label: string; to: string; end?: boolean; icon?: string; group?: string; badge?: string | number }
 
 function NavList({ items, onPick, touch }: { items: NavItem[]; onPick?: () => void; touch?: boolean }) {
   return (
     <ul className="list-none m-0 p-0 flex flex-col gap-0.5">
-      {items.map((n) => (
+      {items.map((n, i) => (
         <li key={n.to}>
+          {/* A heading starts each section; the first needs no separating space. */}
+          {n.group && (
+            <div className={`px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted ${i === 0 ? '' : 'pt-4'}`}>
+              {n.group}
+            </div>
+          )}
           <NavLink to={n.to} end={n.end} onClick={onPick}
-            className={({ isActive }) => `flex items-center gap-2.5 ${touch ? 'min-h-[44px]' : 'min-h-9'} px-2.5 rounded-lg text-sm no-underline ${isActive ? 'font-semibold bg-sel text-accent-fg' : 'font-medium text-muted hover:text-fg'}`}>
-            {({ isActive }) => (<><span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ background: isActive ? 'var(--accent)' : 'transparent' }} />{n.label}</>)}
+            className={({ isActive }) => `flex items-center gap-2.5 ${touch ? 'min-h-[44px]' : 'min-h-9'} px-2.5 rounded-lg text-sm no-underline transition-colors ${isActive ? 'font-semibold bg-sel text-accent-fg' : 'font-medium text-muted hover:text-fg hover:bg-head'}`}>
+            {({ isActive }) => (<>
+              <span aria-hidden="true" className="flex-none" style={{ color: isActive ? 'var(--accent)' : 'currentColor' }}>
+                <Icon name={n.icon ?? 'grid'} size={18} />
+              </span>
+              <span className="flex-1 truncate">{n.label}</span>
+              {n.badge !== undefined && n.badge !== '' && (
+                <span className="flex-none rounded-full bg-n-bg px-2 py-0.5 text-[11px] font-semibold text-n-fg tabular-nums">{n.badge}</span>
+              )}
+            </>)}
           </NavLink>
         </li>
       ))}

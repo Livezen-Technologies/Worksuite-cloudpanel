@@ -5,26 +5,31 @@ import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
 export const ADMIN_NAV: NavItem[] = [
-  { label: 'Overview', to: '/admin', end: true },
-  { label: 'Servers', to: '/admin/servers' },
-  { label: 'Containers', to: '/admin/containers' },
-  { label: 'Applications', to: '/admin/applications' },
-  { label: 'App Catalogue', to: '/admin/catalog' },
-  { label: 'Compose Stacks', to: '/admin/compose' },
-  { label: 'Images & Registry', to: '/admin/images' },
-  { label: 'Networks', to: '/admin/networks' },
-  { label: 'Volumes & Storage', to: '/admin/volumes' },
-  { label: 'Domains & SSL', to: '/admin/domains' },
-  { label: 'Databases', to: '/admin/databases' },
-  { label: 'Backups', to: '/admin/backups' },
-  { label: 'Monitoring', to: '/admin/monitoring' },
-  { label: 'Logs & Terminal', to: '/admin/logs' },
-  { label: 'Automation', to: '/admin/automation' },
-  { label: 'Packages', to: '/admin/packages' },
-  { label: 'Hosting Customers', to: '/admin/customers' },
-  { label: 'Users & Teams', to: '/admin/users' },
-  { label: 'Settings', to: '/admin/settings' },
-  { label: 'Account', to: '/admin/account' },
+  { label: 'Overview', to: '/admin', end: true, icon: 'grid', group: 'Infrastructure' },
+  { label: 'Servers', to: '/admin/servers', icon: 'server' },
+  { label: 'Containers', to: '/admin/containers', icon: 'box' },
+  { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
+
+  { label: 'Applications', to: '/admin/applications', icon: 'rocket', group: 'Deploy' },
+  { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
+  { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
+  { label: 'Images & Registry', to: '/admin/images', icon: 'image' },
+
+  { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe', group: 'Resources' },
+  { label: 'Databases', to: '/admin/databases', icon: 'db' },
+  { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
+  { label: 'Networks', to: '/admin/networks', icon: 'share' },
+  { label: 'Backups', to: '/admin/backups', icon: 'archive' },
+
+  { label: 'Packages', to: '/admin/packages', icon: 'tag', group: 'Hosting' },
+  { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
+
+  { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file', group: 'Operations' },
+  { label: 'Automation', to: '/admin/automation', icon: 'clock' },
+
+  { label: 'Users & Teams', to: '/admin/users', icon: 'users', group: 'Settings' },
+  { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+  { label: 'Account', to: '/admin/account', icon: 'user' },
 ]
 
 function AlertsBell() {
