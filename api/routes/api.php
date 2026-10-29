@@ -24,6 +24,7 @@ Route::middleware('throttle:auth')->group(function () {
 });
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
+Route::get('file-downloads/{id}', [\App\Http\Controllers\SignedFileController::class, 'fileDownload'])->middleware('signed')->name('files.transfer');
 Route::get('invoices/{id}/pdf', [\App\Http\Controllers\SignedFileController::class, 'invoicePdf'])->middleware('signed')->name('invoice.pdf');
 Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
 
@@ -156,6 +157,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::put('volumes/{id}/files/content', [Admin\FileController::class, 'write'])->middleware('perm:deploy|network_storage.manage')->name('files.write');
     Route::post('volumes/{id}/files/folders', [Admin\FileController::class, 'mkdir'])->middleware('perm:deploy|network_storage.manage')->name('files.mkdir');
     Route::post('volumes/{id}/files/rename', [Admin\FileController::class, 'rename'])->middleware('perm:deploy|network_storage.manage')->name('files.rename');
+    Route::post('volumes/{id}/files/upload', [Admin\FileController::class, 'upload'])->middleware('perm:deploy|network_storage.manage')->name('files.upload');
+    Route::post('volumes/{id}/files/download', [Admin\FileController::class, 'download'])->middleware('perm:deploy|network_storage.manage')->name('files.download');
     Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 

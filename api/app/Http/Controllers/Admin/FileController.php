@@ -49,6 +49,29 @@ class FileController extends Controller
         return $this->run($request, $id, 'delete', $request->validate(['path' => 'required|string|max:4096', 'recursive' => 'sometimes|boolean']));
     }
 
+    public function upload(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'path' => self::PATH, 'files' => 'required|array|min:1|max:500',
+            'files.*' => 'file|max:'.config('files.max_upload_kb'),
+            'relative_paths' => 'sometimes|array', 'relative_paths.*' => 'nullable|string|max:4096',
+            'overwrite' => 'sometimes|boolean',
+        ]);
+        $job = $this->files->upload(Volume::findOrFail($id), (string) ($data['path'] ?? ''), $data['files'], $data['relative_paths'] ?? [], (bool) ($data['overwrite'] ?? false));
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($job);
+    }
+
+    public function download(Request $request, string $id)
+    {
+        $data = $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);
+        $job = $this->files->download(Volume::findOrFail($id), array_values($data['paths']));
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($job);
+    }
+
     private function run(Request $request, string $id, string $operation, array $payload)
     {
         $payload = array_map(fn ($v) => $v ?? '', $payload);

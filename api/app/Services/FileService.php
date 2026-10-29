@@ -7,6 +7,9 @@ use App\Exceptions\ApiException;
 use App\Models\AgentCommand;
 use App\Models\Job;
 use App\Models\Volume;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 
 /**
  * File manager (SRS 4.17). Each operation is one fs.* agent command on the
@@ -19,7 +22,11 @@ class FileService implements HandlesCommandResults
     public const OPERATIONS = [
         'list' => 'fs.list', 'read' => 'fs.read', 'write' => 'fs.write',
         'mkdir' => 'fs.mkdir', 'rename' => 'fs.rename', 'delete' => 'fs.delete',
+        'upload' => 'fs.upload', 'download' => 'fs.download',
     ];
+
+    /** Where upload and download bytes wait on the panel's own disk, one folder per job. */
+    public const TRANSFER_DIR = 'file-transfers';
 
     /** Operations that change files; each is audited with its path (FM-014). */
     private const WRITES = ['write', 'mkdir', 'rename', 'delete'];
@@ -28,13 +35,8 @@ class FileService implements HandlesCommandResults
 
     public function run(Volume $volume, string $operation, array $payload): Job
     {
+        $this->reachable($volume);
         $server = $volume->server;
-        if (! $server || ! $server->isOnline()) {
-            throw ApiException::conflict('The volume\'s server is offline, so its files cannot be reached.');
-        }
-        if ($volume->type === 'nfs') {
-            throw ApiException::conflict('NFS volumes are not supported by the file manager yet.');
-        }
         $payload = ['volume' => $volume->name, 'path' => (string) ($payload['path'] ?? '')] + $payload;
         $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => $operation, 'path' => $payload['path']]);
         $this->bus->dispatch($server, self::OPERATIONS[$operation], $payload, $job);
@@ -49,14 +51,90 @@ class FileService implements HandlesCommandResults
         return $job;
     }
 
+    /**
+     * FM-002: the browser sends the files here; the agent then fetches each one
+     * over a signed URL and writes it into the volume.
+     *
+     * @param  UploadedFile[]  $files
+     * @param  string[]  $relativePaths  per file, its path inside an uploaded folder ("" for a plain file)
+     */
+    public function upload(Volume $volume, string $folder, array $files, array $relativePaths, bool $overwrite): Job
+    {
+        $this->reachable($volume);
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'upload', 'path' => $folder]);
+        $disk = Storage::disk('local');
+        $items = [];
+        $bytes = 0;
+        foreach (array_values($files) as $n => $file) {
+            $disk->putFileAs(self::TRANSFER_DIR.'/'.$job->id, $file, (string) $n);
+            $relative = trim((string) ($relativePaths[$n] ?? ''), '/') ?: $file->getClientOriginalName();
+            $items[] = [
+                'path' => trim($folder.'/'.$relative, '/'),
+                'url' => $this->agentUrl('agent.file-transfer-get', ['id' => $job->id, 'n' => $n]),
+            ];
+            $bytes += $file->getSize();
+        }
+        $this->bus->dispatch($volume->server, 'fs.upload', ['volume' => $volume->name, 'files' => $items, 'overwrite' => $overwrite], $job);
+        $this->audit->log('files.upload', 'volumes', $volume->id, ['paths' => array_column($items, 'path'), 'files' => count($items), 'bytes' => $bytes, 'overwrite' => $overwrite, 'job_id' => $job->id]);
+
+        return $job;
+    }
+
+    /** FM-003: the agent sends one file as is, or a ZIP of the selection, to the panel. */
+    public function download(Volume $volume, array $paths): Job
+    {
+        $this->reachable($volume);
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths]);
+        $this->bus->dispatch($volume->server, 'fs.download', [
+            'volume' => $volume->name, 'paths' => $paths,
+            'upload' => ['url' => $this->agentUrl('agent.file-transfer-put', ['id' => $job->id]), 'method' => 'PUT'],
+        ], $job);
+        $this->audit->log('files.download', 'volumes', $volume->id, ['paths' => $paths, 'job_id' => $job->id]);
+
+        return $job;
+    }
+
     public function onCommandFinished(AgentCommand $command, Job $job): void
     {
+        if ($command->type === 'fs.upload') {
+            Storage::disk('local')->deleteDirectory(self::TRANSFER_DIR.'/'.$job->id);
+        }
         if ($command->status !== 'succeeded') {
             $this->jobs->fail($job, $this->friendly((string) $command->message), 'execute');
 
             return;
         }
-        $this->jobs->succeed($job, (array) $command->output);
+        $result = (array) $command->output;
+        if ($command->type === 'fs.download') {
+            $expires = now()->addHour();
+            $result += [
+                'download_url' => URL::temporarySignedRoute('files.transfer', $expires, ['id' => $job->id]),
+                'expires_at' => $expires->toIso8601ZuluString(),
+            ];
+        }
+        $this->jobs->succeed($job, $result);
+    }
+
+    /** The downloaded file a finished fs.download job left on the panel's disk. */
+    public static function downloadPath(string $jobId): string
+    {
+        return self::TRANSFER_DIR.'/'.$jobId.'/download';
+    }
+
+    private function reachable(Volume $volume): void
+    {
+        if (! $volume->server || ! $volume->server->isOnline()) {
+            throw ApiException::conflict('The volume\'s server is offline, so its files cannot be reached.');
+        }
+        if ($volume->type === 'nfs') {
+            throw ApiException::conflict('NFS volumes are not supported by the file manager yet.');
+        }
+    }
+
+    /** A signed URL the agent can call without a bearer token: the signature is the capability. */
+    private function agentUrl(string $route, array $params): string
+    {
+        return rtrim(config('backups.agent_api_url'), '/').URL::temporarySignedRoute($route, now()->addHours(6), $params, absolute: false);
     }
 
     /** Agent errors carry the host path; show the part the user knows. */

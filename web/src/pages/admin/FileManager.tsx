@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, errorMessage, request } from '../../api/client'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { api, apiBase, errorMessage, request, tokenStore } from '../../api/client'
 import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
 import { Empty } from '../../components/Card'
@@ -68,6 +68,56 @@ function SideLink({ d, label, active, onClick, disabled, note }: { d: string; la
   )
 }
 
+/** Waits for a file job the panel already started (by job id) and returns its result. */
+async function waitJob<T>(id: string): Promise<T> {
+  return fsCall<T>(async () => ({ data: { job_id: id } }))
+}
+
+/** Sends files to the panel with upload progress (fetch cannot report it). */
+function postFiles(url: string, form: FormData, onProgress: (pct: number) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url)
+    const token = tokenStore.get()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.setRequestHeader('Accept', 'application/json')
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    xhr.onerror = () => reject(new Error('The upload could not reach the panel.'))
+    xhr.onload = () => {
+      let body: { data?: { job_id?: string }; message?: string } = {}
+      try { body = JSON.parse(xhr.responseText) } catch { /* not JSON */ }
+      if (xhr.status === 202 && body.data?.job_id) resolve(body.data.job_id)
+      else reject(new Error(body.message || (xhr.status === 413 ? 'Those files are larger than the panel accepts.' : `Upload failed (HTTP ${xhr.status}).`)))
+    }
+    xhr.send(form)
+  })
+}
+
+interface Picked { file: File; rel: string }
+
+/** Files dropped from the desktop, walking into dropped folders. */
+async function droppedFiles(dt: DataTransfer): Promise<Picked[]> {
+  const out: Picked[] = []
+  type FSEntry = { isFile: boolean; isDirectory: boolean; name: string; fullPath: string; file?: (cb: (f: File) => void, err: (e: unknown) => void) => void; createReader?: () => { readEntries: (cb: (es: FSEntry[]) => void, err: (e: unknown) => void) => void } }
+  const walk = async (e: FSEntry): Promise<void> => {
+    if (e.isFile && e.file) {
+      const f = await new Promise<File>((res, rej) => e.file!(res, rej))
+      out.push({ file: f, rel: e.fullPath.replace(/^\//, '') })
+    } else if (e.isDirectory && e.createReader) {
+      const reader = e.createReader()
+      for (;;) {
+        const batch = await new Promise<FSEntry[]>((res, rej) => reader.readEntries(res, rej))
+        if (!batch.length) break
+        for (const c of batch) await walk(c)
+      }
+    }
+  }
+  const entries = Array.from(dt.items).map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => FSEntry | null }).webkitGetAsEntry?.()).filter(Boolean) as FSEntry[]
+  if (!entries.length) return Array.from(dt.files).map((f) => ({ file: f, rel: f.name }))
+  for (const e of entries) await walk(e)
+  return out
+}
+
 const validName = (n: string) => !!n && n !== '.' && n !== '..' && !n.includes('/')
 
 export function FileManager() {
@@ -86,6 +136,12 @@ export function FileManager() {
   const [deleting, setDeleting] = useState<Entry | null>(null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [transfer, setTransfer] = useState<{ label: string; pct: number | null } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [overwrite, setOverwrite] = useState<Picked[] | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
 
   const usable = useMemo(() => volumes.rows.filter((v) => v.type !== 'nfs'), [volumes.rows])
   useEffect(() => { if (!volumeId && usable[0]) setVolumeId(usable[0].id) }, [usable, volumeId])
@@ -97,7 +153,7 @@ export function FileManager() {
     setLoading(true); setError(null)
     try {
       const r = await fsCall<{ entries: Entry[]; truncated: boolean }>(() => api.get(base, { path }))
-      setEntries(r.entries); setTruncated(r.truncated); setDir(path); setFilter('')
+      setEntries(r.entries); setTruncated(r.truncated); setDir(path); setFilter(''); setSelected(new Set())
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -118,6 +174,56 @@ export function FileManager() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function upload(picked: Picked[], replace = false) {
+    if (!picked.length || !volumeId) return
+    const names = new Set((entries ?? []).map((e) => e.name))
+    if (!replace && picked.some((p) => names.has(p.rel.split('/')[0]))) { setOverwrite(picked); return }
+    const form = new FormData()
+    form.append('path', dir)
+    if (replace) form.append('overwrite', '1')
+    picked.forEach((p) => { form.append('files[]', p.file); form.append('relative_paths[]', p.rel) })
+    const label = picked.length === 1 ? picked[0].rel : `${picked.length} files`
+    setBusy(true); setTransfer({ label: `Uploading ${label}`, pct: 0 })
+    try {
+      const job = await postFiles(`${apiBase()}${base}/upload`, form, (pct) => setTransfer({ label: `Uploading ${label}`, pct }))
+      setTransfer({ label: `Writing ${label} to the server`, pct: null })
+      await waitJob(job)
+      toast.success(`Uploaded ${label}`)
+      await load(dir)
+    } catch (e) {
+      toast.push({ kind: 'error', title: 'Upload failed', detail: errorMessage(e) })
+    } finally {
+      setBusy(false); setTransfer(null)
+    }
+  }
+
+  async function download(names: string[]) {
+    if (!names.length) return
+    const label = names.length === 1 ? names[0] : `${names.length} items`
+    setBusy(true); setTransfer({ label: `Preparing ${label}`, pct: null })
+    try {
+      const r = await fsCall<{ download_url: string }>(() => api.post(`${base}/download`, { paths: names.map((n) => join(dir, n)) }))
+      const a = document.createElement('a')
+      a.href = r.download_url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove()
+    } catch (e) {
+      toast.push({ kind: 'error', title: `Could not download ${label}`, detail: errorMessage(e) })
+    } finally {
+      setBusy(false); setTransfer(null)
+    }
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault(); setDragging(false)
+    if (!entries || busy) return
+    droppedFiles(e.dataTransfer).then((p) => upload(p))
+  }
+
+  function toggle(name: string) {
+    const next = new Set(selected)
+    if (next.has(name)) next.delete(name); else next.add(name)
+    setSelected(next)
   }
 
   async function open(e: Entry) {
@@ -160,7 +266,9 @@ export function FileManager() {
           <select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
             {usable.map((v) => <option key={v.id} value={v.id}>{v.name} · {serverName(v)}</option>)}
           </select>
-          <ToolButton label="Upload (coming soon)" d={P.upload} disabled />
+          <ToolButton label="Upload files" d={P.upload} disabled={!entries || busy} onClick={() => fileInput.current?.click()} />
+          <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
+          <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.webkitRelativePath || file.name }))) }} />
           <ToolButton label="New folder" d={P.folderPlus} disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })} />
           <div className="relative">
             <ToolButton label="More actions" d={P.dots} expanded={menu} disabled={!entries} onClick={() => setMenu(!menu)} />
@@ -168,6 +276,7 @@ export function FileManager() {
               <div role="menu" className="absolute right-0 top-12 z-20 card shadow-lg py-1 w-44">
                 <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); setNaming({ kind: 'file', value: '' }) }}>New file</button>
                 <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); load(dir) }}>Refresh</button>
+                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); folderInput.current?.click() }}>Upload a folder</button>
               </div>
             )}
           </div>
@@ -192,7 +301,15 @@ export function FileManager() {
             <SideLink d={P.trash} label="Trash" note="soon" disabled />
           </nav>
 
-          <div className="flex-[999_1_480px] min-w-0 rounded-xl border border-line overflow-hidden">
+          <div className={`relative flex-[999_1_480px] min-w-0 rounded-xl border overflow-hidden ${dragging ? 'border-[var(--accent)] border-dashed' : 'border-line'}`}
+            onDragOver={(e) => { if (entries && !busy) { e.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
+            {dragging && <div className="absolute inset-0 z-10 grid place-content-center bg-[var(--sel)]/80 text-[15px] font-semibold pointer-events-none">Drop files or folders to upload to {dir || volume?.name}</div>}
+            {transfer && (
+              <div role="status" className="px-4 py-3 border-b border-line text-sm">
+                <div className="flex justify-between mb-2"><span>{transfer.label}</span><span className="text-muted">{transfer.pct !== null ? `${transfer.pct}%` : 'Working…'}</span></div>
+                <div className="h-1.5 rounded bg-[var(--track)] overflow-hidden"><div className={`h-full bg-[var(--accent)] ${transfer.pct === null ? 'w-1/3 animate-pulse' : ''}`} style={transfer.pct !== null ? { width: `${transfer.pct}%` } : undefined} /></div>
+              </div>
+            )}
             <div className="flex items-center gap-3 px-4 py-2 border-b border-line">
               <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
               <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -203,23 +320,26 @@ export function FileManager() {
               : (
                 <table className="w-full border-collapse text-[15px]">
                   <thead><tr className="bg-[var(--head)] text-left">
+                    <th className="w-10 pl-4"><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => selected.has(r.name))} onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((r) => r.name)) : new Set())} /></th>
                     <th className="px-4 py-3 font-semibold">Name</th>
                     <th className="px-4 py-3 font-medium text-muted text-right w-32">Size</th>
                   </tr></thead>
                   <tbody>
                     {dir && (
                       <tr className="border-t border-line">
-                        <td className="px-4 py-3" colSpan={2}><button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit]" onClick={() => load(parentOf(dir))}><IconSvg d={P.up} size={20} className="text-muted" />Up one folder</button></td>
+                        <td className="px-4 py-3" colSpan={3}><button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit]" onClick={() => load(parentOf(dir))}><IconSvg d={P.up} size={20} className="text-muted" />Up one folder</button></td>
                       </tr>
                     )}
                     {shown.map((r) => (
-                      <tr key={r.name} className="group border-t border-line hover:bg-[var(--head)]">
+                      <tr key={r.name} className={`group border-t border-line hover:bg-[var(--head)] ${selected.has(r.name) ? 'bg-[var(--sel)]' : ''}`}>
+                        <td className="w-10 pl-4"><input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.name)} onChange={() => toggle(r.name)} /></td>
                         <td className="px-4 py-2 min-w-0"><div className="flex items-center gap-3 min-h-9">
                           <button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit] text-left disabled:cursor-default" disabled={busy || r.type === 'other' || r.type === 'symlink'} onClick={() => open(r)}>
                             <IconSvg d={iconFor(r)} size={20} className="text-muted shrink-0" />
                             <span className="truncate">{r.name}{r.type === 'symlink' ? ' (link)' : ''}</span>
                           </button>
                           <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                            {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
                             <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</button>
                           </span>
@@ -227,7 +347,7 @@ export function FileManager() {
                         <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{r.type === 'dir' ? 'Folder' : size(r.size)}</td>
                       </tr>
                     ))}
-                    {entries && shown.length === 0 && <tr><td colSpan={2}><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></td></tr>}
+                    {entries && shown.length === 0 && <tr><td colSpan={3}><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></td></tr>}
                   </tbody>
                 </table>
               )}
@@ -235,10 +355,18 @@ export function FileManager() {
         </div>
 
         <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
-          <span>{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}</span>
+          <span className="flex flex-wrap items-center gap-3">{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}
+            {selected.size > 0 && <><span className="font-semibold text-[var(--text)]">{selected.size} selected</span>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button></>}
+          </span>
           {used && <span>Storage: {used}{volume?.quota_gb ? ` / ${volume.quota_gb}` : ''} GB</span>}
         </div>
       </section>
+
+      <ConfirmDialog open={!!overwrite} onClose={() => setOverwrite(null)} title="Replace existing items?" confirmLabel="Replace"
+        onConfirm={() => { const p = overwrite!; setOverwrite(null); upload(p, true) }}>
+        <p className="m-0 text-sm">Some of these names already exist in this folder. Replacing overwrites those files; nothing else is removed.</p>
+      </ConfirmDialog>
 
       <Modal open={!!naming} onClose={() => setNaming(null)} title={naming?.kind === 'rename' ? `Rename ${naming.target?.name}` : naming?.kind === 'folder' ? 'New folder' : 'New file'}
         footer={<>
