@@ -134,6 +134,12 @@ Artisan::command('proxy:sync-certs', function (\App\Services\TraefikConfigServic
     $this->info('proxy.certs commands queued: '.($traefik::enabled() ? $traefik->syncCertificates() : 0));
 })->purpose('Read certificate expiry from Traefik acme.json on ingress servers (DOM-002)');
 
+Artisan::command('uptime:check', function (\App\Services\UptimeService $uptime) {
+    $r = $uptime->checkAll();
+    $this->info("checked {$r['checked']}, down {$r['down']}, recovered {$r['recovered']}");
+})->purpose('Fetch every verified domain and open or close uptime incidents');
+
+Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
