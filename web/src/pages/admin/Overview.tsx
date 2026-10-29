@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useOne } from '../../api/hooks'
 import { Card, Meter, PageHeader, StatTile, Empty } from '../../components/Card'
+import { Icon } from '../../components/Icon'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { LineChart } from '../../components/Charts'
 import { ago } from '../../lib/format'
@@ -80,6 +81,23 @@ export default function Overview() {
         {isLoading && !d ? [0, 1, 2, 3].map((i) => <div key={i} className="card p-5 h-[118px] animate-pulse" />) :
           tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined} />)}
       </div>
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+        {([
+          ['Install an application', 'Catalogue and one-click stacks', '/admin/catalog', 'store'],
+          ['Add a server', 'Enrol a VPS or dedicated host', '/admin/servers?add=1', 'server'],
+          ['Attach a domain', 'Route traffic and issue TLS', '/admin/domains', 'globe'],
+          ['New hosting customer', 'Tenant, owner and package', '/admin/customers', 'users'],
+        ] as const).map(([title, sub, to, icon]) => (
+          <Link key={to} to={to} className="card flex items-center gap-3 p-4 no-underline text-fg transition-colors hover:border-accent">
+            <span className="grid h-10 w-10 flex-none place-content-center rounded-xl bg-sel text-accent-fg"><Icon name={icon} size={20} /></span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{title}</span>
+              <span className="block truncate text-xs text-muted">{sub}</span>
+            </span>
+          </Link>
+        ))}
+      </div>
+
       <div className="flex flex-wrap gap-4">
         <Card className="flex-[2_1_520px]" title={`Fleet CPU & RAM — ${RANGE_LABEL[range]}`}
           actions={
