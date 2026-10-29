@@ -5,7 +5,7 @@
 ```
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting
                           monitoring, hardened SSH, backups in two places
-UI modernisation   ~65%   foundations done; 35 artboards not yet applied
+UI modernisation   ~67%   foundations done; 1 of 35 artboards applied
 Monitoring         ~55%   websites + containers + servers every 5 min
 WorkSuite Server     0%   blocked: no source for the image
 ```
@@ -22,7 +22,10 @@ the work can be picked up without rediscovering the codebase.
 Ordered. Each line is one commit; verify the route returns 200 before moving on.
 
 ### Shell — blocks every page
-- [ ] `TopBar` pass against the canvas
+- [x] `TopBar` → `Shell.tsx` header — commit `71ca388`
+      four-quadrant mark in token colours, product name at 19px, organisation
+      switcher linking to settings. Assistant control omitted (no such feature);
+      incidents triangle omitted (the alerts bell already serves it).
 - [ ] `Sidebar` pass against the canvas
 - [ ] `Main` / Overview: content below the KPI grid (canvas is 1360 tall)
 
