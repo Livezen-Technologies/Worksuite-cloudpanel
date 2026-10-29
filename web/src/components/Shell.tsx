@@ -7,6 +7,8 @@ import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 
+export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean }
+
 export interface NavItem { label: string; to: string; end?: boolean; icon?: string; group?: string; badge?: string | number }
 
 function NavList({ items, onPick, touch }: { items: NavItem[]; onPick?: () => void; touch?: boolean }) {
@@ -47,7 +49,24 @@ export function Brand({ title, subtitle }: { title: string; subtitle?: string })
   )
 }
 
-export function Shell({ nav, brand, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; brand: { title: string; subtitle?: string }; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+/** The narrow icon rail: one entry per major area of the product. */
+function Rail({ items }: { items: RailItem[] }) {
+  return (
+    <nav aria-label="Areas" className="hidden lg:flex w-14 flex-none flex-col items-center gap-1 border-r border-line bg-side py-4 sticky top-0 h-screen">
+      {items.map((r) => (
+        <NavLink key={r.to} to={r.to} end={r.end} title={r.label} aria-label={r.label}
+          className={({ isActive }) => `relative grid h-11 w-11 place-content-center rounded-xl no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          <Icon name={r.icon} size={20} />
+          {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
+            <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
+          )}
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
+export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
   const [menu, setMenu] = useState(false)
   const [palette, setPalette] = useState(false)
   const { theme, toggle } = useTheme()
@@ -66,6 +85,7 @@ export function Shell({ nav, brand, sidebarFooter, headerExtra, touch = false, l
   return (
     <div className={`min-h-screen bg-bg text-fg flex ${touch ? 'panel-touch' : ''}`}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-[80] focus:p-3 focus:bg-card">Skip to content</a>
+      {rail && <Rail items={rail} />}
       <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-0 h-screen overflow-y-auto">{side}</aside>
       <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
       <div className="flex-1 min-w-0 flex flex-col">

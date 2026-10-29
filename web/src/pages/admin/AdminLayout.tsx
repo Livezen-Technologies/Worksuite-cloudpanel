@@ -1,8 +1,18 @@
 import { Link } from 'react-router'
-import { Shell, type NavItem } from '../../components/Shell'
+import { Shell, type NavItem, type RailItem } from '../../components/Shell'
 import { Icon } from '../../components/Icon'
 import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
+
+/** The areas of the product, shown in the icon rail beside the sidebar. */
+export const ADMIN_RAIL: RailItem[] = [
+  { label: 'Infrastructure', to: '/admin', icon: 'grid', end: true },
+  { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
+  { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
+  { label: 'Hosting customers', to: '/admin/customers', icon: 'users' },
+  { label: 'Customer panel', to: '/app', icon: 'store' },
+  { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+]
 
 export const ADMIN_NAV: NavItem[] = [
   { label: 'Overview', to: '/admin', end: true, icon: 'grid', group: 'Infrastructure' },
@@ -45,7 +55,7 @@ function AlertsBell() {
 
 export function AdminLayout() {
   return (
-    <Shell label="Main" nav={ADMIN_NAV} brand={{ title: 'Docker Manager' }} headerExtra={<AlertsBell />}
+    <Shell rail={ADMIN_RAIL} label="Main" nav={ADMIN_NAV} brand={{ title: 'Docker Manager' }} headerExtra={<AlertsBell />}
       sidebarFooter={
         <div className="p-3.5 rounded-[10px] bg-head border border-line">
           <div className="text-xs text-muted">Control plane</div>
