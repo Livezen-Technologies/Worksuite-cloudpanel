@@ -1,15 +1,22 @@
 # Release phases
 
-Mirrors SRS section 9.2 (the SRS doc is the source of truth). Screens are in `docs/design/*.dc.html`.
+Mirrors SRS section 9.2 (the SRS doc is the source of truth: https://claude.ai/artifact/C7KZktb3vijZGErBrFnUT3,
+version 1.1). Screens are in `docs/design/*.dc.html`.
 
 | Phase | Weeks | Scope | Requirement IDs |
 | --- | --- | --- | --- |
 | 1 Foundation | 1–4 | Auth, organisations, RBAC, React shells, Laravel API, agent enrolment and mTLS, server inventory | SEC-001..010, SRV-001..009, DASH-001..008 |
 | 2 Docker core | 5–8 | Containers, logs, images, registries, networks, volumes, Compose, terminal, audit | CTR, LOG, IMG, NET, STO, CMP |
-| 3 Deployment + customer panel | 9–12 | Git builds, pipeline, Traefik, domains and SSL, rollback, templates, host-an-app wizard, customer domains | APP, DOM, DB, UAPP, UHOST, UDET, UDOM |
-| 4 Operations | 13–16 | Backups and restore, Prometheus/Loki, alerts, agent upgrades, hardening | BAK, MON, AUT, UBAK |
-| 5 Multi-server + commercial | 17–22 | Scheduler and quotas, storage nodes, provider integrations, customer billing, multi-tenant tests | USR, SET, UBIL, UACC, UHOST-003/004 |
-| 6 Later | — | Kubernetes backend, HA control plane, policy engine, autoscaling | out of scope for 1.0 |
+| 3 Deployment + customer panel | 9–12 | Git builds, pipeline, Traefik, domains and SSL, rollback, templates, host-an-app wizard, customer domains; Dokploy parity for Git providers, build types, previews | APP, DOM, DB, UAPP, UHOST, UDET, UDOM, DPL-001..009, DPL-014 |
+| 4 Operations | 13–16 | Backups and restore, Prometheus/Loki, alerts, agent upgrades, hardening; volume backups, more databases and notification providers, scheduled-job timezones | BAK, MON, AUT, UBAK, DPL-010..013 |
+| 5 Multi-server + commercial | 17–22 | Scheduler and quotas, storage nodes, provider integrations, customer billing, multi-tenant tests; CLI, template library, private networking; migration wizard; mail hosting | USR, SET, UBIL, UACC, UHOST-003/004, DPL-015, DPL-016, DPL-018, MIG-001..014, MAIL-001..014 |
+| 6 Later | — | Kubernetes backend, HA control plane, policy engine, autoscaling, Docker Swarm clusters | DPL-017; the rest out of scope for 1.0 |
+
+The SRS does not yet give a phase to Firewall (FW), File manager (FM), DNS zones (DNS), WordPress toolkit (WP),
+Backup manager (BKM) or Hosting (HOST, apart from UHOST-003/004). The 22-week estimate assumes a team of about 9;
+security, recovery and multi-tenant isolation may need more time.
+
+Current build status per area is in SRS section 10 and `docs/status-and-remaining-work.md`.
 
 ## Acceptance (SRS 9.1)
 
