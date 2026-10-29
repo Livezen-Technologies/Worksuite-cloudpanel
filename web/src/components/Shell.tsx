@@ -89,16 +89,39 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
       <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-0 h-screen overflow-y-auto">{side}</aside>
       <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="h-16 box-border px-4 sm:px-8 flex items-center gap-3 border-b border-line bg-bg sticky top-0 z-30">
+        <header className="h-16 box-border px-4 sm:px-6 flex items-center gap-3 border-b border-line bg-side sticky top-0 z-30">
           <button type="button" className="btn btn-sm lg:hidden border-0 !min-h-[44px] !min-w-[44px]" aria-label="Open menu" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="menu" size={22} /></button>
-          <button type="button" onClick={() => setPalette(true)} className="flex-1 flex items-center gap-2.5 text-muted text-sm bg-transparent border-0 cursor-pointer text-left min-h-[44px] min-w-0" aria-label="Search (Ctrl K)">
-            <Icon name="search" /><span className="flex-1 truncate">Search servers, containers, apps…</span>
-            <kbd className="hidden sm:inline text-[11px] border border-line rounded px-1.5 py-0.5 font-sans">⌘K</kbd>
+
+          {/* Brand lockup, on wide screens where the sidebar heading is not the first thing read. */}
+          <div className="hidden lg:flex items-center gap-2 flex-none">
+            <span className="grid h-7 w-7 place-content-center rounded-lg bg-accent text-white"><Icon name="logo" size={16} /></span>
+            <span className="text-sm font-semibold tracking-tight">{brand.title}</span>
+          </div>
+
+          {/* Search is the primary way into anything, so it sits centre. */}
+          <button type="button" onClick={() => setPalette(true)}
+            className="input mx-auto flex max-w-xl flex-1 items-center gap-2.5 text-left text-muted lg:flex-none lg:w-[min(36rem,40vw)]"
+            aria-label="Search (Ctrl K)">
+            <Icon name="search" size={16} /><span className="flex-1 truncate text-sm">Search servers, containers, apps…</span>
+            <kbd className="hidden sm:inline rounded border border-line px-1.5 py-0.5 font-sans text-[11px]">⌘K</kbd>
           </button>
-          {headerExtra}
-          <button type="button" className="btn btn-sm border-0 !min-h-[44px] !min-w-[44px]" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggle}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} /></button>
-          <span className="w-[34px] h-[34px] rounded-full bg-accent text-white text-[13px] font-semibold flex items-center justify-center flex-none" title={me?.user?.name} aria-hidden="true">{initials}</span>
-          <button type="button" className="btn btn-sm border-0 !min-h-[44px] !min-w-[44px]" aria-label="Sign out" onClick={() => logout()}><Icon name="logout" size={20} /></button>
+
+          <div className="ml-auto flex flex-none items-center gap-1">
+            <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted" title="Agent reporting">
+              <span className="h-2 w-2 rounded-full bg-g-fg" aria-hidden="true" />Live
+            </span>
+            {headerExtra}
+            <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" onClick={toggle}
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+              <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
+            </button>
+            <div className="mx-1 hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
+            <span className="grid h-8 w-8 flex-none place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
+            <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
+            <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" aria-label="Sign out" onClick={() => logout()}>
+              <Icon name="logout" size={20} />
+            </button>
+          </div>
         </header>
         <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
           <Outlet />
