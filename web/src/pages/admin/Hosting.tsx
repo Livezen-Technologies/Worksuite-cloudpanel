@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useAction, useList } from '../../api/hooks'
-import { Card, Field, PageHeader, Empty } from '../../components/Card'
+import { Field, PageHeader, Empty } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
+import { Modal, Drawer } from '../../components/Overlay'
 import Select from '../../components/Select'
 
 type Plan = {
@@ -58,8 +59,15 @@ export function Packages() {
         actions={<button type="button" className="btn btn-primary" onClick={() => setForm({ ...BLANK })}>New package</button>} />
 
       {form && (
-        <Card title={form.id ? `Edit ${form.name || 'package'}` : 'New package'}>
-          <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]"
+        <Drawer open onClose={() => setForm(null)} width={520}
+          title={form.id ? `Edit ${form.name || 'package'}` : 'New package'}
+          footer={<>
+            <button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button>
+            <button type="submit" form="package-form" className="btn btn-primary" disabled={busy}>
+              {busy ? 'Saving…' : 'Save package'}
+            </button>
+          </>}>
+          <form id="package-form" className="grid gap-4 sm:grid-cols-2"
                 onSubmit={(e) => { e.preventDefault(); save() }}>
             <Field label="Code" hint="Lowercase, used in APIs. Cannot clash.">
               <input className="input font-mono text-xs" required value={form.code} placeholder="starter-lk"
@@ -83,12 +91,8 @@ export function Packages() {
             <Field label="Backups per day"><input className="input" type="number" min={0} value={form.backups_per_day} onChange={num('backups_per_day')} /></Field>
             <Field label="Backup retention (days)"><input className="input" type="number" min={0} value={form.backup_retention_days} onChange={num('backup_retention_days')} /></Field>
             <Field label="Sort order"><input className="input" type="number" min={0} value={form.sort} onChange={num('sort')} /></Field>
-            <div className="col-span-full flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save package'}</button>
-            </div>
           </form>
-        </Card>
+        </Drawer>
       )}
 
       {!plans.isLoading && plans.rows.length === 0 && <Empty>No packages yet. Create one to start selling hosting.</Empty>}
@@ -152,8 +156,14 @@ export function Customers() {
                          onClick={() => setForm({ ...NEW_CUSTOMER, plan_id: plans.rows[0]?.id ?? '' })}>New customer</button>} />
 
       {form && (
-        <Card title="New hosting customer">
-          <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
+        <Modal open onClose={() => setForm(null)} title="New hosting customer" width={640}
+          footer={<>
+            <button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button>
+            <button type="submit" form="new-customer" className="btn btn-primary" disabled={busy}>
+              {busy ? 'Creating…' : 'Create customer'}
+            </button>
+          </>}>
+          <form id="new-customer" className="grid gap-4 sm:grid-cols-2"
                 onSubmit={(e) => { e.preventDefault(); create() }}>
             <Field label="Company name"><input className="input" required value={form.name}
                      onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Lanka (Pvt) Ltd" /></Field>
@@ -189,12 +199,8 @@ export function Customers() {
                 </button>
               </div>
             </Field>
-            <div className="col-span-full flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create customer'}</button>
-            </div>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {!customers.isLoading && customers.rows.length === 0 && <Empty>No hosting customers yet.</Empty>}
