@@ -5,7 +5,7 @@
 ```
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting
                           monitoring, hardened SSH, backups in two places
-UI modernisation   ~67%   foundations done; 1 of 35 artboards applied
+UI modernisation   ~82%   24 of 35 artboards done or verified aligned
 Monitoring         ~55%   websites + containers + servers every 5 min
 WorkSuite Server     0%   blocked: no source for the image
 ```
@@ -43,16 +43,30 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
 > artboards. The canvas appears to have been drawn from this panel rather than
 > ahead of it, so the real differences are concentrated in the shell — which is
 > why TopBar, Sidebar and the header produced substantial changes and the
-> content screens do not. Check each remaining artboard against the page before
-> assuming work exists.
-- [ ] Applications · Compose
-- [ ] Images · Networks · Volumes · Databases
+> content screens do not. All nineteen admin content artboards were checked
+> this way and every one already matched, so the canvas documents this panel
+> rather than redesigning it. What is genuinely outstanding is the `Main`
+> dashboard (blocked on the API), `Firewall` (a feature with no backend) and
+> the ten untouched customer-panel artboards.
+- [x] Applications · Compose — no change needed; `Deploy.tsx` already carries
+      New deployment, Release history, Release strategy, New stack, Import from
+      Git, Validate and Diff
+- [x] Images · Networks · Volumes · Databases — no change needed; `Resources.tsx`
+      already carries Pull image, Add registry, Prune unused, Create network,
+      Create volume, New database, Back up now, Restore, Connections, Credentials
 - [x] Monitoring — no change needed; ours has Add rule, All servers, alert
       rules, acknowledge, edit, delete and CSV export. The artboard adds only
       "Open Grafana", and no Grafana is deployed (METRICS_DRIVER=database)
-- [ ] Domains · Backups · Logs · Automation
-- [ ] Users · Settings
-- [ ] Catalog · Packages · Customers
+- [x] Domains · Backups · Logs · Automation — no change needed; Add domain is in
+      `Resources.tsx`, New backup policy / Policies / Export / New job / Run now
+      and the audit trail columns in `Operations.tsx`, Streaming and Pause in
+      `LogView.tsx`, End session in `Terminal.tsx`
+- [x] Users · Settings — no change needed; `Admin.tsx` already carries Invite
+      user, Last active, API tokens, Create token, Revoke, Organisation name,
+      Default region and Save changes
+- [x] Catalog · Packages · Customers — no change needed; Install in `Catalog.tsx`,
+      New package / Save package / Create customer / Generate a strong password
+      in `Hosting.tsx`
 
 ### New construction
 - [ ] Firewall — **the largest remaining piece: a feature, not a screen.**
