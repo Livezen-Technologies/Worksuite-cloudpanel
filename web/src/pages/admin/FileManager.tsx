@@ -2,12 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errorMessage, request } from '../../api/client'
 import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
-import { Card, Empty, PageHeader } from '../../components/Card'
-import { DataTable } from '../../components/DataTable'
-import { Icon } from '../../components/Icon'
+import { Empty } from '../../components/Card'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
-import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
 
 interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string }
@@ -31,6 +28,46 @@ async function fsCall<T>(start: () => Promise<unknown>): Promise<T> {
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
 const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`)
+/** Outline icons (24px grid, stroke) matching the rest of the panel. */
+const P = {
+  folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  folderOpen: 'M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1M3 7v10a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L21.8 12a1 1 0 0 0-1-1.3H7.4a2 2 0 0 0-1.9 1.4L3 19',
+  folderPlus: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13h6',
+  upload: 'M12 15V4m0 0-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3',
+  dots: 'M6 12h.01M12 12h.01M18 12h.01',
+  server: 'M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01',
+  drive: 'M3 14h18M3 14l2.5-7h13L21 14v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM17 16.5h.01',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  code: 'm9 8-4 4 4 4m6-8 4 4-4 4m-2-10-2 12',
+  doc: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  up: 'M12 19V5m0 0-6 6m6-6 6 6',
+}
+const CODE = /\.(php|js|mjs|ts|tsx|jsx|css|scss|html?|json|ya?ml|py|rb|go|sh|sql|xml|vue)$/i
+const iconFor = (e: Entry) => (e.type === 'dir' ? P.folder : e.type === 'symlink' ? P.link : CODE.test(e.name) ? P.code : P.doc)
+
+function IconSvg({ d, size = 20, className = '' }: { d: string; size?: number; className?: string }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}><path d={d} /></svg>
+}
+
+function ToolButton({ label, d, onClick, disabled, expanded }: { label: string; d: string; onClick?: () => void; disabled?: boolean; expanded?: boolean }) {
+  return (
+    <button type="button" aria-label={label} title={label} aria-expanded={expanded} disabled={disabled} onClick={onClick}
+      className="grid place-content-center w-11 h-11 rounded-xl border border-line bg-[var(--head)] text-[var(--text)] cursor-pointer hover:border-[var(--accent)] disabled:opacity-45 disabled:cursor-not-allowed">
+      <IconSvg d={d} size={20} />
+    </button>
+  )
+}
+
+function SideLink({ d, label, active, onClick, disabled, note }: { d: string; label: string; active?: boolean; onClick?: () => void; disabled?: boolean; note?: string }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} aria-current={active ? 'location' : undefined}
+      className={`flex items-center gap-3 min-h-11 px-3 rounded-lg border-0 text-left text-[15px] font-[inherit] cursor-pointer disabled:cursor-not-allowed disabled:opacity-55 ${active ? 'bg-[var(--sel)] text-[var(--text)] font-semibold' : 'bg-transparent text-[var(--text)] hover:bg-[var(--head)]'}`}>
+      <IconSvg d={d} size={20} className="shrink-0" /><span className="truncate flex-1">{label}</span>{note && <span className="text-xs text-muted">{note}</span>}
+    </button>
+  )
+}
+
 const validName = (n: string) => !!n && n !== '.' && n !== '..' && !n.includes('/')
 
 export function FileManager() {
@@ -47,6 +84,8 @@ export function FileManager() {
   const [editing, setEditing] = useState<{ path: string; content: string; original: string } | null>(null)
   const [naming, setNaming] = useState<{ kind: 'folder' | 'file' | 'rename'; target?: Entry; value: string } | null>(null)
   const [deleting, setDeleting] = useState<Entry | null>(null)
+  const [filter, setFilter] = useState('')
+  const [menu, setMenu] = useState(false)
 
   const usable = useMemo(() => volumes.rows.filter((v) => v.type !== 'nfs'), [volumes.rows])
   useEffect(() => { if (!volumeId && usable[0]) setVolumeId(usable[0].id) }, [usable, volumeId])
@@ -58,7 +97,7 @@ export function FileManager() {
     setLoading(true); setError(null)
     try {
       const r = await fsCall<{ entries: Entry[]; truncated: boolean }>(() => api.get(base, { path }))
-      setEntries(r.entries); setTruncated(r.truncated); setDir(path)
+      setEntries(r.entries); setTruncated(r.truncated); setDir(path); setFilter('')
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -107,57 +146,99 @@ export function FileManager() {
 
   const crumbs = dir ? dir.split('/') : []
   const dirty = !!editing && editing.content !== editing.original
+  const shown = (entries ?? []).filter((e) => !filter || e.name.toLowerCase().includes(filter.toLowerCase()))
+  const folders = shown.filter((e) => e.type === 'dir').length
+  const used = volume?.size_gb != null ? `${Number(volume.size_gb).toFixed(1)}` : null
 
   return (
     <>
-      <PageHeader title="File manager" subtitle="Browse and edit the files in a volume. Every change is recorded in the audit log."
-        actions={<>
-          <button type="button" className="btn" disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })}>New folder</button>
-          <button type="button" className="btn btn-primary" disabled={!entries || busy} onClick={() => setNaming({ kind: 'file', value: '' })}>New file</button>
-        </>} />
-      <Card pad={false}>
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-line">
-          <label className="flex items-center gap-2 text-sm">Volume
-            <select className="input h-9" value={volumeId} onChange={(e) => setVolumeId(e.target.value)} aria-label="Volume">
-              {usable.map((v) => <option key={v.id} value={v.id}>{v.name} · {serverName(v)}</option>)}
-            </select>
-          </label>
-          <nav aria-label="Folder" className="flex flex-wrap items-center gap-1 text-sm font-mono">
-            <button type="button" className="btn btn-sm border-0" onClick={() => load('')}>{volume?.name ?? '/'}</button>
-            {crumbs.map((c, i) => (
-              <span key={i} className="flex items-center gap-1"><span aria-hidden="true" className="text-muted">/</span>
-                <button type="button" className="btn btn-sm border-0" onClick={() => load(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
-              </span>
-            ))}
-          </nav>
-          <button type="button" className="btn btn-sm ml-auto" disabled={loading} onClick={() => load(dir)}>Refresh</button>
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3 px-6 pt-5 pb-4">
+          <IconSvg d={P.folderOpen} size={26} className="text-muted" />
+          <h1 className="m-0 text-xl font-semibold flex-1 min-w-[160px]">File Manager</h1>
+          <label className="sr-only" htmlFor="fm-volume">Volume</label>
+          <select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
+            {usable.map((v) => <option key={v.id} value={v.id}>{v.name} · {serverName(v)}</option>)}
+          </select>
+          <ToolButton label="Upload (coming soon)" d={P.upload} disabled />
+          <ToolButton label="New folder" d={P.folderPlus} disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })} />
+          <div className="relative">
+            <ToolButton label="More actions" d={P.dots} expanded={menu} disabled={!entries} onClick={() => setMenu(!menu)} />
+            {menu && (
+              <div role="menu" className="absolute right-0 top-12 z-20 card shadow-lg py-1 w-44">
+                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); setNaming({ kind: 'file', value: '' }) }}>New file</button>
+                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); load(dir) }}>Refresh</button>
+              </div>
+            )}
+          </div>
         </div>
-        {!volumeId && !volumes.isLoading ? <Empty>No volumes yet. Create one under Volumes &amp; Storage.</Empty>
-          : error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
-          : (
-            <DataTable label="Files" rows={[...(dir ? [{ name: '..', type: 'dir', size: 0, mode: '', modified: '' } as Entry] : []), ...(entries ?? [])]}
-              loading={loading && !entries} rowKey={(r) => r.name}
-              columns={[
-                { key: 'name', header: 'Name', render: (r) => (
-                  r.name === '..'
-                    ? <button type="button" className="btn btn-sm border-0" onClick={() => load(parentOf(dir))}>.. (up one folder)</button>
-                    : <button type="button" className="btn btn-sm border-0 font-semibold" disabled={busy || r.type === 'other' || r.type === 'symlink'} onClick={() => open(r)}>
-                        <Icon name={r.type === 'dir' ? 'archive' : 'file'} size={16} /> {r.name}{r.type === 'symlink' ? ' (link)' : ''}
-                      </button>
-                ) },
-                { key: 'size', header: 'Size', value: (r) => r.size, render: (r) => (r.type === 'file' ? size(r.size) : '') },
-                { key: 'mode', header: 'Permissions', render: (r) => <span className="font-mono text-xs">{r.mode}</span> },
-                { key: 'modified', header: 'Modified', value: (r) => r.modified, render: (r) => (r.modified ? ago(r.modified) : '') },
-                { key: 'actions', header: '', sortable: false, render: (r) => r.name === '..' ? null : (
-                  <span className="flex gap-2 justify-end">
-                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
-                    <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => setDeleting(r)}>Delete</button>
-                  </span>
-                ) },
-              ]} />
-          )}
-        {truncated && <p className="m-0 px-4 py-3 text-xs text-muted border-t border-line">This folder has more than 5,000 items; only the first 5,000 are shown.</p>}
-      </Card>
+
+        <nav aria-label="Path" className="mx-6 flex flex-wrap items-center gap-1 rounded-xl bg-[var(--head)] px-4 py-3 text-[15px] text-muted">
+          <IconSvg d={P.server} size={20} className="mr-2" />
+          <span>{volume ? serverName(volume) : '—'}</span>
+          <span aria-hidden="true">/</span>
+          <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load('')}>{volume?.name ?? ''}</button>
+          {crumbs.map((c, i) => (
+            <span key={i} className="flex items-center gap-1"><span aria-hidden="true">/</span>
+              <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
+            </span>
+          ))}
+        </nav>
+
+        <div className="flex flex-wrap gap-4 p-6">
+          <nav aria-label="Folders" className="flex-[0_1_200px] min-w-[160px] flex flex-col gap-1">
+            <SideLink d={P.drive} label="Root" active={!dir} onClick={() => load('')} />
+            {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
+            <SideLink d={P.trash} label="Trash" note="soon" disabled />
+          </nav>
+
+          <div className="flex-[999_1_480px] min-w-0 rounded-xl border border-line overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-line">
+              <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
+              <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            </div>
+            {!volumeId && !volumes.isLoading ? <Empty>No volumes yet. Create one under Volumes &amp; Storage.</Empty>
+              : error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading && !entries ? <Empty>Loading…</Empty>
+              : (
+                <table className="w-full border-collapse text-[15px]">
+                  <thead><tr className="bg-[var(--head)] text-left">
+                    <th className="px-4 py-3 font-semibold">Name</th>
+                    <th className="px-4 py-3 font-medium text-muted text-right w-32">Size</th>
+                  </tr></thead>
+                  <tbody>
+                    {dir && (
+                      <tr className="border-t border-line">
+                        <td className="px-4 py-3" colSpan={2}><button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit]" onClick={() => load(parentOf(dir))}><IconSvg d={P.up} size={20} className="text-muted" />Up one folder</button></td>
+                      </tr>
+                    )}
+                    {shown.map((r) => (
+                      <tr key={r.name} className="group border-t border-line hover:bg-[var(--head)]">
+                        <td className="px-4 py-2 min-w-0"><div className="flex items-center gap-3 min-h-9">
+                          <button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit] text-left disabled:cursor-default" disabled={busy || r.type === 'other' || r.type === 'symlink'} onClick={() => open(r)}>
+                            <IconSvg d={iconFor(r)} size={20} className="text-muted shrink-0" />
+                            <span className="truncate">{r.name}{r.type === 'symlink' ? ' (link)' : ''}</span>
+                          </button>
+                          <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                            <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
+                            <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</button>
+                          </span>
+                        </div></td>
+                        <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{r.type === 'dir' ? 'Folder' : size(r.size)}</td>
+                      </tr>
+                    ))}
+                    {entries && shown.length === 0 && <tr><td colSpan={2}><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></td></tr>}
+                  </tbody>
+                </table>
+              )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
+          <span>{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}</span>
+          {used && <span>Storage: {used}{volume?.quota_gb ? ` / ${volume.quota_gb}` : ''} GB</span>}
+        </div>
+      </section>
 
       <Modal open={!!naming} onClose={() => setNaming(null)} title={naming?.kind === 'rename' ? `Rename ${naming.target?.name}` : naming?.kind === 'folder' ? 'New folder' : 'New file'}
         footer={<>
