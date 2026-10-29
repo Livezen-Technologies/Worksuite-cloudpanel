@@ -23,13 +23,15 @@ class FileService implements HandlesCommandResults
         'list' => 'fs.list', 'read' => 'fs.read', 'write' => 'fs.write',
         'mkdir' => 'fs.mkdir', 'rename' => 'fs.rename', 'delete' => 'fs.delete',
         'upload' => 'fs.upload', 'download' => 'fs.download',
+        'copy' => 'fs.copy', 'move' => 'fs.move', 'compress' => 'fs.compress', 'extract' => 'fs.extract',
+        'trash' => 'fs.trash', 'trash_list' => 'fs.trash_list', 'trash_restore' => 'fs.trash_restore', 'trash_purge' => 'fs.trash_purge',
     ];
 
     /** Where upload and download bytes wait on the panel's own disk, one folder per job. */
     public const TRANSFER_DIR = 'file-transfers';
 
     /** Operations that change files; each is audited with its path (FM-014). */
-    private const WRITES = ['write', 'mkdir', 'rename', 'delete'];
+    private const WRITES = ['write', 'mkdir', 'rename', 'delete', 'copy', 'move', 'compress', 'extract', 'trash', 'trash_restore', 'trash_purge'];
 
     public function __construct(private CommandBus $bus, private JobService $jobs, private AuditLogger $audit) {}
 
@@ -42,7 +44,8 @@ class FileService implements HandlesCommandResults
         $this->bus->dispatch($server, self::OPERATIONS[$operation], $payload, $job);
         if (in_array($operation, self::WRITES, true)) {
             $this->audit->log('files.'.$operation, 'volumes', $volume->id, array_filter([
-                'path' => $payload['path'], 'new_name' => $payload['new_name'] ?? null,
+                'path' => $payload['path'] !== '' ? $payload['path'] : null, 'paths' => $payload['paths'] ?? null, 'dest' => $payload['dest'] ?? null,
+                'ids' => $payload['ids'] ?? null, 'format' => $payload['format'] ?? null, 'new_name' => $payload['new_name'] ?? null,
                 'recursive' => $payload['recursive'] ?? null, 'bytes' => isset($payload['content']) ? strlen($payload['content']) : null,
                 'job_id' => $job->id,
             ], fn ($v) => $v !== null));

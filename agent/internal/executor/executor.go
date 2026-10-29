@@ -43,6 +43,8 @@ var Types = map[string]bool{
 	"firewall.apply": true, "firewall.confirm": true,
 	"fs.list": true, "fs.read": true, "fs.write": true, "fs.mkdir": true,
 	"fs.rename": true, "fs.delete": true, "fs.upload": true, "fs.download": true,
+	"fs.copy": true, "fs.move": true, "fs.compress": true, "fs.extract": true,
+	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
 }
 
 // Reporter sends a command result to the panel.
