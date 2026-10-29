@@ -54,9 +54,13 @@ function AlertsBell() {
   const { rows } = useList<R>('/alerts', { status: 'active' }, { refetchInterval: 30000 })
   const n = rows.filter((a) => !a.acknowledged_at && a.status !== 'resolved').length
   return (
-    <Link to="/admin/monitoring" aria-label={n ? `Alerts, ${n} active` : 'Alerts'} className="relative w-10 h-10 flex items-center justify-center rounded-lg text-muted">
+    <Link to="/admin/monitoring" aria-label={n ? `Alerts, ${n} active` : 'Alerts'} className="relative grid h-11 w-11 place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
       <Icon name="bell" size={22} />
-      {n > 0 && <span aria-hidden="true" className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[var(--r-fg)]" />}
+      {n > 0 && (
+          <span aria-hidden="true" className="absolute right-1 top-1 min-w-[18px] rounded-full bg-[var(--r-fg)] px-1 text-center text-[10px] font-bold leading-[16px] text-white">
+            {n > 9 ? '9+' : n}
+          </span>
+        )}
     </Link>
   )
 }

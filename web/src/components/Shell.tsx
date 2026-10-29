@@ -91,7 +91,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
     <div className={`min-h-screen bg-bg text-fg flex flex-col ${touch ? 'panel-touch' : ''}`}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-[80] focus:p-3 focus:bg-card">Skip to content</a>
         <header className="h-16 box-border px-4 sm:px-6 flex items-center gap-3 border-b border-[var(--header-line)] sticky top-0 z-30 bg-[var(--header-bg)] text-[var(--header-fg)]">
-          <button type="button" className="btn btn-sm lg:hidden border-0 !min-h-[44px] !min-w-[44px]" aria-label="Open menu" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="menu" size={22} /></button>
+          <button type="button" className="lg:hidden !min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" aria-label="Open menu" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="menu" size={22} /></button>
 
           {/* Brand lockup, on wide screens where the sidebar heading is not the first thing read. */}
           <div className="hidden lg:flex items-center gap-2 flex-none">
@@ -136,7 +136,7 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </Link>
             {headerExtra}
-            <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" onClick={toggle}
+            <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" onClick={toggle}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
@@ -145,12 +145,12 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
               <span className="relative flex-none">
                 <span className="grid h-8 w-8 place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
                 {/* Presence: the session is live, which is what the dot in the reference conveys. */}
-                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-side bg-g-fg" aria-hidden="true" />
+                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[var(--header-bg)] bg-g-fg" aria-hidden="true" />
               </span>
               <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
               <svg className="hidden sm:block flex-none text-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
             </Link>
-            <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" aria-label="Sign out" onClick={() => logout()}>
+            <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" aria-label="Sign out" onClick={() => logout()}>
               <Icon name="logout" size={20} />
             </button>
           </div>
