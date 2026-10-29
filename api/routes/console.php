@@ -141,7 +141,22 @@ Artisan::command('uptime:check', function (\App\Services\UptimeService $uptime) 
         ."infrastructure: opened {$i['opened']}, closed {$i['closed']}");
 })->purpose('Fetch every verified domain and open or close uptime incidents');
 
+Artisan::command('monitoring:follow-up', function (\App\Services\UptimeService $uptime) {
+    $f = $uptime->followUpOpenIncidents();
+    $r = $uptime->autoRestartUnhealthy();
+    $this->info("re-notified {$f['renotified']}, escalated {$f['escalated']}; "
+        ."restarted {$r['restarted']}, rate-limited {$r['skipped']}");
+})->purpose('Re-notify and escalate open incidents, and restart unhealthy containers (MON-00x)');
+
+Artisan::command('monitoring:prune', function () {
+    $days = (int) config('platform.default_settings.monitoring.uptime_retention_days');
+    $n = \App\Models\UptimeCheck::allTenants()->where('checked_at', '<', now()->subDays($days))->delete();
+    $this->info("uptime_checks rows pruned: {$n}");
+})->purpose('Drop uptime checks past the retention window');
+
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('monitoring:prune')->daily();
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();

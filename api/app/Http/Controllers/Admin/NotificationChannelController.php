@@ -19,10 +19,30 @@ class NotificationChannelController extends CrudController
 
         return [
             'name' => "{$req}|string|max:120",
-            'type' => "{$req}|in:log,email,slack,teams,telegram,webhook",
+            'type' => "{$req}|in:log,email,slack,teams,telegram,webhook,whatsapp,sms",
             'config' => 'nullable|array',
             'config.url' => 'nullable|url:https,http',
-            'config.to' => 'nullable|email',
+            // email wants an address; whatsapp and sms want a phone number.
+            'config.to' => ['nullable', 'string', 'max:190', function ($attr, $value, $fail) {
+                $type = request('type');
+                if (in_array($type, ['whatsapp', 'sms'], true)) {
+                    if (! preg_match('/^\+?[0-9]{6,20}$/', (string) $value)) {
+                        $fail('The recipient must be a phone number in international format, for example +94771234567.');
+                    }
+                } elseif ($type === 'email' && ! filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                    $fail('The recipient must be a valid email address.');
+                }
+            }],
+            // Credentials are stored in the channel's encrypted config.
+            'config.bot_token' => 'nullable|string|max:255',
+            'config.chat_id' => 'nullable|string|max:120',
+            'config.phone_number_id' => 'nullable|string|max:60',
+            'config.access_token' => 'nullable|string|max:500',
+            'config.template' => 'nullable|string|max:120',
+            'config.language' => 'nullable|string|max:10',
+            'config.account_sid' => 'nullable|string|max:120',
+            'config.auth_token' => 'nullable|string|max:255',
+            'config.from' => 'nullable|string|max:40',
             'enabled' => 'sometimes|boolean',
         ];
     }

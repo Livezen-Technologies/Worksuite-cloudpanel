@@ -90,6 +90,15 @@ return [
             'trigger_anonymiser' => false,
             'trigger_country' => true,
         ],
+        // MON-00x. How often an open incident may notify, when it escalates,
+        // and whether an unhealthy container is restarted automatically.
+        'monitoring' => [
+            'notify_cooldown_minutes' => 30,
+            'escalate_after_minutes' => 60,
+            'auto_restart_unhealthy' => false,
+            'auto_restart_max_per_hour' => 2,
+            'uptime_retention_days' => 90,
+        ],
         'security' => [
             'require_mfa' => false,
             'require_approval_destructive' => true,

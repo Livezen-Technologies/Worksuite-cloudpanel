@@ -25,6 +25,7 @@ class Container extends Model
             'started_at' => 'datetime',
             'docker_created_at' => 'datetime',
             'logs_fetched_at' => 'datetime',
+            'last_auto_restart_at' => 'datetime',
         ];
     }
 

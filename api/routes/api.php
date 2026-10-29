@@ -177,6 +177,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('scheduled-jobs/{id}/run', [Admin\ScheduledJobController::class, 'run'])->middleware('perm:servers.manage')->name('scheduled-jobs.run');
     $crud('maintenance-windows', Admin\MaintenanceWindowController::class, 'resources.view|servers.view', 'servers.manage');
 
+    // Uptime reports and downtime history (MON-00x).
+    Route::get('uptime', [Admin\UptimeController::class, 'index'])->middleware($view)->name('uptime.index');
+    Route::get('uptime/{id}', [Admin\UptimeController::class, 'show'])->middleware($view)->name('uptime.show');
+
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
     Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('firewall.show');
@@ -218,6 +222,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     // Customer panel
     Route::prefix('app')->name('app.')->group(function () {
         Route::middleware('perm:app.manage')->group(function () {
+            // The customer's own incidents and uptime, scoped by the tenant
+            // global scope rather than by a filter.
+            Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
+            Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
             Route::post('apps', [Customer\AppController::class, 'store'])->name('apps.store');
             Route::post('apps/validate-source', [Customer\AppController::class, 'validateSource'])->name('apps.validate-source');

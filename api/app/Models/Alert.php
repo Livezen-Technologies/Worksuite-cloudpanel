@@ -21,6 +21,9 @@ class Alert extends Model
         return [
             'acknowledged_at' => 'datetime',
             'resolved_at' => 'datetime',
+            'last_notified_at' => 'datetime',
+            'escalated_at' => 'datetime',
+            'suppressed' => 'boolean',
         ];
     }
 
