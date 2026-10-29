@@ -58,6 +58,10 @@ The organisation is the token user's current organisation (`users.current_organi
 | CRUD | /registries | credentials write-only |
 | CRUD | /networks ; POST /networks/check | conflict check |
 | CRUD | /volumes ; GET /storage-pools | |
+| GET | /volumes/{id}/files?path= | FM: list a folder → 202 {job_id}; job result {path, entries:[{name, type: dir|file|symlink|other, size, mode, modified}], truncated} |
+| GET / PUT | /volumes/{id}/files/content | read ?path= → result {path, content, size, mode, modified} (text files up to 1 MiB); write {path, content, create?} |
+| POST | /volumes/{id}/files/folders · /volumes/{id}/files/rename | {path} · {path, new_name} (a single name, no "/") |
+| DELETE | /volumes/{id}/files?path=&recursive= | a folder needs recursive=true; the volume root is refused |
 | CRUD | /domains ; POST /domains/{id}/verify ; POST /domains/{id}/certificate | |
 | CRUD | /databases ; POST /databases/{id}/backup, /databases/{id}/restore | |
 | CRUD | /backup-policies ; GET /backup-jobs ; POST /backup-jobs {policy_id} ; POST /restore-jobs {artifact_id} | |
@@ -96,7 +100,7 @@ The organisation is the token user's current organisation (`users.current_organi
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete (confined to one volume), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
   image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
   lines in the command output and exposes them as the deployment job's `build_log`.

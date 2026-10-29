@@ -13,6 +13,7 @@ import ServerDetail from './pages/admin/ServerDetail'
 import Containers from './pages/admin/Containers'
 import { Applications, Compose } from './pages/admin/Deploy'
 import { Images, Networks, Volumes, Domains, Databases } from './pages/admin/Resources'
+import { FileManager } from './pages/admin/FileManager'
 import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
 import { Users, Settings } from './pages/admin/Admin'
 import { AdminAccount } from './pages/admin/Account'
@@ -70,6 +71,7 @@ export function AppRoutes() {
         <Route path="images" element={<Images />} />
         <Route path="networks" element={<Networks />} />
         <Route path="volumes" element={<Volumes />} />
+        <Route path="files" element={<FileManager />} />
         <Route path="domains" element={<Domains />} />
         <Route path="databases" element={<Databases />} />
         <Route path="backups" element={<Backups />} />

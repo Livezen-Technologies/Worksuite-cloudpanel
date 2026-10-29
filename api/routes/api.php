@@ -150,6 +150,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('volumes', [Admin\VolumeController::class, 'store'])->middleware('perm:network_storage.manage')->name('volumes.store');
     Route::match(['put', 'patch'], 'volumes/{id}', [Admin\VolumeController::class, 'update'])->middleware('perm:network_storage.manage')->name('volumes.update');
     Route::delete('volumes/{id}', [Admin\VolumeController::class, 'destroy'])->middleware('perm:network_storage.manage|production.delete')->name('volumes.destroy');
+    // File manager (FM): every call returns a job whose result holds the listing or file
+    Route::get('volumes/{id}/files', [Admin\FileController::class, 'index'])->middleware('perm:resources.view')->name('files.index');
+    Route::get('volumes/{id}/files/content', [Admin\FileController::class, 'show'])->middleware('perm:deploy|network_storage.manage')->name('files.show');
+    Route::put('volumes/{id}/files/content', [Admin\FileController::class, 'write'])->middleware('perm:deploy|network_storage.manage')->name('files.write');
+    Route::post('volumes/{id}/files/folders', [Admin\FileController::class, 'mkdir'])->middleware('perm:deploy|network_storage.manage')->name('files.mkdir');
+    Route::post('volumes/{id}/files/rename', [Admin\FileController::class, 'rename'])->middleware('perm:deploy|network_storage.manage')->name('files.rename');
+    Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 
     // Domains & databases
