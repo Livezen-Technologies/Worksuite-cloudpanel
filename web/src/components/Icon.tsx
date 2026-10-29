@@ -1,41 +1,63 @@
-const P: Record<string, string> = {
-  logo: 'm21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9',
-  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-3.5-3.5',
-  'grid': 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
-  'server': 'M3 4h18v6H3zM3 14h18v6H3zM7 7h.01M7 17h.01',
-  'box': 'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8',
-  'rocket': 'M5 15l-2 6 6-2M9 15l9-9a3 3 0 00-4-4l-9 9v4h4zM13 7l4 4',
-  'store': 'M3 9l1-5h16l1 5M4 9v11h16V9M4 9h16',
-  'layers': 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17l9 5 9-5',
-  'image': 'M3 5h18v14H3zM8 11a2 2 0 100-4 2 2 0 000 4zM21 16l-5-5-6 6',
-  'share': 'M5 12a3 3 0 100-6 3 3 0 000 6zM19 6a3 3 0 100-6 3 3 0 000 6zM19 22a3 3 0 100-6 3 3 0 000 6zM8 11l8-4M8 13l8 4',
-  'disk': 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 15a3 3 0 100-6 3 3 0 000 6z',
-  'globe': 'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3a15 15 0 010 18 15 15 0 010-18z',
-  'shield': 'M12 3l8 3v6c0 4-3.4 7.6-8 9-4.6-1.4-8-5-8-9V6l8-3z',
-  'db': 'M12 7c5 0 8-1.3 8-2s-3-2-8-2-8 1.3-8 2 3 2 8 2zM4 5v14c0 .7 3 2 8 2s8-1.3 8-2V5M4 12c0 .7 3 2 8 2s8-1.3 8-2',
-  'archive': 'M3 4h18v4H3zM5 8v12h14V8M9 12h6',
-  'pulse': 'M3 12h4l3 8 4-16 3 8h4',
-  'file': 'M14 3H6v18h12V7l-4-4zM14 3v4h4',
-  'clock': 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2',
-  'users': 'M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 10a4 4 0 100-8 4 4 0 000 8zM22 20v-2a4 4 0 00-3-3.9',
-  'tag': 'M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01',
-  'gear': 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1A1.6 1.6 0 007.5 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 13.9H3a2 2 0 110-4h.1A1.6 1.6 0 004.6 7.5l-.1-.1a2 2 0 112.8-2.8l.1.1A1.6 1.6 0 0010 3.1V3a2 2 0 114 0v.1a1.6 1.6 0 002.7 1.1l.1-.1a2 2 0 112.8 2.8l-.1.1A1.6 1.6 0 0021 10.1h0a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z',
-  'user': 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z',
-  bell: 'M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a3 3 0 1 1-5.714 0',
-  menu: 'M4 6h16M4 12h16M4 18h16',
-  close: 'M6 6l12 12M18 6 6 18',
-  sun: 'M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
-  moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z',
-  copy: 'M8 8h11v11H8zM5 16V5h11',
-  check: 'm5 13 4 4L19 7',
-  chevron: 'm9 6 6 6-6 6',
-  logout: 'M15 12H3m0 0 4-4m-4 4 4 4M13 4h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6',
+import {
+  ArchiveBoxIcon, ArrowRightStartOnRectangleIcon, Bars3Icon, BellIcon, BoltIcon, BuildingStorefrontIcon,
+  CheckIcon, ChevronRightIcon, CircleStackIcon, ClockIcon, CloudIcon, Cog6ToothIcon, CubeIcon,
+  DocumentDuplicateIcon, DocumentTextIcon, GlobeAltIcon, MagnifyingGlassIcon, MoonIcon, PhotoIcon,
+  RocketLaunchIcon, ServerStackIcon, ShareIcon, ShieldCheckIcon, Squares2X2Icon, SunIcon,
+  TagIcon, UserCircleIcon, UserGroupIcon, XMarkIcon,
+} from '@heroicons/react/24/outline'
+import type { ComponentType, SVGProps } from 'react'
+
+type IconComponent = ComponentType<SVGProps<SVGSVGElement>>
+
+/**
+ * Named icons for navigation and buttons.
+ *
+ * These were hand-drawn paths, which meant every new name had to be drawn by
+ * hand and the set drifted in weight and detail. They now map onto Heroicons,
+ * which Tailwind Plus is drawn against, so the panel and any component taken
+ * from that kit share one icon language. The name keys and the component's
+ * props are unchanged, so call sites are untouched.
+ */
+const ICONS: Record<string, IconComponent> = {
+  logo: CubeIcon,
+  search: MagnifyingGlassIcon,
+  bell: BellIcon,
+  menu: Bars3Icon,
+  close: XMarkIcon,
+  sun: SunIcon,
+  moon: MoonIcon,
+  copy: DocumentDuplicateIcon,
+  check: CheckIcon,
+  chevron: ChevronRightIcon,
+  logout: ArrowRightStartOnRectangleIcon,
+  grid: Squares2X2Icon,
+  server: ServerStackIcon,
+  box: CubeIcon,
+  rocket: RocketLaunchIcon,
+  store: BuildingStorefrontIcon,
+  layers: Squares2X2Icon,
+  image: PhotoIcon,
+  share: ShareIcon,
+  disk: CloudIcon,
+  globe: GlobeAltIcon,
+  shield: ShieldCheckIcon,
+  db: CircleStackIcon,
+  archive: ArchiveBoxIcon,
+  pulse: BoltIcon,
+  file: DocumentTextIcon,
+  clock: ClockIcon,
+  users: UserGroupIcon,
+  tag: TagIcon,
+  gear: Cog6ToothIcon,
+  user: UserCircleIcon,
 }
-export function Icon({ name, size = 18, className }: { name: keyof typeof P | string; size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <path d={P[name] ?? ''} />
-    </svg>
-  )
+
+export function Icon({ name, size = 18, className }: { name: keyof typeof ICONS | string; size?: number; className?: string }) {
+  const Glyph = ICONS[name]
+  if (!Glyph) {
+    // An unknown name reserves its space rather than collapsing the layout.
+    return <span aria-hidden="true" style={{ width: size, height: size }} className={`inline-block ${className ?? ''}`} />
+  }
+
+  return <Glyph aria-hidden="true" width={size} height={size} className={className} />
 }
