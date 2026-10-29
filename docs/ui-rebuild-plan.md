@@ -47,7 +47,10 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
 > assuming work exists.
 - [ ] Applications · Compose
 - [ ] Images · Networks · Volumes · Databases
-- [ ] Domains · Backups · Monitoring · Logs · Automation
+- [x] Monitoring — no change needed; ours has Add rule, All servers, alert
+      rules, acknowledge, edit, delete and CSV export. The artboard adds only
+      "Open Grafana", and no Grafana is deployed (METRICS_DRIVER=database)
+- [ ] Domains · Backups · Logs · Automation
 - [ ] Users · Settings
 - [ ] Catalog · Packages · Customers
 
