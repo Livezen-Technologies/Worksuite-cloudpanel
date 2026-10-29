@@ -34,7 +34,17 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
 ### Admin screens
 - [x] Servers — no change needed; the form already carries every field the artboard
       shows, plus hostname, region and tags
-- [ ] Containers
+- [x] Containers — no change needed; every artboard label is already present
+      (All servers, Create container, Safe cleanup with preview, Terminal,
+      Duplicate, Remove, Restart, Logs, Limits, User, Restart policy, Ports)
+      plus Pause, Mounts, secure defaults and network selection
+
+> **Finding:** `Servers` and `Containers` both already meet or exceed their
+> artboards. The canvas appears to have been drawn from this panel rather than
+> ahead of it, so the real differences are concentrated in the shell — which is
+> why TopBar, Sidebar and the header produced substantial changes and the
+> content screens do not. Check each remaining artboard against the page before
+> assuming work exists.
 - [ ] Applications · Compose
 - [ ] Images · Networks · Volumes · Databases
 - [ ] Domains · Backups · Monitoring · Logs · Automation
