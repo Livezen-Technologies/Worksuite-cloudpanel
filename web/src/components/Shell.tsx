@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { NavLink, Outlet, useLocation, Link } from 'react-router'
 import { Icon } from './Icon'
 import { Drawer } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
@@ -96,11 +96,14 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
           <div className="hidden lg:flex items-center gap-2 flex-none">
             <span className="grid h-7 w-7 place-content-center rounded-lg bg-accent text-white"><Icon name="logo" size={16} /></span>
             <span className="text-sm font-semibold tracking-tight">{brand.title}</span>
+            {brand.subtitle && (
+              <span className="rounded-md bg-n-bg px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-n-fg">{brand.subtitle}</span>
+            )}
           </div>
 
           {/* Search is the primary way into anything, so it sits centre. */}
           <button type="button" onClick={() => setPalette(true)}
-            className="input mx-auto flex max-w-xl flex-1 items-center gap-2.5 text-left text-muted lg:flex-none lg:w-[min(36rem,40vw)]"
+            className="input !rounded-full mx-auto flex max-w-xl flex-1 items-center gap-2.5 text-left text-muted lg:flex-none lg:w-[min(36rem,40vw)]"
             aria-label="Search (Ctrl K)">
             <Icon name="search" size={16} /><span className="flex-1 truncate text-sm">Search servers, containers, apps…</span>
             <kbd className="hidden sm:inline rounded border border-line px-1.5 py-0.5 font-sans text-[11px]">⌘K</kbd>
@@ -110,14 +113,25 @@ export function Shell({ nav, rail, brand, sidebarFooter, headerExtra, touch = fa
             <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted" title="Agent reporting">
               <span className="h-2 w-2 rounded-full bg-g-fg" aria-hidden="true" />Live
             </span>
+            <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
+              className="btn btn-sm border-0 !min-h-11 !min-w-11 no-underline text-muted hover:text-fg">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </Link>
             {headerExtra}
             <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" onClick={toggle}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
             <div className="mx-1 hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
-            <span className="grid h-8 w-8 flex-none place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
-            <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
+            <Link to="/admin/account" className="flex items-center gap-2 rounded-lg px-1 py-1 no-underline text-fg hover:bg-head" title={me?.user?.email}>
+              <span className="relative flex-none">
+                <span className="grid h-8 w-8 place-content-center rounded-full bg-accent text-[13px] font-semibold text-white" aria-hidden="true">{initials}</span>
+                {/* Presence: the session is live, which is what the dot in the reference conveys. */}
+                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-side bg-g-fg" aria-hidden="true" />
+              </span>
+              <span className="hidden max-w-[12rem] truncate text-sm font-semibold sm:inline">{me?.user?.name}</span>
+              <svg className="hidden sm:block flex-none text-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </Link>
             <button type="button" className="btn btn-sm border-0 !min-h-11 !min-w-11" aria-label="Sign out" onClick={() => logout()}>
               <Icon name="logout" size={20} />
             </button>

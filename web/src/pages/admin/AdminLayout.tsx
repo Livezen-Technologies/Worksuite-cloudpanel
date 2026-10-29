@@ -73,7 +73,7 @@ export function AdminLayout() {
   }))
 
   return (
-    <Shell rail={rail} label={active.label} nav={active.items} brand={{ title: 'Docker Manager' }} headerExtra={<AlertsBell />}
+    <Shell rail={rail} label={active.label} nav={active.items} brand={{ title: 'WorkSuite', subtitle: active.label }} headerExtra={<AlertsBell />}
       sidebarFooter={
         <div className="p-3.5 rounded-[10px] bg-head border border-line">
           <div className="text-xs text-muted">Control plane</div>
