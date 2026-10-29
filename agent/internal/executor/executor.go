@@ -40,6 +40,7 @@ var Types = map[string]bool{
 	"agent.update": true, "agent.restart": true,
 	"terminal.open": true,
 	"image.build":   true, "image.scan": true, "container.healthcheck": true,
+	"firewall.apply": true, "firewall.confirm": true,
 }
 
 // Reporter sends a command result to the panel.

@@ -83,6 +83,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			}
 			return map[string]any{"logs": s}, nil
 		}
+	case "firewall.apply":
+		return e.applyFirewall(ctx, c.Payload, progress)
+	case "firewall.confirm":
+		return e.confirmFirewall()
 	case "image.build":
 		return e.buildImage(ctx, c.Payload, progress)
 	case "image.scan":
