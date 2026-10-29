@@ -74,6 +74,22 @@ return [
             'from_address' => env('MAIL_FROM_ADDRESS', ''),
             'from_name' => env('MAIL_FROM_NAME', 'WorkSuite'),
         ],
+        // FW-001. Challenge provider and the conditions that trigger a challenge.
+        // The secret key is written but never read back; it is stored encrypted
+        // under 'secret_key_encrypted', the way the SMTP password is.
+        'firewall' => [
+            'challenge_type' => 'managed',      // managed|javascript|recaptcha
+            'country_mode' => 'block',          // block (block listed) | allow (allow only listed)
+            'provider' => 'turnstile',          // turnstile|hcaptcha|recaptcha
+            'site_key' => '',
+            'min_score' => 0.5,
+            'clearance_minutes' => 30,
+            'trigger_threat_score' => true,
+            'trigger_bad_bots' => true,
+            'trigger_rate_limit' => false,
+            'trigger_anonymiser' => false,
+            'trigger_country' => true,
+        ],
         'security' => [
             'require_mfa' => false,
             'require_approval_destructive' => true,

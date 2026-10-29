@@ -34,6 +34,19 @@ class SettingsController extends Controller
             'smtp.from_name' => 'sometimes|nullable|string|max:120',
             'security' => 'sometimes|array',
             'security.*' => 'boolean',
+            'firewall' => 'sometimes|array',
+            'firewall.challenge_type' => 'sometimes|in:managed,javascript,recaptcha',
+            'firewall.country_mode' => 'sometimes|in:block,allow',
+            'firewall.provider' => 'sometimes|in:turnstile,hcaptcha,recaptcha',
+            'firewall.site_key' => 'sometimes|nullable|string|max:255',
+            'firewall.secret_key' => 'sometimes|nullable|string|max:255',
+            'firewall.min_score' => 'sometimes|numeric|min:0|max:1',
+            'firewall.clearance_minutes' => 'sometimes|integer|min:1|max:1440',
+            'firewall.trigger_threat_score' => 'sometimes|boolean',
+            'firewall.trigger_bad_bots' => 'sometimes|boolean',
+            'firewall.trigger_rate_limit' => 'sometimes|boolean',
+            'firewall.trigger_anonymiser' => 'sometimes|boolean',
+            'firewall.trigger_country' => 'sometimes|boolean',
         ]);
         $org = Tenant::current();
         $settings = array_replace_recursive(config('platform.default_settings'), $org->settings ?? []);
@@ -49,6 +62,22 @@ class SettingsController extends Controller
             foreach ($smtp as $k => $v) {
                 if (array_key_exists($k, config('platform.default_settings.smtp'))) {
                     $settings['smtp'][$k] = $v;
+                }
+            }
+        }
+
+        // The challenge secret is written but never read back; stored encrypted.
+        if (array_key_exists('firewall', $data)) {
+            $fw = $data['firewall'];
+            if (array_key_exists('secret_key', $fw)) {
+                $settings['firewall']['secret_key_encrypted'] = $fw['secret_key'] === null || $fw['secret_key'] === ''
+                    ? null
+                    : \Illuminate\Support\Facades\Crypt::encryptString($fw['secret_key']);
+                unset($fw['secret_key']);
+            }
+            foreach ($fw as $k => $v) {
+                if (array_key_exists($k, config('platform.default_settings.firewall'))) {
+                    $settings['firewall'][$k] = $v;
                 }
             }
         }
@@ -74,11 +103,16 @@ class SettingsController extends Controller
         $hasPassword = ! empty($smtp['password_encrypted']);
         unset($smtp['password_encrypted']);
 
+        $firewall = $settings['firewall'] ?? [];
+        $hasSecret = ! empty($firewall['secret_key_encrypted']);
+        unset($firewall['secret_key_encrypted']);
+
         return [
             'organization' => ['id' => $org->id, 'name' => $org->name, 'slug' => $org->slug],
             'general' => $settings['general'] + ['name' => $org->name],
             'security' => $settings['security'],
             'smtp' => $smtp + ['password_set' => $hasPassword],
+            'firewall' => $firewall + ['secret_key_set' => $hasSecret],
         ];
     }
 }
