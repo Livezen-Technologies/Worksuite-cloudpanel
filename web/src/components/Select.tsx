@@ -3,6 +3,16 @@ import { Children, isValidElement, useCallback, useEffect, useId, useLayoutEffec
 
 type Opt = { value: string; label: string; disabled?: boolean }
 
+/** Flatten an option's children to text: they may be a string, a number, or an
+ *  array of both when the label interpolates values ({name} — {price}). */
+function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children)
+  return ''
+}
+
 /**
  * Drop-in replacement for a native select element: same props, same e.target.value
  * onChange contract, <option> children. Renders a styled listbox instead of the
@@ -28,7 +38,7 @@ export default function Select({
       if (!isValidElement(c)) return
       const p = c.props as { value?: string | number; children?: ReactNode; disabled?: boolean }
       if (c.type === 'option') {
-        const label = typeof p.children === 'string' || typeof p.children === 'number' ? String(p.children) : ''
+        const label = textOf(p.children).trim()
         out.push({ value: p.value !== undefined ? String(p.value) : label, label: label || String(p.value ?? ''), disabled: p.disabled })
       } else if (p.children) walk(p.children)
     })
