@@ -9,7 +9,7 @@ version 1.1). Screens are in `docs/design/*.dc.html`.
 | 2 Docker core | 5–8 | Containers, logs, images, registries, networks, volumes, Compose, terminal, audit | CTR, LOG, IMG, NET, STO, CMP |
 | 3 Deployment + customer panel | 9–12 | Git builds, pipeline, Traefik, domains and SSL, rollback, templates, host-an-app wizard, customer domains; Dokploy parity for Git providers, build types, previews | APP, DOM, DB, UAPP, UHOST, UDET, UDOM, DPL-001..009, DPL-014 |
 | 4 Operations | 13–16 | Backups and restore, Prometheus/Loki, alerts, agent upgrades, hardening; volume backups, more databases and notification providers, scheduled-job timezones | BAK, MON, AUT, UBAK, DPL-010..013 |
-| 5 Multi-server + commercial | 17–22 | Scheduler and quotas, storage nodes, provider integrations, customer billing, multi-tenant tests; CLI, template library, private networking; migration wizard; mail hosting | USR, SET, UBIL, UACC, UHOST-003/004, DPL-015, DPL-016, DPL-018, MIG-001..014, MAIL-001..014 |
+| 5 Multi-server + commercial | 17–22 | Scheduler and quotas, storage nodes, provider integrations, customer billing, multi-tenant tests; CLI, template library, private networking; migration wizard; mail hosting | USR, SET, UBIL, UACC, UHOST-003/004, DPL-015, DPL-016, DPL-018, MIG-001..014, MAIL-001..014, UMIG-001..006, UMAIL-001..007 |
 | 6 Later | — | Kubernetes backend, HA control plane, policy engine, autoscaling, Docker Swarm clusters | DPL-017; the rest out of scope for 1.0 |
 
 The SRS does not yet give a phase to Firewall (FW), File manager (FM), DNS zones (DNS), WordPress toolkit (WP),
