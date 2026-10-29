@@ -17,6 +17,57 @@ Canvas: `claude.ai/artifact/FFTAAc3FPxWejM9jviUgpM` — "Docker Manager Portal",
 35 artboards. This maps each to its page and records what is already done, so
 the work can be picked up without rediscovering the codebase.
 
+## Task list
+
+Ordered. Each line is one commit; verify the route returns 200 before moving on.
+
+### Shell — blocks every page
+- [ ] `TopBar` pass against the canvas
+- [ ] `Sidebar` pass against the canvas
+- [ ] `Main` / Overview: content below the KPI grid (canvas is 1360 tall)
+
+### Admin screens
+- [ ] Servers · Containers
+- [ ] Applications · Compose
+- [ ] Images · Networks · Volumes · Databases
+- [ ] Domains · Backups · Monitoring · Logs · Automation
+- [ ] Users · Settings
+- [ ] Catalog · Packages · Customers
+
+### New construction
+- [ ] Firewall page (backend: rate limiting + headers exist; country
+      blocking, challenges, reCAPTCHA do not)
+
+### Customer panel — 10 artboards, untouched
+- [ ] Pass the rail and nav to `/app` so it gets the same two-level navigation
+- [ ] UserPanel · UserHost · UserHostConfig · UserHostLive · UserNewSite
+- [ ] UserDomains · UserAppDetail · UserBackups · UserBilling · UserAccount
+
+### Outside the canvas
+- [ ] DataTable: bulk actions, filters, contextual menus
+- [ ] Notification centre: dropdown, panel, history
+- [ ] Responsive audit at 360 / 768 / 1440
+- [ ] Sidebar and rail badges wired to live counts (component supports them)
+
+### Monitoring to finish
+- [ ] Auto-restart policies for failed containers
+- [ ] Uptime reports and downtime history
+- [ ] Per-customer scoped incident views
+- [ ] Alert dedup, cooldowns, maintenance windows, escalation
+- [ ] WhatsApp / Telegram / SMS channels
+
+### Operations
+- [ ] Restore shopexpress.lk · diygeek.cc · softkeymart.com · livezenbiz.com
+      (check each for a live copy first — see the seliknaent note below)
+- [ ] Retire the old copies on 51.89.192.43 once restored sites are verified
+- [ ] Decide on CloudPanel: 8433:8443/tcp is open to the world, self-signed
+- [ ] WorkSuite Server: needs read access to its source before anything
+
+> seliknaent was restored from a two-day-old backup while it was still
+> trading on another server. Always check where a site currently lives, and
+> whether it is still being written to, before restoring from backup.
+
+
 ## Already in place (do not rebuild)
 
 Built before the canvas arrived; the rebuild composes on top rather than
