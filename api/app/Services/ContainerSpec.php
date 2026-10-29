@@ -84,7 +84,16 @@ class ContainerSpec
         if ($spec['read_only_rootfs']) {
             $spec['tmpfs'] = $input['tmpfs'] ?? ['/tmp'];
         }
+        // Unset limits mean unlimited, so one tenant's container can starve the
+        // host. Fall back to the resource envelope the customer is sold.
         $limits = $input['limits'] ?? [];
+        $plan = self::planFor($org);
+        if ($plan) {
+            $limits += array_filter([
+                'cpus' => $plan->vcpu ?: null,
+                'memory_mb' => $plan->ram_mb ?: null,
+            ]);
+        }
         if (isset($limits['memory_mb']) || isset($input['memory_mb'])) {
             $spec['memory_mb'] = (int) ($limits['memory_mb'] ?? $input['memory_mb']);
         }
@@ -113,6 +122,21 @@ class ContainerSpec
         }
 
         return array_filter($spec, fn ($v) => $v !== null);
+    }
+
+    /** The package the organisation is subscribed to, if any. */
+    private static function planFor(?Organization $org): ?\App\Models\Plan
+    {
+        if (! $org) {
+            return null;
+        }
+        // Platform-admin context spans tenants, so the scope must not apply here.
+        $planId = \App\Models\Subscription::withoutGlobalScopes()
+            ->where('organization_id', $org->id)
+            ->where('status', 'active')
+            ->value('plan_id');
+
+        return $planId ? \App\Models\Plan::find($planId) : null;
     }
 
     public static function registryAuth(string $server, ?string $username, ?string $password): array
