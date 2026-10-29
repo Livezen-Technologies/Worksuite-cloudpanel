@@ -6,10 +6,14 @@ import { Empty } from '../../components/Card'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import type { R } from '../../lib/util'
+import { useAuth } from '../../lib/auth'
+
+/** Platform roles that may change file ownership (the API enforces the same rule). */
+const OWNER_ROLES = ['super_admin', 'infra_admin', 'devops']
 
 interface TrashItem { id: string; path: string; type: string; size: number; deleted_at: string; expires_at: string }
 const ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i
-interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string }
+interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string; uid?: number; gid?: number }
 
 /** File operations run on the agent: start one, then wait for its job to finish and return the result. */
 async function fsCall<T>(start: () => Promise<unknown>): Promise<T> {
@@ -140,6 +144,9 @@ export function FileManager() {
   const [view, setView] = useState<'files' | 'trash'>('files')
   const [trash, setTrash] = useState<TrashItem[] | null>(null)
   const [trashSel, setTrashSel] = useState<Set<string>>(new Set())
+  const { me } = useAuth()
+  const canChown = OWNER_ROLES.includes(String(me?.role ?? '').toLowerCase())
+  const [perm, setPerm] = useState<{ items: Entry[]; mode: number; recursive: boolean; uid: string; gid: string } | null>(null)
   const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean } | null>(null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState(false)
@@ -279,6 +286,28 @@ export function FileManager() {
   const chosen = () => (entries ?? []).filter((e) => selected.has(e.name))
   const opFor = (kind: 'copy' | 'move' | 'compress' | 'extract', names: string[]) =>
     setOp({ kind, names, dest: dir, name: names.length === 1 ? names[0].replace(ARCHIVE, '') : 'archive', format: 'zip', overwrite: false })
+
+  function openPerms(items: Entry[]) {
+    const first = items[0]
+    setPerm({ items, mode: parseInt(first?.mode || '644', 8) & 0o777, recursive: false, uid: first?.uid != null && first.uid >= 0 ? String(first.uid) : '', gid: first?.gid != null && first.gid >= 0 ? String(first.gid) : '' })
+  }
+
+  function savePerms() {
+    if (!perm) return
+    const paths = perm.items.map((i) => join(dir, i.name))
+    const label = perm.items.length === 1 ? perm.items[0].name : `${perm.items.length} items`
+    const mode = perm.mode.toString(8).padStart(3, '0')
+    const first = perm.items[0]
+    const owner = canChown && (perm.uid !== String(first?.uid ?? '') || perm.gid !== String(first?.gid ?? ''))
+    return act(`Updated permissions of ${label}`, async () => {
+      const r = (await api.post(`${base}/chmod`, { paths, mode, recursive: perm.recursive })) as { data?: { job_id?: string } }
+      if (owner) {
+        if (r?.data?.job_id) await waitJob(r.data.job_id)
+        return api.post(`${base}/chown`, { paths, recursive: perm.recursive, uid: perm.uid === '' ? null : Number(perm.uid), gid: perm.gid === '' ? null : Number(perm.gid) })
+      }
+      return r
+    }, () => { setPerm(null); setSelected(new Set()) })
+  }
 
   function toggle(name: string) {
     const next = new Set(selected)
@@ -428,6 +457,7 @@ export function FileManager() {
                           <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                             {r.type === 'file' && ARCHIVE.test(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Extract ${r.name}`} onClick={() => opFor('extract', [r.name])}>Extract</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
+                            {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Permissions of ${r.name}`} onClick={() => openPerms([r])}>Permissions</button>}
                             <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => { setPermanent(false); setDeleting([r]) }}>Delete</button>
                           </span>
@@ -456,6 +486,7 @@ export function FileManager() {
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('move', [...selected])}>Move to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('compress', [...selected])}>Compress</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPerms(chosen().filter((e) => e.type === 'file' || e.type === 'dir'))}>Permissions</button>
               <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { setPermanent(false); setDeleting(chosen()) }}>Delete</button></>}
           </span>
           )}
@@ -489,6 +520,47 @@ export function FileManager() {
         <label className="flex items-center gap-2 text-sm mt-3"><input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />Delete permanently instead</label>
         {permanent && deleting?.some((d) => d.type === 'dir') && <p className="text-sm mt-2 mb-0">This includes folders and everything in them. Type DELETE to confirm.</p>}
       </ConfirmDialog>
+
+      <Modal open={!!perm} onClose={() => setPerm(null)} title={perm ? `Permissions · ${perm.items.length === 1 ? perm.items[0].name : `${perm.items.length} items`}` : ''}
+        footer={<>
+          <button type="button" className="btn" onClick={() => setPerm(null)}>Cancel</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !perm?.items.length || (canChown && [perm.uid, perm.gid].some((v) => v !== '' && !/^\d{1,10}$/.test(v)))} onClick={savePerms}>{busy ? 'Saving…' : 'Save'}</button>
+        </>}>
+        {perm && (
+          <div className="flex flex-col gap-4">
+            <table className="w-full border-collapse text-sm">
+              <thead><tr className="text-left text-muted"><th className="py-2 font-medium"></th>{['Read', 'Write', 'Execute'].map((h) => <th key={h} className="py-2 font-medium text-center">{h}</th>)}</tr></thead>
+              <tbody>{(['Owner', 'Group', 'Others'] as const).map((who, row) => (
+                <tr key={who} className="border-t border-line">
+                  <th scope="row" className="py-2 text-left font-semibold">{who}</th>
+                  {[4, 2, 1].map((bit, col) => {
+                    const mask = bit << ((2 - row) * 3)
+                    return <td key={col} className="py-2 text-center"><input type="checkbox" aria-label={`${who} ${['read', 'write', 'execute'][col]}`} checked={(perm.mode & mask) !== 0}
+                      onChange={(e) => setPerm({ ...perm, mode: e.target.checked ? perm.mode | mask : perm.mode & ~mask })} /></td>
+                  })}
+                </tr>
+              ))}</tbody>
+            </table>
+            <label className="label">Numeric value
+              <input className="input font-mono w-28" inputMode="numeric" value={perm.mode.toString(8).padStart(3, '0')}
+                onChange={(e) => { const v = e.target.value.replace(/[^0-7]/g, '').slice(-3); if (v) setPerm({ ...perm, mode: parseInt(v, 8) }) }} />
+            </label>
+            {perm.items.some((i) => i.type === 'dir') && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={perm.recursive} onChange={(e) => setPerm({ ...perm, recursive: e.target.checked })} />Apply to everything inside the selected folders</label>}
+            {canChown ? (
+              <fieldset className="border border-line rounded-lg p-3 m-0">
+                <legend className="px-1 text-sm font-semibold">Ownership (administrators only)</legend>
+                <div className="flex flex-wrap gap-3">
+                  <label className="label flex-1 min-w-[120px]">Owner user id<input className="input font-mono" inputMode="numeric" value={perm.uid} placeholder="unchanged" onChange={(e) => setPerm({ ...perm, uid: e.target.value.trim() })} /></label>
+                  <label className="label flex-1 min-w-[120px]">Group id<input className="input font-mono" inputMode="numeric" value={perm.gid} placeholder="unchanged" onChange={(e) => setPerm({ ...perm, gid: e.target.value.trim() })} /></label>
+                </div>
+                <p className="mt-2 mb-0 text-xs text-muted">Most PHP and WordPress images run as user 33 (www-data). Leave a field empty to keep it as it is.</p>
+              </fieldset>
+            ) : perm.items.length === 1 && perm.items[0].uid != null && perm.items[0].uid >= 0 && (
+              <p className="m-0 text-xs text-muted">Owned by user {perm.items[0].uid}, group {perm.items[0].gid}. Only platform administrators can change ownership.</p>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={!!op} onClose={() => setOp(null)}
         title={op ? ({ copy: 'Copy', move: 'Move', compress: 'Compress', extract: 'Extract' }[op.kind] + ' ' + (op.names.length === 1 ? op.names[0] : `${op.names.length} items`)) : ''}

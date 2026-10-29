@@ -18,3 +18,5 @@ func renameBetween(*os.File, string, *os.File, string) error {
 func isCrossDevice(error) bool { return false }
 
 func inheritOwner(*os.Root, string, *os.File) {}
+
+func ownerOf(os.FileInfo) (int, int) { return -1, -1 }

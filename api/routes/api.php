@@ -167,6 +167,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('volumes/{id}/files/trash', [Admin\FileController::class, 'trashIndex'])->middleware('perm:deploy|network_storage.manage')->name('files.trash-index');
     Route::post('volumes/{id}/files/trash/restore', [Admin\FileController::class, 'restore'])->middleware('perm:deploy|network_storage.manage')->name('files.restore');
     Route::delete('volumes/{id}/files/trash', [Admin\FileController::class, 'purge'])->middleware('perm:deploy|network_storage.manage')->name('files.purge');
+    Route::post('volumes/{id}/files/chmod', [Admin\FileController::class, 'chmod'])->middleware('perm:deploy|network_storage.manage')->name('files.chmod');
+    Route::post('volumes/{id}/files/chown', [Admin\FileController::class, 'chown'])->middleware('perm:network_storage.manage')->name('files.chown');
     Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 

@@ -114,6 +114,26 @@ class FileController extends Controller
         return $this->run($request, $id, 'trash_purge', $request->validate(['ids' => 'required|array|min:1|max:500', 'ids.*' => 'string|max:64|regex:/^[A-Za-z0-9-]+$/']));
     }
 
+    /** FM-009: three octal digits; setuid, setgid and sticky are refused. */
+    public function chmod(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'chmod', $this->selection($request) + $request->validate([
+            'mode' => ['required', 'string', 'regex:/^0?[0-7]{3}$/'], 'recursive' => 'sometimes|boolean',
+        ]));
+    }
+
+    /** FM-010: platform staff only; a customer could otherwise hand files to another tenant's user. */
+    public function chown(Request $request, string $id)
+    {
+        abort_unless($this->seesAllTenants($request), 403, 'Only platform administrators can change file ownership.');
+        $data = $request->validate([
+            'uid' => 'nullable|integer|min:0|max:2147483646|required_without:gid', 'gid' => 'nullable|integer|min:0|max:2147483646',
+            'recursive' => 'sometimes|boolean',
+        ]);
+
+        return $this->run($request, $id, 'chown', $this->selection($request) + array_filter($data, fn ($v) => $v !== null));
+    }
+
     private function selection(Request $request): array
     {
         return $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);
