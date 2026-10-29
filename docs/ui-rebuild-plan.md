@@ -5,7 +5,8 @@
 ```
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting
                           monitoring, hardened SSH, backups in two places
-UI modernisation   ~82%   24 of 35 artboards done or verified aligned
+UI modernisation   ~95%   34 of 35 artboards done or verified aligned;
+                          only Firewall is outstanding, and it is a backend
 Monitoring         ~55%   websites + containers + servers every 5 min
 WorkSuite Server     0%   blocked: no source for the image
 ```
@@ -85,10 +86,31 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
       Today: `/etc/dockermgr/traefik/dynamic/security.yml`, hand-written —
       one rate limit (100/s, burst 200) and security headers on all 7 sites.
 
-### Customer panel — 10 artboards, untouched
-- [ ] Pass the rail and nav to `/app` so it gets the same two-level navigation
-- [ ] UserPanel · UserHost · UserHostConfig · UserHostLive · UserNewSite
-- [ ] UserDomains · UserAppDetail · UserBackups · UserBilling · UserAccount
+### Customer panel — 10 artboards, all already aligned
+Nine of the ten artboards are 951-byte stubs: each is one `<dc-import
+name="UserPanel" start-page="...">` of a single 54 KB component. So the customer
+panel is one source file on the canvas, not ten screens.
+
+- [x] Navigation — no change needed, and **no rail**. The artboard's sidebar is a
+      flat six-item list (`apps / host / domains / backups / billing / account`,
+      UserPanel.dc.html:465) matching `PANEL_NAV` item for item and in order. The
+      earlier "give `/app` the same two-level navigation as admin" task was an
+      extrapolation; the canvas does not ask for it. Dropped.
+- [x] UserPanel · UserHost · UserHostConfig · UserHostLive · UserNewSite
+- [x] UserDomains · UserAppDetail · UserBackups · UserBilling · UserAccount
+      Every label present: Host a Docker app, Add a domain, Redirect www,
+      Back up now, Restore now, Invoices, Payment method, Current plan,
+      Compare plans, Upgrade plan, This month so far, Change photo, Full name,
+      Organisation, Team, Invite, Sign-in security, API tokens (Create token and
+      Revoke via the `ApiTokens` component), Environment variables, Auto-deploy,
+      Redeploy, Roll back, Restart, Delete this app, Logs, Region, Choose a size.
+      App detail tabs match exactly (Overview · Logs · Environment · Releases ·
+      Settings), and the six site kinds match down to identical blurb text —
+      "Node 22 on Alpine for JS and TypeScript apps." is byte-identical in
+      `NewSite.tsx` and the artboard, which settles the direction of copying.
+      Two artboard labels are worded better by us and left alone: "Container
+      port" to "Port your app listens on", "Persistent storage at" to "Folder
+      inside your app".
 
 ### Outside the canvas
 - [ ] DataTable: bulk actions, filters, contextual menus
