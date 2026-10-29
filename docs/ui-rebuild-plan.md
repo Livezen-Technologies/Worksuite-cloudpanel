@@ -1,5 +1,18 @@
 # UI rebuild against the design canvas
 
+## Status at 29 Oct 2026
+
+```
+Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting
+                          monitoring, hardened SSH, backups in two places
+UI modernisation   ~65%   foundations done; 35 artboards not yet applied
+Monitoring         ~55%   websites + containers + servers every 5 min
+WorkSuite Server     0%   blocked: no source for the image
+```
+
+Next action: the shell. `TopBar` and `Sidebar` are built but predate the
+canvas, so they need a pass against it before any page is rebuilt.
+
 Canvas: `claude.ai/artifact/FFTAAc3FPxWejM9jviUgpM` — "Docker Manager Portal",
 35 artboards. This maps each to its page and records what is already done, so
 the work can be picked up without rediscovering the codebase.
