@@ -72,9 +72,62 @@ class FileController extends Controller
         return $this->accepted($job);
     }
 
+    public function copy(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'copy', $this->selection($request) + $request->validate(['dest' => self::PATH]));
+    }
+
+    public function move(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'move', $this->selection($request) + $request->validate(['dest' => self::PATH]));
+    }
+
+    public function compress(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'compress', $this->selection($request) + $request->validate([
+            'dest' => self::PATH, 'format' => 'required|in:zip,tar,tar.gz', 'name' => ['nullable', 'string', 'max:255', 'regex:/^[^\/\x00]+$/'],
+        ]));
+    }
+
+    public function extract(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'extract', $request->validate(['path' => 'required|string|max:4096', 'dest' => self::PATH, 'overwrite' => 'sometimes|boolean']));
+    }
+
+    public function trash(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'trash', $this->selection($request));
+    }
+
+    public function trashIndex(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'trash_list', []);
+    }
+
+    public function restore(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'trash_restore', $request->validate(['ids' => 'required|array|min:1|max:500', 'ids.*' => 'string|max:64|regex:/^[A-Za-z0-9-]+$/']));
+    }
+
+    public function purge(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'trash_purge', $request->validate(['ids' => 'required|array|min:1|max:500', 'ids.*' => 'string|max:64|regex:/^[A-Za-z0-9-]+$/']));
+    }
+
+    private function selection(Request $request): array
+    {
+        return $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);
+    }
+
     private function run(Request $request, string $id, string $operation, array $payload)
     {
         $payload = array_map(fn ($v) => $v ?? '', $payload);
+        if (isset($payload['paths'])) {
+            $payload['paths'] = array_values($payload['paths']);
+        }
+        if (isset($payload['ids'])) {
+            $payload['ids'] = array_values($payload['ids']);
+        }
         $job = $this->files->run(Volume::findOrFail($id), $operation, $payload);
         // FileService audits writes with the file path; the generic entry would only repeat it.
         $request->attributes->set('audit_skip', true);

@@ -7,6 +7,8 @@ import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import type { R } from '../../lib/util'
 
+interface TrashItem { id: string; path: string; type: string; size: number; deleted_at: string; expires_at: string }
+const ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i
 interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string }
 
 /** File operations run on the agent: start one, then wait for its job to finish and return the result. */
@@ -133,7 +135,12 @@ export function FileManager() {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<{ path: string; content: string; original: string } | null>(null)
   const [naming, setNaming] = useState<{ kind: 'folder' | 'file' | 'rename'; target?: Entry; value: string } | null>(null)
-  const [deleting, setDeleting] = useState<Entry | null>(null)
+  const [deleting, setDeleting] = useState<Entry[] | null>(null)
+  const [permanent, setPermanent] = useState(false)
+  const [view, setView] = useState<'files' | 'trash'>('files')
+  const [trash, setTrash] = useState<TrashItem[] | null>(null)
+  const [trashSel, setTrashSel] = useState<Set<string>>(new Set())
+  const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean } | null>(null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -153,7 +160,7 @@ export function FileManager() {
     setLoading(true); setError(null)
     try {
       const r = await fsCall<{ entries: Entry[]; truncated: boolean }>(() => api.get(base, { path }))
-      setEntries(r.entries); setTruncated(r.truncated); setDir(path); setFilter(''); setSelected(new Set())
+      setEntries(r.entries); setTruncated(r.truncated); setDir(path); setFilter(''); setSelected(new Set()); setView('files')
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -165,7 +172,8 @@ export function FileManager() {
   async function act(label: string, start: () => Promise<unknown>, after?: () => void) {
     setBusy(true)
     try {
-      await fsCall(start)
+      const r = (await start()) as { data?: { job_id?: string } }
+      if (r?.data?.job_id) await waitJob(r.data.job_id)
       toast.success(label)
       after?.()
       await load(dir)
@@ -219,6 +227,58 @@ export function FileManager() {
     if (!entries || busy) return
     droppedFiles(e.dataTransfer).then((p) => upload(p))
   }
+
+  async function loadTrash() {
+    setView('trash'); setLoading(true); setError(null); setTrashSel(new Set())
+    try {
+      const r = await fsCall<{ items: TrashItem[] }>(() => api.get(`${base}/trash`))
+      setTrash(r.items)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function trashAct(label: string, start: () => Promise<unknown>) {
+    setBusy(true)
+    try {
+      await fsCall(start)
+      toast.success(label)
+      await loadTrash()
+    } catch (e) {
+      toast.push({ kind: 'error', title: `${label} failed`, detail: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function remove(items: Entry[]) {
+    const label = items.length === 1 ? items[0].name : `${items.length} items`
+    const paths = items.map((i) => join(dir, i.name))
+    if (!permanent) return act(`Moved ${label} to Trash`, () => api.post(`${base}/trash`, { paths }), () => { setDeleting(null); setSelected(new Set()) })
+    return act(`Deleted ${label}`, async () => {
+      let last: unknown
+      for (const i of items) last = await fsCall(() => api.del(base, { path: join(dir, i.name), recursive: i.type === 'dir' }))
+      return { data: { job_id: '' }, last }
+    }, () => { setDeleting(null); setSelected(new Set()) })
+  }
+
+  function runOp() {
+    if (!op) return
+    const paths = op.names.map((n) => join(dir, n))
+    const dest = op.dest.replace(/^\/+|\/+$/g, '')
+    const label = op.names.length === 1 ? op.names[0] : `${op.names.length} items`
+    const done = () => { setOp(null); setSelected(new Set()) }
+    if (op.kind === 'copy') return act(`Copied ${label}`, () => api.post(`${base}/copy`, { paths, dest }), done)
+    if (op.kind === 'move') return act(`Moved ${label}`, () => api.post(`${base}/move`, { paths, dest }), done)
+    if (op.kind === 'compress') return act(`Created ${op.name || 'archive'}`, () => api.post(`${base}/compress`, { paths, dest: dir, format: op.format, name: op.name || null }), done)
+    return act(`Extracted ${label}`, () => api.post(`${base}/extract`, { path: paths[0], dest, overwrite: op.overwrite }), done)
+  }
+
+  const chosen = () => (entries ?? []).filter((e) => selected.has(e.name))
+  const opFor = (kind: 'copy' | 'move' | 'compress' | 'extract', names: string[]) =>
+    setOp({ kind, names, dest: dir, name: names.length === 1 ? names[0].replace(ARCHIVE, '') : 'archive', format: 'zip', overwrite: false })
 
   function toggle(name: string) {
     const next = new Set(selected)
@@ -296,9 +356,9 @@ export function FileManager() {
 
         <div className="flex flex-wrap gap-4 p-6">
           <nav aria-label="Folders" className="flex-[0_1_200px] min-w-[160px] flex flex-col gap-1">
-            <SideLink d={P.drive} label="Root" active={!dir} onClick={() => load('')} />
-            {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
-            <SideLink d={P.trash} label="Trash" note="soon" disabled />
+            <SideLink d={P.drive} label="Root" active={view === 'files' && !dir} onClick={() => load('')} />
+            {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={view === 'files' && i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
+            <SideLink d={P.trash} label="Trash" active={view === 'trash'} disabled={!volumeId} onClick={loadTrash} />
           </nav>
 
           <div className={`relative flex-[999_1_480px] min-w-0 rounded-xl border overflow-hidden ${dragging ? 'border-[var(--accent)] border-dashed' : 'border-line'}`}
@@ -310,11 +370,38 @@ export function FileManager() {
                 <div className="h-1.5 rounded bg-[var(--track)] overflow-hidden"><div className={`h-full bg-[var(--accent)] ${transfer.pct === null ? 'w-1/3 animate-pulse' : ''}`} style={transfer.pct !== null ? { width: `${transfer.pct}%` } : undefined} /></div>
               </div>
             )}
-            <div className="flex items-center gap-3 px-4 py-2 border-b border-line">
+            {view === 'files' && <div className="flex items-center gap-3 px-4 py-2 border-b border-line">
               <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
               <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-            </div>
-            {!volumeId && !volumes.isLoading ? <Empty>No volumes yet. Create one under Volumes &amp; Storage.</Empty>
+            </div>}
+            {view === 'trash' ? (
+              error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading && !trash ? <Empty>Loading…</Empty>
+              : !trash?.length ? <Empty>Trash is empty. Deleted items stay here for 7 days.</Empty>
+              : (
+                <table className="w-full border-collapse text-[15px]">
+                  <thead><tr className="bg-[var(--head)] text-left">
+                    <th className="w-10 pl-4"><input type="checkbox" aria-label="Select all in Trash" checked={trash.every((t) => trashSel.has(t.id))} onChange={(e) => setTrashSel(e.target.checked ? new Set(trash.map((t) => t.id)) : new Set())} /></th>
+                    <th className="px-4 py-3 font-semibold">Original location</th>
+                    <th className="px-4 py-3 font-medium text-muted">Deleted</th>
+                    <th className="px-4 py-3 font-medium text-muted text-right">Size</th>
+                  </tr></thead>
+                  <tbody>{trash.map((t) => (
+                    <tr key={t.id} className={`group border-t border-line hover:bg-[var(--head)] ${trashSel.has(t.id) ? 'bg-[var(--sel)]' : ''}`}>
+                      <td className="w-10 pl-4"><input type="checkbox" aria-label={`Select ${t.path}`} checked={trashSel.has(t.id)} onChange={() => { const n = new Set(trashSel); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); setTrashSel(n) }} /></td>
+                      <td className="px-4 py-2"><div className="flex items-center gap-3 min-h-9">
+                        <IconSvg d={t.type === 'dir' ? P.folder : P.doc} size={20} className="text-muted shrink-0" /><span className="truncate font-mono text-sm">{t.path}</span>
+                        <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => trashAct(`Restored ${t.path}`, () => api.post(`${base}/trash/restore`, { ids: [t.id] }))}>Restore</button>
+                        </span>
+                      </div></td>
+                      <td className="px-4 py-2 text-muted whitespace-nowrap text-sm">{new Date(t.deleted_at).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{size(t.size)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )
+            ) : !volumeId && !volumes.isLoading ? <Empty>No volumes yet. Create one under Volumes &amp; Storage.</Empty>
               : error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading && !entries ? <Empty>Loading…</Empty>
               : (
@@ -339,9 +426,10 @@ export function FileManager() {
                             <span className="truncate">{r.name}{r.type === 'symlink' ? ' (link)' : ''}</span>
                           </button>
                           <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                            {r.type === 'file' && ARCHIVE.test(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Extract ${r.name}`} onClick={() => opFor('extract', [r.name])}>Extract</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
                             <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
-                            <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</button>
+                            <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => { setPermanent(false); setDeleting([r]) }}>Delete</button>
                           </span>
                         </div></td>
                         <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{r.type === 'dir' ? 'Folder' : size(r.size)}</td>
@@ -355,10 +443,22 @@ export function FileManager() {
         </div>
 
         <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
+          {view === 'trash' ? (
+            <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
+              {trashSel.size > 0 && <><span className="font-semibold text-[var(--text)]">{trashSel.size} selected</span>
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => trashAct(`Restored ${trashSel.size} items`, () => api.post(`${base}/trash/restore`, { ids: [...trashSel] }))}>Restore</button>
+                <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm('Delete the selected items forever? This cannot be undone.')) trashAct(`Deleted ${trashSel.size} items forever`, () => request(`${base}/trash`, { method: 'DELETE', body: { ids: [...trashSel] } })) }}>Delete forever</button></>}
+            </span>
+          ) : (
           <span className="flex flex-wrap items-center gap-3">{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}
             {selected.size > 0 && <><span className="font-semibold text-[var(--text)]">{selected.size} selected</span>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button></>}
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('move', [...selected])}>Move to…</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('compress', [...selected])}>Compress</button>
+              <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { setPermanent(false); setDeleting(chosen()) }}>Delete</button></>}
           </span>
+          )}
           {used && <span>Storage: {used}{volume?.quota_gb ? ` / ${volume.quota_gb}` : ''} GB</span>}
         </div>
       </section>
@@ -380,13 +480,42 @@ export function FileManager() {
         {!!naming?.value && !validName(naming.value) && <p className="text-xs text-danger mt-2">A name cannot contain “/” or be “.” or “..”.</p>}
       </Modal>
 
-      <ConfirmDialog open={!!deleting} onClose={() => setDeleting(null)} danger busy={busy}
-        title={`Delete ${deleting?.name}?`} confirmLabel="Delete" confirmText={deleting?.type === 'dir' ? deleting.name : undefined}
-        onConfirm={() => deleting && act(`Deleted ${deleting.name}`, () => api.del(base, { path: join(dir, deleting.name), recursive: deleting.type === 'dir' }), () => setDeleting(null))}>
-        {deleting?.type === 'dir'
-          ? <p className="m-0 text-sm">This deletes the folder and everything in it. It cannot be undone. Type the folder name to confirm.</p>
-          : <p className="m-0 text-sm">This cannot be undone.</p>}
+      <ConfirmDialog open={!!deleting} onClose={() => setDeleting(null)} danger={permanent} busy={busy}
+        title={deleting?.length === 1 ? `Delete ${deleting[0].name}?` : `Delete ${deleting?.length} items?`}
+        confirmLabel={permanent ? 'Delete permanently' : 'Move to Trash'}
+        confirmText={permanent && deleting?.some((d) => d.type === 'dir') ? 'DELETE' : undefined}
+        onConfirm={() => deleting && remove(deleting)}>
+        <p className="m-0 text-sm">{permanent ? 'This cannot be undone.' : 'Items stay in Trash for 7 days and can be restored to where they were.'}</p>
+        <label className="flex items-center gap-2 text-sm mt-3"><input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />Delete permanently instead</label>
+        {permanent && deleting?.some((d) => d.type === 'dir') && <p className="text-sm mt-2 mb-0">This includes folders and everything in them. Type DELETE to confirm.</p>}
       </ConfirmDialog>
+
+      <Modal open={!!op} onClose={() => setOp(null)}
+        title={op ? ({ copy: 'Copy', move: 'Move', compress: 'Compress', extract: 'Extract' }[op.kind] + ' ' + (op.names.length === 1 ? op.names[0] : `${op.names.length} items`)) : ''}
+        footer={<>
+          <button type="button" className="btn" onClick={() => setOp(null)}>Cancel</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={runOp}>{busy ? 'Working…' : op ? { copy: 'Copy', move: 'Move', compress: 'Create archive', extract: 'Extract' }[op.kind] : ''}</button>
+        </>}>
+        {op && op.kind === 'compress' ? (
+          <div className="flex flex-col gap-3">
+            <label className="label">Archive name<input className="input font-mono" value={op.name} onChange={(e) => setOp({ ...op, name: e.target.value })} /></label>
+            <label className="label">Format
+              <select className="input" value={op.format} onChange={(e) => setOp({ ...op, format: e.target.value })}>
+                <option value="zip">ZIP</option><option value="tar.gz">TAR.GZ</option><option value="tar">TAR</option>
+              </select>
+            </label>
+            <p className="m-0 text-xs text-muted">The archive is created in {dir || 'the top folder'}. Links are left out.</p>
+          </div>
+        ) : op && (
+          <div className="flex flex-col gap-3">
+            <label className="label">{op.kind === 'extract' ? 'Extract into folder' : 'Destination folder'}
+              <input className="input font-mono" value={op.dest} placeholder="(top folder)" onChange={(e) => setOp({ ...op, dest: e.target.value })} />
+            </label>
+            <p className="m-0 text-xs text-muted">A path inside {volume?.name}, for example <span className="font-mono">wp-content/uploads</span>. Leave empty for the top folder.</p>
+            {op.kind === 'extract' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={op.overwrite} onChange={(e) => setOp({ ...op, overwrite: e.target.checked })} />Replace files that already exist</label>}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={!!editing} width={960} onClose={() => { if (!dirty || window.confirm('Discard unsaved changes?')) setEditing(null) }}
         title={`${editing?.path ?? ''}${dirty ? ' • unsaved' : ''}`}

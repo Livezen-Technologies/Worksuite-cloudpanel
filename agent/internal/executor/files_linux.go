@@ -3,17 +3,25 @@
 package executor
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
 
 func renameAt(dir *os.File, oldName, newName string) error {
-	fd := int(dir.Fd())
-	if err := syscall.Renameat(fd, oldName, fd, newName); err != nil {
+	return renameBetween(dir, oldName, dir, newName)
+}
+
+// renameBetween moves one entry between two already-opened folders. Both
+// names are single components, so nothing is resolved outside those folders.
+func renameBetween(from *os.File, oldName string, to *os.File, newName string) error {
+	if err := syscall.Renameat(int(from.Fd()), oldName, int(to.Fd()), newName); err != nil {
 		return &os.LinkError{Op: "rename", Old: oldName, New: newName, Err: err}
 	}
 	return nil
 }
+
+func isCrossDevice(err error) bool { return errors.Is(err, syscall.EXDEV) }
 
 // inheritOwner gives a new file or folder the owner of its parent, so the
 // container's own user can still write to what the panel created.

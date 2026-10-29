@@ -159,6 +159,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('volumes/{id}/files/rename', [Admin\FileController::class, 'rename'])->middleware('perm:deploy|network_storage.manage')->name('files.rename');
     Route::post('volumes/{id}/files/upload', [Admin\FileController::class, 'upload'])->middleware('perm:deploy|network_storage.manage')->name('files.upload');
     Route::post('volumes/{id}/files/download', [Admin\FileController::class, 'download'])->middleware('perm:deploy|network_storage.manage')->name('files.download');
+    Route::post('volumes/{id}/files/copy', [Admin\FileController::class, 'copy'])->middleware('perm:deploy|network_storage.manage')->name('files.copy');
+    Route::post('volumes/{id}/files/move', [Admin\FileController::class, 'move'])->middleware('perm:deploy|network_storage.manage')->name('files.move');
+    Route::post('volumes/{id}/files/compress', [Admin\FileController::class, 'compress'])->middleware('perm:deploy|network_storage.manage')->name('files.compress');
+    Route::post('volumes/{id}/files/extract', [Admin\FileController::class, 'extract'])->middleware('perm:deploy|network_storage.manage')->name('files.extract');
+    Route::post('volumes/{id}/files/trash', [Admin\FileController::class, 'trash'])->middleware('perm:deploy|network_storage.manage')->name('files.trash');
+    Route::get('volumes/{id}/files/trash', [Admin\FileController::class, 'trashIndex'])->middleware('perm:deploy|network_storage.manage')->name('files.trash-index');
+    Route::post('volumes/{id}/files/trash/restore', [Admin\FileController::class, 'restore'])->middleware('perm:deploy|network_storage.manage')->name('files.restore');
+    Route::delete('volumes/{id}/files/trash', [Admin\FileController::class, 'purge'])->middleware('perm:deploy|network_storage.manage')->name('files.purge');
     Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 

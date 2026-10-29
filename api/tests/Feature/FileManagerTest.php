@@ -187,4 +187,34 @@ class FileManagerTest extends TestCase
         $this->api($viewer)->postJson("/api/v1/volumes/{$volume->id}/files/download", ['paths' => ['wp-config.php']])->assertForbidden();
         $this->api($viewer)->post("/api/v1/volumes/{$volume->id}/files/upload", ['files' => [UploadedFile::fake()->create('a.txt', 1)]], ['Accept' => 'application/json'])->assertForbidden();
     }
+
+    public function test_trash_copy_move_and_archives_dispatch_typed_commands_and_are_audited(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        $this->api($token)->postJson("{$base}/trash", ['paths' => ['wp-content/old-theme']])->assertStatus(202);
+        $this->api($token)->getJson("{$base}/trash")->assertStatus(202);
+        $this->api($token)->postJson("{$base}/trash/restore", ['ids' => ['20261029T120000-ab12cd34']])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/trash/restore", ['ids' => ['../../etc']])->assertStatus(422);
+        $this->api($token)->deleteJson("{$base}/trash", ['ids' => ['20261029T120000-ab12cd34']])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/copy", ['paths' => ['a.txt'], 'dest' => 'backup'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/move", ['paths' => ['a.txt', 'b.txt'], 'dest' => 'old'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/compress", ['paths' => ['site'], 'dest' => '', 'format' => 'rar'])->assertStatus(422);
+        $this->api($token)->postJson("{$base}/compress", ['paths' => ['site'], 'dest' => '', 'format' => 'tar.gz'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/extract", ['path' => 'site.tar.gz', 'dest' => 'restore'])->assertStatus(202);
+
+        $commands = collect($this->heartbeat($secret)['commands']);
+        $this->assertSame(['fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.copy', 'fs.move', 'fs.compress', 'fs.extract'], $commands->pluck('type')->all());
+        $this->assertSame(['a.txt', 'b.txt'], $commands->firstWhere('type', 'fs.move')['payload']['paths']);
+        $this->assertSame('tar.gz', $commands->firstWhere('type', 'fs.compress')['payload']['format']);
+
+        $actions = AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->pluck('action')->all();
+        $this->assertSame(['files.trash', 'files.trash_restore', 'files.trash_purge', 'files.copy', 'files.move', 'files.compress', 'files.extract'], $actions);
+        $this->assertSame(['wp-content/old-theme'], AuditLog::where('organization_id', $org->id)->where('action', 'files.trash')->sole()->meta['paths']);
+    }
 }
