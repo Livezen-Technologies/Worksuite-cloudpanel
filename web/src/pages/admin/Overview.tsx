@@ -37,10 +37,10 @@ function kpiTiles(k: R | R[] | undefined) {
   // than label by label.
   return [
     { label: 'Servers', value: String(total || 0), delta: 'enrolled', tone: 'n' as const },
-    { label: 'Online', value: String(online), delta: total ? `${Math.round((online / total) * 100)}% of fleet` : undefined, tone: (online > 0 ? 'g' : 'r') as 'g' | 'r', pct: total ? (online / total) * 100 : 0 },
+    { label: 'Online', value: String(online), delta: total ? `${Math.round((online / total) * 100)}% of fleet` : undefined, tone: (online > 0 ? 'g' : 'r') as 'g' | 'r', pct: total ? (online / total) * 100 : 0, bar: 'var(--g-fg)' },
     { label: 'Offline', value: String(offline), delta: offline ? 'needs attention' : 'none', tone: (offline > 0 ? 'r' : 'n') as 'r' | 'n' },
     { label: 'Active alerts', value: String(alerts), delta: alerts ? 'open now' : 'all clear', tone: (alerts > 0 ? 'r' : 'g') as 'r' | 'g' },
-    { label: 'Running containers', value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0 },
+    { label: 'Running containers', value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0, bar: 'var(--accent)' },
     { label: 'CPU usage', value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: (cpu >= 85 ? 'r' : cpu >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: cpu },
     { label: 'Memory usage', value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'r' : ram >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: ram },
   ]
@@ -84,7 +84,7 @@ export default function Overview() {
       <PageHeader title="Overview" subtitle={`Fleet health${serverCount ? ` across ${serverCount} servers` : ''} · updated every 15 s`}
         actions={<><Link to="/admin/servers?add=1" className="btn no-underline">Add server</Link><button type="button" className="btn btn-primary" onClick={() => nav('/admin/applications?deploy=1')}>New deployment</button></>} />
       {error && <div role="alert" className="card p-4 text-sm text-danger">Could not load the dashboard: {(error as Error).message}</div>}
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         {isLoading && !d ? [0, 1, 2, 3].map((i) => <div key={i} className="card p-5 h-[118px] animate-pulse" />) :
           tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} valueTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined} />)}
       </div>
