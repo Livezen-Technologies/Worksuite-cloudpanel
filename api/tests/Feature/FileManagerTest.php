@@ -83,7 +83,7 @@ class FileManagerTest extends TestCase
             $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/rename", ['path' => 'index.php', 'new_name' => $bad])->assertStatus(422);
         }
 
-        $server->update(['status' => 'offline']);
+        $server->forceFill(['last_heartbeat_at' => now()->subHour()])->save();
         $this->api($token)->getJson("/api/v1/volumes/{$volume->id}/files")->assertStatus(409);
     }
 
