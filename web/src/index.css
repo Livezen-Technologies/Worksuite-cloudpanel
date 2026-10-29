@@ -95,7 +95,7 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 @layer components {
-  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:0 14px; border-radius:8px; font-size:14px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; white-space:nowrap; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); min-height:40px; padding:0 14px; border-radius:var(--radius-md); transition:background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); font-size:14px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; white-space:nowrap; }
   .btn:hover { background: var(--head); }
   .btn:disabled { opacity:.55; cursor:not-allowed; }
   .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -103,12 +103,57 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   .btn-danger { background:transparent; border-color:var(--danger-line); color:var(--danger); }
   .btn-danger:hover { background:var(--r-bg); }
   .btn-sm { min-height:32px; padding:0 10px; font-size:13px; }
-  .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:14px; }
+  .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 var(--space-3); border-radius:var(--radius-md); transition:border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:14px; }
   textarea.input { padding:10px 12px; }
-  .label { display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:600; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .label { display:flex; flex-direction:column; gap:var(--space-2); font-size:13px; font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg); }
   .chip { min-height:36px; padding:0 14px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
   .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* States the controls never had: a visible focus ring, an invalid state the
+     browser and the API can both drive, and a readable disabled look. */
+  .input:focus-visible, .btn:focus-visible, .chip:focus-visible,
+  .check:focus-visible, .radio:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .input[aria-invalid="true"], .input:user-invalid { border-color: var(--danger); }
+  .input:disabled, .input[readonly] { background: var(--track); color: var(--muted); cursor: not-allowed; }
+  .input::placeholder { color: var(--muted); opacity: .8; }
+
+  /* Checkbox and radio: native control, themed, 44px target via its label. */
+  .check, .radio {
+    appearance: none; width: 18px; height: 18px; flex: none; margin: 0;
+    border: 1px solid var(--line); background: var(--card); cursor: pointer;
+    display: inline-grid; place-content: center;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .check { border-radius: var(--radius-sm); }
+  .radio { border-radius: var(--radius-full, 9999px); }
+  .check:checked, .radio:checked { background: var(--accent); border-color: var(--accent); }
+  .check:checked::after {
+    content: ""; width: 10px; height: 10px; background: #fff;
+    clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 18%, 84% 2%, 38% 68%);
+  }
+  .radio:checked::after { content: ""; width: 8px; height: 8px; border-radius: 9999px; background: #fff; }
+  .check:disabled, .radio:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* A label wrapping a checkbox or radio, sized for touch. */
+  .choice { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; font-size: 14px; cursor: pointer; }
+
+  /* File input: style the button the browser gives us rather than hiding it. */
+  .file { width: 100%; font-size: 14px; color: var(--muted); }
+  .file::file-selector-button {
+    margin-right: var(--space-3); min-height: 36px; padding: 0 14px;
+    border-radius: var(--radius-md); border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .file::file-selector-button:hover { background: var(--head); }
+
+  /* Validation message, tied to its field by aria-describedby. */
+  .field-error { color: var(--danger); font-size: 13px; font-weight: 600; }
+  .field-hint { color: var(--muted); font-size: 13px; }
+
   .panel-touch .btn, .panel-touch .input, .panel-touch .chip { min-height:44px; }
 }
 
