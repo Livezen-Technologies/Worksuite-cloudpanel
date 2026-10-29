@@ -52,8 +52,21 @@ Ordered. Each line is one commit; verify the route returns 200 before moving on.
 - [ ] Catalog · Packages · Customers
 
 ### New construction
-- [ ] Firewall page (backend: rate limiting + headers exist; country
-      blocking, challenges, reCAPTCHA do not)
+- [ ] Firewall — **the largest remaining piece: a feature, not a screen.**
+      The artboard specifies IP allow/block rules, per-domain country rules,
+      rate-limit rules (match, limit, window, counted-by, action) and challenge
+      settings (Turnstile / hCaptcha / reCAPTCHA with site key, secret key,
+      minimum score, clearance duration, protected paths, trigger conditions).
+      None of it has a backend. Needed first, in order:
+        1. `firewall_rules` table and model, scoped by organisation and domain
+        2. challenge provider settings, keys encrypted as SMTP's are
+        3. a renderer turning rules into Traefik middlewares, the way
+           `TraefikConfigService` renders routers. Rate limits are native;
+           country blocking needs a GeoIP plugin; challenges need CrowdSec,
+           Cloudflare Turnstile at the edge, or a custom middleware
+        4. only then the page
+      Today: `/etc/dockermgr/traefik/dynamic/security.yml`, hand-written —
+      one rate limit (100/s, burst 200) and security headers on all 7 sites.
 
 ### Customer panel — 10 artboards, untouched
 - [ ] Pass the rail and nav to `/app` so it gets the same two-level navigation
