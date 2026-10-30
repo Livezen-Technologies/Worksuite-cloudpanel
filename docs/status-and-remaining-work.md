@@ -17,13 +17,13 @@ Monitoring         ~85%   websites + containers + servers every 5 min,
 File manager       ~80%   15 of 19 features + customer page (#7-#13); left:
                           sharing, transfer manager, highlighting, bulk
                           extract, cross-volume copy
-DNS zones          ~90%   12 of 13 (DNS-001..012): Cloudflare and PowerDNS,
-                          DNSSEC, zone settings, BIND import/export (#16,
-                          #18, #20); left: automatic DNS-01 (DNS-013)
+DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
+                          DNSSEC, zone settings, BIND import/export, zones
+                          drive DNS-01 certificates (#16, #18, #20, #22)
 Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
                           email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~46%   up from ~40%: file manager, firewall enforcement,
+Overall            ~47%   up from ~40%: file manager, firewall enforcement,
                           antivirus and DNS zones
 ```
 
