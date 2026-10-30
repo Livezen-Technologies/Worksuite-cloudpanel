@@ -55,6 +55,9 @@ class BillingService
             'ram_mb' => (int) $apps->sum(fn ($a) => $sizes[$a->size]->ram_mb ?? 0),
             'storage_gb' => (int) $apps->sum(fn ($a) => $sizes[$a->size]->storage_gb ?? 0),
             'bandwidth_gb' => round($bandwidth, 2),
+            // MAIL-009: mail counts toward the package as well.
+            'mailboxes' => \App\Models\Mailbox::query()->count(),
+            'mail_storage_mb' => (int) \App\Models\Mailbox::query()->sum('quota_mb'),
         ];
     }
 

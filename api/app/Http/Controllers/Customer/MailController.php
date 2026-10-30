@@ -26,7 +26,7 @@ class MailController extends Controller
         $domains = MailDomain::query()->orderBy('name')->get();
 
         return $this->data([
-            'available' => (bool) $this->server(), 'limit' => $this->billing->limit('mailboxes', 5),
+            'available' => (bool) $this->server(), 'limit' => $this->billing->limit('mailboxes', 5), 'max_quota_mb' => $this->billing->limit('mailbox_quota_mb', 5120),
             'used' => Mailbox::query()->count(),
             'settings' => ($s = $this->server()) ? ['imap' => ['host' => $s->hostname, 'port' => 993, 'security' => 'SSL/TLS'], 'smtp' => ['host' => $s->hostname, 'port' => 587, 'security' => 'STARTTLS'], 'username' => 'Your full email address'] : null,
             'domains' => $domains->map(fn (MailDomain $d) => [
@@ -60,6 +60,9 @@ class MailController extends Controller
     {
         $d = MailDomain::findOrFail($id);
         $data = $request->validate(['local_part' => 'required|string|max:64', 'password' => 'required|string|min:10|max:200', 'quota_mb' => 'sometimes|integer|in:512,1024,2048,5120']);
+        if (($data['quota_mb'] ?? 1024) > ($max = $this->billing->limit('mailbox_quota_mb', 5120))) {
+            throw ApiException::quota("Your plan allows mailboxes of up to {$max} MB.");
+        }
         if (Mailbox::query()->count() >= ($limit = $this->billing->limit('mailboxes', 5))) {
             throw ApiException::quota("Your plan includes {$limit} mailboxes. Upgrade to add more.");
         }
@@ -127,15 +130,15 @@ class MailController extends Controller
 
     private function plainRecords(MailDomain $d): array
     {
-        $what = ['MX' => 'Sends your email to this platform', 'spf' => 'Says which servers may send as you', 'dkim' => 'Signs your email so it is trusted', 'dmarc' => 'Tells others what to do with forged email'];
+        $what = ['autoconfig' => 'Lets email apps find the settings by themselves (optional)', 'MX' => 'Sends your email to this platform', 'spf' => 'Says which servers may send as you', 'dkim' => 'Signs your email so it is trusted', 'dmarc' => 'Tells others what to do with forged email'];
         $status = collect($d->dns ?? [])->keyBy(fn ($r) => $r['type'].' '.$r['name']);
 
         return array_map(function ($r) use ($what, $status) {
-            $kind = $r['type'] === 'MX' ? 'MX' : (str_starts_with($r['value'], 'v=spf1') ? 'spf' : (str_contains($r['name'], '_domainkey') ? 'dkim' : 'dmarc'));
+            $kind = in_array($r['type'], ['SRV', 'CNAME'], true) ? 'autoconfig' : ($r['type'] === 'MX' ? 'MX' : (str_starts_with($r['value'], 'v=spf1') ? 'spf' : (str_contains($r['name'], '_domainkey') ? 'dkim' : 'dmarc')));
             $s = $status[$r['type'].' '.$r['name']]['status'] ?? null;
 
             return ['type' => $r['type'], 'name' => $r['name'], 'value' => $r['value'], 'priority' => $r['priority'] ?? null, 'purpose' => $what[$kind],
-                'status' => match ($s) { 'ok' => 'set', 'wrong' => 'wrong', 'missing' => 'missing', default => 'not checked' }];
+                'status' => match ($s) { 'ok' => 'set', 'wrong' => 'wrong', 'missing' => ($r['optional'] ?? false) ? 'recommended' : 'missing', default => 'not checked' }];
         }, array_values(array_filter($this->mail->records($d), fn ($r) => empty($r['next']))));
     }
 

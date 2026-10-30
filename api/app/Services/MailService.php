@@ -55,7 +55,8 @@ class MailService implements HandlesCommandResults
             'env' => [
                 'OVERRIDE_HOSTNAME' => $mail->hostname, 'ENABLE_RSPAMD' => '1', 'ENABLE_OPENDKIM' => '1', 'ENABLE_OPENDMARC' => '0',
                 'ENABLE_QUOTAS' => '1', 'ENABLE_CLAMAV' => '0', 'ENABLE_FAIL2BAN' => '0', 'SPOOF_PROTECTION' => '1',
-                'PERMIT_DOCKER' => 'none', 'SSL_TYPE' => 'self-signed', 'POSTMASTER_ADDRESS' => 'postmaster@'.$mail->hostname,
+                'PERMIT_DOCKER' => 'none', 'SSL_TYPE' => 'manual',
+                'SSL_CERT_PATH' => '/tmp/docker-mailserver/ssl/cert.pem', 'SSL_KEY_PATH' => '/tmp/docker-mailserver/ssl/key.pem', 'POSTMASTER_ADDRESS' => 'postmaster@'.$mail->hostname,
             ],
             'ports' => array_map(fn ($p) => ['container_port' => $p, 'host_port' => $p], [25, 465, 587, 993]),
             'mounts' => [
@@ -65,8 +66,12 @@ class MailService implements HandlesCommandResults
             ],
             'memory_mb' => 1024, 'labels' => ['io.dockermgr.mail' => $mail->id],
         ], Tenant::current());
-        $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'install', 'steps' => [], 'step' => 0], $userId, $mail->organization_id);
-        $this->bus->dispatch($server, 'container.create', $spec, $job);
+        // MAIL-005: the certificate first (Traefik's, or self-signed until it has one), then the container.
+        $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'install', 'steps' => [
+            ['mail.certs', ['hostname' => $mail->hostname, 'volume' => self::CONFIG_VOLUME, 'fallback' => true]],
+            ['container.create', $spec],
+        ], 'step' => 0], $userId, $mail->organization_id);
+        $this->bus->dispatch($server, 'mail.certs', ['hostname' => $mail->hostname, 'volume' => self::CONFIG_VOLUME, 'fallback' => true], $job);
         Container::create(['server_id' => $server->id, 'name' => self::CONTAINER, 'image' => self::IMAGE, 'state' => 'creating', 'spec' => ContainerSpec::redact($spec)]);
         $this->audit->log('mail.install', 'mail_servers', $mail->id, ['server' => $server->name, 'hostname' => $mail->hostname]);
 
@@ -104,6 +109,10 @@ class MailService implements HandlesCommandResults
             ['type' => 'TXT', 'name' => $domain->name, 'value' => 'v=spf1 mx a:'.$host.' ~all'],
             ['type' => 'TXT', 'name' => $domain->dkim_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_public],
             ...($domain->dkim_next_selector ? [['type' => 'TXT', 'name' => $domain->dkim_next_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_next_public, 'next' => true]] : []),
+            // MAIL-003: autoconfiguration for email apps (RFC 6186) and Thunderbird/Outlook lookups.
+            ['type' => 'SRV', 'name' => '_submission._tcp.'.$domain->name, 'value' => '1 587 '.$host, 'priority' => 0, 'optional' => true],
+            ['type' => 'SRV', 'name' => '_imaps._tcp.'.$domain->name, 'value' => '1 993 '.$host, 'priority' => 0, 'optional' => true],
+            ['type' => 'CNAME', 'name' => 'autoconfig.'.$domain->name, 'value' => $host, 'optional' => true],
             ['type' => 'TXT', 'name' => '_dmarc.'.$domain->name, 'value' => 'v=DMARC1; p=quarantine; rua=mailto:postmaster@'.$domain->name.'; adkim=s; aspf=s'],
         ];
     }
@@ -144,7 +153,7 @@ class MailService implements HandlesCommandResults
         $out = [];
         foreach ($this->records($domain) as $r) {
             $found = array_map(fn ($v) => rtrim(trim((string) $v, '"'), '.'), $this->dns->lookup($r['name'], $r['type']));
-            $ok = $r['type'] === 'MX'
+            $ok = in_array($r['type'], ['MX', 'SRV'], true)
                 ? collect($found)->contains(fn ($v) => str_ends_with($v, $r['value']))
                 : in_array($r['value'], $found, true);
             $out[] = $r + ['status' => $ok ? 'ok' : ($found ? 'wrong' : 'missing'), 'found' => array_values($found)];
@@ -393,9 +402,51 @@ class MailService implements HandlesCommandResults
         $mail->update(['health' => $out, 'health_checked_at' => now()]);
         if ($new = array_diff($out['listed'], $was)) {
             $this->audit->log('mail.blocklisted', 'mail_servers', $mail->id, ['ip' => $ip, 'lists' => array_values($new)], $mail->organization_id);
+            // MAIL-008: through the organisation's alert channels, like every other alert.
+            foreach (\App\Models\NotificationChannel::allTenants()->where('organization_id', $mail->organization_id)->where('enabled', true)->get() as $channel) {
+                app(NotificationService::class)->send($channel, "Mail server {$mail->hostname} is blocklisted",
+                    "{$ip} is listed on ".implode(', ', $new).'. Outgoing mail may be rejected; use a relay or ask the list to delist the address.', ['severity' => 'critical']);
+            }
         }
 
         return $out;
+    }
+
+    /** MAIL-005: copy a renewed certificate from Traefik; the container restarts only when it changed. */
+    public function refreshCerts(MailServer $mail): ?Job
+    {
+        $server = Server::allTenants()->find($mail->server_id);
+        if ($mail->status !== 'running' || ! $server?->isOnline()) {
+            return null;
+        }
+        $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'certs', 'steps' => [], 'step' => 0], null, $mail->organization_id);
+        $this->bus->dispatch($server, 'mail.certs', ['hostname' => $mail->hostname, 'volume' => self::CONFIG_VOLUME, 'fallback' => false], $job);
+
+        return $job;
+    }
+
+    /**
+     * MAIL-010: a nightly restic backup of the mailboxes (the mailserver-data volume) through the
+     * Backup manager, to local disk or to the destination of an existing policy.
+     */
+    public function backupPolicy(MailServer $mail, array $data): \App\Models\BackupPolicy
+    {
+        $volume = \App\Models\Volume::allTenants()->firstOrCreate(
+            ['server_id' => $mail->server_id, 'name' => 'mailserver-data'],
+            ['organization_id' => $mail->organization_id, 'type' => 'local'],
+        );
+        $from = isset($data['copy_destination_from']) ? \App\Models\BackupPolicy::findOrFail($data['copy_destination_from']) : null;
+        $policy = \App\Models\BackupPolicy::allTenants()->updateOrCreate(
+            ['organization_id' => $mail->organization_id, 'target_type' => 'volume', 'target_id' => $volume->id],
+            array_filter([
+                'name' => 'Mail: '.$mail->hostname, 'method' => 'restic', 'schedule' => $data['schedule'] ?? '30 2 * * *',
+                'retention_days' => $data['retention_days'] ?? 14, 'enabled' => true,
+                'destination' => $from?->destination ?? 'local', 'destination_config' => $from?->destination_config,
+            ], fn ($v) => $v !== null),
+        );
+        $this->audit->log('mail.backup_policy', 'mail_servers', $mail->id, ['policy' => $policy->id, 'destination' => $policy->destination, 'schedule' => $policy->schedule]);
+
+        return $policy;
     }
 
     /** MAIL-014 */
@@ -450,7 +501,19 @@ class MailService implements HandlesCommandResults
 
             return;
         }
-        if ($job->payload['action'] === 'install') {
+        if ($command->type === 'mail.certs') {
+            $mail->update(['tls' => array_intersect_key((array) $command->output, array_flip(['source', 'not_after', 'found']))]);
+            if ($job->payload['action'] === 'certs') {
+                $changed = (bool) ($command->output['changed'] ?? false);
+                $changed && $mail->status === 'running'
+                    ? $this->bus->dispatch(Server::allTenants()->find($mail->server_id), 'container.restart', ['container_id' => self::CONTAINER])
+                    : null;
+                $this->jobs->succeed($job, ['changed' => $changed]);
+
+                return;
+            }
+        }
+        if ($job->payload['action'] === 'install' && $command->type === 'container.create') {
             Container::allTenants()->where('server_id', $mail->server_id)->where('name', self::CONTAINER)->update(['state' => 'running']);
             $mail->update(['status' => 'running', 'error' => null]);
             $this->jobs->succeed($job, ['mail_server_id' => $mail->id]);

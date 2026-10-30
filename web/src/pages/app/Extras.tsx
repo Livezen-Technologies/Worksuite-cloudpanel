@@ -150,7 +150,7 @@ export function UserMail() {
                   <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/mail/domains/${d.id}/dns/check`, label: 'Check DNS', silent: true }).then(refetch)}>Check</button></div>
                 <ul className="m-0 p-0 list-none flex flex-col gap-2">
                   {(d.records as R[]).map((r) => <li key={`${r.type}${r.name}`}>
-                    <Badge tone={r.status === 'set' ? 'g' : r.status === 'not checked' ? 'n' : 'r'}>{String(r.status)}</Badge> {String(r.purpose)}
+                    <Badge tone={r.status === 'set' ? 'g' : r.status === 'not checked' ? 'n' : r.status === 'recommended' ? 'y' : 'r'}>{String(r.status)}</Badge> {String(r.purpose)}
                     <div className="font-mono text-xs break-all text-muted">{String(r.type)} {String(r.name)} → {r.priority ? `${r.priority} ` : ''}{String(r.value)}</div>
                   </li>)}
                 </ul>

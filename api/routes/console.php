@@ -49,6 +49,7 @@ Artisan::command('wordpress:detect', function (\App\Services\WordPressService $w
 Artisan::command('mail:health', function (\App\Services\MailService $mail) {
     foreach (\App\Models\MailServer::allTenants()->where('status', 'running')->get() as $m) {
         $mail->checkHealth($m);
+        $mail->refreshCerts($m); // MAIL-005: pick up renewed certificates
     }
 })->purpose('MAIL-010: reverse DNS and blocklist checks for every mail server');
 

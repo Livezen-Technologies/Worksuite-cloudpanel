@@ -99,6 +99,7 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
   return (
     <div className="mt-1 ml-4 flex flex-col gap-1 text-xs">
       <span className="text-muted">Limit {String(set.send_per_hour)} messages/hour per mailbox · spam header at {String(set.spam_header)}, reject at {String(set.spam_reject)} · relay: {set.relay ? String((set.relay as R).host) : 'none (direct delivery)'}</span>
+      {m.tls ? <span>TLS <Badge tone={(m.tls as R).source === 'acme' ? 'g' : 'y'}>{(m.tls as R).source === 'acme' ? "Let's Encrypt (from Traefik)" : 'self-signed'}</Badge>{(m.tls as R).not_after ? <span className="text-muted"> until {String((m.tls as R).not_after).slice(0, 10)}</span> : null}{(m.tls as R).source !== 'acme' ? <span className="text-muted"> · add the mail hostname as a domain so Traefik issues a certificate</span> : null}</span> : null}
       {h && <span>
         Reverse DNS <Badge tone={h.ptr_ok ? 'g' : 'r'}>{h.ptr_ok ? 'ok' : `${((h.ptr as string[]) ?? []).join(', ') || 'missing'}`}</Badge>{' '}
         A record <Badge tone={h.a_ok ? 'g' : 'r'}>{h.a_ok ? 'ok' : 'missing'}</Badge>{' '}
@@ -107,6 +108,8 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
       </span>}
       <span className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-sm" disabled={busy} onClick={edit}>Limits and spam</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/certs`, label: 'Refresh certificate', success: 'Checking Traefik for a certificate' }).then(onChange)}>Refresh certificate</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/backups`, body: {}, label: 'Back up mailboxes nightly', success: 'Nightly backup policy saved; change its destination under Backups' }).then(onChange)}>Nightly backup</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={relay}>Relay</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/health`, label: 'Check reverse DNS and blocklists', silent: true }).then(onChange)}>Check health</button>
         <button type="button" className="btn btn-sm" onClick={async () => { const { api } = await import('../../api/client'); const r = await api.get<{ data: { lines: string[] } }>(`/mail/servers/${m.id}/logs`, { tail: 200 }); setLogs(r.data.lines) }}>Logs</button>
