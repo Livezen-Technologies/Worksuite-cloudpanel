@@ -209,6 +209,19 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
 
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
+    // DNS zones (SRS 4.18)
+    Route::get('dns/providers', [Admin\DnsController::class, 'providers'])->middleware('perm:resources.view|servers.view')->name('dns.providers');
+    Route::post('dns/providers', [Admin\DnsController::class, 'connect'])->middleware('perm:deploy|settings.manage')->name('dns.providers.store');
+    Route::delete('dns/providers/{id}', [Admin\DnsController::class, 'disconnect'])->middleware('perm:deploy|settings.manage')->name('dns.providers.destroy');
+    Route::get('dns/zones', [Admin\DnsController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('dns.zones.index');
+    Route::post('dns/zones', [Admin\DnsController::class, 'store'])->middleware('perm:deploy|settings.manage')->name('dns.zones.store');
+    Route::get('dns/zones/{id}', [Admin\DnsController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('dns.zones.show');
+    Route::delete('dns/zones/{id}', [Admin\DnsController::class, 'destroy'])->middleware('perm:deploy|settings.manage')->name('dns.zones.destroy');
+    Route::post('dns/zones/{id}/check-nameservers', [Admin\DnsController::class, 'checkNameservers'])->middleware('perm:resources.view|servers.view')->name('dns.zones.check-ns');
+    Route::post('dns/zones/{id}/sync', [Admin\DnsController::class, 'sync'])->middleware('perm:deploy|settings.manage')->name('dns.zones.sync');
+    Route::post('dns/zones/{id}/records', [Admin\DnsController::class, 'storeRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.store');
+    Route::match(['put', 'patch'], 'dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'updateRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.update');
+    Route::delete('dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'destroyRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.destroy');
     // Antivirus (SRS 4.25)
     Route::get('antivirus', [Admin\AntivirusController::class, 'summary'])->middleware('perm:resources.view|servers.view')->name('antivirus.summary');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
