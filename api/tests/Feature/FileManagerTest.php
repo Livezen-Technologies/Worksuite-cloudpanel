@@ -288,4 +288,27 @@ class FileManagerTest extends TestCase
         $this->assertStringContainsString('sandbox', $response->headers->get('Content-Security-Policy'));
         $this->assertSame('files.preview', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
     }
+
+    public function test_security_scan_runs_on_the_agent_and_returns_findings(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $viewer] = $this->member($org, 'viewer');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($viewer)->postJson("/api/v1/volumes/{$volume->id}/files/scan")->assertForbidden();
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/scan", ['recent_days' => 365])->assertStatus(422);
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/scan", ['recent_days' => 14])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.scan', $command['type']);
+        $this->assertSame(14, $command['payload']['recent_days']);
+        $finding = ['path' => 'wp-content/uploads/x.php', 'rule' => 'script_in_uploads', 'severity' => 'high', 'detail' => 'script inside an uploads folder', 'type' => 'file', 'size' => 10, 'mode' => '0644', 'modified' => '2026-10-29T00:00:00Z'];
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['findings' => [$finding], 'counts' => ['critical' => 0, 'high' => 1, 'medium' => 0, 'info' => 0], 'files' => 120, 'folders' => 30, 'truncated' => false]])->assertOk();
+
+        $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.result.findings.0.rule', 'script_in_uploads')->assertJsonPath('data.result.counts.high', 1);
+        $this->assertSame('files.scan', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
+    }
 }

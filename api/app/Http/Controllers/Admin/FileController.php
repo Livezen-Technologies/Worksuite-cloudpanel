@@ -163,6 +163,12 @@ class FileController extends Controller
         return $this->accepted($job);
     }
 
+    /** FM-017: a read-only security scan from a folder down. */
+    public function scan(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'scan', $request->validate(['path' => self::PATH, 'recent_days' => 'nullable|integer|min:1|max:90']));
+    }
+
     private function selection(Request $request): array
     {
         return $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);

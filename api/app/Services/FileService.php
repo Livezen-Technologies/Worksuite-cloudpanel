@@ -25,14 +25,14 @@ class FileService implements HandlesCommandResults
         'upload' => 'fs.upload', 'download' => 'fs.download',
         'copy' => 'fs.copy', 'move' => 'fs.move', 'compress' => 'fs.compress', 'extract' => 'fs.extract',
         'trash' => 'fs.trash', 'trash_list' => 'fs.trash_list', 'trash_restore' => 'fs.trash_restore', 'trash_purge' => 'fs.trash_purge',
-        'chmod' => 'fs.chmod', 'chown' => 'fs.chown', 'search' => 'fs.search',
+        'chmod' => 'fs.chmod', 'chown' => 'fs.chown', 'search' => 'fs.search', 'scan' => 'fs.scan',
     ];
 
     /** Where upload and download bytes wait on the panel's own disk, one folder per job. */
     public const TRANSFER_DIR = 'file-transfers';
 
-    /** Operations that change files; each is audited with its path (FM-014). */
-    private const WRITES = ['write', 'mkdir', 'rename', 'delete', 'copy', 'move', 'compress', 'extract', 'trash', 'trash_restore', 'trash_purge', 'chmod', 'chown'];
+    /** Operations that change files, plus security scans; each is audited with its path (FM-014). */
+    private const WRITES = ['scan', 'write', 'mkdir', 'rename', 'delete', 'copy', 'move', 'compress', 'extract', 'trash', 'trash_restore', 'trash_purge', 'chmod', 'chown'];
 
     public function __construct(private CommandBus $bus, private JobService $jobs, private AuditLogger $audit) {}
 

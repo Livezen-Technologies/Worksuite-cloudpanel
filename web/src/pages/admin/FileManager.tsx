@@ -19,6 +19,14 @@ const MEDIA = /\.(png|jpe?g|gif|webp|avif|bmp|ico|pdf|mp4|webm|ogv|mov|mp3|ogg|o
 const TEXT = /\.(txt|md|log|csv|json|ya?ml|xml|ini|conf|env|htaccess|php|js|mjs|ts|tsx|jsx|css|scss|html?|svg|sql|sh|py|rb|go|vue|twig|blade\.php)$|^\.[a-z]+$/i
 const previewKind = (name: string) => (MEDIA.test(name) ? 'media' : TEXT.test(name) ? 'text' : null)
 interface Hit extends Entry { path: string }
+interface Finding { path: string; rule: string; severity: 'critical' | 'high' | 'medium' | 'info'; detail: string; type: string; size: number; mode: string; modified: string }
+interface ScanResult { findings: Finding[]; counts: Record<string, number>; files: number; folders: number; truncated: boolean; scanned_at?: string; recent_days?: number }
+const SEVERITY: Record<string, { label: string; tone: string }> = {
+  critical: { label: 'Critical', tone: 'bg-[var(--r-bg)] text-[var(--r-fg)]' },
+  high: { label: 'High', tone: 'bg-[var(--y-bg)] text-[var(--y-fg)]' },
+  medium: { label: 'Medium', tone: 'bg-[var(--b-bg)] text-[var(--b-fg)]' },
+  info: { label: 'Info', tone: 'bg-[var(--n-bg)] text-[var(--n-fg)]' },
+}
 interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string; uid?: number; gid?: number }
 
 /** File operations run on the agent: start one, then wait for its job to finish and return the result. */
@@ -54,6 +62,7 @@ const P = {
   doc: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   up: 'M12 19V5m0 0-6 6m6-6 6 6',
+  shield: 'M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6zM9 12l2 2 4-4',
 }
 const CODE = /\.(php|js|mjs|ts|tsx|jsx|css|scss|html?|json|ya?ml|py|rb|go|sh|sql|xml|vue)$/i
 const iconFor = (e: Entry) => (e.type === 'dir' ? P.folder : e.type === 'symlink' ? P.link : CODE.test(e.name) ? P.code : P.doc)
@@ -147,7 +156,8 @@ export function FileManager() {
   const [naming, setNaming] = useState<{ kind: 'folder' | 'file' | 'rename'; target?: Entry; value: string } | null>(null)
   const [deleting, setDeleting] = useState<Entry[] | null>(null)
   const [permanent, setPermanent] = useState(false)
-  const [view, setView] = useState<'files' | 'trash' | 'search'>('files')
+  const [view, setView] = useState<'files' | 'trash' | 'search' | 'scan'>('files')
+  const [scan, setScan] = useState<ScanResult | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [query, setQuery] = useState({ name: '', extensions: '', min: '', max: '', after: '', before: '' })
   const [hits, setHits] = useState<{ items: Hit[]; truncated: boolean } | null>(null)
@@ -339,6 +349,31 @@ export function FileManager() {
     }
   }
 
+  async function runScan() {
+    setView('scan'); setLoading(true); setError(null); setScan(null)
+    try {
+      setScan(await fsCall<ScanResult>(() => api.post(`${base}/scan`, { path: dir })))
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function fixFinding(f: Finding, how: 'trash' | 'perms') {
+    setBusy(true)
+    try {
+      if (how === 'trash') await fsCall(() => api.post(`${base}/trash`, { paths: [f.path] }))
+      else await fsCall(() => api.post(`${base}/chmod`, { paths: [f.path], mode: f.type === 'dir' ? '755' : f.rule === 'sensitive_readable' ? '640' : '644' }))
+      toast.success(how === 'trash' ? `Moved ${f.path} to Trash` : `Fixed permissions of ${f.path}`)
+      setScan((s) => s && { ...s, findings: s.findings.filter((x) => x.path !== f.path || (how === 'perms' && !['world_writable', 'sensitive_readable'].includes(x.rule))) })
+    } catch (e) {
+      toast.push({ kind: 'error', title: 'Fix failed', detail: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function openPreview(name: string, path: string) {
     const kind = previewKind(name)
     if (!kind) return
@@ -436,6 +471,7 @@ export function FileManager() {
           <nav aria-label="Folders" className="flex-[0_1_200px] min-w-[160px] flex flex-col gap-1">
             <SideLink d={P.drive} label="Root" active={view === 'files' && !dir} onClick={() => load('')} />
             {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={view === 'files' && i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
+            <SideLink d={P.shield} label="Security scan" active={view === 'scan'} disabled={!volumeId} onClick={runScan} />
             <SideLink d={P.trash} label="Trash" active={view === 'trash'} disabled={!volumeId} onClick={loadTrash} />
           </nav>
 
@@ -448,7 +484,7 @@ export function FileManager() {
                 <div className="h-1.5 rounded bg-[var(--track)] overflow-hidden"><div className={`h-full bg-[var(--accent)] ${transfer.pct === null ? 'w-1/3 animate-pulse' : ''}`} style={transfer.pct !== null ? { width: `${transfer.pct}%` } : undefined} /></div>
               </div>
             )}
-            {view !== 'trash' && <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line">
+            {(view === 'files' || view === 'search') && <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line">
               <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
               <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filter.trim()) { setQuery({ ...query, name: filter.trim() }); setAdvanced(true) } }} />
               <button type="button" className="btn btn-sm" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!query.name && filter) setQuery({ ...query, name: filter }) }}>Search all folders</button>
@@ -467,7 +503,44 @@ export function FileManager() {
                 </form>
               )}
             </div>}
-            {view === 'search' ? (
+            {view === 'scan' ? (
+              error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading || !scan ? <Empty>Scanning {dir || 'the whole site'}. Large sites can take a minute…</Empty>
+              : (
+                <div>
+                  <div className="grid gap-3 p-4 border-b border-line [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
+                    {(['critical', 'high', 'medium', 'info'] as const).map((k) => (
+                      <div key={k} className="rounded-lg border border-line p-3">
+                        <div className="text-sm text-muted">{SEVERITY[k].label}</div>
+                        <div className={`text-2xl font-bold ${scan.counts[k] && k !== 'info' ? (k === 'critical' ? 'text-[var(--r-fg)]' : k === 'high' ? 'text-[var(--y-fg)]' : '') : ''}`}>{scan.findings.filter((f) => f.severity === k).length}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {!scan.findings.length ? <Empty>No problems found in {scan.files.toLocaleString()} files.</Empty> : (
+                    <table className="w-full border-collapse text-[15px]">
+                      <thead><tr className="bg-[var(--head)] text-left"><th className="px-4 py-3 font-medium text-muted w-28">Severity</th><th className="px-4 py-3 font-semibold">Finding</th></tr></thead>
+                      <tbody>{scan.findings.map((f, i) => (
+                        <tr key={f.path + f.rule + i} className="group border-t border-line hover:bg-[var(--head)] align-top">
+                          <td className="px-4 py-3"><span className={`inline-flex items-center h-6 px-2 rounded-full text-xs font-bold ${SEVERITY[f.severity].tone}`}>{SEVERITY[f.severity].label}</span></td>
+                          <td className="px-4 py-2"><div className="flex flex-wrap items-start gap-3">
+                            <div className="flex-1 min-w-[240px]">
+                              <div className="font-mono text-sm break-all">{f.path}</div>
+                              <div className="text-sm text-muted">{f.detail} · {f.mode} · changed {new Date(f.modified).toLocaleDateString()}</div>
+                            </div>
+                            <span className="flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                              {f.type === 'file' && previewKind(f.path) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPreview(f.path.split('/').pop()!, f.path)}>Inspect</button>}
+                              <button type="button" className="btn btn-sm" onClick={() => load(f.type === 'dir' ? f.path : parentOf(f.path))}>Open folder</button>
+                              {['world_writable', 'sensitive_readable'].includes(f.rule) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => fixFinding(f, 'perms')}>Fix permissions</button>}
+                              {['malware_pattern', 'script_in_uploads', 'double_extension', 'hidden_script'].includes(f.rule) && <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Move ${f.path} to Trash? You can restore it for 7 days.`)) fixFinding(f, 'trash') }}>Move to Trash</button>}
+                            </span>
+                          </div></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  )}
+                </div>
+              )
+            ) : view === 'search' ? (
               error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading || !hits ? <Empty>Searching {dir || 'the whole site'}…</Empty>
               : !hits.items.length ? <Empty>Nothing matches. Searched {dir || 'the whole site'} and everything below it.</Empty>
@@ -565,7 +638,10 @@ export function FileManager() {
         </div>
 
         <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
-          {view === 'search' ? (
+          {view === 'scan' ? (
+            <span className="flex flex-wrap items-center gap-3">{scan ? `Scanned ${scan.files.toLocaleString()} files in ${scan.folders.toLocaleString()} folders${scan.truncated ? ' (stopped early on a very large site)' : ''}` : ''}
+              {scan && <button type="button" className="btn btn-sm" disabled={loading} onClick={runScan}>Scan again</button>}</span>
+          ) : view === 'search' ? (
             <span>{hits ? `${hits.items.length} found${hits.truncated ? ' (showing the first 500; narrow the search for more)' : ''}` : ''}</span>
           ) : view === 'trash' ? (
             <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
