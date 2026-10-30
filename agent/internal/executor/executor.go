@@ -31,7 +31,7 @@ var Types = map[string]bool{
 	"container.start": true, "container.stop": true, "container.restart": true,
 	"container.pause": true, "container.unpause": true, "container.remove": true,
 	"container.create": true, "container.logs": true, "container.prune": true,
-	"image.pull": true, "image.remove": true, "image.prune": true,
+	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true,
 	"network.create": true, "network.remove": true,
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,

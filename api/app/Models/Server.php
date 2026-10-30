@@ -20,6 +20,7 @@ class Server extends Model
             'tags' => 'array',
             'security' => 'array',
             'roles' => 'array',
+            'cleanup' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',
