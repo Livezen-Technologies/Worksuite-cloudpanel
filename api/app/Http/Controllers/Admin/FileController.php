@@ -57,7 +57,7 @@ class FileController extends Controller
             'relative_paths' => 'sometimes|array', 'relative_paths.*' => 'nullable|string|max:4096',
             'overwrite' => 'sometimes|boolean',
         ]);
-        $job = $this->files->upload(Volume::findOrFail($id), (string) ($data['path'] ?? ''), $data['files'], $data['relative_paths'] ?? [], (bool) ($data['overwrite'] ?? false));
+        $job = $this->files->upload($this->volume($id), (string) ($data['path'] ?? ''), $data['files'], $data['relative_paths'] ?? [], (bool) ($data['overwrite'] ?? false));
         $request->attributes->set('audit_skip', true);
 
         return $this->accepted($job);
@@ -66,7 +66,7 @@ class FileController extends Controller
     public function download(Request $request, string $id)
     {
         $data = $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);
-        $job = $this->files->download(Volume::findOrFail($id), array_values($data['paths']));
+        $job = $this->files->download($this->volume($id), array_values($data['paths']));
         $request->attributes->set('audit_skip', true);
 
         return $this->accepted($job);
@@ -157,7 +157,7 @@ class FileController extends Controller
         if (! \App\Services\FileService::previewType($data['path'])) {
             throw \Illuminate\Validation\ValidationException::withMessages(['path' => 'This type is previewed as text, or not at all.']);
         }
-        $job = $this->files->download(Volume::findOrFail($id), [$data['path']], inline: true);
+        $job = $this->files->download($this->volume($id), [$data['path']], inline: true);
         $request->attributes->set('audit_skip', true);
 
         return $this->accepted($job);
@@ -173,7 +173,7 @@ class FileController extends Controller
     public function history(Request $request, string $id)
     {
         $data = $request->validate(['path' => 'required|string|max:4096']);
-        $volume = Volume::findOrFail($id);
+        $volume = $this->volume($id);
         $job = $this->files->run($volume, 'history', $data);
 
         return $this->accepted($job, ['changes' => $this->files->changes($volume, $data['path'])]);
@@ -187,6 +187,12 @@ class FileController extends Controller
     public function historyRestore(Request $request, string $id)
     {
         return $this->run($request, $id, 'history_restore', $request->validate(['path' => 'required|string|max:4096', 'id' => ['required', 'string', 'regex:/^[0-9]{1,20}-[a-z-]{1,20}$/']]));
+    }
+
+    /** The volume a request addresses; the customer panel resolves it through an app instead. */
+    protected function volume(string $id): Volume
+    {
+        return Volume::findOrFail($id);
     }
 
     private function selection(Request $request): array
@@ -203,7 +209,7 @@ class FileController extends Controller
         if (isset($payload['ids'])) {
             $payload['ids'] = array_values($payload['ids']);
         }
-        $job = $this->files->run(Volume::findOrFail($id), $operation, $payload);
+        $job = $this->files->run($this->volume($id), $operation, $payload);
         // FileService audits writes with the file path; the generic entry would only repeat it.
         $request->attributes->set('audit_skip', true);
 

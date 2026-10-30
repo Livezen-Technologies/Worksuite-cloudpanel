@@ -144,10 +144,14 @@ async function droppedFiles(dt: DataTransfer): Promise<Picked[]> {
 
 const validName = (n: string) => !!n && n !== '.' && n !== '..' && !n.includes('/')
 
-export function FileManager() {
+/**
+ * The admin page browses any volume; the customer page (customer) browses the
+ * storage of the customer's own apps, without ownership changes or the security scan.
+ */
+export function FileManager({ customer = false }: { customer?: boolean }) {
   const toast = useToast()
   const serverName = useServerName()
-  const volumes = useList<R>('/volumes')
+  const volumes = useList<R>(customer ? '/app/files' : '/volumes')
   const [volumeId, setVolumeId] = useState('')
   const [dir, setDir] = useState('')
   const [entries, setEntries] = useState<Entry[] | null>(null)
@@ -169,7 +173,7 @@ export function FileManager() {
   const [trash, setTrash] = useState<TrashItem[] | null>(null)
   const [trashSel, setTrashSel] = useState<Set<string>>(new Set())
   const { me } = useAuth()
-  const canChown = OWNER_ROLES.includes(String(me?.role ?? '').toLowerCase())
+  const canChown = !customer && OWNER_ROLES.includes(String(me?.role ?? '').toLowerCase())
   const [perm, setPerm] = useState<{ items: Entry[]; mode: number; recursive: boolean; uid: string; gid: string } | null>(null)
   const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean } | null>(null)
   const [filter, setFilter] = useState('')
@@ -181,10 +185,10 @@ export function FileManager() {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
 
-  const usable = useMemo(() => volumes.rows.filter((v) => v.type !== 'nfs'), [volumes.rows])
+  const usable = useMemo(() => volumes.rows.filter((v) => (customer ? v.ready : v.type !== 'nfs')), [volumes.rows, customer])
   useEffect(() => { if (!volumeId && usable[0]) setVolumeId(usable[0].id) }, [usable, volumeId])
   const volume = usable.find((v) => v.id === volumeId)
-  const base = `/volumes/${volumeId}/files`
+  const base = customer ? `/app/apps/${volumeId}/files` : `/volumes/${volumeId}/files`
 
   const load = useCallback(async (path: string) => {
     if (!volumeId) return
@@ -470,7 +474,7 @@ export function FileManager() {
           <h1 className="m-0 text-xl font-semibold flex-1 min-w-[160px]">File Manager</h1>
           <label className="sr-only" htmlFor="fm-volume">Volume</label>
           <select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
-            {usable.map((v) => <option key={v.id} value={v.id}>{v.name} · {serverName(v)}</option>)}
+            {usable.map((v) => <option key={v.id} value={v.id}>{customer ? v.name : `${v.name} · ${serverName(v)}`}</option>)}
           </select>
           <ToolButton label="Upload files" d={P.upload} disabled={!entries || busy} onClick={() => fileInput.current?.click()} />
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
@@ -490,9 +494,9 @@ export function FileManager() {
 
         <nav aria-label="Path" className="mx-6 flex flex-wrap items-center gap-1 rounded-xl bg-[var(--head)] px-4 py-3 text-[15px] text-muted">
           <IconSvg d={P.server} size={20} className="mr-2" />
-          <span>{volume ? serverName(volume) : '—'}</span>
-          <span aria-hidden="true">/</span>
-          <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load('')}>{volume?.name ?? ''}</button>
+          {!customer && <><span>{volume ? serverName(volume) : '—'}</span>
+          <span aria-hidden="true">/</span></>}
+          <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load('')}>{volume?.name ?? ''}{customer && volume?.volume_path ? ` (${volume.volume_path})` : ''}</button>
           {crumbs.map((c, i) => (
             <span key={i} className="flex items-center gap-1"><span aria-hidden="true">/</span>
               <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
@@ -504,7 +508,7 @@ export function FileManager() {
           <nav aria-label="Folders" className="flex-[0_1_200px] min-w-[160px] flex flex-col gap-1">
             <SideLink d={P.drive} label="Root" active={view === 'files' && !dir} onClick={() => load('')} />
             {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={view === 'files' && i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
-            <SideLink d={P.shield} label="Security scan" active={view === 'scan'} disabled={!volumeId} onClick={runScan} />
+            {!customer && <SideLink d={P.shield} label="Security scan" active={view === 'scan'} disabled={!volumeId} onClick={runScan} />}
             <SideLink d={P.trash} label="Trash" active={view === 'trash'} disabled={!volumeId} onClick={loadTrash} />
           </nav>
 
@@ -627,7 +631,7 @@ export function FileManager() {
                   ))}</tbody>
                 </table>
               )
-            ) : !volumeId && !volumes.isLoading ? <Empty>No volumes yet. Create one under Volumes &amp; Storage.</Empty>
+            ) : !volumeId && !volumes.isLoading ? <Empty>{customer ? 'None of your apps keeps files yet. Turn on persistent storage when you host an app.' : <>No volumes yet. Create one under Volumes &amp; Storage.</>}</Empty>
               : error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading && !entries ? <Empty>Loading…</Empty>
               : (

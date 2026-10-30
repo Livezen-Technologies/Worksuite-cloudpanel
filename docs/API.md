@@ -102,6 +102,10 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET/PATCH | /app/account ; POST /app/account/team {email, role} ; GET/POST/DELETE /app/account/tokens |
 | GET | /app/templates |
 
+### Customer file manager (User · Files)
+
+`GET /app/files` lists the customer's apps that keep files: `[{id, name, volume_path, ready}]` (`ready` once the server has reported the app's volume). Every admin file route also exists under `/app/apps/{app_id}/files…` with the same bodies and results, addressed by app instead of volume, except `chown` and `scan`. The app is found through the tenant scope, so only the customer's own apps resolve; jobs belong to the customer's organisation even on shared-pool servers.
+
 ## Agent protocol (`/agent/v1`, outside the user API)
 - `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.
