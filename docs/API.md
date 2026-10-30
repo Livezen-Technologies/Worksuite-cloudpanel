@@ -293,6 +293,26 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
 
 
+## Public pages (SRS PUB)
+
+An unprivileged nginx container, `ws-pages` (`nginxinc/nginx-unprivileged`, read-only root filesystem, 64 MB), runs on every ingress server and serves static pages from the volumes `ws-pages-html` and `ws-pages-conf`. Traefik reaches it as `ws-pages@docker`. The pages are files, so the edge serves them even when the app, its server or the control plane is down (PUB-4). Each page is under 50 KB, has inline styles and dark mode, and no scripts; the busy page refreshes every 30 seconds.
+
+Routing (added to the Traefik file provider once the container is installed):
+- Every app router gets `dmp-pages-errors` (an errors middleware for 502–504). The original status stays and the body is the busy page. Apps keep their own 404 pages.
+- `dmp-pages-catchall` (`HostRegexp(.+)`, priority 1): unknown hosts get the 404 page.
+- A `<router>-page` router (priority 100000) takes a domain over with the maintenance page (503 with `Retry-After`), suspended (403, when the app's status is `suspended`), expired (402, when the subscription is expired or cancelled and the grace period after its end has passed), or welcome (verified domains without an app).
+- Maintenance bypass (PUB-3): `?ws_bypass=<token>` on the site hits `<router>-bypass`, which sets an `HttpOnly` cookie for 12 hours, and the maintenance router excludes requests carrying that cookie.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/public-pages` | `{installed, maintenance, retry_after, grace_days, bypass_query, pages[{key, status, title, message}], sites[{id, name, maintenance, showing, custom}]}` |
+| PATCH | `/public-pages` | PUB-2 `{maintenance?, retry_after? (30–86400), grace_days? (0–90), pages?: {key: {title?, message?, link_label?, link_url? (http/https)}}}` (needs `settings.manage`). Rewrites the pages, restarts the container and pushes the routing. |
+| PATCH | `/public-pages/sites/{domain}` | PUB-2/3 site level: `{maintenance?, pages?}`; site texts are written to `sites/<host>/`. |
+| POST | `/public-pages/install` | Starts `ws-pages` on every online ingress server that does not run it yet (needs `servers.manage`). |
+| GET | `/public-pages/preview/{key}` | `{html}`, the page as visitors see it. |
+
+Not built: the bot-check page (CrowdSec's own challenge is used).
+
 ## Customer panel: email, security, scheduled jobs (SRS UMAIL, USEC, UCRON)
 
 These need `app.manage` and only ever see the customer's own organisation.
