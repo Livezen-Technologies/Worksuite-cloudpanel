@@ -88,8 +88,21 @@ class InvoiceService
         $invoice->update(array_filter(['status' => $charge['status'] ?? 'open', 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
             'paid_at' => ($charge['status'] ?? null) === 'paid' ? now() : null]));
         $this->render($invoice);
+        $invoice = $invoice->fresh();
+        $emails = app(EmailTemplateService::class);
+        $amount = number_format($invoice->amount_cents / 100, 2).' '.strtoupper((string) $invoice->currency);
+        $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+        $emails->notifyOrganization($org->id, 'invoice', [
+            'number' => $invoice->number, 'amount' => $amount, 'period' => $start->format('F Y'),
+            'invoice_url' => $panel.'/app/billing',
+        ]);
+        if (in_array($invoice->status, ['failed', 'uncollectible', 'past_due'], true)) {
+            $emails->notifyOrganization($org->id, 'payment_failed', [
+                'amount' => $amount, 'reason' => (string) ($charge['error'] ?? 'The card was declined.'), 'retry_date' => now()->addDays(3)->toFormattedDateString(),
+            ]);
+        }
 
-        return $invoice->fresh();
+        return $invoice;
     }
 
     /** Monthly run over every organisation that had a subscription or usage. */

@@ -176,6 +176,10 @@ class AntivirusService implements HandlesCommandResults
         if (! self::settings($orgId)['notify']) {
             return;
         }
+        app(\App\Services\EmailTemplateService::class)->notifyOrganization($orgId, 'malware_found', [
+            'site' => $volume->name, 'path' => $new === 1 ? 'one file' : "{$new} files", 'signature' => 'see Antivirus',
+            'action' => config('platform.antivirus.auto_quarantine') ? 'Quarantined automatically' : 'Review under Antivirus',
+        ]);
         $quarantined = config('platform.antivirus.auto_quarantine') ? ' They were quarantined automatically.' : ' Review them under Antivirus.';
         $title = $new === 1 ? "Malware found on {$volume->name}" : "{$new} malware detections on {$volume->name}";
         foreach (\App\Models\NotificationChannel::allTenants()->where('organization_id', $orgId)->where('enabled', true)->get() as $channel) {

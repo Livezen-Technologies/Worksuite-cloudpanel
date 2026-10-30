@@ -356,6 +356,7 @@ class DeploymentService implements HandlesCommandResults
                 $deployment->update(['status' => 'rolled_back', 'finished_at' => now()]);
                 $app->update(['status' => $command->status === 'succeeded' ? 'running' : 'failed']);
                 $this->jobs->fail($job, $job->error ?? 'Deployment failed and was rolled back.', null, ['deployment_id' => $deployment->id, 'logs_tail' => $deployment->logs_tail]);
+                $this->notifyFailed($app, 'rollback', ($job->error ?? 'Deployment failed').($command->status === 'succeeded' ? ' The previous release was restored.' : ' The rollback failed too.'));
             }
 
             return;
@@ -463,6 +464,11 @@ class DeploymentService implements HandlesCommandResults
             $this->jobs->stage($job, $customer ? 'live' : 'complete', 'succeeded', 'Release v'.$release->version.' is live');
             $this->jobs->succeed($job, ['deployment_id' => $deployment->id, 'release_id' => $release->id, 'version' => $release->version, 'url' => $this->primaryUrl($app)]);
         });
+        $deployment->refresh();
+        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
+            'app' => $app->name, 'version' => 'v'.(Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
+            'duration' => $deployment->started_at ? $deployment->started_at->diffForHumans(now(), true) : '—',
+        ]);
         // AV-10: the deployed files are the new integrity baseline. Never fail a deployment over it.
         try {
             app(IntegrityService::class)->afterDeployment($app);
@@ -475,6 +481,14 @@ class DeploymentService implements HandlesCommandResults
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    private function notifyFailed(Application $app, string $stage, string $error): void
+    {
+        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_failed', [
+            'app' => $app->name, 'stage' => $stage, 'error' => $error,
+            'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/apps/'.$app->id,
+        ]);
     }
 
     private function failDeployment(Deployment $deployment, Job $job, string $error, ?string $serverId = null): void
@@ -506,6 +520,7 @@ class DeploymentService implements HandlesCommandResults
         }
         $deployment->update(['status' => 'failed', 'finished_at' => now()]);
         $app->update(['status' => $previous ? 'running' : 'failed']);
+        $this->notifyFailed($app, (string) ($job->payload['phase'] ?? 'deploy'), $error);
         $this->jobs->fail($job, $error, null, ['deployment_id' => $deployment->id, 'logs_tail' => $deployment->logs_tail]);
     }
 

@@ -5,7 +5,10 @@ namespace App\Services;
 use App\Exceptions\ApiException;
 use App\Models\EmailTemplate;
 use App\Models\Organization;
+use App\Models\Membership;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
@@ -170,6 +173,48 @@ class EmailTemplateService
         });
 
         return true;
+    }
+
+    /** Who in an organisation receives each group's emails, by role. */
+    public const RECIPIENTS = [
+        'deployments' => ['owner', 'super_admin', 'devops', 'developer'],
+        'billing' => ['owner', 'billing'],
+        'default' => ['owner', 'super_admin', 'infra_admin', 'devops'],
+    ];
+
+    /**
+     * Sends from an event: never throws, so a mail outage cannot fail the work that
+     * triggered it. Returns whether the email went out.
+     */
+    public function notify(string $key, User|string $to, array $vars = []): bool
+    {
+        try {
+            return $this->send($key, $to, $vars);
+        } catch (\Throwable $e) {
+            Log::warning("Email '{$key}' was not sent: ".$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Sends to the active members of an organisation whose role receives the template's
+     * group. Returns how many were sent; repeated events inside $dedupeMinutes for the
+     * same $dedupeKey send nothing.
+     */
+    public function notifyOrganization(?string $organizationId, string $key, array $vars = [], ?string $dedupeKey = null, int $dedupeMinutes = 0): int
+    {
+        if (! $organizationId) {
+            return 0;
+        }
+        if ($dedupeKey && $dedupeMinutes > 0 && ! Cache::add("email:{$key}:{$organizationId}:{$dedupeKey}", 1, now()->addMinutes($dedupeMinutes))) {
+            return 0;
+        }
+        $roles = self::RECIPIENTS[$this->definition($key)['group']] ?? self::RECIPIENTS['default'];
+        $users = User::whereIn('id', Membership::allTenants()->where('organization_id', $organizationId)
+            ->where('status', 'active')->whereIn('role', $roles)->select('user_id'))->get();
+
+        return $users->filter(fn (User $u) => $this->notify($key, $u, $vars))->count();
     }
 
     /** EML-4: a 600 px table layout with inline styles, fluid down to 360 px, with a dark-mode stylesheet. */

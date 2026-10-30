@@ -77,6 +77,9 @@ class BillingService
         foreach (['apps' => 'apps', 'ram_mb' => 'memory', 'storage_gb' => 'storage'] as $key => $label) {
             if ($after[$key] > $limits[$key]) {
                 $next = Plan::where('sort', '>', $plan->sort)->orderBy('sort')->first();
+                app(EmailTemplateService::class)->notifyOrganization(app(\App\Support\Tenant::class)->id(), 'plan_limit', [
+                    'resource' => $label, 'used' => (string) $usage[$key], 'limit' => (string) $limits[$key], 'plan' => $plan->name,
+                ], $key, 1440);
                 throw ApiException::quota(
                     "This would exceed your {$plan->name} plan's {$label} limit ({$limits[$key]}). Upgrade your plan to continue.",
                     ['limit' => $key, 'current' => $usage[$key], 'requested' => $after[$key], 'max' => $limits[$key], 'upgrade_to' => $next?->code, 'upgrade_url' => '/app/billing'],

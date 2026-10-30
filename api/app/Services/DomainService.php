@@ -140,7 +140,13 @@ class DomainService
         }
         $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified');
         DnsCheck::create(['domain_id' => $domain->id, 'records' => $records, 'ok' => $allOk, 'created_at' => now()]);
+        $wasVerified = $domain->dns_status === 'verified';
         $domain->update(['dns_status' => $allOk ? 'verified' : 'pending', 'dns_checked_at' => now()]);
+        if ($allOk && ! $wasVerified) {
+            app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'domain_connected', [
+                'domain' => $domain->name, 'app' => (string) (Application::find($domain->application_id)?->name ?? '—'),
+            ]);
+        }
 
         if ($allOk && $domain->https_status !== 'active') {
             $this->issueCertificate($domain);

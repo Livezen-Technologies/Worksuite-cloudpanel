@@ -49,10 +49,16 @@ Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
                           in plain words), Security (score, threats, scan
                           now), Scheduled jobs (app command or URL, run log,
                           plan limits), Move a site here (request + steps)
-Email templates    ~90%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
+Email templates    ~97%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
                           validated variables, HTML + text, 600/360 px and
-                          dark mode, tests, user opt-outs; wired to alert
-                          emails and invitations, other events still to hook
+                          dark mode, tests, user opt-outs; 17 of 20 wired to
+                          their events (welcome, new sign-in, 2FA off, deploy
+                          ok/failed incl. rollback, domain connected, cert
+                          expiring, backup failed, restore done, server
+                          unreachable, malware, invoice, payment failed, plan
+                          limit, alert, invite). Not wired: verify_email and
+                          password_reset (the panel has no such flows yet),
+                          preview_ready and wordpress_updates (no event yet)
 WorkSuite Server     0%   blocked: no readable source for the image
 Overall            ~70%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
