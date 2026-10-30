@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useAction, useOne } from '../../api/hooks'
-import { Card, PageHeader } from '../../components/Card'
+import { Card, PageHeader, Toggle } from '../../components/Card'
 import { Badge, type Tone } from '../../components/Badge'
 import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
-import type { R } from '../../lib/util'
+import { num, type R } from '../../lib/util'
 import { CronManager } from '../../components/CronManager'
 import { ImportDialog, ImportList } from '../../components/MailImport'
 
@@ -171,6 +171,76 @@ export function UserMigrations() {
               </ol>
             )}
             {((m.sites as R[]) ?? []).length > 0 && <ul className="m-0 mt-3 pl-4 text-sm">{(m.sites as R[]).map((s) => <li key={String(s.domain)}>{String(s.domain)}: {String(s.status)}{s.temp_url ? <> · <a href={String(s.temp_url)} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)]">test address</a></> : null}</li>)}</ul>}
+          </Card>
+        )
+      })}
+    </>
+  )
+}
+
+const FW_COUNTRIES: [string, string][] = [['CN', 'China'], ['RU', 'Russia'], ['KP', 'North Korea'], ['IR', 'Iran'], ['BR', 'Brazil'], ['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['DE', 'Germany'], ['SG', 'Singapore'], ['AU', 'Australia'], ['LK', 'Sri Lanka']]
+
+/** FW-015: challenge-protected paths and country rules on the customer's own domains. */
+export function UserFirewall() {
+  const page = useOne<R>('/app/firewall')
+  const { run, busy } = useAction()
+  const w = page.item ?? {}
+  const limits = (w.limits ?? {}) as R
+  const used = (w.used ?? {}) as R
+  const [path, setPath] = useState<Record<string, string>>({})
+  const [code, setCode] = useState<Record<string, string>>({})
+  const refetch = () => page.refetch()
+  const saveCountries = (d: R, next: R[]) => run({ path: `/app/firewall/domains/${d.id}/countries`, method: 'PATCH', body: { countries: next }, label: 'Country rules', success: 'Country rules saved' }).then(refetch).catch(() => {})
+  const cycle = (d: R, c: string) => {
+    const list = ((d.countries as R[]) ?? []).map((x) => ({ code: String(x.code), state: String(x.state) }))
+    const cur = list.find((x) => x.code === c)
+    const next = !cur ? [...list, { code: c, state: 'challenge' }] : cur.state === 'challenge' ? list.map((x) => (x.code === c ? { ...x, state: 'block' } : x)) : list.filter((x) => x.code !== c)
+    saveCountries(d, next)
+  }
+  return (
+    <>
+      <PageHeader title="Firewall" subtitle={`Ask visitors to prove they are human on sensitive pages, and block or challenge countries. ${num(used.paths)} of ${num(limits.paths)} protected paths and ${num(used.countries)} of ${num(limits.countries)} country rules used.`} />
+      {w.enforced === false && <Card><p className="m-0 text-sm text-muted">These settings are saved but not applied yet: the platform's firewall is being set up. Ask support for details.</p></Card>}
+      {((w.domains as R[]) ?? []).length === 0 && page.item ? <Card><p className="m-0 text-sm text-muted">Connect a domain to one of your sites first, under Domains.</p></Card> : null}
+      {((w.domains as R[]) ?? []).map((d) => {
+        const countries = new Map(((d.countries as R[]) ?? []).map((x) => [String(x.code), String(x.state)]))
+        const extra = [...countries.keys()].filter((c) => !FW_COUNTRIES.some(([k]) => k === c))
+        return (
+          <Card key={String(d.id)} title={String(d.name)}>
+            <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] text-sm">
+              <section>
+                <h3 className="m-0 mb-1 text-sm font-semibold">Protected pages</h3>
+                <p className="m-0 mb-2 text-xs text-muted">Visitors must pass a quick check (CAPTCHA) before these pages load. Use * at the end for a whole section, e.g. /wp-admin/*.</p>
+                <ul className="m-0 mb-2 p-0 list-none flex flex-col gap-1">
+                  {((d.paths as R[]) ?? []).map((p) => <li key={String(p.id)} className="flex items-center gap-2 py-1 border-t border-line first:border-t-0">
+                    <span className="flex-1 font-mono text-xs break-all">{String(p.path)}</span>
+                    <Toggle checked={!!p.enabled} label={`Protect ${String(p.path)}`} onChange={(v) => run({ path: `/app/firewall/domains/${d.id}/paths/${p.id}`, method: 'PATCH', body: { enabled: v }, label: 'Protected page', success: v ? 'Protection on' : 'Protection off' }).then(refetch).catch(() => {})} />
+                    <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => run({ path: `/app/firewall/domains/${d.id}/paths/${p.id}`, method: 'DELETE', label: 'Remove protected page' }).then(refetch).catch(() => {})}>Remove</button>
+                  </li>)}
+                </ul>
+                <div className="flex flex-wrap gap-2">
+                  <input className="input flex-1 min-w-[160px] font-mono" placeholder="/wp-login.php" aria-label={`Page to protect on ${d.name}`} value={path[String(d.id)] ?? ''} onChange={(e) => setPath({ ...path, [String(d.id)]: e.target.value })} />
+                  <button type="button" className="btn" disabled={busy || !(path[String(d.id)] ?? '').startsWith('/')} onClick={() => run({ path: `/app/firewall/domains/${d.id}/paths`, body: { path: path[String(d.id)] }, label: 'Protect page', success: 'Page protected' }).then(() => { setPath({ ...path, [String(d.id)]: '' }); refetch() }).catch(() => {})}>Protect</button>
+                </div>
+              </section>
+              <section>
+                <h3 className="m-0 mb-1 text-sm font-semibold">Countries</h3>
+                <p className="m-0 mb-2 text-xs text-muted">Click a country to cycle: allowed → challenge → blocked.</p>
+                <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
+                  {[...FW_COUNTRIES, ...extra.map((c) => [c, c] as [string, string])].map(([c, name]) => {
+                    const st = countries.get(c)
+                    return <button key={c} type="button" disabled={busy} onClick={() => cycle(d, c)} className="flex items-center gap-2 min-h-[40px] px-2.5 rounded-lg border border-line bg-card text-left text-[13px] cursor-pointer hover:bg-head">
+                      <span className="font-mono text-xs text-muted w-6">{c}</span><span className="flex-1 truncate">{name}</span>
+                      <Badge tone={st === 'block' ? 'r' : st === 'challenge' ? 'y' : 'g'}>{st === 'block' ? 'blocked' : st === 'challenge' ? 'challenge' : 'allowed'}</Badge>
+                    </button>
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <input className="input w-24 font-mono uppercase" maxLength={2} placeholder="FR" aria-label="Another country code" value={code[String(d.id)] ?? ''} onChange={(e) => setCode({ ...code, [String(d.id)]: e.target.value.toUpperCase().replace(/[^A-Z]/g, '') })} />
+                  <button type="button" className="btn btn-sm" disabled={busy || (code[String(d.id)] ?? '').length !== 2} onClick={() => { cycle(d, code[String(d.id)]); setCode({ ...code, [String(d.id)]: '' }) }}>Add country</button>
+                </div>
+              </section>
+            </div>
           </Card>
         )
       })}

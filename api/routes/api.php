@@ -392,6 +392,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('security', [Customer\SecurityController::class, 'index'])->name('security.index');
             Route::post('security/scan', [Customer\SecurityController::class, 'scan'])->middleware('throttle:6,1')->name('security.scan');
             Route::post('security/threats/{id}/{action}', [Customer\SecurityController::class, 'act'])->whereIn('action', ['quarantine', 'ignore'])->name('security.act');
+            // FW-015: protected paths and country rules on the customer's own domains.
+            Route::get('firewall', [Customer\FirewallController::class, 'index'])->name('firewall.index');
+            Route::post('firewall/domains/{domain}/paths', [Customer\FirewallController::class, 'storePath'])->name('firewall.paths.store');
+            Route::patch('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'updatePath'])->name('firewall.paths.update');
+            Route::delete('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'destroyPath'])->name('firewall.paths.destroy');
+            Route::patch('firewall/domains/{domain}/countries', [Customer\FirewallController::class, 'countries'])->name('firewall.countries');
             // UMAIL: email on the customer's domains.
             Route::get('mail', [Customer\MailController::class, 'index'])->name('mail.index');
             Route::post('mail/domains', [Customer\MailController::class, 'storeDomain'])->name('mail.domains.store');

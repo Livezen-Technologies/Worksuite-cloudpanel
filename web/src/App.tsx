@@ -29,7 +29,7 @@ import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
 import HostApp from './pages/app/HostApp'
-import { UserCron, UserSecurity, UserMail, UserMigrations } from './pages/app/Extras'
+import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
 import { Packages, Customers } from './pages/admin/Hosting'
@@ -110,6 +110,7 @@ export function AppRoutes() {
         <Route path="backups" element={<UserBackups />} />
         <Route path="email" element={<UserMail />} />
         <Route path="security" element={<UserSecurity />} />
+        <Route path="firewall" element={<UserFirewall />} />
         <Route path="cron" element={<UserCron />} />
         <Route path="move" element={<UserMigrations />} />
         <Route path="billing" element={<Billing />} />
