@@ -285,3 +285,19 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | POST | `/dns/zones/{id}/records` | Body `{type, name, content, ttl?, priority?, proxied?}`. The name is relative to the zone (`@` = apex). Types: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS. TTL is 1, 300, 3600 or 86400. Only A, AAAA and CNAME can be proxied, only on Cloudflare, and proxied records always use Auto TTL. PowerDNS has no Auto TTL, so Auto is stored as 3600. New PowerDNS zones use `SOA-EDIT-API: INCREASE`, so the serial goes up on every change (DNS-008); its record ids are derived from name, type and content, and each change rewrites the whole record set. A CNAME at the apex is refused. |
 | PUT/PATCH | `/dns/zones/{id}/records/{recordId}` | Same body; the type cannot change. |
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
+
+
+## WordPress toolkit (SRS WP)
+
+Every action is WP-CLI, run by the agent in a short-lived `wordpress:cli` container. That container shares the site container's files (`--volumes-from`) and network (`--network container:`), so it uses the site's own `wp-config.php` and database. It runs as www-data (33) and never through a shell. Only these WP-CLI commands are allowed: `core plugin theme option config cache search-replace user cron maintenance-mode cli rewrite transient language redis`. The options `--exec`, `--require`, `--ssh`, `--http`, `--path` and `--context` are refused. An action with several steps is one job; each step is dispatched after the one before it succeeds. Reads need `resources.view|servers.view`; actions need `deploy`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/wordpress` | WP-001/002: `{summary {sites, updates, security, outdated_php, staging}, sites[{id, url, app, server, version, php_version, core_update, updates, security, score, staging, settings, error, inventoried_at}]}` |
+| POST | `/wordpress/detect` | Creates a site row for every app running a `wordpress*` image and inventories each (also daily at 04:10). |
+| GET | `/wordpress/{id}` | Adds `plugins[]`, `themes[]` and `vulnerabilities[{type, slug, version, name, fixed_in}]`. |
+| POST | `/wordpress/{id}/refresh` | `wp.inventory`: core and PHP version, plugins, themes, core update, blog_public, WP_DEBUG, WP_AUTO_UPDATE_CORE, DISABLE_WP_CRON, maintenance. A probe that fails leaves its field out. The vulnerability scan follows (WP-008): WPVulnerability.net for the installed core, plugin and theme versions. Score: 100, minus 25 per vulnerability (at most 75), minus 5 per waiting update (at most 15), minus 10 for PHP below 8.1. |
+| PATCH | `/wordpress/{id}/settings` | WP-003 `{setting: maintenance\|debug\|indexing\|auto_minor\|platform_cron\|redis, on}`. `platform_cron` sets `DISABLE_WP_CRON`, and `wordpress:cron` runs due events every 5 minutes. `redis` needs `WORDPRESS_REDIS_HOST` (409 otherwise); it sets `WP_REDIS_HOST`, installs and activates `redis-cache`, then runs `wp redis enable`. |
+| POST | `/wordpress/{id}/tools/{tool}` | WP-004/007: `flush_cache`, `verify_checksums`, `search_replace {search, replace, dry_run=true}` (skips `guid`; the dry run is the default), `plugin_activate\|plugin_deactivate {plugin}`, `theme_activate {theme}`. Slugs must match `^[a-z0-9][a-z0-9_.-]*$`. Activations refresh the site afterwards. The WP-CLI output is on the job. |
+| POST | `/wordpress/{id}/reset-password` | `{user}` returns `{job_id, password}`. A random 20-character password is shown once. The job payload holds only a redacted copy; the real one travels in the encrypted agent command. The audit has the user name only. |
+| POST | `/wordpress/{id}/login-link` | WP-012 returns `{job_id, url, expires_in: 60}`. It writes the must-use plugin `wp-content/mu-plugins/ws-login.php` and stores `sha256(token):expiry` in the option `ws_login_token`. The plugin checks the token with `hash_equals`, deletes the option on any use, signs in the first administrator and redirects to wp-admin. Audited. |

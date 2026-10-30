@@ -42,6 +42,14 @@ Artisan::command('antivirus:reapply', function (\App\Services\ServerSecurityServ
     $this->info('Re-applied server security on '.$security->reapplyAll().' server(s).');
 })->purpose('AV-2 / AV-12: push real-time scanning and outbound limits again (they do not survive a reboot)');
 
+Artisan::command('wordpress:detect', function (\App\Services\WordPressService $wp) {
+    $this->info('Inventory queued for '.$wp->detect().' WordPress site(s).');
+})->purpose('WP-001: find WordPress apps and refresh their versions, plugins, themes and vulnerabilities');
+
+Artisan::command('wordpress:cron', function (\App\Services\WordPressService $wp) {
+    $this->info('Ran WP-Cron for '.$wp->runCron().' site(s).');
+})->purpose('WP-003: run due WP-Cron events for sites using platform-run cron');
+
 Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
     $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
 })->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
@@ -189,6 +197,8 @@ Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlappin
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).
+Schedule::command('wordpress:detect')->dailyAt('04:10')->withoutOverlapping();
+Schedule::command('wordpress:cron')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('antivirus:realtime-events')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('antivirus:reapply')->hourly()->withoutOverlapping();
 Schedule::command('integrity:check-all')->dailyAt('03:40')->withoutOverlapping();

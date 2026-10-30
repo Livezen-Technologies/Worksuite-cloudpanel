@@ -241,6 +241,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('antivirus/integrity', [Admin\AntivirusController::class, 'integrity'])->middleware('perm:resources.view|servers.view')->name('antivirus.integrity');
     Route::post('antivirus/integrity/{id}/{action}', [Admin\AntivirusController::class, 'integrityAction'])->middleware('perm:deploy|network_storage.manage')->whereIn('action', ['baseline', 'check', 'accept'])->name('antivirus.integrity-action');
     Route::match(['get', 'patch'], 'antivirus/servers/{id}', [Admin\AntivirusController::class, 'serverSecurity'])->middleware('perm:settings.manage')->name('antivirus.server');
+    // WordPress toolkit (SRS WP)
+    Route::get('wordpress', [Admin\WordPressController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('wordpress.index');
+    Route::post('wordpress/detect', [Admin\WordPressController::class, 'detect'])->middleware('perm:deploy')->name('wordpress.detect');
+    Route::get('wordpress/{id}', [Admin\WordPressController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('wordpress.show');
+    Route::post('wordpress/{id}/refresh', [Admin\WordPressController::class, 'refresh'])->middleware('perm:deploy')->name('wordpress.refresh');
+    Route::patch('wordpress/{id}/settings', [Admin\WordPressController::class, 'setting'])->middleware('perm:deploy')->name('wordpress.setting');
+    Route::post('wordpress/{id}/tools/{tool}', [Admin\WordPressController::class, 'tool'])->middleware('perm:deploy')->whereIn('tool', ['flush_cache', 'verify_checksums', 'search_replace', 'plugin_activate', 'plugin_deactivate', 'theme_activate'])->name('wordpress.tool');
+    Route::post('wordpress/{id}/reset-password', [Admin\WordPressController::class, 'resetPassword'])->middleware('perm:deploy')->name('wordpress.reset-password');
+    Route::post('wordpress/{id}/login-link', [Admin\WordPressController::class, 'loginLink'])->middleware('perm:deploy')->name('wordpress.login-link');
     Route::get('antivirus/score', [Admin\AntivirusController::class, 'score'])->middleware('perm:resources.view|servers.view')->name('antivirus.score');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
     Route::post('antivirus/scan', [Admin\AntivirusController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.scan');

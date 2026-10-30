@@ -97,6 +97,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.scanFiles(ctx, c.Payload)
 	case "av.scan", "av.quarantine", "av.restore", "av.delete":
 		return e.antivirus(ctx, c.Type, c.Payload)
+	case "wp.cli":
+		return e.wpCLI(ctx, c.Payload)
+	case "wp.inventory":
+		return e.wpInventory(ctx, c.Payload)
 	case "egress.apply":
 		return e.applyEgress(ctx, c.Payload)
 	case "av.realtime":

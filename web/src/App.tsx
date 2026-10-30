@@ -20,6 +20,7 @@ import { AdminAccount } from './pages/admin/Account'
 import Firewall from './pages/admin/Firewall'
 import Antivirus from './pages/admin/Antivirus'
 import DnsZones from './pages/admin/DnsZones'
+import WordPress from './pages/admin/WordPress'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
@@ -66,6 +67,7 @@ export function AppRoutes() {
         <Route path="firewall" element={<Firewall />} />
         <Route path="antivirus" element={<Antivirus />} />
         <Route path="dns" element={<DnsZones />} />
+        <Route path="wordpress" element={<WordPress />} />
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="applications/:id" element={<AppManage />} />

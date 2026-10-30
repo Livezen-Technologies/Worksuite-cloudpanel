@@ -25,10 +25,14 @@ File manager       100%   all 19 features + customer page (#7-#13, #24,
 DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
                           DNSSEC, zone settings, BIND import/export, zones
                           drive DNS-01 certificates (#16, #18, #20, #22)
-Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
-                          email templates (specified only)
+WordPress toolkit  ~55%   7 of 12: detection and inventory, summary, site
+                          settings, tools, plugins/themes, vulnerability scan,
+                          one-time login; left: updates with restore points
+                          and rollback, update all, hardening, staging
+Other new features   0%   migration wizard, mail hosting, email templates
+                          (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~52%   up from ~40%: file manager, firewall enforcement,
+Overall            ~54%   up from ~40%: file manager, firewall enforcement,
                           antivirus and DNS zones
 ```
 

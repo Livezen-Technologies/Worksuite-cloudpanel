@@ -47,7 +47,7 @@ var Types = map[string]bool{
 	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
 	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
-	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "av.realtime": true, "av.events": true,
+	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "wp.cli": true, "wp.inventory": true, "av.realtime": true, "av.events": true,
 	"av.scan": true, "av.quarantine": true, "av.restore": true, "av.delete": true,
 }
 
@@ -84,9 +84,11 @@ type Executor struct {
 	CrowdSecContainer string
 	// ClamAVContainer runs clamd with the Docker volumes mounted read-only (default "clamav").
 	ClamAVContainer string
-	AcmeJSON        string
-	LookPath        func(string) (string, error)
-	StateDir        string
+	// WPCLIImage runs WP-CLI next to a WordPress container (default "wordpress:cli").
+	WPCLIImage string
+	AcmeJSON   string
+	LookPath   func(string) (string, error)
+	StateDir   string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
 	// AllowLocalGit permits file:// and absolute-path repositories in image.build.
