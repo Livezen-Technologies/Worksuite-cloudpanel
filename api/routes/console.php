@@ -102,6 +102,9 @@ Artisan::command('servers:check-heartbeats', function () {
         $last = AgentEvent::allTenants()->where('server_id', $server->id)->latest('created_at')->value('type');
         if ($last !== 'disconnected') {
             AgentEvent::create(['organization_id' => $server->organization_id, 'server_id' => $server->id, 'type' => 'disconnected', 'data' => ['last_heartbeat_at' => $server->last_heartbeat_at], 'created_at' => now()]);
+            app(\App\Services\EmailTemplateService::class)->notifyOrganization($server->organization_id, 'server_unreachable', [
+                'server' => $server->name, 'since' => $server->last_heartbeat_at->toDayDateTimeString().' UTC',
+            ]);
         }
     }
 })->purpose('Record servers that went offline (no heartbeat for 90 s)');

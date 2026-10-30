@@ -32,6 +32,7 @@ class AuthController extends Controller
             return [$user->fresh(), $org];
         });
         $this->audit->log('auth.register', 'users', $user->id, [], $org->id, $user->id, $user->email);
+        app(\App\Services\EmailTemplateService::class)->notify('welcome', $user);
 
         return $this->data(['token' => $this->issue($user), 'user' => $user], 201);
     }
@@ -62,6 +63,14 @@ class AuthController extends Controller
             $user->current_organization_id = $user->memberships()->where('status', 'active')->value('organization_id');
         }
         $user->forceFill(['last_login_at' => now()])->save();
+        // EML: a sign-in from an address this user has not signed in from before.
+        $ip = request()->ip();
+        $seen = \App\Models\AuditLog::where('user_id', $user->id)->where('action', 'auth.login');
+        if ($ip && (clone $seen)->exists() && ! (clone $seen)->where('ip', $ip)->exists()) {
+            app(\App\Services\EmailTemplateService::class)->notify('new_sign_in', $user, [
+                'ip' => $ip, 'location' => 'Unknown', 'device' => \Illuminate\Support\Str::limit((string) request()->userAgent(), 120) ?: 'Unknown', 'time' => now()->toDayDateTimeString().' UTC',
+            ]);
+        }
         $this->audit->log('auth.login', 'users', $user->id, ['method' => $method], $user->current_organization_id, $user->id, $user->email);
 
         return $this->data(['token' => $this->issue($user), 'user' => $user]);
@@ -118,6 +127,7 @@ class AuthController extends Controller
             throw ApiException::validation(['otp' => ['The code is incorrect.']]);
         }
         $user->forceFill(['mfa_enabled' => false, 'mfa_secret' => null])->save();
+        app(\App\Services\EmailTemplateService::class)->notify('two_factor_disabled', $user, ['time' => now()->toDayDateTimeString().' UTC']);
 
         return $this->data(['mfa_enabled' => false]);
     }

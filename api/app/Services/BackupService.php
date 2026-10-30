@@ -267,6 +267,7 @@ class BackupService implements HandlesCommandResults
             $backup->update(['status' => 'failed', 'error' => $command->message, 'finished_at' => now()]);
             $policy?->update(['last_status' => 'failed']);
             $this->jobs->fail($job, $command->message ?: 'Backup failed', $hasDump && ! isset($output['dump']) ? 'dump' : 'snapshot');
+            $this->notifyFailed($backup, $command->message ?: 'Backup failed');
             if ($restoreId = $job->payload['restore_job_id'] ?? null) {
                 $restore = RestoreJob::find($restoreId);
                 $restore?->update(['status' => 'failed']);
@@ -300,6 +301,7 @@ class BackupService implements HandlesCommandResults
             $this->jobs->stage($job, 'verify', 'failed', 'Integrity check failed: '.Str::limit((string) ($check['message'] ?? ''), 200));
             $backup->update(['status' => 'failed', 'error' => 'Integrity check failed', 'finished_at' => now()]);
             $policy?->update(['last_status' => 'failed']);
+            $this->notifyFailed($backup, 'The integrity check of the backup repository failed.');
             $this->jobs->fail($job, 'restic check reported errors for the repository.', 'verify', ['artifact_id' => $artifact->id]);
 
             return;
@@ -322,11 +324,39 @@ class BackupService implements HandlesCommandResults
         }
     }
 
+    private function notifyFailed(BackupJob $backup, string $error): void
+    {
+        app(\App\Services\EmailTemplateService::class)->notifyOrganization($backup->organization_id, 'backup_failed', [
+            'target' => $this->label($backup->target_type, $backup->target_id), 'error' => $error,
+            'time' => now()->toDayDateTimeString().' UTC',
+        ]);
+    }
+
+    /** "application shop", "database orders", or the type alone when the record is gone. */
+    private function label(?string $type, ?string $id): string
+    {
+        $name = match ($type) {
+            'application' => Application::allTenants()->whereKey($id)->value('name'),
+            'database' => Database::allTenants()->whereKey($id)->value('name'),
+            'volume' => \App\Models\Volume::allTenants()->whereKey($id)->value('name'),
+            default => null,
+        };
+
+        return trim(($type ?? 'backup').' '.($name ?? ''));
+    }
+
     private function restoreFinished(AgentCommand $command, Job $job): void
     {
         $restore = RestoreJob::where('job_id', $job->id)->first();
         $ok = $command->status === 'succeeded';
         $restore?->update(['status' => $ok ? 'succeeded' : 'failed']);
+        if ($ok && $restore) {
+            $artifact = BackupArtifact::find($restore->backup_artifact_id ?? null);
+            app(\App\Services\EmailTemplateService::class)->notifyOrganization($job->organization_id, 'restore_complete', [
+                'target' => $this->label($artifact?->application_id ? 'application' : 'backup', $artifact?->application_id),
+                'snapshot' => (string) ($artifact?->snapshot_id ?? '—'),
+            ]);
+        }
         $ok ? $this->jobs->succeed($job, ['restore_job_id' => $restore?->id, 'pre_restore_backup_job_id' => $restore?->pre_restore_backup_job_id])
             : $this->jobs->fail($job, $command->message ?: 'Restore failed', 'restore');
     }

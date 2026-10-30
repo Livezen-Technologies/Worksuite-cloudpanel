@@ -302,6 +302,13 @@ class TraefikConfigService implements HandlesCommandResults
             foreach ($domains as $domain) {
                 app(Tenant::class)->as($domain->organization_id, function () use ($domain, $cert, $names, &$updated) {
                     $expires = Carbon::parse($cert['not_after']);
+                    // Renewal normally happens 30 days out; one still this close has not renewed.
+                    if ($expires->isFuture() && now()->diffInDays($expires) <= 14) {
+                        app(EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                            'domain' => $domain->name, 'days' => (string) (int) now()->diffInDays($expires),
+                            'reason' => 'Automatic renewal has not replaced it yet. Check that DNS still points at the platform.',
+                        ], $domain->id, 1440);
+                    }
                     $current = Certificate::where('domain_id', $domain->id)->whereIn('status', ['active', 'issuing'])->latest()->first();
                     if ($current && $current->status === 'active' && $current->expires_at?->equalTo($expires)) {
                         $current->update(['checked_at' => now()]);
