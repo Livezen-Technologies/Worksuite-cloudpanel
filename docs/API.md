@@ -87,6 +87,7 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /users ; POST /users/invite ; PATCH /users/{id} {role} ; DELETE /users/{id} | |
 | GET | /roles ; GET /roles/{name} → permission matrix | |
 | GET/PATCH | /settings | general + security policies |
+| POST | /settings/smtp/test | `{to?}` (defaults to your own email; 6 per minute). Sends a test email with the saved SMTP settings. Returns 409 without a host, or 502 with the SMTP server's error. Audited. |
 | CRUD | /notification-channels ; CRUD /integrations | |
 | GET/POST/DELETE | /api-tokens | {name, abilities[], expires_at} → token shown once |
 | GET | /audit-logs | |
