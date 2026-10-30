@@ -124,10 +124,11 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
           <form className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
                 onSubmit={(e) => { e.preventDefault(); save(SMTP.map((x) => x[0]), 'smtp') }}>
             {SMTP.map(([k, l, t]) => (
-              <Field key={k} label={l} hint={k === 'password' && g.password_set ? 'Leave blank to keep the current password.' : undefined}>
+              <Field key={k} label={l} hint={k === 'password' && g.password_set ? 'Leave blank to keep the current password.'
+                : k === 'encryption' ? 'Port 587 always uses STARTTLS and 465 always uses SSL/TLS.' : undefined}>
                 {t === 'encryption'
                   ? <Select className="input" value={g[k] ?? 'tls'} onChange={(e) => setG({ ...g, [k]: e.target.value })}>
-                      <option value="tls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option>
+                      <option value="tls">STARTTLS (port 587)</option><option value="ssl">SSL/TLS (port 465)</option><option value="none">None</option>
                     </Select>
                   : <input className="input" type={t} value={t === 'password' ? (g[k] ?? '') : (g[k] ?? '')}
                            autoComplete={t === 'password' ? 'new-password' : undefined}

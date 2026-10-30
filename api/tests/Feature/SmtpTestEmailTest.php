@@ -12,6 +12,8 @@ class SmtpTestEmailTest extends TestCase
     public function test_starttls_and_ssl_map_to_schemes_symfony_mailer_supports(): void
     {
         $this->assertSame(['smtp', 'smtp', 'smtps', 'smtp'], [Smtp::scheme('tls'), Smtp::scheme('none'), Smtp::scheme('ssl'), Smtp::scheme(null)]);
+        // SSL/TLS chosen for 587 (Amazon SES and others) still uses STARTTLS; 465 is always TLS.
+        $this->assertSame(['smtp', 'smtps', 'smtp', 'smtps'], [Smtp::scheme('ssl', 587), Smtp::scheme('tls', 465), Smtp::scheme('ssl', 25), Smtp::scheme('ssl', 2465)]);
     }
 
     public function test_a_test_email_needs_a_host_and_reports_failures(): void
