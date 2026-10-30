@@ -172,4 +172,16 @@ class AgentProtocolTest extends TestCase
         $this->get('/agent/v1/download/dockermgr-agent-linux-arm64')->assertNotFound();
         $this->get('/agent/v1/download/dockermgr-agent-linux-mips')->assertNotFound();
     }
+
+    public function test_an_out_of_date_agent_gets_a_plain_update_message(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $command = app(\App\Services\CommandBus::class)->dispatch($server, 'container.restart', ['container_id' => 'web']);
+        $this->commandResult($secret, $command->id, 'failed', ['message' => 'rejected: unknown command type "fs.list"'])->assertOk();
+        $message = \App\Models\AgentCommand::allTenants()->find($command->id)->message;
+        $this->assertStringContainsString('is too old to run "fs.list"', $message);
+        $this->assertStringContainsString('Update agent', $message);
+    }
 }

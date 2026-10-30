@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mail hosting — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#2563EB;text-decoration:none}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1054px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="Mail" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Mail hosting <span style="font-size: 12px; font-weight: 700; vertical-align: middle; padding: 3px 7px; border-radius: 5px; background: {{c.soft}}; color: {{accent}}">PHASE 5</span></h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.sub}}">Mailboxes on customer domains, served from servers with the mail role</p>
+      </div>
+      <button type="button" style="{{btn}}">Open webmail</button>
+      <button type="button" onClick="{{addBox}}" style="{{btnPrimary}}">+ New mailbox</button>
+    </div>
+    <sc-if value="{{toast}}" hint-placeholder-val="{{ false }}"><div role="status" style="padding: 10px 14px; border-radius: 8px; background: {{c.okBg}}; color: {{c.okFg}}; font-size: 13px; font-weight: 500">{{toastText}}</div></sc-if>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4"><div style="padding: 16px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}"><div style="font-size: 13px; color: {{c.sub}}">{{t.k}}</div><div style="font-size: 24px; font-weight: 700; margin-top: 4px">{{t.v}}</div><div style="font-size: 12.5px; color: {{c.sub}}">{{t.s}}</div></div></sc-for>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start">
+      <section style="flex: 999 1 560px; min-width: 0; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid {{c.line}}">
+          <h2 style="margin: 0; font-size: 15px; flex: 1">Mailboxes</h2>
+          <select aria-label="Domain" onChange="{{pickDomain}}" style="{{input}}"><sc-for list="{{domains}}" as="d" hint-placeholder-count="3"><option value="{{d.name}}" selected="{{d.on}}">{{d.name}}</option></sc-for></select>
+        </div>
+        <div style="overflow-x: auto"><table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 680px">
+          <thead><tr style="text-align: left; color: {{c.sub}}; font-size: 12px; background: {{c.head}}"><th style="padding: 10px 16px">Address</th><th style="padding: 10px 8px">Used</th><th style="padding: 10px 8px">Sent today</th><th style="padding: 10px 8px">Status</th><th style="padding: 10px 16px 10px 8px"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Actions</span></th></tr></thead>
+          <tbody><sc-for list="{{boxes}}" as="b" hint-placeholder-count="5">
+            <tr style="border-top: 1px solid {{c.line}}">
+              <td style="padding: 12px 16px; font-weight: 600">{{b.addr}}</td>
+              <td style="padding: 12px 8px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 80px; height: 6px; border-radius: 3px; background: {{c.head}}; overflow: hidden"><span style="{{b.bar}}"></span></span><span style="font-variant-numeric: tabular-nums; color: {{c.sub}}">{{b.used}}</span></span></td>
+              <td style="padding: 12px 8px; font-variant-numeric: tabular-nums">{{b.sent}}</td>
+              <td style="padding: 12px 8px"><span style="{{b.badge}}">{{b.state}}</span></td>
+              <td style="padding: 12px 16px 12px 8px; text-align: right; white-space: nowrap"><button type="button" onClick="{{b.toggle}}" style="{{btnSm}}">{{b.action}}</button></td>
+            </tr>
+          </sc-for></tbody>
+        </table></div>
+        <p style="margin: 0; padding: 12px 16px; font-size: 12px; color: {{c.sub}}; border-top: 1px solid {{c.line}}">A mailbox sending over its hourly limit is held automatically and raises an alert. Aliases, forwarders and catch-all are set per domain.</p>
+      </section>
+      <aside aria-label="DNS for this domain" style="flex: 1 1 320px; min-width: 0; padding: 18px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; font-size: 15px">DNS · {{domain}}</h2>
+        <sc-for list="{{records}}" as="r" hint-placeholder-count="5">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid {{c.line}}; font-size: 13px">
+            <span style="width: 58px; font-weight: 700">{{r.type}}</span>
+            <span style="flex: 1 1 140px; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: {{c.sub}}; overflow-wrap: anywhere">{{r.value}}</span>
+            <span style="{{r.badge}}">{{r.state}}</span>
+          </div>
+        </sc-for>
+        <button type="button" onClick="{{fixDns}}" style="{{btn}}">Write missing records</button>
+        <p style="margin: 0; font-size: 12px; color: {{c.sub}}">Written automatically when the zone is managed here. Otherwise, copy the values to your registrar.</p>
+      </aside>
+    </div>
+    <p style="margin: 0; font-size: 12px; color: {{c.sub}}">Sample data.</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1054}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { domain: 'example.lk', toast: '', held: { 'newsletter@example.lk': true }, fixed: {}, extra: 0 }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#2563EB';
+    const st = this.state;
+    const c = dark ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F3F4F6', sub:'#9CA3AF', line:'#1E293B', soft:'#172554', okBg:'#052E1B', okFg:'#86EFAC' } : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F1F5F9', text:'#0F172A', sub:'#475569', line:'#E2E8F0', soft:'#EFF6FF', okBg:'#DCFCE7', okFg:'#166534' };
+    const pill = (bg, fg) => `display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid ${fg}33;background:${dark?'#1F2937':bg};color:${fg}`;
+    const ok = pill('#DCFCE7','#15803D'), warn = pill('#FEF3C7','#B45309'), bad = pill('#FEE2E2','#B91C1C');
+    const base = `display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 13px;border-radius:8px;font:600 13.5px Inter;cursor:pointer;`;
+    const say = m => { this.setState({ toast: m }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2600); };
+    const all = { 'example.lk': [['info',62,41],['sales',35,118],['support',81,23],['newsletter',12,950],['owner',48,6]], 'ceylontours.lk': [['bookings',54,77],['info',20,9]], 'acme.lk': [['hello',30,15],['billing',8,4],['dev',5,0]] };
+    const d = st.domain;
+    const list = all[d].concat(Array.from({ length: st.extra }, (_, i) => ['new' + (i + 1), 0, 0]));
+    const boxes = list.map(([u, pct, sent]) => { const addr = `${u}@${d}`, held = !!st.held[addr]; return { addr, sent, used: (pct / 10).toFixed(1) + ' / 10 GB',
+      bar: `display:block;height:100%;width:${pct}%;background:${pct > 80 ? '#D97706' : accent}`,
+      state: held ? 'HELD · SPAM' : 'ACTIVE', badge: held ? bad : ok, action: held ? 'Release' : 'Hold',
+      toggle: () => { this.setState({ held: { ...st.held, [addr]: !held } }); say(held ? `${addr} released` : `${addr} held`); } }; });
+    const fixed = !!st.fixed[d];
+    const recs = [['MX','10 mail.livezen.app',true],['SPF','v=spf1 mx include:_spf.livezen.app -all',true],['DKIM','wscp._domainkey · v=DKIM1; k=rsa; p=MIIBIj…',d !== 'acme.lk'],['DMARC','v=DMARC1; p=quarantine; rua=mailto:dmarc@' + d,d === 'example.lk'],['PTR','51.89.7.73 → mail.livezen.app',true]];
+    const records = recs.map(([type, value, good]) => ({ type, value, state: good || fixed ? 'OK' : 'MISSING', badge: good || fixed ? ok : warn }));
+    return { c, dark, accent, boxes, records, domain: d,
+      domains: Object.keys(all).map(name => ({ name, on: name === d })),
+      pickDomain: ev => this.setState({ domain: ev.target.value }),
+      tiles: [{ k:'Mail domains', v:'3', s:'on mail-eu-01' }, { k:'Mailboxes', v: String(10 + st.extra), s:'of 25 in package' }, { k:'Held for spam', v: String(Object.values(st.held).filter(Boolean).length), s:'outbound limit 200 / h' }, { k:'Blacklists', v:'Clean', s:'checked 12 min ago' }],
+      btn: base + `border:1px solid ${c.line};background:${c.card};color:${c.text}`, btnPrimary: base + `border:0;background:${accent};color:#fff`,
+      btnSm: `min-height:32px;padding:0 12px;border-radius:7px;border:1px solid ${c.line};background:${c.card};color:${c.text};font:600 12.5px Inter;cursor:pointer`,
+      input: `height:36px;padding:0 10px;border-radius:8px;border:1px solid ${c.line};background:${c.card};color:${c.text};font:13px Inter`,
+      addBox: () => { this.setState({ extra: st.extra + 1 }); say(`new${st.extra + 1}@${d} created`); },
+      fixDns: () => { this.setState({ fixed: { ...st.fixed, [d]: true } }); say(`Missing records written for ${d}`); },
+      toast: !!st.toast, toastText: st.toast };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

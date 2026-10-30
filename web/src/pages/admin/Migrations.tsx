@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, PageHeader } from '../../components/Card'
+import { Card, Empty, PageHeader } from '../../components/Card'
 import { Badge, type Tone } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
-import { Drawer } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const tone = (s: string): Tone => (['migrated', 'ready', 'live'].includes(s) ? 'g' : s === 'failed' ? 'r' : ['fetching', 'migrating', 'deploying', 'copying', 'requested'].includes(s) ? 'y' : 'n')
+const STEPS = ['Connect', 'Choose sites', 'Pre-flight', 'Copy', 'Test', 'Cut over']
+/** Which wizard step a migration is on, from its real status. */
+const stepOf = (status: string, sites: R[], checks: R[]): number => {
+  if (sites.some((s) => s.status === 'live')) return sites.filter((s) => s.enabled).every((s) => s.status === 'live') ? 6 : 5
+  if (status === 'migrated') return 4
+  if (['migrating', 'copying', 'deploying'].includes(status)) return 3
+  if (status === 'ready') return checks.length > 0 ? 2 : 1
+  return 0
+}
 const mb = (b: unknown) => `${(Number(b ?? 0) / 1048576).toFixed(1)} MB`
 
 /** Migration wizard (SRS MIG): cPanel accounts into apps on this platform. */
@@ -18,6 +27,10 @@ export default function Migrations() {
   const servers = useList<R>('/servers')
   const { run, busy } = useAction()
   const [open, setOpen] = useState<string | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [closed, setClosed] = useState(false)
+  // The newest migration is shown by default; a row click picks another.
+  const sel = open ?? (closed ? null : list.rows[0] ? String(list.rows[0].id) : null)
   const [form, setForm] = useState({ server_id: '', archive_url: '', sha256: '' })
 
   const create = () => run<{ data: R }>({ path: '/migrations', body: { ...form, sha256: form.sha256 || null }, label: 'Start migration', success: 'Fetching the backup' })
@@ -25,15 +38,16 @@ export default function Migrations() {
 
   return (
     <>
-      <PageHeader title="Migrations" subtitle="Move cPanel accounts onto the platform: each site becomes an app, checked on a temporary address first." />
+      <PageHeader title="Migrations" subtitle="Move cPanel accounts onto the platform: each site becomes an app, checked on a temporary address first."
+        actions={<button type="button" className="btn" aria-expanded={showNew || list.rows.length === 0} onClick={() => setShowNew(!showNew)}>New migration</button>} />
 
-      <Card title="New migration">
+      {(showNew || (!list.isLoading && list.rows.length === 0)) && <Card title="New migration" subtitle="Step 1 · Connect a cPanel full backup">
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] text-sm">
           <label className="flex flex-col gap-1">Target server
-            <select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
+            <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
               <option value="">Choose…</option>
               {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex flex-col gap-1">cPanel full backup URL
             <input className="input font-mono text-xs" placeholder="https://…/cpmove-user.tar.gz" value={form.archive_url} onChange={(e) => setForm({ ...form, archive_url: e.target.value })} />
@@ -44,10 +58,12 @@ export default function Migrations() {
         </div>
         <p className="m-0 mt-2 text-xs text-muted">In cPanel: Backup → Download a Full Account Backup. Put the file where the server can download it, such as a sharing link or object storage.</p>
         <button type="button" className="btn btn-primary mt-3" disabled={busy || !form.server_id || !form.archive_url} onClick={create}>Fetch and inspect</button>
-      </Card>
+      </Card>}
+
+      {sel && <MigrationWizard key={sel} id={sel} onClose={() => { setOpen(null); setClosed(true); list.refetch() }} />}
 
       <Card title="Migrations" pad={false}>
-        <DataTable label="Migrations" rows={list.rows} loading={list.isLoading} rowKey={(r) => String(r.id)} onRowClick={(r) => setOpen(String(r.id))}
+        <DataTable label="Migrations" rows={list.rows} loading={list.isLoading} rowKey={(r) => String(r.id)} onRowClick={(r) => { setOpen(String(r.id)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
           columns={[
             { key: 'account', header: 'Account', render: (r) => <span className="font-semibold">{String(r.account ?? '…')}</span> },
             { key: 'source', header: 'From', render: (r) => (r.requested ? 'cPanel (customer request)' : 'cPanel') },
@@ -58,12 +74,11 @@ export default function Migrations() {
           ]} />
       </Card>
 
-      {open && <MigrationDrawer id={open} onClose={() => { setOpen(null); list.refetch() }} />}
     </>
   )
 }
 
-function MigrationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+function MigrationWizard({ id, onClose }: { id: string; onClose: () => void }) {
   const m = useOne<R>(`/migrations/${id}`, undefined, { refetchInterval: 5000 })
   const w = m.item ?? {}
   const dbs = useList<R>('/databases')
@@ -86,89 +101,108 @@ function MigrationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   }
   const checks = ((w.preflight as R[]) ?? [])
 
+  const step = stepOf(String(w.status ?? ''), sites, checks)
+  const check = new Map(checks.map((c) => [String(c.domain), c]))
+  const source = inv.user ? `cPanel · ${String(inv.user)}` : 'cPanel'
+  const td = 'px-3 py-2 align-top'
+
   return (
-    <Drawer open onClose={onClose} title={`Migration ${inv.user ? `of ${inv.user}` : ''}`} width={760}>
-      <div className="flex flex-col gap-5 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={tone(String(w.status))}>{String(w.status ?? '…')}</Badge>
-          {inv.files != null && <span className="text-muted">{Number(inv.files).toLocaleString()} files · {mb(inv.bytes)} · databases: {((inv.databases as string[]) ?? []).join(', ') || 'none'}</span>}
-        </div>
-        {w.error && <p role="alert" className="m-0 text-danger">{String(w.error)}</p>}
-        {w.notes ? <p className="m-0"><span className="text-muted">Customer notes:</span> {String(w.notes)}</p> : null}
-        {w.decision ? <p className="m-0"><span className="text-muted">Decision:</span> {String(w.decision)}</p> : null}
-        {w.status === 'requested' && <section className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">Approve onto
-            <select className="input" value={approveTo} onChange={(e) => setApproveTo(e.target.value)}>
-              <option value="">Choose a server…</option>
-              {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
-          </label>
-          <button type="button" className="btn btn-primary" disabled={busy || !approveTo} onClick={() => run({ path: `/migrations/${id}/approve`, body: { server_id: approveTo }, label: 'Approve migration' }).then(() => m.refetch())}>Approve</button>
-          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { const reason = window.prompt('Reason, shown to the customer:'); if (reason !== null) run({ path: `/migrations/${id}/reject`, body: { reason }, label: 'Reject migration' }).then(() => m.refetch()) }}>Reject</button>
-        </section>}
+    <div className="flex flex-col gap-4">
+      <ol aria-label="Migration steps" className="m-0 p-0 list-none flex flex-wrap gap-2">
+        {STEPS.map((label, i) => {
+          const done = i < step, cur = i === step
+          return <li key={label} aria-current={cur ? 'step' : undefined}
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium ${cur ? 'border-[var(--accent)] bg-sel text-[var(--accent)]' : 'border-[var(--line)] bg-card'} ${!done && !cur ? 'text-muted' : ''}`}>
+            <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${done ? 'bg-[var(--g-bg)] text-[var(--g-fg)]' : cur ? 'bg-[var(--accent)] text-[var(--accent-fg)]' : 'bg-track'}`}>{done ? '✓' : i + 1}</span>
+            {label}
+          </li>
+        })}
+      </ol>
 
-        {sites.length > 0 && <section>
-          <h3 className="m-0 mb-2 text-sm font-semibold">Sites</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="text-left text-muted"><th className="p-1">Move</th><th className="p-1">Domain</th><th className="p-1">Folder</th><th className="p-1">App name</th><th className="p-1">Database</th><th className="p-1">Import into</th><th className="p-1">Status</th></tr></thead>
-              <tbody>
-                {sites.map((s, i) => (
-                  <tr key={String(s.domain)} className="border-t border-[var(--line)]">
-                    <td className="p-1"><input type="checkbox" aria-label={`Move ${s.domain}`} disabled={!ready} checked={!!s.enabled} onChange={(e) => edit(i, { enabled: e.target.checked })} /></td>
-                    <td className="p-1"><span className="font-semibold">{String(s.domain)}</span>{s.wordpress ? <> <Badge tone="b">WordPress</Badge></> : null}<br /><span className="text-muted">{String(s.kind)}</span></td>
-                    <td className="p-1"><input className="input font-mono text-xs w-28" disabled={!ready} value={String(s.docroot ?? '')} onChange={(e) => edit(i, { docroot: e.target.value })} /></td>
-                    <td className="p-1"><input className="input font-mono text-xs w-28" disabled={!ready} value={String(s.app_name ?? '')} onChange={(e) => edit(i, { app_name: e.target.value })} /></td>
-                    <td className="p-1"><select className="input text-xs" disabled={!ready} value={String(s.database ?? '')} onChange={(e) => edit(i, { database: e.target.value || null })}>
-                      <option value="">None</option>{((inv.databases as string[]) ?? []).map((d) => <option key={d}>{d}</option>)}
-                    </select></td>
-                    <td className="p-1"><select className="input text-xs" disabled={!ready || !s.database} value={String(s.target_database_id ?? '')} onChange={(e) => edit(i, { target_database_id: e.target.value || null })}>
-                      <option value="">Choose…</option>{targets.map((d) => <option key={String(d.id)} value={String(d.id)}>{String(d.name)} ({String(d.engine)})</option>)}
-                    </select></td>
-                    <td className="p-1">
-                      <Badge tone={tone(String(s.status))}>{String(s.status)}</Badge>
-                      {s.temp_url ? <><br /><a href={String(s.temp_url)} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)]">temporary address</a></> : null}
-                      {s.error ? <><br /><span className="text-danger">{String(s.error)}</span></> : null}
-                      {s.status === 'migrated' ? <><br /><button type="button" className="btn btn-sm btn-primary mt-1" disabled={busy} onClick={() => { if (window.confirm(`Point ${s.domain} at the new app? In a DNS zone managed here, the old records are saved and replaced.`)) run({ path: `/migrations/${id}/sites/${i}/cutover`, label: `Cut over ${s.domain}` }).then(() => m.refetch()) }}>Cut over DNS</button></> : null}
-                      {s.status === 'live' ? <><br /><button type="button" className="btn btn-sm mt-1" disabled={busy} onClick={() => { if (window.confirm(`Roll ${s.domain} back to the old server?`)) run({ path: `/migrations/${id}/sites/${i}/rollback`, label: `Roll back ${s.domain}` }).then(() => m.refetch()) }}>Roll back</button></> : null}
-                      {((s.dns_records as R[]) ?? []).length > 0 ? <><br /><span className="text-muted">Set at your DNS host: {(s.dns_records as R[]).map((r) => `${r.type} ${r.name} → ${r.value}`).join('; ')}</span></> : null}
-                      {s.app_id && ['failed', 'migrated'].includes(String(s.status)) ? <><br /><button type="button" className="btn btn-sm mt-1" disabled={busy} onClick={() => run({ path: `/migrations/${id}/sites/${i}/retry`, label: `Copy ${s.domain} again` }).then(() => m.refetch())}>Copy again</button></> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {ready && <div className="flex gap-2 mt-2">
-            <button type="button" className="btn btn-sm" onClick={save}>Save and check</button>
-            <button type="button" className="btn btn-sm btn-primary" disabled={busy || checks.some((c) => !c.ok)} onClick={() => run({ path: `/migrations/${id}/start`, label: 'Migrate', success: 'Deploying the apps' }).then(() => m.refetch())}>Migrate</button>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
+        <Card pad={false} title={`Accounts on ${source}`}
+          subtitle={inv.files != null ? `${Number(inv.files).toLocaleString()} files · ${mb(inv.bytes)} · databases: ${((inv.databases as string[]) ?? []).join(', ') || 'none'}` : undefined}
+          actions={<Badge tone={tone(String(w.status))}>{String(w.status ?? '…')}</Badge>}>
+          {w.error && <p role="alert" className="m-0 px-5 pb-3 text-sm text-danger">{String(w.error)}</p>}
+          {w.status === 'requested' && <div className="px-5 pb-4 flex flex-wrap items-end gap-2 text-sm">
+            <label className="flex flex-col gap-1">Approve onto
+              <Select className="input" value={approveTo} onChange={(e) => setApproveTo(e.target.value)}>
+                <option value="">Choose a server…</option>
+                {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
+              </Select>
+            </label>
+            <button type="button" className="btn btn-primary" disabled={busy || !approveTo} onClick={() => run({ path: `/migrations/${id}/approve`, body: { server_id: approveTo }, label: 'Approve migration' }).then(() => m.refetch())}>Approve</button>
+            <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { const reason = window.prompt('Reason, shown to the customer:'); if (reason !== null) run({ path: `/migrations/${id}/reject`, body: { reason }, label: 'Reject migration' }).then(() => m.refetch()) }}>Reject</button>
           </div>}
-          <p className="m-0 mt-1 text-xs text-muted">Each site gets a new app on the target server and a temporary platform address. Your DNS is not changed.</p>
-        </section>}
-
-        {checks.length > 0 && <section>
-          <h3 className="m-0 mb-2 text-sm font-semibold">Pre-flight checks</h3>
-          <ul className="m-0 p-0 list-none flex flex-col gap-1">
-            {checks.map((c) => <li key={String(c.domain)}><Badge tone={c.ok ? 'g' : 'r'}>{c.ok ? 'ok' : 'blocked'}</Badge> {String(c.domain)}{(c.issues as string[]).length ? `: ${(c.issues as string[]).join(' ')}` : ''}</li>)}
-          </ul>
-        </section>}
-
-        {['migrated', 'migrating'].includes(String(w.status)) && <section>
-          <h3 className="m-0 mb-2 text-sm font-semibold">Delta sync</h3>
-          <div className="flex flex-wrap gap-2">
-            <input className="input font-mono text-xs flex-1 min-w-[240px]" placeholder="URL of a newer backup of the same account" value={resyncUrl} onChange={(e) => setResyncUrl(e.target.value)} />
-            <button type="button" className="btn btn-sm" disabled={busy || !resyncUrl} onClick={() => { if (window.confirm('Copy the newer backup over every migrated site? Changes made on the new apps since the copy are overwritten.')) run({ path: `/migrations/${id}/resync`, body: { archive_url: resyncUrl }, label: 'Delta sync' }).then(() => { setResyncUrl(''); m.refetch() }) }}>Sync again</button>
+          {sites.length === 0
+            ? <Empty>{m.isLoading ? 'Loading…' : 'No sites found yet. The backup is still being fetched and inspected.'}</Empty>
+            : <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] text-[13px]">
+                <thead><tr className="text-left text-xs text-muted border-b border-[var(--line)]">
+                  <th className={td}>Move</th><th className={td}>Domain</th><th className={td}>Detected</th><th className={td}>Target app</th><th className={td}>Database</th><th className={td}>Pre-flight</th><th className={td}>Status</th>
+                </tr></thead>
+                <tbody>
+                  {sites.map((s, i) => {
+                    const c = check.get(String(s.domain))
+                    return <tr key={String(s.domain)} className="border-t border-[var(--line)]">
+                      <td className={td}><input type="checkbox" aria-label={`Move ${s.domain}`} disabled={!ready} checked={!!s.enabled} onChange={(e) => edit(i, { enabled: e.target.checked })} /></td>
+                      <td className={td}><span className="font-semibold">{String(s.domain)}</span>
+                        <div className="mt-1"><input aria-label={`Folder for ${s.domain}`} className="input font-mono text-xs w-32" disabled={!ready} value={String(s.docroot ?? '')} onChange={(e) => edit(i, { docroot: e.target.value })} /></div></td>
+                      <td className={td}>{s.wordpress ? <Badge tone="b">WordPress</Badge> : null} <span className="text-muted">{String(s.kind ?? '')}</span></td>
+                      <td className={td}><input aria-label={`App name for ${s.domain}`} className="input font-mono text-xs w-32" disabled={!ready} value={String(s.app_name ?? '')} onChange={(e) => edit(i, { app_name: e.target.value })} /></td>
+                      <td className={td}><div className="flex flex-col gap-1">
+                        <Select className="input text-xs" disabled={!ready} value={String(s.database ?? '')} onChange={(e) => edit(i, { database: e.target.value || null })}>
+                          <option value="">None</option>{((inv.databases as string[]) ?? []).map((d) => <option key={d}>{d}</option>)}
+                        </Select>
+                        <Select className="input text-xs" disabled={!ready || !s.database} value={String(s.target_database_id ?? '')} onChange={(e) => edit(i, { target_database_id: e.target.value || null })}>
+                          <option value="">Import into…</option>{targets.map((d) => <option key={String(d.id)} value={String(d.id)}>{String(d.name)} ({String(d.engine)})</option>)}
+                        </Select>
+                      </div></td>
+                      <td className={td}>{c ? <><Badge tone={c.ok ? 'g' : 'r'}>{c.ok ? 'ok' : 'blocked'}</Badge>{(c.issues as string[]).length ? <div className="mt-1 text-xs text-muted max-w-[200px]">{(c.issues as string[]).join(' ')}</div> : null}</> : <span className="text-muted">—</span>}</td>
+                      <td className={td}>
+                        <Badge tone={tone(String(s.status))}>{String(s.status)}</Badge>
+                        {s.temp_url ? <><br /><a href={String(s.temp_url)} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)]">temporary address</a></> : null}
+                        {s.error ? <><br /><span className="text-danger">{String(s.error)}</span></> : null}
+                        {s.status === 'migrated' ? <><br /><button type="button" className="btn btn-sm btn-primary mt-1" disabled={busy} onClick={() => { if (window.confirm(`Point ${s.domain} at the new app? In a DNS zone managed here, the old records are saved and replaced.`)) run({ path: `/migrations/${id}/sites/${i}/cutover`, label: `Cut over ${s.domain}` }).then(() => m.refetch()) }}>Cut over DNS</button></> : null}
+                        {s.status === 'live' ? <><br /><button type="button" className="btn btn-sm mt-1" disabled={busy} onClick={() => { if (window.confirm(`Roll ${s.domain} back to the old server?`)) run({ path: `/migrations/${id}/sites/${i}/rollback`, label: `Roll back ${s.domain}` }).then(() => m.refetch()) }}>Roll back</button></> : null}
+                        {((s.dns_records as R[]) ?? []).length > 0 ? <><br /><span className="text-muted">Set at your DNS host: {(s.dns_records as R[]).map((r) => `${r.type} ${r.name} → ${r.value}`).join('; ')}</span></> : null}
+                        {s.app_id && ['failed', 'migrated'].includes(String(s.status)) ? <><br /><button type="button" className="btn btn-sm mt-1" disabled={busy} onClick={() => run({ path: `/migrations/${id}/sites/${i}/retry`, label: `Copy ${s.domain} again` }).then(() => m.refetch())}>Copy again</button></> : null}
+                      </td>
+                    </tr>
+                  })}
+                </tbody>
+              </table>
+            </div>}
+          <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-[var(--line)]">
+            <span className="flex-1 min-w-[200px] text-xs text-muted">Each site gets a new app on the target server and a temporary platform address. Your DNS is not changed.</span>
+            <button type="button" className="btn btn-sm" onClick={onClose}>Back</button>
+            {ready && <button type="button" className="btn btn-sm" onClick={save}>Save and check</button>}
+            {ready && <button type="button" className="btn btn-sm btn-primary" disabled={busy || checks.some((c) => !c.ok)} onClick={() => run({ path: `/migrations/${id}/start`, label: 'Migrate', success: 'Deploying the apps' }).then(() => m.refetch())}>Continue · Migrate</button>}
           </div>
-          <p className="m-0 mt-1 text-xs text-muted">Take the newer backup after the old site stops changing (maintenance mode), then cut over. Files of the same size are skipped; databases are re-imported.</p>
-        </section>}
+        </Card>
 
-        <section>
-          <h3 className="m-0 mb-2 text-sm font-semibold">Timeline</h3>
-          <ol className="m-0 pl-4 flex flex-col gap-1">
-            {((w.timeline as R[]) ?? []).map((t, i) => <li key={i}><span className="text-muted text-xs">{ago(String(t.at))}</span> {String(t.event)}</li>)}
-          </ol>
-        </section>
+        <Card title="Before cutover" className="text-sm">
+          <div className="flex flex-col gap-4">
+            {w.notes ? <p className="m-0"><span className="text-muted">Customer notes:</span> {String(w.notes)}</p> : null}
+            {w.decision ? <p className="m-0"><span className="text-muted">Decision:</span> {String(w.decision)}</p> : null}
+            <p className="m-0 text-muted">Check every site on its temporary address before cutting DNS over. A cut-over site can be rolled back.</p>
+            {['migrated', 'migrating'].includes(String(w.status)) && <section>
+              <h3 className="m-0 mb-2 text-sm font-semibold">Delta sync</h3>
+              <div className="flex flex-col gap-2">
+                <input className="input font-mono text-xs" placeholder="URL of a newer backup of the same account" value={resyncUrl} onChange={(e) => setResyncUrl(e.target.value)} />
+                <button type="button" className="btn btn-sm self-start" disabled={busy || !resyncUrl} onClick={() => { if (window.confirm('Copy the newer backup over every migrated site? Changes made on the new apps since the copy are overwritten.')) run({ path: `/migrations/${id}/resync`, body: { archive_url: resyncUrl }, label: 'Delta sync' }).then(() => { setResyncUrl(''); m.refetch() }) }}>Sync again</button>
+              </div>
+              <p className="m-0 mt-1 text-xs text-muted">Take the newer backup after the old site stops changing (maintenance mode), then cut over. Files of the same size are skipped; databases are re-imported.</p>
+            </section>}
+            <section>
+              <h3 className="m-0 mb-2 text-sm font-semibold">Timeline</h3>
+              <ol className="m-0 pl-4 flex flex-col gap-1">
+                {((w.timeline as R[]) ?? []).map((t, i) => <li key={i}><span className="text-muted text-xs">{ago(String(t.at))}</span> {String(t.event)}</li>)}
+              </ol>
+            </section>
+          </div>
+        </Card>
       </div>
-    </Drawer>
+    </div>
   )
 }

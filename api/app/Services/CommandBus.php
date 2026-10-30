@@ -114,6 +114,12 @@ class CommandBus
     /** Apply an agent result; repeated results for a finished command are ignored. */
     public function applyResult(AgentCommand $command, string $status, ?int $progress, ?string $message, mixed $output): AgentCommand
     {
+        // An agent older than the panel rejects commands it has never heard of. Say so plainly.
+        if ($status === 'failed' && $message !== null && preg_match('/^rejected: unknown command type "([^"]+)"/', $message, $m)) {
+            $server = Server::allTenants()->find($command->server_id);
+            $message = sprintf('The agent on %s (version %s) is too old to run "%s". Update it in Servers → %s → Agent → Update agent, then try again.',
+                $server?->name ?? 'this server', $server?->agent_version ?: 'unknown', $m[1], $server?->name ?? 'the server');
+        }
         $finishedNow = DB::transaction(function () use ($command, $status, $progress, $message, $output) {
             $command = AgentCommand::allTenants()->lockForUpdate()->find($command->id);
             if ($command->isFinished()) {

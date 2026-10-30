@@ -6,6 +6,7 @@ import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const STATUS_TONE: Record<string, 'r' | 'y' | 'g' | 'n'> = { infected: 'r', quarantined: 'y', restored: 'n', deleted: 'g', cleaned: 'g', ignored: 'n' }
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -48,10 +49,10 @@ export default function Antivirus() {
     <>
       <PageHeader title="Antivirus" subtitle="Malware found by ClamAV and the panel's web-shell rules. New detections are quarantined automatically."
         actions={<>
-          <select className="input h-10" aria-label="Volume to scan" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
+          <Select className="input h-10" aria-label="Volume to scan" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
             <option value="">Choose a volume…</option>
             {volumes.rows.filter((v) => v.type !== 'nfs').map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          </Select>
           <button type="button" className="btn btn-primary" disabled={!volumeId || busy}
             onClick={() => run({ path: '/antivirus/scan', body: { volume_id: volumeId }, label: 'Antivirus scan' }).then(() => threats.refetch())}>Scan now</button>
         </>} />
@@ -83,10 +84,10 @@ export default function Antivirus() {
       </Card>
 
       <Card title="Server protection" actions={
-        <select className="input h-9" aria-label="Server" value={serverId} onChange={(e) => setServerId(e.target.value)}>
+        <Select className="input h-9" aria-label="Server" value={serverId} onChange={(e) => setServerId(e.target.value)}>
           <option value="">Choose a server…</option>
           {servers.rows.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
-        </select>}>
+        </Select>}>
         {!serverId ? <p className="m-0 text-sm text-muted">Real-time scanning and outbound abuse limits are set per server by platform administrators.</p>
         : security.error ? <p className="m-0 text-sm text-danger">{(security.error as Error).message}</p>
         : !sec ? <p className="m-0 text-sm text-muted">Loading…</p>
@@ -135,10 +136,10 @@ export default function Antivirus() {
       </Card>
 
       <Card title="Threats" pad={false} actions={
-        <select className="input h-9" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <Select className="input h-9" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All</option>
           {Object.keys(STATUS_TONE).map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        </Select>
       }>
         <DataTable label="Threats" rows={threats.rows} loading={threats.isLoading} rowKey={(r) => r.id}
           columns={[
@@ -182,14 +183,14 @@ export default function Antivirus() {
             .then(() => { setScheduleOpen(false); summary.refetch(); score.refetch() })}>Save</button>}>
         {schedule && <div className="flex flex-col gap-3">
           <label className="label">Full scans
-            <select className="input" value={String(schedule.schedule)} onChange={(e) => setSchedule({ ...schedule, schedule: e.target.value })}>
+            <Select className="input" value={String(schedule.schedule)} onChange={(e) => setSchedule({ ...schedule, schedule: e.target.value })}>
               <option value="weekly">Weekly</option><option value="daily">Daily</option><option value="off">Off</option>
-            </select>
+            </Select>
           </label>
           {schedule.schedule === 'weekly' && <label className="label">Day
-            <select className="input" value={String(schedule.day)} onChange={(e) => setSchedule({ ...schedule, day: Number(e.target.value) })}>
+            <Select className="input" value={String(schedule.day)} onChange={(e) => setSchedule({ ...schedule, day: Number(e.target.value) })}>
               {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
-            </select>
+            </Select>
           </label>}
           {schedule.schedule !== 'off' && <label className="label">Time (server time)<input className="input" type="time" value={String(schedule.time)} onChange={(e) => setSchedule({ ...schedule, time: e.target.value })} /></label>}
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!schedule.notify} onChange={(e) => setSchedule({ ...schedule, notify: e.target.checked })} />Send new detections to the notification channels</label>

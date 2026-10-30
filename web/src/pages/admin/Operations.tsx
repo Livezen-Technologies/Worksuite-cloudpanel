@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
-import { Card, PageHeader, StatTile, Toggle, Empty } from '../../components/Card'
+import { Card, PageHeader, StatTile, Toggle, Empty, Meter } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -81,6 +81,11 @@ function last14(jobs: R[]) {
   return days
 }
 
+const TARGET_KIND: Record<string, string> = { volume: 'Volume', database: 'Database', application: 'Application', server: 'Server config' }
+const METHOD: Record<string, string> = { volume: 'Restic snapshot', database: 'Dump + snapshot', application: 'Restic (app data)', server: 'Encrypted archive' }
+const DEST_LABEL: Record<string, string> = { local: 'Local disk', s3: 'Amazon S3', b2: 'Backblaze B2', r2: 'Cloudflare R2', gdrive: 'Google Drive', sftp: 'SFTP' }
+const fmtMb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+
 const RESTORE_BLANK: R = { scope: 'everything', mode: 'replace', fresh_backup: true, stop_app: false, health_check: true }
 
 /** BKM-001..009: the Backup manager — Policies, Snapshots, Restore, Destinations, Restore tests. */
@@ -116,97 +121,142 @@ export function Backups() {
   const openRestore = (a: R) => { setArtifact(a); setOpts({ ...RESTORE_BLANK, scope: a.dump_engine ? 'database' : 'everything' }) }
   const isDump = !!artifact?.dump_engine
   const wizardOk = !(opts.mode === 'side_by_side' && isDump)
+  const newPolicy = () => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })
+  const destOf = (a: R) => String(policies.rows.find((p) => p.id === a.backup_policy_id)?.destination ?? 'local')
+  const snapFilter = (
+    <Select className="input !w-auto" aria-label="Filter snapshots by target" value={target} onChange={(e) => setTarget(e.target.value)}>
+      <option value="">All targets</option>
+      {targets.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+    </Select>
+  )
+  const snapRow = (r: R) => (
+    <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3 border-t border-line text-[13.5px]">
+      <span className="flex-[1_1_220px] min-w-0">
+        <span className="block font-semibold truncate">{policyName(r.backup_policy_id)}</span>
+        <span className="block text-xs text-muted font-mono truncate">{String(r.snapshot_id ?? '—').slice(0, 10)} · {destOf(r)}{r.target_type ? ` · ${r.target_type}` : ''}</span>
+      </span>
+      <span className="text-muted min-w-[120px]">{ago(r.created_at)}</span>
+      <span className="min-w-[70px] tabular-nums">{fmtMb(num(r.size_mb))}</span>
+      <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span>
+      <span className="flex gap-2 ml-auto">
+        <button type="button" className="btn btn-sm" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
+        {r.snapshot_id ? <button type="button" className="btn btn-sm btn-primary" onClick={() => openRestore(r)}>Restore</button> : null}
+      </span>
+    </li>
+  )
+  const restoreTested = artifacts.rows.filter((a) => a.restore_test_status || a.snapshot_id)
 
   return (
     <>
-      <PageHeader title="Backup manager" subtitle="Encrypted, integrity-checked and restore-tested"
+      <PageHeader title="Backup manager" subtitle="Policies, snapshots, restores and storage destinations — encrypted and verified"
         actions={<>
-          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'due' }, label: 'Run all due', success: 'Started the due backups' }).catch(() => {})}>Run all due</button>
+          <button type="button" className="btn" onClick={() => setTab('restore')}>Restore…</button>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'failed' }, label: 'Rerun failed', success: 'Started the failed backups again' }).catch(() => {})}>Rerun failed</button>
-          <button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })}>New backup policy</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'due' }, label: 'Run all due', success: 'Started the due backups' }).catch(() => {})}>Run all due now</button>
         </>} />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
         <StatTile label="Protected targets" value={num(s.protected_targets)} delta={s.paused ? `${s.paused} paused` : undefined} />
         <StatTile label="Success (30 days)" value={s.success_rate_30d == null ? '—' : `${s.success_rate_30d}%`} delta={`${num(s.runs_30d)} runs`} deltaTone={num(s.success_rate_30d) < 95 && s.success_rate_30d != null ? 'r' : undefined} />
-        <StatTile label="Stored" value={`${num(s.stored_mb) >= 1024 ? (num(s.stored_mb) / 1024).toFixed(1) + ' GB' : num(s.stored_mb) + ' MB'}`} />
+        <StatTile label="Stored" value={fmtMb(num(s.stored_mb))} />
         <StatTile label="Last restore test" value={s.last_restore_test ? String((s.last_restore_test as R).status) : 'never'} delta={s.last_restore_test ? ago((s.last_restore_test as R).at) : undefined} deltaTone={(s.last_restore_test as R)?.status === 'failed' ? 'r' : undefined} />
         <StatTile label="Next run" value={s.next_run_at ? ago(String(s.next_run_at)) : '—'} />
       </div>
-      <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
-        <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
-      </Card>
       <Tabs value={tab} onChange={setTab} label="Backup manager sections" tabs={[
         { id: 'policies', label: 'Policies' }, { id: 'snapshots', label: 'Snapshots' }, { id: 'restore', label: 'Restore' },
         { id: 'destinations', label: 'Destinations' }, { id: 'tests', label: 'Restore tests' },
       ]} />
 
-      {tab === 'policies' && <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
-        columns={[
-          { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
-          { key: 'target_type', header: 'Target' },
-          { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
-          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}{r.object_lock_days ? <Badge tone="b">locked {r.object_lock_days} d</Badge> : null}</span> },
-          { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily} daily`, r.keep_weekly && `${r.keep_weekly} weekly`, r.keep_monthly && `${r.keep_monthly} monthly`].filter(Boolean).join(', ') : `${r.retention_days} days` },
-          { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? 'never run'} /> },
-          { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at) },
-          { key: 'enabled', header: 'Active', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
-            </span>) },
-        ]} />}
+      {tab === 'policies' && <div className="flex flex-col gap-4">
+        <Card title="Last 14 days" actions={<span className="flex flex-wrap gap-3 text-xs text-muted"><span>runs per day</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
+          <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
+        </Card>
+        <Card title="Backup policies" pad={false} actions={<button type="button" className="btn btn-primary btn-sm" onClick={newPolicy}>+ New policy</button>}>
+          <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
+            empty={<Empty>No backup policies yet.</Empty>}
+            columns={[
+              { key: 'name', header: 'Target', render: (r) => <span><span className="block font-semibold">{r.name}</span><span className="block text-xs text-muted">{TARGET_KIND[String(r.target_type)] ?? r.target_type}<span className="font-mono"> · {String(r.target_id ?? '').slice(0, 12)}</span></span></span> },
+              { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{METHOD[String(r.target_type)] ?? 'Restic snapshot'}</span> },
+              { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
+              { key: 'destination', header: 'Destination', render: (r) => <span className="text-muted">{DEST_LABEL[String(r.destination)] ?? r.destination}{r.object_lock_days ? <> <Badge tone="b">locked {r.object_lock_days} d</Badge></> : null}</span> },
+              { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily}d`, r.keep_weekly && `${r.keep_weekly}w`, r.keep_monthly && `${r.keep_monthly}m`].filter(Boolean).join(' · ') : `${r.retention_days} days` },
+              { key: 'last_status', header: 'Last run', render: (r) => <span><StatusBadge status={r.enabled === false ? 'paused' : (r.last_status ?? 'never run')} /><span className="block text-xs text-muted mt-1">{r.last_run_at ? ago(r.last_run_at) : '—'}</span></span> },
+              { key: 'enabled', header: 'On', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
+              { key: 'act', header: '', sortable: false, render: (r) => (
+                <span className="flex gap-2 whitespace-nowrap">
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
+                  <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
+                </span>) },
+            ]} />
+        </Card>
+      </div>}
 
-      {(tab === 'snapshots' || tab === 'restore') && <>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Select className="input !w-auto" aria-label="Filter snapshots by target" value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="">All targets</option>
-            {targets.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </Select>
-          {tab === 'restore' && <span className="text-sm text-muted">Pick a snapshot to start the restore wizard.</span>}
-        </div>
-        <DataTable label="Snapshots" rows={tab === 'restore' ? restorable : artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
-          columns={[
-            { key: 'created_at', header: 'Taken', render: (r) => ago(r.created_at) },
-            { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
-            { key: 'target_type', header: 'Target', value: (r) => String(r.target_type ?? '—') },
-            { key: 'snapshot_id', header: 'Snapshot', render: (r) => <span className="font-mono text-xs">{String(r.snapshot_id ?? '—').slice(0, 10)}</span> },
-            { key: 'destination', header: 'Destination', value: (r) => String(policies.rows.find((p) => p.id === r.backup_policy_id)?.destination ?? 'local') },
-            { key: 'size_mb', header: 'Size', value: (r) => `${r.size_mb ?? 0} MB` },
-            { key: 'verified', header: 'Integrity', render: (r) => <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span> },
-            { key: 'act', header: '', sortable: false, render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm btn-ghost" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
-                {r.snapshot_id ? <button type="button" className="btn btn-sm" onClick={() => openRestore(r)}>Restore…</button> : null}
-              </span>) },
-          ]} />
-      </>}
+      {tab === 'snapshots' && <Card pad={false} title="Snapshots" actions={snapFilter}>
+        {artifacts.isLoading ? <p className="px-5 pb-4 m-0 text-sm text-muted">Loading…</p>
+          : artifacts.rows.length ? <ul className="list-none m-0 p-0">{artifacts.rows.map(snapRow)}</ul>
+            : <div className="px-5 pb-5"><Empty>No snapshots yet.</Empty></div>}
+      </Card>}
 
-      {tab === 'destinations' && <DataTable label="Destinations" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={800}
-        empty={<Empty>No policies yet.</Empty>}
-        columns={[
-          { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
-          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}<span className="block text-xs text-muted font-mono">{r.destination_summary?.bucket ?? r.destination_summary?.host ?? r.destination_summary?.path ?? ''}</span>{S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? <Badge tone="y">no keys</Badge> : null}</span> },
-          { key: 'probe', header: 'Connection', render: (r) => r.last_probe ? <span title={r.last_probe.message ?? undefined}><Badge tone={r.last_probe.reachable ? 'g' : 'r'}>{r.last_probe.reachable ? `ok · ${r.last_probe.snapshots} snapshots` : 'unreachable'}</Badge> <span className="text-xs text-muted">{ago(r.probed_at)}</span></span> : <span className="text-xs text-muted">not tested</span> },
-          { key: 'usage', header: 'Usage', render: (r) => {
+      {tab === 'restore' && <Card pad={false} title="Restore" subtitle="Pick a snapshot to start the restore wizard: choose the snapshot, where to restore it, what to include, then confirm." actions={snapFilter}>
+        <ol className="list-none m-0 px-4 sm:px-5 pb-4 grid gap-2.5 grid-cols-2 sm:grid-cols-4">
+          {['Snapshot', 'Restore to', 'Scope', 'Confirm'].map((l, i) => (
+            <li key={l} className={`flex flex-col gap-0.5 rounded-lg border p-3 ${i === 0 ? 'border-accent bg-sel' : 'border-line'}`}>
+              <span className={`text-xs font-semibold ${i === 0 ? 'text-accent' : 'text-muted'}`}>Step {i + 1}</span>
+              <span className="text-sm font-semibold">{l}</span>
+            </li>))}
+        </ol>
+        {artifacts.isLoading ? <p className="px-5 pb-4 m-0 text-sm text-muted">Loading…</p>
+          : restorable.length ? <ul className="list-none m-0 p-0">{restorable.map(snapRow)}</ul>
+            : <div className="px-5 pb-5"><Empty>No restorable snapshots.</Empty></div>}
+      </Card>}
+
+      {tab === 'destinations' && (policies.isLoading ? <p className="m-0 text-sm text-muted">Loading…</p> : !policies.rows.length ? <Empty>No policies yet.</Empty> :
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr))]">
+          {policies.rows.map((r) => {
             const u = (r.usage ?? {}) as R
             const gb = (num(u.stored_bytes) / 1073741824).toFixed(2)
-            return <span>{gb} GB{u.capacity_gb ? ` of ${u.capacity_gb} GB` : ''}{u.percent != null ? <> · <Badge tone={u.warning ? 'r' : 'g'}>{String(u.percent)}%</Badge></> : null}{u.warning ? <span className="block text-xs text-[var(--r-fg)]">Over 85 % full</span> : null}</span>
-          } },
-          { key: 'lock', header: 'Immutability', render: (r) => r.object_lock_days ? <Badge tone="b">object lock {r.object_lock_days} d</Badge> : <span className="text-xs text-muted">off</span> },
-          { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/backup-policies/${r.id}/probe`, label: `Test ${r.name}` }).catch(() => {})}>Test connection</button> },
-        ]} />}
+            const where = r.destination_summary?.bucket ?? r.destination_summary?.host ?? r.destination_summary?.path ?? ''
+            const p = r.last_probe as R | undefined
+            return (
+              <section key={r.id} className="card p-4 flex flex-col gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-9 h-9 shrink-0 rounded-lg bg-sel text-accent grid place-items-center text-xs font-bold uppercase">{String(r.destination).slice(0, 2)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold truncate">{DEST_LABEL[String(r.destination)] ?? r.destination}</div>
+                    <div className="text-xs text-muted font-mono truncate" title={where}>{where || r.name}</div>
+                  </div>
+                  {p ? <span title={p.message ?? undefined}><Badge tone={p.reachable ? (u.warning ? 'y' : 'g') : 'r'}>{p.reachable ? (u.warning ? 'nearly full' : 'connected') : 'unreachable'}</Badge></span> : <Badge>not tested</Badge>}
+                </div>
+                <div>
+                  <div className="flex justify-between text-[12.5px]"><span className="text-muted">Used</span><span className="font-semibold">{gb} GB{u.capacity_gb ? ` of ${u.capacity_gb} GB` : ''}{u.percent != null ? ` · ${u.percent}%` : ''}</span></div>
+                  {u.percent != null && <div className="mt-1.5"><Meter value={num(u.percent)} label={`${r.name} usage`} color={u.warning ? 'var(--r-fg)' : undefined} /></div>}
+                </div>
+                <div className="text-xs text-muted">
+                  Policy {r.name}{p?.reachable ? ` · ${p.snapshots} snapshots` : ''}{r.probed_at ? ` · tested ${ago(r.probed_at)}` : ''}
+                  {r.object_lock_days ? ` · object lock ${r.object_lock_days} d` : ''}
+                  {S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? ' · no keys stored' : ''}
+                  {u.warning ? <span className="block text-[var(--r-fg)]">Over 85 % full</span> : null}
+                </div>
+                <button type="button" className="btn btn-sm self-start" disabled={busy} onClick={() => run({ path: `/backup-policies/${r.id}/probe`, label: `Test ${r.name}` }).catch(() => {})}>Test connection</button>
+              </section>)
+          })}
+        </div>)}
 
-      {tab === 'tests' && <DataTable label="Restore tests" rows={artifacts.rows.filter((a) => a.restore_test_status || a.snapshot_id)} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={800}
-        columns={[
-          { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
-          { key: 'created_at', header: 'Snapshot taken', render: (r) => ago(r.created_at) },
-          { key: 'restore_test_status', header: 'Result', render: (r) => r.restore_test_status ? <StatusBadge status={r.restore_test_status} /> : <span className="text-muted text-xs">not tested</span> },
-          { key: 'restore_tested_at', header: 'Tested', render: (r) => r.restore_tested_at ? ago(r.restore_tested_at) : '—' },
-          { key: 'restore_test_message', header: 'Detail', render: (r) => <span className="text-xs">{String(r.restore_test_message ?? '')}</span> },
-          { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test now</button> },
-        ]} />}
+      {tab === 'tests' && <Card pad={false}>
+        {artifacts.isLoading ? <p className="px-5 py-4 m-0 text-sm text-muted">Loading…</p>
+          : restoreTested.length ? <ul className="list-none m-0 p-0">{restoreTested.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 border-b border-line text-[13.5px]">
+              <span className="flex-[1_1_220px] min-w-0">
+                <span className="block font-semibold">{policyName(r.backup_policy_id)}</span>
+                <span className="block text-xs text-muted">{String(r.restore_test_message ?? '') || `Snapshot taken ${ago(r.created_at)}`}</span>
+              </span>
+              <span className="text-muted">{r.restore_tested_at ? ago(r.restore_tested_at) : '—'}</span>
+              {r.restore_test_status ? <StatusBadge status={r.restore_test_status} /> : <Badge>not tested</Badge>}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test now</button>
+            </li>))}</ul>
+            : <div className="px-5 py-4"><Empty>No snapshots to test yet.</Empty></div>}
+        <p className="m-0 px-4 sm:px-5 py-3.5 text-[12.5px] text-muted">Each test restores the snapshot into an isolated scratch location and validates it.</p>
+      </Card>}
 
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"
         extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key || edit?.destination_summary?.has_private_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}

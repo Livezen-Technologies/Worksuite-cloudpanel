@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cron & scheduler — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1D4ED8;text-decoration:none}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1054px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="Cron" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Cron &amp; scheduler</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.sub}}">Scheduled jobs for every app, customer and server — with run history, retries and alerts</p>
+      </div>
+      <button type="button" onClick="{{openNew}}" style="{{btnPrimary}}">New cron job</button>
+    </div>
+    <sc-if value="{{toast}}" hint-placeholder-val="{{ false }}"><div role="status" style="padding: 10px 14px; border-radius: 8px; background: {{c.okBg}}; color: {{c.okFg}}; font-size: 13px; font-weight: 500">{{toastText}}</div></sc-if>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="5"><div style="padding: 16px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}"><div style="font-size: 12.5px; color: {{c.sub}}">{{s.k}}</div><div style="margin-top: 6px; font-size: 24px; font-weight: 700">{{s.v}}</div><div style="margin-top: 2px; font-size: 12px; color: {{c.sub}}">{{s.d}}</div></div></sc-for>
+    </div>
+    <sc-if value="{{creating}}" hint-placeholder-val="{{ false }}">
+      <section style="padding: 18px; border-radius: 8px; border: 1px solid {{accent}}; background: {{c.card}}; display: flex; flex-direction: column; gap: 14px">
+        <div style="font-weight: 700; font-size: 15px">New cron job</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px"><sc-for list="{{runModes}}" as="m" hint-placeholder-count="4"><button type="button" onClick="{{m.pick}}" style="{{m.style}}"><b style="font-size: 13.5px">{{m.k}}</b><span style="font-size: 12px; color: {{c.sub}}">{{m.d}}</span></button></sc-for></div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+          <label style="{{lbl}}">Name<input value="Laravel scheduler" style="{{inp}}"></label>
+          <label style="{{lbl}}">Owner<select style="{{inp}}"><option>Platform (admin)</option><option>Acme Lanka (customer)</option><option>Studio Nila (customer)</option></select></label>
+          <label style="{{lbl}}">{{targetLabel}}<select style="{{inp}}"><sc-for list="{{targets}}" as="t" hint-placeholder-count="3"><option>{{t}}</option></sc-for></select></label>
+          <label style="{{lbl}}">Schedule<input value="* * * * *" style="{{inp}}; font-family: 'JetBrains Mono', monospace"></label>
+          <label style="{{lbl}}">Timezone<select style="{{inp}}"><option>Asia/Colombo</option><option>UTC</option><option>Asia/Singapore</option></select></label>
+          <label style="{{lbl}}">If still running<select style="{{inp}}"><option>Skip this run</option><option>Run in parallel</option><option>Stop old run, start new</option></select></label>
+        </div>
+        <label style="{{lbl}}">{{cmdLabel}}<input value="{{cmdVal}}" style="{{inp}}; font-family: 'JetBrains Mono', monospace"></label>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px">
+          <label style="{{lbl}}">Timeout<input value="10 min" style="{{inp}}"></label>
+          <label style="{{lbl}}">Retries on failure<input value="2 × after 1 min" style="{{inp}}"></label>
+          <label style="{{lbl}}">Alert on<select style="{{inp}}"><option>Failure + missed run</option><option>Failure only</option><option>Never</option></select></label>
+        </div>
+        <div style="font-size: 12.5px; color: {{c.sub}}">Next runs: <span style="font-family: 'JetBrains Mono', monospace">15:09 · 15:10 · 15:11</span> ({{scheduleHuman}})</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap"><button type="button" onClick="{{create}}" style="{{btnPrimary}}">Create job</button><button type="button" onClick="{{testRun}}" style="{{btnGhost}}">Test run now</button><button type="button" onClick="{{closeNew}}" style="{{btnGhost}}">Cancel</button></div>
+      </section>
+    </sc-if>
+    <div style="display: flex; gap: 4px; border-bottom: 1px solid {{c.line}}; flex-wrap: wrap"><sc-for list="{{tabs}}" as="t" hint-placeholder-count="4"><button type="button" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button></sc-for></div>
+    <section style="border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+      <div style="{{hdrStyle}}"><sc-for list="{{cols}}" as="h" hint-placeholder-count="6"><span>{{h}}</span></sc-for></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+        <div style="{{r.style}}">
+          <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><b>{{r.a}}</b><span style="font: 12px 'JetBrains Mono', monospace; color: {{c.sub}}; word-break: break-all">{{r.a2}}</span></span>
+          <span style="color: {{c.sub}}">{{r.b}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">{{r.c}}</span><span>{{r.e}}</span>
+          <span><span style="{{r.badge}}">{{r.d}}</span></span>
+          <span style="display: flex; justify-content: flex-end; gap: 6px"><sc-if value="{{r.act}}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{r.go}}" style="{{btnSmall}}">{{r.actLabel}}</button></sc-if></span>
+        </div>
+      </sc-for>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1054}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 0, done: {}, creating: false, mode: 0, extra: 0, toast: '' }; }
+  renderVals() {
+    const dark = this.props.dark ?? false, accent = this.props.accent ?? '#2563EB', st = this.state;
+    const c = dark ? { card:'#111827', head:'#0F172A', text:'#F1F5F9', sub:'#94A3B8', line:'#1E293B', input:'#334155', okBg:'#052E1B', okFg:'#86EFAC', soft:'#172554', bg:'#0B1120' } : { card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', sub:'#475569', line:'#E2E8F0', input:'#CBD5E1', okBg:'#DCFCE7', okFg:'#166534', soft:'#EFF6FF', bg:'#F8FAFC' };
+    const tn = { r:['#FEF2F2','#B91C1C'], y:['#FEF3C7','#B45309'], g:['#DCFCE7','#15803D'], n:['#F1F5F9','#334155'], b:['#EFF6FF','#1D4ED8'] };
+    const pill = t => `display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;background:${dark?'#1F2937':tn[t][0]};color:${tn[t][1]}`;
+    const say = m => { this.setState({ toast: m }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2600); };
+    const grid = 'display:grid;grid-template-columns:2fr 1.3fr 1fr 1.1fr .9fr 1fr;gap:12px;align-items:center;padding:12px 16px;font-size:13px;';
+    const M = [
+      ['In app container','docker exec into a running container', 'Container', ['acme-blog-php (vps-sg-01)','my-shop-web (vps-sg-01)','api-prod (vps-us-01)'], 'Command','php artisan schedule:run'],
+      ['One-off container','start a fresh container from an image, then remove it', 'Image', ['ghcr.io/acme/api:1.8','alpine:3.20','postgres:16 (for pg_dump)'], 'Command','node scripts/report.js'],
+      ['On the server','host shell via the agent (admins only)', 'Server', ['vps-sg-01','ded-eu-01','All servers in group “web”'], 'Shell command','docker system prune -af --filter until=72h'],
+      ['HTTP request','call a URL (webhook / health ping)', 'Method & URL', ['GET','POST'], 'URL','https://shop.acme.lk/wp-cron.php'],
+    ];
+    const m = M[st.mode];
+    const extra = st.extra ? [['Laravel scheduler','php artisan schedule:run','Platform · in container','* * * * *','—','Active','g','Run now']] : [];
+    const TABS = [
+      ['Jobs', ['Job','Owner · runs in','Schedule','Last run','Status',''], extra.concat([
+        ['Laravel scheduler','php artisan schedule:run','Acme Lanka · in container','* * * * *','14:59 · 0.8 s','Active','g','Run now'],
+        ['WordPress cron','GET https://blog.acme.lk/wp-cron.php','Acme Lanka · HTTP','*/5 * * * *','14:55 · 210 ms','Active','g','Run now'],
+        ['Nightly report','node scripts/report.js','Studio Nila · one-off container','0 2 * * *','02:00 · exit 1','Failed','r','View log'],
+        ['Prune images','docker system prune -af','Platform · on server (all)','0 4 * * 0','Sun 04:00 · 41 s','Active','g','Run now'],
+        ['Invoice sync','php artisan billing:sync','Platform · in container','0 * * * *','14:00 · 6 s','Paused','n','Resume'],
+        ['Queue worker check','GET /health/queue','MyBrand · HTTP','*/10 * * * *','missed 14:50','Missed','y','Run now'] ])],
+      ['Run history', ['Job','Started','Duration','Exit / output','Status',''], [
+        ['Laravel scheduler','acme-blog-php','14:59:00','0.8 s · exit 0','Success','g','Log'],
+        ['Nightly report','one-off · alpine','02:00:00','12 s · exit 1 “ECONNREFUSED db:5432”','Failed','r','Retry'],
+        ['Nightly report (retry 1)','one-off · alpine','02:01:00','11 s · exit 1','Failed','r','Log'],
+        ['Prune images','vps-sg-01','Sun 04:00','41 s · freed 3.2 GB','Success','g','Log'] ]],
+      ['Scheduler services', ['Server','Runner','Jobs','Agent / version','Status',''], [
+        ['vps-sg-01','Container runner (lz-scheduler)','18 jobs','lz-scheduler 1.4 · supercronic','Running','g','Switch to host cron'],
+        ['vps-us-01','Container runner (lz-scheduler)','9 jobs','lz-scheduler 1.4','Running','g','Switch to host cron'],
+        ['ded-eu-01','Host cron via agent','6 jobs','systemd timer · agent 2.3','Running','b','Switch to container'],
+        ['Swarm cluster “prod”','Cluster runner (swarm-cronjob)','4 jobs','one leader, failover','Running','g','Settings'] ]],
+      ['Limits by package', ['Package','Max jobs','Min interval','Max runtime','Run modes',''], [
+        ['Starter','5','every 15 min','5 min','container, HTTP','Edit'],
+        ['Business','25','every 1 min','30 min','container, one-off, HTTP','Edit'],
+        ['Agency','100','every 1 min','2 h','container, one-off, HTTP','Edit'] ]],
+    ];
+    const T = TABS[st.tab];
+    const rows = T[2].map((r, i) => { const k = st.tab+'-'+i, d = st.done[k]; const lim = st.tab===3; return { a:r[0], a2: lim?'':r[1], b: lim?r[1]:r[2], c: lim?r[2]:r[3], e: lim?r[3]:r[4], d: lim? r[4] : (d || r[5]), badge: lim ? 'font-size:12px' : pill(d ? 'b' : r[6]), act: lim ? true : !!r[7] && !d, actLabel: lim ? r[5] : r[7],
+      go: () => { if (!lim) this.setState({ done: { ...st.done, [k]: 'Queued' } }); say(`${lim?r[5]:r[7]} · ${r[0]}`); }, style: grid + `border-top:1px solid ${c.line}` }; });
+    const base = 'display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:6px;font:600 13px Inter;cursor:pointer;';
+    return { c, dark, accent, rows, cols: T[1], hdrStyle: grid + `font-size:12px;font-weight:600;color:${c.sub};background:${c.head}`,
+      tabs: TABS.map((t, i) => ({ label: t[0], pick: () => this.setState({ tab: i }), style:`height:40px;padding:0 14px;border:0;background:none;cursor:pointer;font:${i===st.tab?600:500} 14px Inter;color:${i===st.tab?accent:c.sub};border-bottom:2px solid ${i===st.tab?accent:'transparent'}` })),
+      stats: [{k:'Cron jobs',v:String(37+st.extra),d:'21 customer · '+(16+st.extra)+' platform'},{k:'Runs (24 h)',v:'5,912',d:'99.6% succeeded'},{k:'Failed (24 h)',v:'3',d:'1 job needs attention'},{k:'Missed runs',v:'1',d:'runner was restarting'},{k:'Scheduler services',v:'4',d:'3 container · 1 host cron'}],
+      runModes: M.map((x, i) => ({ k:x[0], d:x[1], pick: () => this.setState({ mode: i }), style:`flex:1 1 180px;display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px;border-radius:8px;cursor:pointer;text-align:left;font-family:Inter;color:${c.text};background:${i===st.mode?c.soft:c.card};border:${i===st.mode?'2px solid '+accent:'1px solid '+c.line}` })),
+      targetLabel: m[2], targets: m[3], cmdLabel: m[4], cmdVal: m[5], scheduleHuman: 'every minute',
+      creating: st.creating, openNew: () => this.setState({ creating: true }), closeNew: () => this.setState({ creating: false }),
+      create: () => { this.setState({ creating: false, extra: 1, tab: 0 }); say('Job created — first run at 15:09'); },
+      testRun: () => say('Test run finished in 0.9 s · exit 0'),
+      lbl: 'display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:600', inp: `height:36px;padding:0 10px;border-radius:6px;border:1px solid ${c.input};background:${c.card};color:${c.text};font:13.5px Inter`,
+      btnPrimary: base + `border:0;background:${accent};color:#fff`, btnGhost: base + `border:1px solid ${c.input};background:${c.card};color:${c.text}`,
+      btnSmall: `height:30px;padding:0 10px;border-radius:6px;border:1px solid ${c.input};background:${c.card};color:${c.text};font:600 12px Inter;cursor:pointer;white-space:nowrap`,
+      toast: !!st.toast, toastText: st.toast };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

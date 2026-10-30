@@ -10,6 +10,7 @@ import { FormModal } from '../../components/FormModal'
 import { useToast } from '../../components/Toasts'
 import { ago, daysUntil, mb, str, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const mono = (v: unknown) => <span className="font-mono text-[11.5px] text-muted">{str(v)}</span>
 function useServerOptions() {
@@ -248,10 +249,10 @@ export function Domains() {
           { key: 'cert', header: 'Certificate', value: (r) => certState(r), render: (r) => <Badge tone={toneFor(certState(r).split(' ')[0])}>{certState(r)}</Badge> },
           { key: 'expires', header: 'Expires', value: (r) => certDays(r) ?? 9999, render: (r) => { const d = certDays(r); return d === null ? (r.https_status === 'active' ? 'n/a' : 'no certificate') : `${d} days` } },
           { key: 'waf', header: 'WAF', render: (r) => (
-            <select className="input h-8 text-sm" aria-label={`Web application firewall for ${domainName(r)}`} value={String(r.options?.waf?.mode ?? 'off')}
+            <Select className="input h-8 text-sm" aria-label={`Web application firewall for ${domainName(r)}`} value={String(r.options?.waf?.mode ?? 'off')}
               onChange={(e) => run({ path: `/domains/${r.id}/waf`, method: 'PATCH', body: { mode: e.target.value }, label: `WAF for ${domainName(r)}` }).catch(() => {})}>
               <option value="off">Off</option><option value="detect">Detect only</option><option value="block">Block</option>
-            </select>
+            </Select>
           ) },
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ? `${r.challenge}${r.dns_zone ? ` via ${r.dns_zone.name}` : ''}` : '—' },
           { key: 'act', header: '', sortable: false, render: (r) => (

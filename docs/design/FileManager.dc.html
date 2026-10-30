@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File manager — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1054px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="FileManager" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">File manager</h1>
+      <p style="margin: 6px 0 0; font-size: 14px; color: {{c.sub}}">Browse and edit files in app containers and volumes. Every change is audited.</p>
+    </div>
+    <dc-import name="FileBrowser" dark="{{dark}}" accent="{{accent}}" root-label="acme-blog · /var/www/html" hint-size="100%,820px"></dc-import>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1054}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    return { dark, accent: this.props.accent ?? '#2563EB', c: dark ? { bg:'#0B1120', text:'#F3F4F6', sub:'#9CA3AF' } : { bg:'#F8FAFC', text:'#0F172A', sub:'#475569' } };
+  }
+}
+</script>
+</body>
+</html>
