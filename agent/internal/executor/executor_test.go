@@ -360,3 +360,30 @@ func TestCreatePullAlwaysFailsWithoutLocalImage(t *testing.T) {
 		t.Fatal("must not create without an image", fd.calls)
 	}
 }
+
+func TestCronExecRunsBesideTheQueueAndReportsWhenDone(t *testing.T) {
+	e, _, fp, _ := setup(t)
+	release := make(chan struct{})
+	e.Run = func(ctx context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
+		<-release
+		return []byte("ok"), nil
+	}
+	r, err := e.Handle(context.Background(), cmd("cr-1", "cron.exec", `{"container":"app-shop","command":"sleep 60","user":"1000"}`, now.Add(-time.Minute)))
+	if err != nil || r.Status != "running" {
+		t.Fatalf("a scheduled job must not block the queue: %+v %v", r, err)
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		fp.mu.Lock()
+		got := fp.results["cr-1"]
+		fp.mu.Unlock()
+		if len(got) == 2 && got[1].Status == "succeeded" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no final result: %+v", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

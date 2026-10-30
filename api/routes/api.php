@@ -210,6 +210,16 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('alerts/{id}/ack', [Admin\AlertController::class, 'ack'])->middleware('perm:servers.manage|deploy|containers.operate')->name('alerts.ack');
     $crud('scheduled-jobs', Admin\ScheduledJobController::class, 'resources.view|servers.view', 'servers.manage');
     Route::post('scheduled-jobs/{id}/run', [Admin\ScheduledJobController::class, 'run'])->middleware('perm:servers.manage')->name('scheduled-jobs.run');
+    // CRON-1..9: the cron engine, across every customer for platform admins.
+    Route::get('cron', [Admin\CronController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('cron.index');
+    Route::post('cron/preview', [Admin\CronController::class, 'preview'])->middleware('perm:resources.view|servers.view')->name('cron.preview');
+    Route::post('cron', [Admin\CronController::class, 'store'])->middleware('perm:servers.manage')->name('cron.store');
+    Route::patch('cron/{id}', [Admin\CronController::class, 'update'])->middleware('perm:servers.manage')->name('cron.update');
+    Route::delete('cron/{id}', [Admin\CronController::class, 'destroy'])->middleware('perm:servers.manage')->name('cron.destroy');
+    Route::post('cron/{id}/run', [Admin\CronController::class, 'run'])->middleware(['perm:servers.manage', 'throttle:20,1'])->name('cron.run');
+    Route::post('cron/{id}/duplicate', [Admin\CronController::class, 'duplicate'])->middleware('perm:servers.manage')->name('cron.duplicate');
+    Route::get('cron/{id}/runs', [Admin\CronController::class, 'runs'])->middleware('perm:resources.view|servers.view')->name('cron.runs');
+    Route::get('cron/{id}/runs/{runId}/download', [Admin\CronController::class, 'download'])->middleware('perm:resources.view|servers.view')->name('cron.download');
     $crud('maintenance-windows', Admin\MaintenanceWindowController::class, 'resources.view|servers.view', 'servers.manage');
 
     // Uptime reports and downtime history (MON-00x).
@@ -365,6 +375,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::delete('cron/{id}', [Customer\CronController::class, 'destroy'])->name('cron.destroy');
             Route::post('cron/{id}/run', [Customer\CronController::class, 'run'])->middleware('throttle:20,1')->name('cron.run');
             Route::get('cron/{id}/runs', [Customer\CronController::class, 'runs'])->name('cron.runs');
+            Route::post('cron/preview', [Customer\CronController::class, 'preview'])->name('cron.preview');
+            Route::post('cron/{id}/duplicate', [Customer\CronController::class, 'duplicate'])->name('cron.duplicate');
+            Route::get('cron/{id}/runs/{runId}/download', [Customer\CronController::class, 'download'])->name('cron.download');
             // USEC: the customer's own security page.
             Route::get('security', [Customer\SecurityController::class, 'index'])->name('security.index');
             Route::post('security/scan', [Customer\SecurityController::class, 'scan'])->middleware('throttle:6,1')->name('security.scan');

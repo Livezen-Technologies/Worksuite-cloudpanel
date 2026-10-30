@@ -24,6 +24,8 @@ class ScheduledJob extends Model
             'last_run_at' => 'datetime',
             'timeout' => 'integer',
             'next_run_at' => 'datetime',
+            'alert_email' => 'boolean',
+            'alert_webhook' => 'boolean',
         ];
     }
 }
