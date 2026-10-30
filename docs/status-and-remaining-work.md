@@ -83,9 +83,9 @@ through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues 
 alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
-private network (PNET, 9), firewall (FW, 5), environments (ENV, 7), templates (TPL, 6),
+private network (PNET, 9), firewall (FW, 1: FW-015 customer controls), environments (ENV, 7), templates (TPL, 6),
 Cloudflare Tunnel (CFT, 6), cron engine (CRON, 7), backup manager (BKM, 4), public pages
-(PUB, 4, in progress).
+(PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
 was taking ~9,900 hits a day. Verified backups are on `51.89.192.43`. See the
@@ -143,6 +143,16 @@ been invented numbers. Build them only alongside the collection.
 ---
 
 ## 2. Firewall — enforced through CrowdSec (#14)
+
+> Update (FW-010..014): **under attack mode** (one switch, all domains or one) renders a
+> CrowdSec trigger scenario that captchas every visitor; **IP allow and block lists**
+> (`firewall_ip_lists`: CIDR, scope, note, expiry) render as a ban scenario on
+> `IpInRange` and a `dmp-allowlist.yaml` whitelist parser, which the agent writes to
+> `parsers/s02-enrich/` with the scenarios and rolls back with them; expired entries are
+> skipped and `firewall:expire-ips` (every minute) removes them. The Events tab exports
+> CSV (formula-safe) and has Allow IP / Block IP on each row. Blocking a range that
+> holds your own address is refused with 409 until confirmed. Left: FW-015 (customer
+> controls), and a ban already issued for a removed block entry lasts until it times out.
 
 > Update: rate limits, country blocks and challenges now reach traffic through
 > CrowdSec and its Traefik bouncer, and `firewall_events` is filled from

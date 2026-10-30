@@ -61,6 +61,12 @@ Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventSe
     $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
 })->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
 
+Artisan::command('firewall:expire-ips', function (\App\Services\TraefikConfigService $traefik) {
+    $n = \App\Models\FirewallIpList::allTenants()->whereNotNull('expires_at')->where('expires_at', '<=', now())->delete();
+    $n && $traefik->push();
+    $this->info("Removed {$n} expired firewall IP entr".($n === 1 ? 'y' : 'ies').'.');
+})->purpose('FW-011: drop expired allow/block list entries and re-render the edge');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -201,6 +207,7 @@ Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

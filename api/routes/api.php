@@ -306,6 +306,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.store');
     Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.update');
     Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.destroy');
+    Route::patch('firewall/under-attack', [Admin\FirewallController::class, 'underAttack'])->middleware('perm:deploy|settings.manage')->name('firewall.under-attack');
+    Route::get('firewall/events/export', [Admin\FirewallController::class, 'exportEvents'])->middleware('perm:resources.view|servers.view')->name('firewall.events.export');
+    Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.store');
+    Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.update');
+    Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.destroy');
 
     // Users, roles, settings, integrations, audit
     Route::middleware('perm:users.manage')->group(function () {
