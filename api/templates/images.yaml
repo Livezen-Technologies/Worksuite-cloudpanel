@@ -1,0 +1,67 @@
+# TPL-1/2: single-image templates. Placeholders: ${SERVICE_PASSWORD_X}, ${SERVICE_USER_X},
+# ${SERVICE_HEX_X}, ${SERVICE_BASE64_X} are generated once per install; ${SERVICE_FQDN} and
+# ${SERVICE_URL} come from the domain; ${KEY} from the template's variables.
+- { id: wordpress, name: WordPress, category: CMS, version: 1, image: "wordpress:6-apache", port: 80, health: /, volume: /var/www/html, accent: "#21759B", description: "The CMS behind most of the web. Needs a MySQL/MariaDB database (or use the WordPress + MariaDB stack).",
+    variables: [{ key: WORDPRESS_DB_HOST, label: Database host:port, required: true }, { key: WORDPRESS_DB_NAME, default: wordpress }, { key: WORDPRESS_DB_USER, default: wordpress }, { key: WORDPRESS_DB_PASSWORD, required: true, secret: true }] }
+- { id: ghost, name: Ghost, category: CMS, version: 1, image: "ghost:5-alpine", port: 2368, health: /, volume: /var/lib/ghost/content, accent: "#15171A", description: "Publishing and newsletters (SQLite).",
+    env: { url: "${SERVICE_URL}", database__client: sqlite3, database__connection__filename: /var/lib/ghost/content/data/ghost.db } }
+- { id: drupal, name: Drupal, category: CMS, version: 1, image: "drupal:11-apache", port: 80, health: /, volume: /var/www/html/sites, accent: "#0678BE", description: "Enterprise CMS; the installer asks for a database." }
+- { id: joomla, name: Joomla, category: CMS, version: 1, image: "joomla:5-apache", port: 80, health: /, volume: /var/www/html, accent: "#5091CD", description: "Content management system.",
+    variables: [{ key: JOOMLA_DB_HOST, required: true }, { key: JOOMLA_DB_USER, default: joomla }, { key: JOOMLA_DB_PASSWORD, required: true, secret: true }, { key: JOOMLA_DB_NAME, default: joomla }] }
+- { id: mediawiki, name: MediaWiki, category: CMS, version: 1, image: "mediawiki:1.42", port: 80, health: /, volume: /var/www/html/images, accent: "#36C", description: "The wiki engine behind Wikipedia." }
+- { id: nextcloud, name: Nextcloud, category: Productivity, version: 1, image: "nextcloud:30-apache", port: 80, health: /status.php, volume: /var/www/html, accent: "#0082C9", description: "Files, calendar and contacts (SQLite; use the stack for PostgreSQL).",
+    env: { NEXTCLOUD_ADMIN_USER: admin, NEXTCLOUD_ADMIN_PASSWORD: "${SERVICE_PASSWORD_ADMIN}", NEXTCLOUD_TRUSTED_DOMAINS: "${SERVICE_FQDN}", SQLITE_DATABASE: nextcloud } }
+- { id: n8n, name: n8n, category: Automation, version: 1, image: "n8nio/n8n:1", port: 5678, health: /healthz, volume: /home/node/.n8n, accent: "#EA4B71", description: "Workflow automation.",
+    env: { N8N_HOST: "${SERVICE_FQDN}", WEBHOOK_URL: "${SERVICE_URL}/", N8N_ENCRYPTION_KEY: "${SERVICE_HEX_N8N}", N8N_PROTOCOL: https } }
+- { id: node-red, name: Node-RED, category: Automation, version: 1, image: "nodered/node-red:4.0", port: 1880, health: /, volume: /data, accent: "#8F0000", description: "Low-code flows for events and devices." }
+- { id: uptime-kuma, name: Uptime Kuma, category: Monitoring, version: 1, image: "louislam/uptime-kuma:1", port: 3001, health: /, volume: /app/data, accent: "#5CDD8B", description: "Self-hosted uptime monitoring." }
+- { id: grafana, name: Grafana, category: Monitoring, version: 1, image: "grafana/grafana:11.3.0", port: 3000, health: /api/health, volume: /var/lib/grafana, accent: "#F46800", description: "Dashboards for metrics and logs.",
+    env: { GF_SECURITY_ADMIN_USER: admin, GF_SECURITY_ADMIN_PASSWORD: "${SERVICE_PASSWORD_GRAFANA}", GF_SERVER_ROOT_URL: "${SERVICE_URL}" } }
+- { id: prometheus, name: Prometheus, category: Monitoring, version: 1, image: "prom/prometheus:v2.55.0", port: 9090, health: /-/healthy, volume: /prometheus, accent: "#E6522C", description: "Metrics database and alerting." }
+- { id: gitea, name: Gitea, category: Development, version: 1, image: "gitea/gitea:1.22", port: 3000, health: /api/healthz, volume: /data, accent: "#609926", description: "Lightweight Git hosting (SQLite).",
+    env: { GITEA__server__ROOT_URL: "${SERVICE_URL}/", GITEA__server__DOMAIN: "${SERVICE_FQDN}", GITEA__security__SECRET_KEY: "${SERVICE_HEX_GITEA}" } }
+- { id: jenkins, name: Jenkins, category: Development, version: 1, image: "jenkins/jenkins:lts-jdk17", port: 8080, health: /login, volume: /var/jenkins_home, accent: "#D24939", description: "Automation server for CI/CD." }
+- { id: code-server, name: code-server, category: Development, version: 1, image: "codercom/code-server:4.95.3", port: 8080, health: /healthz, volume: /home/coder, accent: "#007ACC", description: "VS Code in the browser.",
+    env: { PASSWORD: "${SERVICE_PASSWORD_CODE}" } }
+- { id: registry, name: Docker Registry, category: Development, version: 1, image: "registry:2", port: 5000, health: /v2/, volume: /var/lib/registry, accent: "#2496ED", description: "Private image registry." }
+- { id: sonarqube, name: SonarQube, category: Development, version: 1, image: "sonarqube:10-community", port: 9000, health: /api/system/status, volume: /opt/sonarqube/data, accent: "#4E9BCD", description: "Code quality and security analysis." }
+- { id: vaultwarden, name: Vaultwarden, category: Security, version: 1, image: "vaultwarden/server:1.32.5", port: 80, health: /alive, volume: /data, accent: "#175DDC", description: "Bitwarden-compatible password manager.",
+    env: { DOMAIN: "${SERVICE_URL}", ADMIN_TOKEN: "${SERVICE_BASE64_ADMIN}", SIGNUPS_ALLOWED: "false" } }
+- { id: adminer, name: Adminer, category: Database tools, version: 1, image: "adminer:4", port: 8080, health: /, accent: "#34567C", description: "Database management in one page." }
+- { id: phpmyadmin, name: phpMyAdmin, category: Database tools, version: 1, image: "phpmyadmin:5", port: 80, health: /, accent: "#6C78AF", description: "MySQL and MariaDB administration.",
+    variables: [{ key: PMA_HOST, label: Database host, required: true }] }
+- { id: pgadmin, name: pgAdmin, category: Database tools, version: 1, image: "dpage/pgadmin4:8", port: 80, health: /misc/ping, volume: /var/lib/pgadmin, accent: "#336791", description: "PostgreSQL administration.",
+    env: { PGADMIN_DEFAULT_EMAIL: "${ADMIN_EMAIL}", PGADMIN_DEFAULT_PASSWORD: "${SERVICE_PASSWORD_PGADMIN}" }, variables: [{ key: ADMIN_EMAIL, label: Login e-mail, required: true }] }
+- { id: postgresql, name: PostgreSQL, category: Database, version: 1, image: "postgres:16-alpine", port: 5432, volume: /var/lib/postgresql/data, accent: "#336791", description: "Relational database.",
+    env: { POSTGRES_USER: "${SERVICE_USER_POSTGRES}", POSTGRES_PASSWORD: "${SERVICE_PASSWORD_POSTGRES}", POSTGRES_DB: app } }
+- { id: mysql, name: MySQL, category: Database, version: 1, image: "mysql:8.4", port: 3306, volume: /var/lib/mysql, accent: "#00758F", description: "Relational database.",
+    env: { MYSQL_ROOT_PASSWORD: "${SERVICE_PASSWORD_ROOT}", MYSQL_DATABASE: app, MYSQL_USER: "${SERVICE_USER_MYSQL}", MYSQL_PASSWORD: "${SERVICE_PASSWORD_MYSQL}" } }
+- { id: mariadb, name: MariaDB, category: Database, version: 1, image: "mariadb:11", port: 3306, volume: /var/lib/mysql, accent: "#C0765A", description: "MySQL-compatible database.",
+    env: { MARIADB_ROOT_PASSWORD: "${SERVICE_PASSWORD_ROOT}", MARIADB_DATABASE: app, MARIADB_USER: "${SERVICE_USER_MARIADB}", MARIADB_PASSWORD: "${SERVICE_PASSWORD_MARIADB}" } }
+- { id: mongodb, name: MongoDB, category: Database, version: 1, image: "mongo:7", port: 27017, volume: /data/db, accent: "#47A248", description: "Document database.",
+    env: { MONGO_INITDB_ROOT_USERNAME: "${SERVICE_USER_MONGO}", MONGO_INITDB_ROOT_PASSWORD: "${SERVICE_PASSWORD_MONGO}" } }
+- { id: redis, name: Redis, category: Database, version: 1, image: "redis:7-alpine", port: 6379, volume: /data, accent: "#DC382D", description: "In-memory cache and queue." }
+- { id: valkey, name: Valkey, category: Database, version: 1, image: "valkey/valkey:8-alpine", port: 6379, volume: /data, accent: "#6983FF", description: "Open-source Redis fork." }
+- { id: memcached, name: Memcached, category: Database, version: 1, image: "memcached:1.6-alpine", port: 11211, accent: "#7FA7C7", description: "Memory object cache." }
+- { id: couchdb, name: CouchDB, category: Database, version: 1, image: "couchdb:3", port: 5984, health: /_up, volume: /opt/couchdb/data, accent: "#E42528", description: "Document database with HTTP API.",
+    env: { COUCHDB_USER: admin, COUCHDB_PASSWORD: "${SERVICE_PASSWORD_COUCHDB}" } }
+- { id: influxdb, name: InfluxDB, category: Database, version: 1, image: "influxdb:2.7-alpine", port: 8086, health: /health, volume: /var/lib/influxdb2, accent: "#22ADF6", description: "Time-series database.",
+    env: { DOCKER_INFLUXDB_INIT_MODE: setup, DOCKER_INFLUXDB_INIT_USERNAME: admin, DOCKER_INFLUXDB_INIT_PASSWORD: "${SERVICE_PASSWORD_INFLUX}", DOCKER_INFLUXDB_INIT_ORG: main, DOCKER_INFLUXDB_INIT_BUCKET: default } }
+- { id: clickhouse, name: ClickHouse, category: Database, version: 1, image: "clickhouse/clickhouse-server:24.8", port: 8123, health: /ping, volume: /var/lib/clickhouse, accent: "#FFCC01", description: "Column-oriented analytics database.",
+    env: { CLICKHOUSE_USER: "${SERVICE_USER_CLICKHOUSE}", CLICKHOUSE_PASSWORD: "${SERVICE_PASSWORD_CLICKHOUSE}" } }
+- { id: neo4j, name: Neo4j, category: Database, version: 1, image: "neo4j:5", port: 7474, health: /, volume: /data, accent: "#008CC1", description: "Graph database.",
+    env: { NEO4J_AUTH: "neo4j/${SERVICE_PASSWORD_NEO4J}" } }
+- { id: rabbitmq, name: RabbitMQ, category: Messaging, version: 1, image: "rabbitmq:3-management-alpine", port: 15672, health: /, volume: /var/lib/rabbitmq, accent: "#FF6600", description: "Message broker with management UI.",
+    env: { RABBITMQ_DEFAULT_USER: "${SERVICE_USER_RABBIT}", RABBITMQ_DEFAULT_PASS: "${SERVICE_PASSWORD_RABBIT}" } }
+- { id: nats, name: NATS, category: Messaging, version: 1, image: "nats:2-alpine", port: 8222, health: /healthz, accent: "#27AAE1", description: "Cloud-native messaging." }
+- { id: mailpit, name: Mailpit, category: Messaging, version: 1, image: "axllent/mailpit:v1.21", port: 8025, health: /livez, accent: "#2F9E44", description: "E-mail testing inbox." }
+- { id: matomo, name: Matomo, category: Analytics, version: 1, image: "matomo:5-apache", port: 80, health: /, volume: /var/www/html, accent: "#3152A0", description: "Privacy-friendly web analytics; needs MySQL/MariaDB (or use the stack)." }
+- { id: metabase, name: Metabase, category: Analytics, version: 1, image: "metabase/metabase:v0.50.31", port: 3000, health: /api/health, volume: /metabase-data, accent: "#509EE3", description: "Business intelligence dashboards.",
+    env: { MB_DB_FILE: /metabase-data/metabase.db } }
+- { id: filebrowser, name: File Browser, category: Productivity, version: 1, image: "filebrowser/filebrowser:v2", port: 80, health: /health, volume: /srv, accent: "#40C4FF", description: "Web file manager." }
+- { id: jellyfin, name: Jellyfin, category: Media, version: 1, image: "jellyfin/jellyfin:10.10.3", port: 8096, health: /health, volume: /config, accent: "#AA5CC3", description: "Media server." }
+- { id: home-assistant, name: Home Assistant, category: Automation, version: 1, image: "ghcr.io/home-assistant/home-assistant:stable", port: 8123, health: /, volume: /config, accent: "#18BCF2", description: "Home automation hub." }
+- { id: portainer, name: Portainer, category: Development, version: 1, image: "portainer/portainer-ce:2.21.4", port: 9000, health: /, volume: /data, accent: "#13BEF9", description: "Container management UI (no Docker socket is mounted)." }
+- { id: nginx, name: Nginx static site, category: Web servers, version: 1, image: "nginx:1.27-alpine", port: 80, health: /, volume: /usr/share/nginx/html, accent: "#009639", description: "Serve static files." }
+- { id: apache, name: Apache httpd, category: Web servers, version: 1, image: "httpd:2.4-alpine", port: 80, health: /, volume: /usr/local/apache2/htdocs, accent: "#D22128", description: "Serve static files." }
+- { id: whoami, name: whoami, category: Web servers, version: 1, image: "traefik/whoami:v1.10", port: 80, health: /, accent: "#24A1C1", description: "Tiny HTTP echo service for testing routing." }
