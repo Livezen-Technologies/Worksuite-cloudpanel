@@ -35,9 +35,15 @@ Migration wizard   ~80%   cPanel: fetch and inspect, pre-flight, mapping,
                           cutover with a health gate and rollback, delta
                           sync, bulk, customer requests with approval; left:
                           Plesk and Hestia sources, customer page in the web
-Other new features   0%   mail hosting, email templates (specified only)
+Mail hosting       ~35%   5 of 14: mail stack per server (Postfix, Dovecot,
+                          OpenDKIM, Rspamd), domains with DKIM, mailboxes with
+                          quotas, aliases and catch-all, DNS records published
+                          and checked; left: DKIM rotation, real TLS, rate
+                          limits and spam hold, relay, rDNS and blacklists,
+                          backups, auto-responders, IMAP import, logs, webmail
+Email templates      0%   specified only
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~60%   up from ~40%: file manager, firewall enforcement,
+Overall            ~62%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
 

@@ -288,6 +288,22 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
 
 
+## Mail hosting (SRS MAIL)
+
+One [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/) container (`mailserver`) per mail server runs Postfix, Dovecot, OpenDKIM and Rspamd. It publishes ports 25, 465, 587 and 993 and uses the volumes `mailserver-data`, `mailserver-state` and `mailserver-config` (mounted at `/tmp/docker-mailserver`). The panel owns the config files in that volume and rewrites them all after every change, using `fs.mkdir` and `fs.write`; the container picks the changes up by itself. File contents (password hashes, DKIM keys) are read when each command is dispatched, so jobs never store them. Reads need `resources.view|servers.view`; changes need `deploy` (install: `servers.manage`).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/mail` | `{servers[{id, server, hostname, status: installing\|running\|failed, error, synced_at}], domains[{id, name, mailboxes, aliases, dns_ok, dns_checked_at}]}` |
+| POST | `/mail/servers` | MAIL-001 `{server_id, hostname}`: the hostname is the MX target and HELO name (`OVERRIDE_HOSTNAME`). One per server (409). TLS is self-signed for now. |
+| POST | `/mail/domains` | MAIL-002 `{mail_server_id, name}` creates the domain with a 2048-bit DKIM key (selector `mail`) and writes the records into a managed DNS zone that holds the domain, never replacing an existing MX or SPF record. Returns the records. |
+| GET \| PATCH \| DELETE | `/mail/domains/{id}` | `GET` adds `records`, `dns` (last check), `mailbox_list` and `alias_list`. `PATCH {catch_all}` sets the address that gets mail for unknown local parts (null turns it off). `DELETE` removes the domain with its mailboxes and aliases. |
+| POST | `/mail/domains/{id}/dns/check` | MAIL-005 looks up MX, SPF, DKIM (`mail._domainkey`) and DMARC (`_dmarc`, `p=quarantine`). Each record gets a status `ok\|wrong\|missing` with what was found. |
+| POST | `/mail/domains/{id}/dns/publish` | Publishes again; each record is reported as `present\|created\|conflict\|failed`. |
+| POST | `/mail/domains/{id}/mailboxes` | MAIL-003 `{local_part, password (10+), quota_mb?=1024}`. The password is stored only as `{SHA512-CRYPT}` (in `postfix-accounts.cf`); quotas go to `dovecot-quotas.cf`. |
+| PATCH \| DELETE | `/mail/domains/{id}/mailboxes/{box}` | `{password?, quota_mb?, enabled?}`; a disabled mailbox is left out of the accounts file. |
+| POST \| DELETE | `/mail/domains/{id}/aliases[/{alias}]` | MAIL-004 `{local_part, destinations[]}` (up to 50 addresses) goes to `postfix-virtual.cf`. A name cannot be both a mailbox and an alias. |
+
 ## Migration wizard (SRS MIG)
 
 Moves cPanel accounts onto the platform. The agent fetches a cPanel full backup (`cpmove-<user>.tar.gz`) into its state directory (`migrations/<id>/`) and reads it without running anything from it. Each site becomes a new app on the target server. The app is deployed on a temporary platform hostname and then filled with the site's files and database. DNS is not changed. Reads need `resources.view|servers.view`; actions need `deploy`.
