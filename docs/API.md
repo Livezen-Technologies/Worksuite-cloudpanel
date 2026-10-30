@@ -71,6 +71,7 @@ The organisation is the token user's current organisation (`users.current_organi
 | POST | /volumes/{id}/files/chown | {paths, uid?, gid?, recursive?} — platform staff only (403 for organisation roles) (FM-010). Listings now include each entry's uid and gid |
 | GET | /volumes/{id}/files/search?path=&name=&extensions[]=&min_size=&max_size=&modified_after=&modified_before=&type= | at least one condition; walks from path down without following links; result {hits:[{path, name, type, size, mode, modified}], truncated} capped at 500 hits / 200,000 entries (FM-011) |
 | POST | /volumes/{id}/files/preview | {path} for images, PDF, audio and video only → job whose download_url is served inline with nosniff and a sandbox CSP. HTML, SVG and text are previewed through GET /files/content instead (FM-012) |
+| POST | /volumes/{id}/files/scan | {path?, recent_days? (1–90, default 7)} → job result {findings:[{path, rule, severity: critical\|high\|medium\|info, detail, type, size, mode, modified}], counts, files, folders, truncated}. Rules: malware_pattern, script_in_uploads, double_extension, hidden_script, world_writable, sensitive_readable, recently_changed. Read-only; audited (FM-017) |
 | CRUD | /domains ; POST /domains/{id}/verify ; POST /domains/{id}/certificate | |
 | CRUD | /databases ; POST /databases/{id}/backup, /databases/{id}/restore | |
 | CRUD | /backup-policies ; GET /backup-jobs ; POST /backup-jobs {policy_id} ; POST /restore-jobs {artifact_id} | |
@@ -109,7 +110,7 @@ The organisation is the token user's current organisation (`users.current_organi
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete|upload|download|copy|move|compress|extract|trash|trash_list|trash_restore|trash_purge|chmod|chown|search (confined to one volume), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete|upload|download|copy|move|compress|extract|trash|trash_list|trash_restore|trash_purge|chmod|chown|search|scan (confined to one volume), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
   image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
   lines in the command output and exposes them as the deployment job's `build_log`.
