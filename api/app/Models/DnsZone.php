@@ -14,7 +14,7 @@ class DnsZone extends Model
 
     protected function casts(): array
     {
-        return ['nameservers' => 'array', 'last_synced_at' => 'datetime', 'records_count' => 'integer'];
+        return ['nameservers' => 'array', 'last_synced_at' => 'datetime', 'records_count' => 'integer', 'ds_records' => 'array'];
     }
 
     public function provider()

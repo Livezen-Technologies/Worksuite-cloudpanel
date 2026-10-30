@@ -113,7 +113,9 @@ class DnsZoneService
             $errors['name'][] = 'A CNAME cannot sit at the zone apex; use A or AAAA.';
         }
         $proxied = (bool) ($r['proxied'] ?? false);
-        if ($proxied && ! in_array($type, ['A', 'AAAA', 'CNAME'], true)) {
+        if ($proxied && ! $zone->provider->driver()->supportsProxy()) {
+            $errors['proxied'][] = 'This provider has no proxy; turn it off.';
+        } elseif ($proxied && ! in_array($type, ['A', 'AAAA', 'CNAME'], true)) {
             $errors['proxied'][] = 'Only A, AAAA and CNAME records can be proxied.';
         }
         if ($errors) {
@@ -154,6 +156,27 @@ class DnsZoneService
         $row->delete();
         $zone->update(['records_count' => $zone->records()->count()]);
         $this->audit->log('dns.record_deleted', 'dns_zones', $zone->id, ['record' => ['type' => $row->type, 'name' => $row->name, 'content' => $row->content]]);
+    }
+
+    /** DNS-008: reads the provider's DNSSEC state and keeps the DS records to hand to the registrar. */
+    public function dnssec(DnsZone $zone): array
+    {
+        return $this->keepDnssec($zone, $zone->provider->driver()->dnssec($zone->remote_id));
+    }
+
+    public function setDnssec(DnsZone $zone, bool $enabled): array
+    {
+        $state = $this->keepDnssec($zone, $zone->provider->driver()->setDnssec($zone->remote_id, $enabled));
+        $this->audit->log($enabled ? 'dns.dnssec_enabled' : 'dns.dnssec_disabled', 'dns_zones', $zone->id, ['name' => $zone->name, 'status' => $state['status']]);
+
+        return $state;
+    }
+
+    private function keepDnssec(DnsZone $zone, array $state): array
+    {
+        $zone->update(['dnssec_status' => $state['status'], 'ds_records' => $state['ds']]);
+
+        return $state;
     }
 
     /** DNS-012: compares the mirror with the provider, reports drift, then adopts the provider's state. */

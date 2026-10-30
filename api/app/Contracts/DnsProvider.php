@@ -6,6 +6,7 @@ namespace App\Contracts;
  * An authoritative DNS provider (SRS 4.18). Records are plain arrays:
  * ['id' => remote id, 'type', 'name' (FQDN), 'content', 'ttl' (1 = auto),
  *  'priority' (MX/SRV or null), 'proxied' (Cloudflare only)].
+ * DNSSEC state is an array: ['status' => active|pending|disabled, 'ds' => DS record lines].
  */
 interface DnsProvider
 {
@@ -33,4 +34,13 @@ interface DnsProvider
     public function updateRecord(string $zoneId, string $recordId, array $record): array;
 
     public function deleteRecord(string $zoneId, string $recordId): void;
+
+    /** Whether records can be proxied through the provider's edge (Cloudflare). */
+    public function supportsProxy(): bool;
+
+    /** DNS-008 @return array{status: string, ds: string[]} */
+    public function dnssec(string $zoneId): array;
+
+    /** DNS-008 @return array{status: string, ds: string[]} */
+    public function setDnssec(string $zoneId, bool $enabled): array;
 }

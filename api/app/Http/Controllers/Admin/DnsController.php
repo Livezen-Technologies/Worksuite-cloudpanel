@@ -23,10 +23,17 @@ class DnsController extends Controller
     public function connect(Request $request)
     {
         $data = $request->validate([
-            'name' => 'required|string|max:100', 'type' => 'required|in:cloudflare',
-            'token' => 'required|string|max:255', 'account_id' => 'nullable|string|max:64',
+            'name' => 'required|string|max:100', 'type' => 'required|in:cloudflare,powerdns',
+            'token' => 'required_if:type,cloudflare|nullable|string|max:255', 'account_id' => 'nullable|string|max:64',
+            'api_url' => 'required_if:type,powerdns|nullable|url:http,https|max:255', 'api_key' => 'required_if:type,powerdns|nullable|string|max:255',
+            'server_id' => 'nullable|string|max:64|regex:/^[A-Za-z0-9._-]+$/',
+            'nameservers' => 'required_if:type,powerdns|array|max:13', 'nameservers.*' => ['string', 'max:253', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\.?$/i'],
         ]);
-        $account = $this->dns->connect($data['name'], $data['type'], array_filter(['token' => $data['token'], 'account_id' => $data['account_id'] ?? null]));
+        $credentials = $data['type'] === 'cloudflare'
+            ? ['token' => $data['token'], 'account_id' => $data['account_id'] ?? null]
+            : ['api_url' => $data['api_url'], 'api_key' => $data['api_key'], 'server_id' => $data['server_id'] ?? 'localhost',
+                'nameservers' => array_values(array_map(fn ($n) => strtolower(rtrim($n, '.')), $data['nameservers']))];
+        $account = $this->dns->connect($data['name'], $data['type'], array_filter($credentials, fn ($v) => $v !== null));
         $request->attributes->set('audit_skip', true);
 
         return $this->data($this->provider($account), 201);
@@ -89,6 +96,20 @@ class DnsController extends Controller
         return $this->data($this->dns->sync(DnsZone::findOrFail($id)));
     }
 
+    /** DNS-008 */
+    public function dnssec(string $id)
+    {
+        return $this->data($this->dns->dnssec(DnsZone::findOrFail($id)));
+    }
+
+    public function setDnssec(Request $request, string $id)
+    {
+        $data = $request->validate(['enabled' => 'required|boolean']);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data($this->dns->setDnssec(DnsZone::findOrFail($id), (bool) $data['enabled']));
+    }
+
     public function storeRecord(Request $request, string $id)
     {
         $request->attributes->set('audit_skip', true);
@@ -132,6 +153,8 @@ class DnsController extends Controller
             'id' => $z->id, 'name' => $z->name, 'status' => $z->status, 'nameservers' => $z->nameservers ?? [],
             'records_count' => $z->records_count, 'provider' => $z->provider ? ['id' => $z->provider->id, 'name' => $z->provider->name, 'type' => $z->provider->type] : null,
             'last_synced_at' => $z->last_synced_at?->toIso8601ZuluString(),
+            'dnssec' => ['status' => $z->dnssec_status ?? 'disabled', 'ds' => $z->ds_records ?? []],
+            'supports_proxy' => $z->provider?->type === 'cloudflare',
         ];
     }
 

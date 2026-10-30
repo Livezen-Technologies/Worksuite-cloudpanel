@@ -21,7 +21,7 @@ return new class extends Migration
         Schema::create('dns_providers', function (Blueprint $t) {
             $this->tenant($t);
             $t->string('name');
-            $t->string('type');                       // cloudflare (powerdns next)
+            $t->string('type');                       // cloudflare | powerdns
             $t->text('credentials');                  // encrypted JSON: {token, account_id} for Cloudflare
             $t->string('account_label')->nullable();
             $t->timestamps();
