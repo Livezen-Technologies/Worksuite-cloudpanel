@@ -31,7 +31,7 @@ class CommandBus
         'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete', 'fs.upload', 'fs.download',
         'fs.copy', 'fs.move', 'fs.compress', 'fs.extract', 'fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.chmod', 'fs.chown', 'fs.search', 'fs.scan', 'fs.history_list', 'fs.history_read', 'fs.history_restore',
         'crowdsec.apply', 'crowdsec.alerts', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
-        'fim.baseline', 'fim.check', 'egress.apply', 'av.realtime', 'av.events', 'wp.cli', 'wp.inventory', 'wp.copy_tables', 'wp.drop_tables', 'migrate.fetch', 'migrate.inspect', 'migrate.extract', 'migrate.import_db', 'migrate.cleanup', 'cron.exec',
+        'fim.baseline', 'fim.check', 'egress.apply', 'av.realtime', 'av.events', 'wp.cli', 'wp.inventory', 'wp.copy_tables', 'wp.drop_tables', 'migrate.fetch', 'migrate.inspect', 'migrate.extract', 'migrate.import_db', 'migrate.cleanup', 'cron.exec', 'mail.certs',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */

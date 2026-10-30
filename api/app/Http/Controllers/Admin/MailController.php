@@ -24,7 +24,7 @@ class MailController extends Controller
             'servers' => MailServer::query()->get()->map(fn (MailServer $m) => [
                 'id' => $m->id, 'server_id' => $m->server_id, 'server' => $servers[$m->server_id] ?? null, 'hostname' => $m->hostname,
                 'status' => $m->status, 'error' => $m->error, 'synced_at' => $m->synced_at?->toIso8601ZuluString(),
-                'settings' => $this->presentSettings($m), 'health' => $m->health, 'health_checked_at' => $m->health_checked_at?->toIso8601ZuluString(),
+                'settings' => $this->presentSettings($m), 'health' => $m->health, 'tls' => $m->tls, 'health_checked_at' => $m->health_checked_at?->toIso8601ZuluString(),
             ]),
             'domains' => MailDomain::query()->orderBy('name')->get()->map(fn (MailDomain $d) => $this->presentDomain($d)),
         ]);
@@ -145,10 +145,27 @@ class MailController extends Controller
         return $this->data($this->presentSettings($m));
     }
 
-    /** MAIL-010 */
+
     public function health(string $id)
     {
         return $this->data($this->mail->checkHealth(MailServer::findOrFail($id)));
+    }
+
+    /** MAIL-005: copy a renewed certificate from Traefik now (also daily). */
+    public function certs(string $id)
+    {
+        $job = $this->mail->refreshCerts(MailServer::findOrFail($id)) ?? throw \App\Exceptions\ApiException::conflict('The mail server is not running on an online server.');
+
+        return $this->accepted($job);
+    }
+
+    /** MAIL-010 */
+    public function backups(Request $request, string $id)
+    {
+        $data = $request->validate(['schedule' => 'sometimes|string|max:100', 'retention_days' => 'sometimes|integer|min:1|max:3650', 'copy_destination_from' => 'sometimes|nullable|string']);
+        $policy = $this->mail->backupPolicy(MailServer::findOrFail($id), $data);
+
+        return $this->data(['policy_id' => $policy->id, 'destination' => $policy->destination, 'schedule' => $policy->schedule, 'retention_days' => $policy->retention_days], 201);
     }
 
     /** MAIL-014 */
@@ -195,7 +212,7 @@ class MailController extends Controller
             'mailboxes' => Mailbox::where('mail_domain_id', $d->id)->count(), 'aliases' => MailAlias::where('mail_domain_id', $d->id)->count(),
             'dkim_selector' => $d->dkim_selector, 'dkim_next_selector' => $d->dkim_next_selector, 'dkim_previous_selector' => $d->dkim_previous_selector,
             'dkim_rotated_at' => $d->dkim_rotated_at?->toIso8601ZuluString(),
-            'dns_ok' => $d->dns ? collect($d->dns)->every(fn ($r) => $r['status'] === 'ok') : null, 'dns_checked_at' => $d->dns_checked_at?->toIso8601ZuluString(),
+            'dns_ok' => $d->dns ? collect($d->dns)->reject(fn ($r) => $r['optional'] ?? false)->every(fn ($r) => $r['status'] === 'ok') : null, 'dns_checked_at' => $d->dns_checked_at?->toIso8601ZuluString(),
         ];
         if ($detail) {
             $out += [

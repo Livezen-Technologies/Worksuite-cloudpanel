@@ -47,7 +47,7 @@ var Types = map[string]bool{
 	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
 	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
-	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "wp.cli": true, "wp.inventory": true, "wp.copy_tables": true, "wp.drop_tables": true, "cron.exec": true, "migrate.fetch": true, "migrate.inspect": true, "migrate.extract": true, "migrate.import_db": true, "migrate.cleanup": true, "av.realtime": true, "av.events": true,
+	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "wp.cli": true, "wp.inventory": true, "wp.copy_tables": true, "wp.drop_tables": true, "cron.exec": true, "mail.certs": true, "migrate.fetch": true, "migrate.inspect": true, "migrate.extract": true, "migrate.import_db": true, "migrate.cleanup": true, "av.realtime": true, "av.events": true,
 	"av.scan": true, "av.quarantine": true, "av.restore": true, "av.delete": true,
 }
 

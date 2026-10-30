@@ -35,12 +35,13 @@ Migration wizard   ~80%   cPanel: fetch and inspect, pre-flight, mapping,
                           cutover with a health gate and rollback, delta
                           sync, bulk, customer requests with approval; left:
                           Plesk and Hestia sources, customer page in the web
-Mail hosting       ~75%   mail stack per server, domains with DKIM and key
-                          rotation, mailboxes with quotas, aliases, catch-all,
-                          DNS records, sending limits and spam scores, relay,
-                          reverse DNS and blocklist checks, auto-replies,
-                          logs; left: real TLS certificates, backups, IMAP
-                          import, webmail
+Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
+                          aliases, DNS + autoconfig, TLS from Traefik, limits,
+                          relay, rDNS/blocklists with alerts, backups,
+                          auto-replies, logs, customer page, package quotas;
+                          left: IMAP import, auto-hold of spamming mailboxes,
+                          per-domain limits, per-mailbox spam settings,
+                          searchable logs per organisation, webmail
 Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
                           in plain words), Security (score, threats, scan
                           now), Scheduled jobs (app command or URL, run log,
@@ -50,7 +51,7 @@ Email templates    ~90%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
                           dark mode, tests, user opt-outs; wired to alert
                           emails and invitations, other events still to hook
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~68%   up from ~40%: file manager, firewall enforcement,
+Overall            ~70%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
 

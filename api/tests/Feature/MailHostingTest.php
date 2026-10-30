@@ -39,13 +39,17 @@ class MailHostingTest extends TestCase
         [$secret] = $this->enrollAgent($server, $token);
         $this->heartbeat($secret);
         $this->api($token)->postJson('/api/v1/mail/servers', ['server_id' => $server->id, 'hostname' => 'mail.example.com'])->assertStatus(202);
+        $certs = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'mail.certs');
+        $this->assertSame(['mail.example.com', 'mailserver-config', true], [$certs['payload']['hostname'], $certs['payload']['volume'], $certs['payload']['fallback']]);
+        $this->commandResult($secret, $certs['id'], 'succeeded', ['output' => ['found' => false, 'source' => 'self-signed', 'changed' => true, 'not_after' => '2028-10-31T00:00:00Z']])->assertOk();
         $create = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
+        $this->assertSame(['manual', '/tmp/docker-mailserver/ssl/cert.pem'], [$create['payload']['env']['SSL_TYPE'], $create['payload']['env']['SSL_CERT_PATH']]);
         $this->assertSame([MailService::IMAGE, 'mail.example.com'], [$create['payload']['image'], $create['payload']['env']['OVERRIDE_HOSTNAME']]);
         $this->assertSame([25, 465, 587, 993], array_column($create['payload']['ports'], 'container_port'));
         $this->commandResult($secret, $create['id'], 'succeeded', ['output' => ['id' => 'abc']])->assertOk();
         $this->drain($secret);
         $mail = MailServer::allTenants()->sole();
-        $this->assertSame('running', $mail->status);
+        $this->assertSame(['running', 'self-signed'], [$mail->status, $mail->tls['source']]);
 
         return [$token, $secret, $mail];
     }
@@ -174,5 +178,31 @@ class MailHostingTest extends TestCase
 
         $this->api($token)->getJson("/api/v1/mail/servers/{$mail->id}/logs")->assertOk()->assertJsonStructure(['data' => ['lines', 'job_id']]);
         $this->assertSame('mailserver', collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.logs')['payload']['container_id']);
+    }
+    public function test_certificates_backups_autoconfig_and_blocklist_alerts(): void
+    {
+        [$token, $secret, $mail] = $this->setUpMail();
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/certs")->assertStatus(202);
+        $c = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'mail.certs');
+        $this->assertFalse($c['payload']['fallback']);
+        $this->commandResult($secret, $c['id'], 'succeeded', ['output' => ['found' => true, 'source' => 'acme', 'changed' => true, 'not_after' => '2027-01-29T00:00:00Z']])->assertOk();
+        $this->assertSame('acme', $mail->fresh()->tls['source']);
+        $this->assertSame('mailserver', collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.restart')['payload']['container_id'], 'a new certificate restarts the mail server');
+
+        $p = $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/backups", ['retention_days' => 30])->assertCreated()->json('data');
+        $this->assertSame(['local', 30], [$p['destination'], $p['retention_days']]);
+        $policy = \App\Models\BackupPolicy::allTenants()->find($p['policy_id']);
+        $this->assertSame(['volume', 'mailserver-data'], [$policy->target_type, \App\Models\Volume::allTenants()->find($policy->target_id)->name]);
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/backups")->assertCreated()->assertJsonPath('data.policy_id', $p['policy_id']);
+
+        $d = $this->api($token)->postJson('/api/v1/mail/domains', ['mail_server_id' => $mail->id, 'name' => 'example.com'])->json('data');
+        $srv = collect($d['records'])->firstWhere('name', '_submission._tcp.example.com');
+        $this->assertSame(['SRV', '1 587 mail.example.com', true], [$srv['type'], $srv['value'], $srv['optional']]);
+
+        \App\Models\NotificationChannel::allTenants()->create(['organization_id' => $mail->organization_id, 'name' => 'Ops', 'type' => 'webhook', 'config' => ['url' => 'https://hooks.example.com/x'], 'enabled' => true]);
+        \Illuminate\Support\Facades\Http::fake(['hooks.example.com/*' => \Illuminate\Support\Facades\Http::response('ok')]);
+        app(DnsResolver::class)->set('20.100.51.198.zen.spamhaus.org', 'A', ['127.0.0.2']);
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/health")->assertOk();
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_contains((string) $r['title'], 'blocklisted'));
     }
 }
