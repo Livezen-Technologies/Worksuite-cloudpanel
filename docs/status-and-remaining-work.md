@@ -55,6 +55,35 @@ Overall            ~70%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
 
+## Coverage against the SRS (re-audited after the SRS added sections 4.30–4.36)
+
+The SRS now has 381 numbered requirements. Counting a partly built one as half, about
+**71%** are met (270 of 381). Before the new sections it was about 79% of 326. The
+percentages in the table above are rough feature-area estimates, so the two numbers differ.
+
+New in the SRS, and what exists for each:
+
+| Group | Reqs | Met | What exists / what is missing |
+|---|---|---|---|
+| SCL scaling and load balancing (4.30) | 10 | ~15% | Rolling and blue-green deploys and health checks exist (SCL-4/5 partly); scheduler placement exists (SCL-6 partly). No replicas, autoscaling, balancing strategies, sticky sessions, traffic splitting, edge failover or package limits. |
+| PNET private network and observability (4.31) | 9 | ~15% | Traefik edge with automatic HTTPS (PNET-8 partly, not over a mesh); per-container metrics and log fetch (PNET-9 partly); outbound SMTP limits (PNET-6 partly). No WireGuard mesh, CoreDNS `*.internal` names or admin VPN configs. |
+| BLD build pipeline (4.32) | 9 | ~45% | Signed push webhooks (BLD-1), isolated builders, the stage timeline, a registry, the Trivy gate (BLD-7) and rollback on a failed health check (BLD-8) exist. Missing: BullMQ queue, Railpack/Nixpacks, a BuildKit layer cache with cache-hit rate, registry garbage collection, build-minute limits. |
+| CLN server cleanup (4.33) | 5 | ~20% | Prune with preview and a scheduled prune job exist. No policy levels, disk-threshold runs, protection of the last good image per app, history or alerts. |
+| CFT Cloudflare Tunnel (4.34) | 6 | 0% | Not started (Cloudflare DNS exists). |
+| ENV environments (4.35) | 7 | ~10% | Apps have an environment label and production approval exists. No project → environment model, duplication, `${{…}}` references, branch mapping, promotion or sleep. |
+| TPL one-click templates (4.36) | 6 | ~15% | About 6 templates (the SRS wants 280+), with no Compose templates, manifests, generated `SERVICE_*` variables, template sync, updates or install tests. |
+| USCL customer scaling (5.12) | 3 | 0% | Depends on SCL. |
+
+The reference architecture (SRS 2.6) names Temporal, BullMQ, Loki, Railpack, WireGuard and
+CoreDNS. The platform currently uses Laravel queues and a Laravel job runner, Prometheus metrics
+through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues as the MVP
+alternative.
+
+Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
+private network (PNET, 9), firewall (FW, 5), environments (ENV, 7), templates (TPL, 6),
+Cloudflare Tunnel (CFT, 6), cron engine (CRON, 7), backup manager (BKM, 4), public pages
+(PUB, 4, in progress).
+
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
 was taking ~9,900 hits a day. Verified backups are on `51.89.192.43`. See the
 warnings at the end of this file first — this work has gone wrong twice.
