@@ -74,12 +74,35 @@ class FileController extends Controller
 
     public function copy(Request $request, string $id)
     {
-        return $this->run($request, $id, 'copy', $this->selection($request) + $request->validate(['dest' => self::PATH]));
+        return $this->run($request, $id, 'copy', $this->selection($request) + $request->validate(['dest' => self::PATH]) + $this->otherVolume($request, $id));
     }
 
     public function move(Request $request, string $id)
     {
-        return $this->run($request, $id, 'move', $this->selection($request) + $request->validate(['dest' => self::PATH]));
+        return $this->run($request, $id, 'move', $this->selection($request) + $request->validate(['dest' => self::PATH]) + $this->otherVolume($request, $id));
+    }
+
+    /**
+     * Copy or move into another volume on the same server. `dest_id` is addressed like
+     * the route's own id (a volume here, an app in the customer panel), so the caller
+     * can only reach volumes they could open anyway.
+     */
+    private function otherVolume(Request $request, string $id): array
+    {
+        $destId = $request->validate(['dest_id' => 'nullable|string|max:64'])['dest_id'] ?? null;
+        if (! $destId || $destId === $id) {
+            return [];
+        }
+        $source = $this->volume($id);
+        $dest = $this->volume($destId);
+        if ($dest->server_id !== $source->server_id) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['dest_id' => 'Both volumes must be on the same server.']);
+        }
+        if ($dest->type === 'nfs') {
+            throw \Illuminate\Validation\ValidationException::withMessages(['dest_id' => 'NFS volumes are not supported by the file manager yet.']);
+        }
+
+        return ['dest_volume' => $dest->name];
     }
 
     public function compress(Request $request, string $id)
@@ -91,7 +114,13 @@ class FileController extends Controller
 
     public function extract(Request $request, string $id)
     {
-        return $this->run($request, $id, 'extract', $request->validate(['path' => 'required|string|max:4096', 'dest' => self::PATH, 'overwrite' => 'sometimes|boolean']));
+        // One archive by `path`, or several by `paths` (bulk), optionally each into its own folder.
+        $data = $request->validate([
+            'path' => 'required_without:paths|nullable|string|max:4096', 'paths' => 'sometimes|array|min:1|max:100', 'paths.*' => 'string|max:4096',
+            'dest' => self::PATH, 'overwrite' => 'sometimes|boolean', 'separate' => 'sometimes|boolean',
+        ]);
+
+        return $this->run($request, $id, 'extract', array_filter($data, fn ($v) => $v !== null));
     }
 
     public function trash(Request $request, string $id)

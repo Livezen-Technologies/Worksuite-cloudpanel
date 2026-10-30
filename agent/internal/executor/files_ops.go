@@ -42,6 +42,10 @@ type opsPayload struct {
 	Name      string   `json:"name"`
 	Path      string   `json:"path"`
 	Overwrite bool     `json:"overwrite"`
+	// DestVolume, for fs.copy and fs.move, is another volume on this server to copy into.
+	DestVolume string `json:"dest_volume"`
+	// Separate, for a bulk fs.extract, puts each archive into a folder named after it.
+	Separate bool `json:"separate"`
 }
 
 // TrashItem describes one restorable item.
@@ -85,15 +89,30 @@ func (e *Executor) fileOps(ctx context.Context, typ string, raw json.RawMessage)
 		if err != nil {
 			return nil, err
 		}
+		if p.DestVolume != "" && p.DestVolume != p.Volume {
+			dstDir, err := e.volumeRoot(ctx, p.DestVolume)
+			if err != nil {
+				return nil, err
+			}
+			dst, err := os.OpenRoot(dstDir)
+			if err != nil {
+				return nil, err
+			}
+			defer dst.Close()
+			return copyBetween(root, dst, rels, dest, typ == "fs.move")
+		}
 		return copyMove(root, rels, dest, typ == "fs.move")
 	case "fs.compress":
 		return compress(root, rels, p.Dest, p.Name, p.Format)
 	case "fs.extract":
-		rel, err := cleanRel(p.Path)
+		dest, err := cleanRel(p.Dest)
 		if err != nil {
 			return nil, err
 		}
-		dest, err := cleanRel(p.Dest)
+		if len(rels) > 0 {
+			return extractMany(root, rels, dest, p.Separate, p.Overwrite)
+		}
+		rel, err := cleanRel(p.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -156,6 +175,70 @@ func copyMove(root *os.Root, rels []string, dest string, move bool) (any, error)
 		}
 	}
 	return map[string]any{"items": len(rels), "files": files, "skipped_links": skipped}, nil
+}
+
+// copyBetween copies or moves items from one volume into a folder of another.
+// Both sides go through their own os.Root, so neither can be escaped.
+func copyBetween(src, dst *os.Root, rels []string, dest string, move bool) (any, error) {
+	if len(rels) == 0 {
+		return nil, errors.New("nothing selected")
+	}
+	if fi, err := dst.Stat(dest); err != nil || !fi.IsDir() {
+		return nil, fmt.Errorf("the destination %s is not a folder in the other volume", dest)
+	}
+	files, skipped := 0, 0
+	for _, rel := range rels {
+		target := path.Join(dest, path.Base(rel))
+		if _, err := dst.Lstat(target); err == nil {
+			return nil, fmt.Errorf("%s already exists in the other volume", target)
+		}
+		if move {
+			if err := transferOut(src, rel, dst, target); err != nil {
+				return nil, err
+			}
+			files++
+			continue
+		}
+		n, sk, err := copyTree(src, rel, dst, target)
+		files, skipped = files+n, skipped+sk
+		if err != nil {
+			_, _ = removeTree(dst, target) // never leave half a copy behind
+			return nil, err
+		}
+	}
+	return map[string]any{"items": len(rels), "files": files, "skipped_links": skipped}, nil
+}
+
+// extractMany extracts several archives, into dest or each into its own folder
+// there. It stops at the first archive that fails and reports the ones done.
+func extractMany(root *os.Root, rels []string, dest string, separate, overwrite bool) (any, error) {
+	done := []map[string]any{}
+	for _, rel := range rels {
+		target := dest
+		if separate {
+			target = path.Join(dest, archiveStem(path.Base(rel)))
+			if err := mkdirAll(root, target); err != nil {
+				return map[string]any{"archives": done}, fmt.Errorf("%s: %w", rel, err)
+			}
+		}
+		out, err := extract(root, rel, target, overwrite)
+		if err != nil {
+			return map[string]any{"archives": done}, fmt.Errorf("%s: %w", rel, err)
+		}
+		done = append(done, map[string]any{"path": rel, "dest": target, "result": out})
+	}
+	return map[string]any{"archives": done}, nil
+}
+
+// archiveStem is an archive's name without its archive extension.
+func archiveStem(name string) string {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".tar.gz", ".tgz", ".tar", ".zip"} {
+		if strings.HasSuffix(lower, ext) && len(name) > len(ext) {
+			return name[:len(name)-len(ext)]
+		}
+	}
+	return name + "-extracted"
 }
 
 // freeName finds "name (copy)", "name (copy 2)", … for a copy into the same folder.

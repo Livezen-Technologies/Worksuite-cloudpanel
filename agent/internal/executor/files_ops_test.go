@@ -181,3 +181,56 @@ func TestExtractRefusesEntriesOutsideTheFolder(t *testing.T) {
 		t.Fatal("regular entries must still be extracted")
 	}
 }
+
+func TestCopyAndMoveBetweenVolumes(t *testing.T) {
+	site, other := t.TempDir(), t.TempDir()
+	e := &Executor{VolumeRoot: func(_ context.Context, name string) (string, error) {
+		if name == "other" {
+			return other, nil
+		}
+		return site, nil
+	}}
+	write(t, site, "uploads/a.jpg", "jpg")
+	write(t, site, "plugins/x/x.php", "<?php")
+	os.Mkdir(filepath.Join(other, "in"), 0o755)
+
+	if _, err := runOps(t, e, "fs.copy", map[string]any{"paths": []string{"uploads"}, "dest": "in", "dest_volume": "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if read(other, "in/uploads/a.jpg") != "jpg" || read(site, "uploads/a.jpg") != "jpg" {
+		t.Fatal("copy between volumes lost a file")
+	}
+	if _, err := runOps(t, e, "fs.copy", map[string]any{"paths": []string{"uploads"}, "dest": "in", "dest_volume": "other"}); err == nil {
+		t.Fatal("copying over an existing item in the other volume must fail")
+	}
+	if _, err := runOps(t, e, "fs.move", map[string]any{"paths": []string{"plugins/x"}, "dest": "in", "dest_volume": "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if read(other, "in/x/x.php") != "<?php" || read(site, "plugins/x/x.php") != "<missing>" {
+		t.Fatal("move between volumes did not move")
+	}
+	if _, err := runOps(t, e, "fs.copy", map[string]any{"paths": []string{"uploads"}, "dest": "../escape", "dest_volume": "other"}); err == nil {
+		t.Fatal("a destination outside the other volume must be refused")
+	}
+}
+
+func TestBulkExtractEachIntoItsOwnFolder(t *testing.T) {
+	e, dir := fsExec(t)
+	write(t, dir, "a/one.txt", "1")
+	write(t, dir, "b/two.txt", "2")
+	for _, f := range []map[string]any{{"paths": []string{"a"}, "dest": "", "format": "zip"}, {"paths": []string{"b"}, "dest": "", "format": "tar.gz"}} {
+		if _, err := runOps(t, e, "fs.compress", f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runOps(t, e, "fs.extract", map[string]any{"paths": []string{"a.zip", "b.tar.gz"}, "dest": "", "separate": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read(dir, "a/a/one.txt") != "1" || read(dir, "b/b/two.txt") != "2" || len(out["archives"].([]any)) != 2 {
+		t.Fatalf("bulk extract: %v", out)
+	}
+	if _, err := runOps(t, e, "fs.extract", map[string]any{"paths": []string{"a.zip", "missing.zip"}, "dest": "", "separate": true, "overwrite": true}); err == nil {
+		t.Fatal("a missing archive must fail the bulk extract")
+	}
+}

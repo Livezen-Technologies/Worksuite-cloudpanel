@@ -4,6 +4,7 @@ import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { Empty } from '../../components/Card'
+import { FileEditor } from '../../components/FileEditor'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import type { R } from '../../lib/util'
@@ -181,7 +182,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
   const { me } = useAuth()
   const canChown = !customer && OWNER_ROLES.includes(String(me?.role ?? '').toLowerCase())
   const [perm, setPerm] = useState<{ items: Entry[]; mode: number; recursive: boolean; uid: string; gid: string } | null>(null)
-  const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean } | null>(null)
+  const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean; destId: string; separate: boolean } | null>(null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -194,6 +195,8 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
   const usable = useMemo(() => volumes.rows.filter((v) => (customer ? v.ready : v.type !== 'nfs')), [volumes.rows, customer])
   useEffect(() => { if (!volumeId && usable[0]) setVolumeId(usable[0].id) }, [usable, volumeId])
   const volume = usable.find((v) => v.id === volumeId)
+  // Copy and move can go into another volume, as long as it is on the same server.
+  const sameServer = usable.filter((v) => !volume?.server_id || v.server_id === volume.server_id)
   const base = customer ? `/app/apps/${volumeId}/files` : `/volumes/${volumeId}/files`
 
   const load = useCallback(async (path: string) => {
@@ -342,15 +345,18 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
     const dest = op.dest.replace(/^\/+|\/+$/g, '')
     const label = op.names.length === 1 ? op.names[0] : `${op.names.length} items`
     const done = () => { setOp(null); setSelected(new Set()) }
-    if (op.kind === 'copy') return act(`Copied ${label}`, () => api.post(`${base}/copy`, { paths, dest }), done)
-    if (op.kind === 'move') return act(`Moved ${label}`, () => api.post(`${base}/move`, { paths, dest }), done)
+    const other = op.destId && op.destId !== volumeId ? { dest_id: op.destId } : {}
+    const into = op.destId && op.destId !== volumeId ? ` into ${usable.find((v) => v.id === op.destId)?.name ?? 'the other volume'}` : ''
+    if (op.kind === 'copy') return act(`Copied ${label}${into}`, () => api.post(`${base}/copy`, { paths, dest, ...other }), done)
+    if (op.kind === 'move') return act(`Moved ${label}${into}`, () => api.post(`${base}/move`, { paths, dest, ...other }), done)
     if (op.kind === 'compress') return act(`Created ${op.name || 'archive'}`, () => api.post(`${base}/compress`, { paths, dest: dir, format: op.format, name: op.name || null }), done)
+    if (paths.length > 1) return act(`Extracted ${label}`, () => api.post(`${base}/extract`, { paths, dest, overwrite: op.overwrite, separate: op.separate }), done)
     return act(`Extracted ${label}`, () => api.post(`${base}/extract`, { path: paths[0], dest, overwrite: op.overwrite }), done)
   }
 
   const chosen = () => (entries ?? []).filter((e) => selected.has(e.name))
   const opFor = (kind: 'copy' | 'move' | 'compress' | 'extract', names: string[]) =>
-    setOp({ kind, names, dest: dir, name: names.length === 1 ? names[0].replace(ARCHIVE, '') : 'archive', format: 'zip', overwrite: false })
+    setOp({ kind, names, dest: dir, name: names.length === 1 ? names[0].replace(ARCHIVE, '') : 'archive', format: 'zip', overwrite: false, destId: volumeId, separate: names.length > 1 })
 
   function openPerms(items: Entry[]) {
     const first = items[0]
@@ -779,6 +785,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('move', [...selected])}>Move to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('compress', [...selected])}>Compress</button>
+              {[...selected].every((n) => ARCHIVE.test(n)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('extract', [...selected])}>Extract{selected.size > 1 ? ' all' : ''}</button>}
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPerms(chosen().filter((e) => e.type === 'file' || e.type === 'dir'))}>Permissions</button>
               <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { setPermanent(false); setDeleting(chosen()) }}>Delete</button></>}
           </span>
@@ -944,10 +951,18 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           </div>
         ) : op && (
           <div className="flex flex-col gap-3">
+            {op.kind !== 'extract' && sameServer.length > 1 && (
+              <label className="label">Into
+                <select className="input" value={op.destId} onChange={(e) => setOp({ ...op, destId: e.target.value, dest: e.target.value === volumeId ? dir : '' })}>
+                  {sameServer.map((v) => <option key={v.id} value={v.id}>{v.name}{v.id === volumeId ? ' (this one)' : ''}</option>)}
+                </select>
+              </label>
+            )}
             <label className="label">{op.kind === 'extract' ? 'Extract into folder' : 'Destination folder'}
               <input className="input font-mono" value={op.dest} placeholder="(top folder)" onChange={(e) => setOp({ ...op, dest: e.target.value })} />
             </label>
-            <p className="m-0 text-xs text-muted">A path inside {volume?.name}, for example <span className="font-mono">wp-content/uploads</span>. Leave empty for the top folder.</p>
+            <p className="m-0 text-xs text-muted">A path inside {usable.find((v) => v.id === op.destId)?.name ?? volume?.name}, for example <span className="font-mono">wp-content/uploads</span>. Leave empty for the top folder.</p>
+            {op.kind === 'extract' && op.names.length > 1 && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={op.separate} onChange={(e) => setOp({ ...op, separate: e.target.checked })} />Put each archive in its own folder</label>}
             {op.kind === 'extract' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={op.overwrite} onChange={(e) => setOp({ ...op, overwrite: e.target.checked })} />Replace files that already exist</label>}
           </div>
         )}
@@ -963,8 +978,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
             {busy ? 'Saving…' : 'Save'}
           </button>
         </>}>
-        <textarea aria-label={`Contents of ${editing?.path}`} spellCheck={false} className="input font-mono text-xs w-full min-h-[60vh] leading-relaxed"
-          value={editing?.content ?? ''} onChange={(e) => editing && setEditing({ ...editing, content: e.target.value })} />
+        <FileEditor label={`Contents of ${editing?.path}`} path={editing?.path ?? ''} value={editing?.content ?? ''} onChange={(v) => editing && setEditing({ ...editing, content: v })} />
       </Modal>
     </>
   )

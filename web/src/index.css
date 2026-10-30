@@ -10,6 +10,8 @@
   --r-bg: #FEF2F2; --r-fg: #B91C1C; --b-bg: #EFF6FF; --b-fg: #1D4ED8;
   --n-bg: #F1F5F9; --n-fg: #475569; --danger: #B91C1C; --danger-line: #FECACA;
   --code-bg: #0F172A; --code-fg: #E2E8F0;
+  /* Editor syntax colours (file manager), each at 4.5:1 or more on --card. */
+  --tok-kw: #7C3AED; --tok-st: #047857; --tok-cm: #64748B; --tok-nu: #B45309; --tok-va: #1D4ED8; --tok-tg: #BE185D;
   /* The top bar stays dark in both themes, as the canvas specifies. */
   --header-bg: #0F1115; --header-fg: #F3F4F6; --header-line: #2D313A;
   color-scheme: light;
@@ -22,6 +24,7 @@
   --r-bg: #3B0D0D; --r-fg: #F87171; --b-bg: #0C2340; --b-fg: #60A5FA;
   --n-bg: #1E293B; --n-fg: #CBD5E1; --danger: #F87171; --danger-line: #7F1D1D;
   --code-bg: #020617; --code-fg: #E2E8F0;
+  --tok-kw: #C4B5FD; --tok-st: #6EE7B7; --tok-cm: #94A3B8; --tok-nu: #FCD34D; --tok-va: #93C5FD; --tok-tg: #F9A8D4;
   color-scheme: dark;
 }
 
@@ -180,3 +183,12 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
 @keyframes ovl-rise { from { opacity: 0; transform: translateY(8px) scale(.98) } to { opacity: 1; transform: none } }
 @keyframes ovl-slide-right { from { transform: translateX(100%) } to { transform: none } }
 @keyframes ovl-slide-left  { from { transform: translateX(-100%) } to { transform: none } }
+
+/* File manager editor highlighting (components/FileEditor.tsx). */
+.code-hl { color: var(--text); }
+.code-hl .tok-kw { color: var(--tok-kw); }
+.code-hl .tok-st { color: var(--tok-st); }
+.code-hl .tok-cm { color: var(--tok-cm); font-style: italic; }
+.code-hl .tok-nu { color: var(--tok-nu); }
+.code-hl .tok-va { color: var(--tok-va); }
+.code-hl .tok-tg { color: var(--tok-tg); }
