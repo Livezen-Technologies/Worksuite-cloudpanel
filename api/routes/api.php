@@ -108,6 +108,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('applications/{id}/releases', [Admin\ApplicationController::class, 'releases'])->name('applications.releases');
         Route::get('applications/{id}/scaling', [Admin\ScalingController::class, 'show'])->name('applications.scaling');
         Route::get('builds/usage', Admin\BuildUsageController::class)->name('builds.usage');
+        Route::get('templates', [Admin\TemplateController::class, 'index'])->name('templates.index');
+        Route::get('templates/{template}', [Admin\TemplateController::class, 'show'])->name('templates.show');
+        Route::get('template-installs', [Admin\TemplateController::class, 'installs'])->name('template-installs.index');
         Route::get('projects', [Admin\ProjectController::class, 'index'])->name('projects.index');
         Route::get('projects/{id}', [Admin\ProjectController::class, 'show'])->name('projects.show');
         Route::get('environments/{id}', [Admin\ProjectController::class, 'showEnvironment'])->name('environments.show');
@@ -120,6 +123,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
         Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
+        Route::post('templates/{template}/install', [Admin\TemplateController::class, 'install'])->name('templates.install');
+        Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');
+        Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::post('projects/{id}/webhook-secret', [Admin\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');

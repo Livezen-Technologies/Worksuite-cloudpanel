@@ -1,0 +1,38 @@
+id: ghost-mysql
+name: Ghost + MySQL
+category: CMS
+version: 1
+type: compose
+accent: "#15171A"
+description: Ghost on MySQL 8, credentials generated.
+port: 2368
+compose: |
+  services:
+    ghost:
+      image: ghost:5-alpine
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        url: ${SERVICE_URL}
+        database__client: mysql
+        database__connection__host: db
+        database__connection__user: ${SERVICE_USER_GHOST}
+        database__connection__password: ${SERVICE_PASSWORD_GHOST}
+        database__connection__database: ghost
+      volumes: [content:/var/lib/ghost/content]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "2368"
+    db:
+      image: mysql:8.4
+      restart: unless-stopped
+      environment:
+        MYSQL_DATABASE: ghost
+        MYSQL_USER: ${SERVICE_USER_GHOST}
+        MYSQL_PASSWORD: ${SERVICE_PASSWORD_GHOST}
+        MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}
+      volumes: [db:/var/lib/mysql]
+  volumes:
+    content: {}
+    db: {}

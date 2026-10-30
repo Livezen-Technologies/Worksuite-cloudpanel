@@ -79,6 +79,28 @@ Artisan::command('environments:sleep', function (\App\Services\EnvironmentServic
     $this->info('Apps put to sleep: '.$envs->sleepIdle());
 })->purpose('ENV-7: stop idle apps in environments with a sleep window');
 
+Artisan::command('templates:sync', function (\App\Services\TemplateService $templates) {
+    $s = $templates->sync();
+    $this->info("bundled {$s['bundled']}, remote {$s['remote']}, invalid ".count($s['invalid']).(isset($s['remote_error']) ? "; remote error: {$s['remote_error']}" : ''));
+})->purpose('TPL-4: load template manifests (bundled and TEMPLATES_REMOTE_URL)');
+
+Artisan::command('templates:validate', function (\App\Services\TemplateService $templates) {
+    $failed = 0;
+    foreach ($templates->bundled() as $m) {
+        $r = $templates->lint($m);
+        foreach ($r['errors'] as $e) {
+            $this->error(($m['id'] ?? '?').": {$e}");
+        }
+        foreach ($r['warnings'] as $w) {
+            $this->warn(($m['id'] ?? '?').": {$w}");
+        }
+        $failed += $r['errors'] ? 1 : 0;
+    }
+    $this->info(count($templates->bundled())." templates checked, {$failed} failed");
+
+    return $failed ? 1 : 0;
+})->purpose('TPL-6: render and check every bundled template');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -226,6 +248,7 @@ Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
 Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('templates:sync')->daily();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

@@ -1,0 +1,38 @@
+id: gitea-postgres
+name: Gitea + PostgreSQL
+category: Development
+version: 1
+type: compose
+accent: "#609926"
+description: Gitea Git hosting backed by PostgreSQL.
+port: 3000
+compose: |
+  services:
+    gitea:
+      image: gitea/gitea:1.22
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        GITEA__database__DB_TYPE: postgres
+        GITEA__database__HOST: db:5432
+        GITEA__database__NAME: gitea
+        GITEA__database__USER: ${SERVICE_USER_GITEA}
+        GITEA__database__PASSWD: ${SERVICE_PASSWORD_GITEA}
+        GITEA__server__ROOT_URL: ${SERVICE_URL}/
+        GITEA__security__SECRET_KEY: ${SERVICE_HEX_GITEA}
+      volumes: [data:/data]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "3000"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: gitea
+        POSTGRES_USER: ${SERVICE_USER_GITEA}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_GITEA}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    data: {}
+    db: {}

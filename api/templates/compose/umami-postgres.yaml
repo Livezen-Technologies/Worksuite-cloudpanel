@@ -1,0 +1,31 @@
+id: umami-postgres
+name: Umami + PostgreSQL
+category: Analytics
+version: 1
+type: compose
+accent: "#000000"
+description: Simple, privacy-focused analytics.
+port: 3000
+compose: |
+  services:
+    umami:
+      image: ghcr.io/umami-software/umami:postgresql-v2.13.2
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        DATABASE_URL: postgresql://${SERVICE_USER_UMAMI}:${SERVICE_PASSWORD_UMAMI}@db:5432/umami
+        APP_SECRET: ${SERVICE_HEX_UMAMI}
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "3000"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: umami
+        POSTGRES_USER: ${SERVICE_USER_UMAMI}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_UMAMI}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    db: {}

@@ -1,0 +1,34 @@
+id: odoo-postgres
+name: Odoo + PostgreSQL
+category: Business
+version: 1
+type: compose
+accent: "#714B67"
+description: Odoo ERP with PostgreSQL.
+port: 8069
+compose: |
+  services:
+    odoo:
+      image: odoo:17
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        HOST: db
+        USER: ${SERVICE_USER_ODOO}
+        PASSWORD: ${SERVICE_PASSWORD_ODOO}
+      volumes: [data:/var/lib/odoo]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "8069"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: postgres
+        POSTGRES_USER: ${SERVICE_USER_ODOO}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_ODOO}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    data: {}
+    db: {}

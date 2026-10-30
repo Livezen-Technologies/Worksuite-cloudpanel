@@ -183,6 +183,8 @@ return [
     ],
 
     // One-click customer templates (UHOST source "template").
+    'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL')],
+
     'app_templates' => [
         'wordpress' => ['name' => 'WordPress', 'description' => 'Blog and website CMS', 'image' => 'wordpress:6', 'port' => 80, 'volume_path' => '/var/www/html', 'size' => 'standard', 'env' => [['key' => 'WORDPRESS_DB_HOST', 'value' => '', 'secret' => false]]],
         'n8n' => ['name' => 'n8n', 'description' => 'Workflow automation', 'image' => 'n8nio/n8n:1', 'port' => 5678, 'volume_path' => '/home/node/.n8n', 'size' => 'standard', 'env' => []],
