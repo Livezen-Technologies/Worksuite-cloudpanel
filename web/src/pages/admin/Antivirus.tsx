@@ -17,6 +17,10 @@ const scoreTone = (n: number) => (n >= 80 ? 'g' : n >= 50 ? 'y' : 'r') as 'g' | 
 export default function Antivirus() {
   const summary = useOne<R>('/antivirus')
   const score = useOne<R>('/antivirus/score')
+  const integrity = useOne<R>('/antivirus/integrity')
+  const fim = (volumeId: string, action: 'baseline' | 'check' | 'accept', name: string) => run({
+    path: `/antivirus/integrity/${volumeId}/${action}`, label: `${{ baseline: 'Baseline', check: 'Integrity check', accept: 'Accept changes' }[action]} for ${name}`,
+  }).then(() => { integrity.refetch(); score.refetch() })
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [schedule, setSchedule] = useState<R | null>(null)
   const [status, setStatus] = useState('')
@@ -67,6 +71,33 @@ export default function Antivirus() {
                   <span className="text-xs text-muted"> · {v.last_scan_at ? `scanned ${ago(String(v.last_scan_at))}` : 'never scanned'}</span>
                   {(v.fixes as R[]).length > 0 && <ul className="m-0 mt-1 pl-4 text-sm text-muted">{(v.fixes as R[]).map((f) => <li key={String(f.fix)}>{String(f.fix)} <span className="text-xs">(+{String(f.points)})</span></li>)}</ul>}
                 </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="File integrity" pad={false} actions={<span className="text-sm text-muted">Code files changed outside a deployment. A baseline is taken after every deployment.</span>}>
+        <DataTable label="File integrity" rows={((integrity.item?.volumes as R[]) ?? [])} loading={integrity.isLoading} rowKey={(r) => r.id}
+          columns={[
+            { key: 'name', header: 'Volume' },
+            { key: 'open', header: 'Changes', render: (r) => Number(r.open) ? <Badge tone="r">{String(r.open)} to review</Badge> : r.baseline_at ? <Badge tone="g">none</Badge> : <Badge tone="n">no baseline</Badge> },
+            { key: 'checked_at', header: 'Last check', render: (r) => r.checked_at ? ago(String(r.checked_at)) : '—' },
+            { key: 'actions', header: '', sortable: false, render: (r) => (
+              <span className="flex flex-wrap gap-1 justify-end">
+                {!r.baseline_at && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => fim(String(r.id), 'baseline', String(r.name))}>Take baseline</button>}
+                {!!r.baseline_at && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => fim(String(r.id), 'check', String(r.name))}>Check now</button>}
+                {Number(r.open) > 0 && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { if (window.confirm(`Accept the ${r.open} changes on ${r.name} as the new baseline? Only do this if you made them.`)) fim(String(r.id), 'accept', String(r.name)) }}>Accept changes</button>}
+              </span>
+            ) },
+          ]} />
+        {((integrity.item?.changes as R[]) ?? []).length > 0 && (
+          <ul className="m-0 px-4 py-3 border-t border-line list-none flex flex-col gap-1 text-sm">
+            {(integrity.item!.changes as R[]).slice(0, 50).map((c) => (
+              <li key={String(c.id)} className="flex flex-wrap gap-2 items-baseline">
+                <Badge tone={c.change === 'removed' ? 'n' : 'y'}>{String(c.change)}</Badge>
+                <span className="font-mono text-xs break-all">{String(c.path)}</span>
+                <span className="text-xs text-muted">{String(c.volume)} · {ago(String(c.detected_at))}</span>
               </li>
             ))}
           </ul>

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,9 +75,15 @@ func TestQuarantineRestoreAndDelete(t *testing.T) {
 	if read(dir, "wp-content/uploads/shell.php") != "<missing>" {
 		t.Fatal("a quarantined file must leave the volume")
 	}
-	fi, _ := os.Stat(filepath.Join(e.StateDir, "quarantine", "t-1", "file"))
+	fi, _ := os.Stat(filepath.Join(e.StateDir, "quarantine", "t-1", "file.enc"))
 	if fi == nil || fi.Mode().Perm() != 0 {
 		t.Fatal("a quarantined file must have no permissions")
+	}
+	os.Chmod(filepath.Join(e.StateDir, "quarantine", "t-1", "file.enc"), 0o400)
+	stored, _ := os.ReadFile(filepath.Join(e.StateDir, "quarantine", "t-1", "file.enc"))
+	os.Chmod(filepath.Join(e.StateDir, "quarantine", "t-1", "file.enc"), 0)
+	if bytes.Contains(stored, []byte("evil")) || !bytes.HasPrefix(stored, []byte("WSQ1")) {
+		t.Fatal("a quarantined file must be stored encrypted (AV-5)")
 	}
 	if _, err := runAV(t, e, "av.quarantine", map[string]any{"path": "x", "id": "../../etc"}); err == nil {
 		t.Fatal("quarantine ids must not be paths")
@@ -119,4 +126,37 @@ func mustRoot(t *testing.T, dir string) *os.Root {
 	}
 	t.Cleanup(func() { r.Close() })
 	return r
+}
+
+func TestQuarantineRefusesATamperedFile(t *testing.T) {
+	e, dir, _ := avExec(t, "", nil)
+	write(t, dir, "shell.php", "evil payload")
+	if _, err := runAV(t, e, "av.quarantine", map[string]any{"path": "shell.php", "id": "t-9"}); err != nil {
+		t.Fatal(err)
+	}
+	enc := filepath.Join(e.StateDir, "quarantine", "t-9", "file.enc")
+	os.Chmod(enc, 0o600)
+	b, _ := os.ReadFile(enc)
+	b[len(b)/2] ^= 0xff
+	os.WriteFile(enc, b, 0o600)
+	if _, err := runAV(t, e, "av.restore", map[string]any{"id": "t-9"}); err == nil {
+		t.Fatal("a tampered quarantine file must not be restored")
+	}
+	if read(dir, "shell.php") != "<missing>" {
+		t.Fatal("a failed restore must not leave a partial file")
+	}
+}
+
+func TestRestoresItemsQuarantinedBeforeEncryption(t *testing.T) {
+	e, dir, _ := avExec(t, "", nil)
+	q := filepath.Join(e.StateDir, "quarantine", "old-1")
+	os.MkdirAll(q, 0o700)
+	os.WriteFile(filepath.Join(q, "file"), []byte("legacy"), 0)
+	os.WriteFile(filepath.Join(q, "meta.json"), []byte(`{"volume":"site","path":"a.php","mode":420}`), 0o600)
+	if _, err := runAV(t, e, "av.restore", map[string]any{"id": "old-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if read(dir, "a.php") != "legacy" {
+		t.Fatal("a plain quarantine item must still restore")
+	}
 }

@@ -25,6 +25,8 @@ class Volume extends Model
     {
         return [
             'options' => 'array',
+            'integrity_baseline_at' => 'datetime',
+            'integrity_checked_at' => 'datetime',
         ];
     }
 

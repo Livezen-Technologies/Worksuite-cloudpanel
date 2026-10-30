@@ -463,6 +463,11 @@ class DeploymentService implements HandlesCommandResults
             $this->jobs->stage($job, $customer ? 'live' : 'complete', 'succeeded', 'Release v'.$release->version.' is live');
             $this->jobs->succeed($job, ['deployment_id' => $deployment->id, 'release_id' => $release->id, 'version' => $release->version, 'url' => $this->primaryUrl($app)]);
         });
+        // AV-10: the deployed files are the new integrity baseline. Never fail a deployment over it.
+        try {
+            app(IntegrityService::class)->afterDeployment($app);
+        } catch (\Throwable) {
+        }
     }
 
     private function failDeployment(Deployment $deployment, Job $job, string $error, ?string $serverId = null): void

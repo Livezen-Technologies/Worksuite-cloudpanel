@@ -51,6 +51,37 @@ class AntivirusController extends Controller
         return $this->data(['queued' => $this->antivirus->scanAll()], 202);
     }
 
+    /** AV-10: each volume's baseline and the open changes found since. */
+    public function integrity()
+    {
+        $open = \App\Models\IntegrityChange::where('status', 'open')->get();
+
+        return $this->data([
+            'volumes' => Volume::query()->where('type', '!=', 'nfs')->orderBy('name')->get()->map(fn (Volume $v) => [
+                'id' => $v->id, 'name' => $v->name, 'baseline_at' => $v->integrity_baseline_at?->toIso8601ZuluString(),
+                'checked_at' => $v->integrity_checked_at?->toIso8601ZuluString(), 'open' => $open->where('volume_id', $v->id)->count(),
+            ])->values(),
+            'changes' => $open->sortByDesc('detected_at')->take(500)->map(fn ($c) => [
+                'id' => $c->id, 'volume_id' => $c->volume_id, 'volume' => $c->volume_name, 'path' => $c->path, 'change' => $c->change,
+                'detected_at' => $c->detected_at->toIso8601ZuluString(),
+            ])->values(),
+        ]);
+    }
+
+    public function integrityAction(Request $request, string $id, string $action)
+    {
+        $volume = Volume::findOrFail($id);
+        $service = app(\App\Services\IntegrityService::class);
+        $job = match ($action) {
+            'baseline' => $service->baseline($volume, $request->user()->id),
+            'check' => $service->check($volume, $request->user()->id),
+            'accept' => $service->accept($volume, $request->user()->id),
+            default => abort(404),
+        };
+
+        return $this->accepted($job);
+    }
+
     /** AV-13 */
     public function score()
     {
