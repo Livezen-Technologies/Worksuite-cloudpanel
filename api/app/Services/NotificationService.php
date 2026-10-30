@@ -69,7 +69,8 @@ class NotificationService
                     Http::timeout(10)->post("https://api.telegram.org/bot{$config['bot_token']}/sendMessage", ['chat_id' => $config['chat_id'], 'text' => "{$title}\n{$message}"]);
                     break;
                 case 'email':
-                    Mail::raw($message, fn ($m) => $m->to($config['to'])->subject($title));
+                    // EML: the branded "alert" email (HTML and plain text).
+                    app(EmailTemplateService::class)->send('alert', $config['to'], ['title' => $title, 'message' => $message, 'severity' => (string) ($context['severity'] ?? 'alert')]);
                     break;
                 case 'whatsapp':
                     $this->whatsapp($config, $title, $message);

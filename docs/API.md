@@ -88,6 +88,11 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /roles ; GET /roles/{name} → permission matrix | |
 | GET/PATCH | /settings | general + security policies |
 | POST | /settings/smtp/test | `{to?}` (defaults to your own email; 6 per minute). Sends a test email with the saved SMTP settings. Returns 409 without a host, or 502 with the SMTP server's error. Audited. |
+| GET | /email-templates | EML-1/3: `{brand {sender_name, logo_url, color, footer}, groups[{id, name, mandatory, templates[{key, name, subject, enabled, mandatory, customised}]}]}`. 20 templates in 7 groups (account, security, deployments, domains, backups, alerts, billing), defined in `config/email_templates.php`. Needs `settings.manage`. |
+| GET \| PATCH | /email-templates/{key} | EML-2: `{subject, preview, heading, body, button_label, button_url, secondary_label, secondary_url, enabled}`. An empty subject, heading or body falls back to the default. `{{variables}}` outside the template's list (plus `platform_name`, `user_name`, `panel_url`) are refused with 422. Security and billing templates cannot be switched off. `GET` adds `variables`, `details`, `sample` and `customised`. |
+| POST | /email-templates/{key}/reset \| /preview \| /test | `reset` drops the overrides. `preview {vars?}` returns `{subject, preview, html, text}` rendered with sample values. `test {to?}` sends a "[Test]" copy, even when the template is off (6 per minute; 502 with the SMTP error). |
+| PATCH | /email-templates/brand | EML-3 `{sender_name?, logo_url? (https), color (#RRGGBB), footer?}`, stored on the platform organisation. |
+| GET \| PATCH | /me/email-preferences | EML-5 `{opt_out: [keys]}`. Security and billing keys are dropped silently, because they are always sent. |
 | CRUD | /notification-channels ; CRUD /integrations | |
 | GET/POST/DELETE | /api-tokens | {name, abilities[], expires_at} → token shown once |
 | GET | /audit-logs | |
@@ -287,6 +292,10 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | PUT/PATCH | `/dns/zones/{id}/records/{recordId}` | Same body; the type cannot change. |
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
 
+
+## Email templates (SRS EML)
+
+Every email has an HTML part and a plain-text part (EML-4). The HTML is a 600 px table layout with inline styles, fluid down to 360 px, with a `prefers-color-scheme: dark` stylesheet and hidden preview text. Values are HTML-escaped; only `http(s)` links become buttons, and the link is repeated as a fallback under the button. `EmailTemplateService::send($key, $userOrAddress, $vars)` skips a template that is off, or one the user opted out of; security and billing emails are always sent. Today the email notification channel sends the `alert` template, and user invitations send `invite`.
 
 ## Mail hosting (SRS MAIL)
 

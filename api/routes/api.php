@@ -32,6 +32,7 @@ Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::c
 Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audit'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('me', [AuthController::class, 'me'])->name('me.show');
+    Route::match(['get', 'patch'], 'me/email-preferences', [Admin\EmailTemplateController::class, 'preferences'])->name('me.email-preferences');
     Route::post('me/mfa/enable', [AuthController::class, 'mfaEnable'])->name('me.mfa-enable');
     Route::post('me/mfa/confirm', [AuthController::class, 'mfaConfirm'])->name('me.mfa-confirm');
     Route::post('me/mfa/disable', [AuthController::class, 'mfaDisable'])->name('me.mfa-disable');
@@ -321,6 +322,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('roles/{name}', [Admin\RoleController::class, 'show'])->middleware('perm:users.manage|audit.view')->where('name', '[a-z_]+')->name('roles.show');
     Route::get('settings', [Admin\SettingsController::class, 'show'])->middleware('perm:settings.manage')->name('settings.show');
     Route::patch('settings', [Admin\SettingsController::class, 'update'])->middleware('perm:settings.manage')->name('settings.update');
+    // Email templates (EML-1..5).
+    Route::get('email-templates', [Admin\EmailTemplateController::class, 'index'])->middleware('perm:settings.manage')->name('email-templates.index');
+    Route::patch('email-templates/brand', [Admin\EmailTemplateController::class, 'brand'])->middleware('perm:settings.manage')->name('email-templates.brand');
+    Route::get('email-templates/{key}', [Admin\EmailTemplateController::class, 'show'])->middleware('perm:settings.manage')->name('email-templates.show');
+    Route::patch('email-templates/{key}', [Admin\EmailTemplateController::class, 'update'])->middleware('perm:settings.manage')->name('email-templates.update');
+    Route::post('email-templates/{key}/reset', [Admin\EmailTemplateController::class, 'reset'])->middleware('perm:settings.manage')->name('email-templates.reset');
+    Route::post('email-templates/{key}/preview', [Admin\EmailTemplateController::class, 'preview'])->middleware('perm:settings.manage')->name('email-templates.preview');
+    Route::post('email-templates/{key}/test', [Admin\EmailTemplateController::class, 'test'])->middleware(['perm:settings.manage', 'throttle:6,1'])->name('email-templates.test');
     Route::post('settings/smtp/test', [Admin\SettingsController::class, 'testSmtp'])->middleware(['perm:settings.manage', 'throttle:6,1'])->name('settings.smtp-test');
     $crud('notification-channels', Admin\NotificationChannelController::class, 'settings.manage', 'settings.manage');
     Route::post('notification-channels/{id}/test', [Admin\NotificationChannelController::class, 'test'])->middleware('perm:settings.manage')->name('notification-channels.test');
