@@ -6,15 +6,24 @@
 Canvas / UI        100%   all 35 artboards done or verified aligned
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
                           monitoring, hardened SSH, backups in two places
-Firewall           ~70%   schema, API, renderer and page built; only rate
-                          limits actually reach traffic
+Firewall           ~90%   enforced through CrowdSec (#14): rate limits,
+                          countries, challenges, events; live sites still
+                          on hand-written Traefik files
+Antivirus          ~70%   ClamAV + YARA scans, threats, quarantine (#15);
+                          no scheduled scans or reports yet
 Monitoring         ~85%   websites + containers + servers every 5 min,
                           cooldowns, escalation, auto-restart, uptime
                           reports, WhatsApp/SMS; no Grafana or status page
-New features         0%   file manager, DNS zones, WordPress toolkit,
-                          migration wizard, mail hosting (specified only)
+File manager       ~80%   15 of 19 features + customer page (#7-#13); left:
+                          sharing, transfer manager, highlighting, bulk
+                          extract, cross-volume copy
+DNS zones          ~60%   8 of 13 (DNS-001..007, 012), Cloudflare (#16); left:
+                          PowerDNS, DNSSEC, settings, BIND, DNS-01
+Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
+                          email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~40%   down from ~45%: SRS scope grew (MIG, MAIL)
+Overall            ~44%   up from ~40%: file manager, firewall enforcement,
+                          antivirus and DNS zones
 ```
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -72,7 +81,11 @@ been invented numbers. Build them only alongside the collection.
 
 ---
 
-## 2. Firewall — built, mostly not enforced
+## 2. Firewall — enforced through CrowdSec (#14)
+
+> Update: rate limits, country blocks and challenges now reach traffic through
+> CrowdSec and its Traefik bouncer, and `firewall_events` is filled from
+> CrowdSec decisions. The table below is the state before #14.
 
 Schema (`firewall_rules`, `firewall_countries`, `firewall_protected_paths`,
 `firewall_events`), settings, renderer, API and page are all in place, at
