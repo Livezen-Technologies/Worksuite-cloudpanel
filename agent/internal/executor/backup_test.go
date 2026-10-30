@@ -40,6 +40,13 @@ func (f *fakeTools) install(e *Executor) {
 		switch {
 		case strings.Contains(joined, " backup "):
 			return []byte("{\"message_type\":\"status\"}\n{\"message_type\":\"summary\",\"snapshot_id\":\"snap1\",\"total_bytes_processed\":2048}\n"), nil
+		case strings.Contains(joined, " snapshots "):
+			if f.checkFails {
+				return []byte("Fatal: unable to open config file: Stat: 403 Forbidden"), io.ErrUnexpectedEOF
+			}
+			return []byte(`[{"id":"a"},{"id":"b"}]`), nil
+		case strings.Contains(joined, " stats "):
+			return []byte(`{"total_size":5242880}`), nil
 		case strings.Contains(joined, " forget "):
 			return []byte(`[{"keep":[{}],"remove":[{},{}]}]`), nil
 		case strings.Contains(joined, " check "):
@@ -306,5 +313,41 @@ func TestProxyCertsReadsAcmeJSONWithoutKeys(t *testing.T) {
 	r, err = e.Handle(context.Background(), cmd("ce2", "proxy.certs", `{}`, now))
 	if err != nil || r.Output.(map[string]any)["missing"] != true {
 		t.Fatal(err, r.Output)
+	}
+}
+
+func TestBackupProbeReportsReachabilityAndSize(t *testing.T) {
+	e, _, _, _ := setup(t)
+	f := &fakeTools{}
+	f.install(e)
+	out, err := e.backupProbe(context.Background(), []byte(`{"repository":"rclone:sftp:/backups/x","env":{"RESTIC_PASSWORD":"pw","RCLONE_CONFIG_SFTP_TYPE":"sftp","RCLONE_CONFIG_SFTP_HOST":"backup.example.com"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	if m["reachable"] != true || m["snapshots"] != 2 || m["stored_bytes"] != int64(5242880) {
+		t.Fatalf("%#v", m)
+	}
+	if !strings.Contains(strings.Join(f.envs[0], " "), "RCLONE_CONFIG_SFTP_HOST=backup.example.com") {
+		t.Fatal("rclone remote settings travel via env")
+	}
+	f.checkFails = true
+	out, err = e.backupProbe(context.Background(), []byte(`{"repository":"/repo","env":{"RESTIC_PASSWORD":"pw"}}`))
+	if err != nil || out.(map[string]any)["reachable"] != false || !strings.Contains(out.(map[string]any)["message"].(string), "403") {
+		t.Fatalf("an unreachable repository is a result: %v %v", out, err)
+	}
+}
+
+func TestForgetWithoutPruneForObjectLockedBuckets(t *testing.T) {
+	e, _, _, _ := setup(t)
+	f := &fakeTools{}
+	f.install(e)
+	if _, err := e.backupRun(context.Background(), []byte(`{"repository":"/repo","env":{"RESTIC_PASSWORD":"pw"},"paths":["/srv/data"],"forget":{"keep_daily":7,"no_prune":true}}`), func(int, string) {}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range f.runs {
+		if j := strings.Join(c, " "); strings.Contains(j, " forget ") && strings.Contains(j, "--prune") {
+			t.Fatal("an object-locked repository must not be pruned:", j)
+		}
 	}
 }

@@ -88,4 +88,11 @@ describe('backup policy form', () => {
     const body = policyBody({ name: 'p', destination: 's3', dc_endpoint: 'http://minio:9000', dc_bucket: 'bk', dc_access_key: '', dc_secret_key: '', destination_summary: { has_secret_key: true }, restore_test_schedule: '' })
     expect(body).toEqual({ name: 'p', destination: 's3', destination_config: { endpoint: 'http://minio:9000', bucket: 'bk' }, restore_test_schedule: null, encrypted: true })
   })
+
+  it('sends retention counts as numbers and clears emptied ones', () => {
+    const body = policyBody({ name: 'p', destination: 'sftp', dc_host: 'h', dc_user: 'u', dc_private_key: '', keep_daily: '7', keep_weekly: '', usage: { percent: 1 } })
+    expect(body).toMatchObject({ keep_daily: 7, keep_weekly: null, destination_config: { host: 'h', user: 'u' } })
+    expect(body).not.toHaveProperty('usage')
+    expect(body).not.toHaveProperty('keep_monthly')
+  })
 })

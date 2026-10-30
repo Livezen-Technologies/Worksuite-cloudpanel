@@ -90,7 +90,7 @@ alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
 private network (PNET, 9), firewall (FW, 1: FW-015 customer controls), environments (ENV, 7), templates (TPL, 6),
-Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 4), public pages
+Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
 (PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -168,6 +168,25 @@ container or systemd timers per server, and a Swarm leader runner). The panel's 
 scheduler dispatches each run to the agent, so a run happens once per minute
 already, but scheduling stops while the panel is down (those runs are reported as
 missed afterwards).
+
+## 1c. Backup manager (BKM-001..009)
+
+Built: Operations → Backups is the Backup manager with Policies, Snapshots, Restore,
+Destinations and Restore tests tabs. Summary tiles (protected targets, 30-day success
+rate, stored size, last restore test, next run) and the 14-day run chart; daily /
+weekly / monthly retention (`restic forget --keep-daily/weekly/monthly`); pause and
+resume per policy, Run now, Run all due, Rerun failed; snapshots filtered by target;
+a restore wizard (everything, files or database; replace or side by side in
+`/var/lib/dockermgr/restores/<id>`; or download; safety backup first; stop the app
+around the restore and start it again even when the restore fails; health check
+after); SFTP destinations through rclone with key authentication (write-only key);
+a connection test (`backup.probe`: snapshots and stored bytes) with usage against a
+stated capacity and a warning above 85 %; object lock for S3/R2/B2 (forget without
+prune, lock no longer than retention).
+
+Left: BKM-009 restore tests restore and validate in a scratch directory; starting the
+app from the restored data in a sandbox container and counting database rows is not
+built yet.
 
 ## 2. Firewall — enforced through CrowdSec (#14)
 

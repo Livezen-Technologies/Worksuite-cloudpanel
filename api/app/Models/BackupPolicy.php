@@ -24,6 +24,8 @@ class BackupPolicy extends Model
             'encrypted' => 'boolean',
             'enabled' => 'boolean',
             'last_run_at' => 'datetime',
+            'last_probe' => 'array',
+            'probed_at' => 'datetime',
         ];
     }
 }

@@ -4,6 +4,8 @@
 return [
     // Root of local restic repositories on the target server (one repository per org + policy).
     'local_root' => env('BACKUP_LOCAL_ROOT', '/var/lib/dockermgr/backups'),
+    // BKM-006: side-by-side restores land here, one directory per restore.
+    'restore_root' => env('BACKUP_RESTORE_ROOT', '/var/lib/dockermgr/restores'),
     // BAK-004 key escrow: repository passwords are also stored encrypted with this separate key
     // (base64, 32 bytes) so backups stay recoverable if APP_KEY is lost. Keep it offline / in a vault.
     'recovery_key' => env('BACKUP_RECOVERY_KEY'),

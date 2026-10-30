@@ -29,7 +29,7 @@ class BackupPolicyController extends CrudController
             'schedule' => ['sometimes', 'string', function ($attr, $value, $fail) {
                 CronExpression::isValidExpression($value) || $fail('Use a valid cron expression, e.g. "0 3 * * *".');
             }],
-            'destination' => 'sometimes|in:local,s3,b2,r2,gdrive',
+            'destination' => 'sometimes|in:local,s3,b2,r2,gdrive,sftp',
             'destination_config' => 'nullable|array',
             'destination_config.endpoint' => 'nullable|url|max:255',
             'destination_config.bucket' => 'nullable|string|max:63|regex:/^[a-z0-9][a-z0-9.\-]{1,62}$/',
@@ -39,6 +39,17 @@ class BackupPolicyController extends CrudController
             'destination_config.access_key' => 'nullable|string|max:255',
             'destination_config.secret_key' => 'nullable|string|max:255',
             'destination_config.account_id' => 'nullable|string|max:64',
+            // BKM-007: SFTP (key authentication only; the key is write-only).
+            'destination_config.host' => ['nullable', 'string', 'max:253', 'regex:/^[A-Za-z0-9.-]+$/'],
+            'destination_config.port' => 'nullable|integer|min:1|max:65535',
+            'destination_config.user' => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9._-]+$/'],
+            'destination_config.private_key' => ['nullable', 'string', 'max:16000', 'regex:/^-----BEGIN [A-Z ]*PRIVATE KEY-----/'],
+            // BKM-003 / BKM-007 / BKM-008
+            'keep_daily' => 'sometimes|nullable|integer|min:1|max:365',
+            'keep_weekly' => 'sometimes|nullable|integer|min:1|max:520',
+            'keep_monthly' => 'sometimes|nullable|integer|min:1|max:240',
+            'capacity_gb' => 'sometimes|nullable|integer|min:1|max:1000000',
+            'object_lock_days' => 'sometimes|nullable|integer|min:1|max:3650',
             'check_subset' => ['sometimes', 'string', 'regex:/^((100|[0-9]{1,2}(\.[0-9]+)?)%|[0-9]+\/[0-9]+|[0-9]+[KMG])$/'],
             'restore_test_schedule' => ['sometimes', 'nullable', 'string', function ($attr, $value, $fail) {
                 $value === null || CronExpression::isValidExpression($value) || $fail('Use a valid cron expression, e.g. "0 4 * * 0".');
@@ -60,7 +71,7 @@ class BackupPolicyController extends CrudController
         if (array_key_exists('destination_config', $data)) {
             $previous = $model?->destination_config ?? [];
             $next = array_filter($data['destination_config'] ?? [], fn ($v) => $v !== null && $v !== '');
-            foreach (['access_key', 'secret_key'] as $key) {
+            foreach (['access_key', 'secret_key', 'private_key'] as $key) {
                 if (! isset($next[$key]) && isset($previous[$key])) {
                     $next[$key] = $previous[$key];
                 }
@@ -76,6 +87,25 @@ class BackupPolicyController extends CrudController
             }
         }
 
+        if ($destination === 'sftp') {
+            $config = $data['destination_config'] ?? $model?->destination_config ?? [];
+            $missing = array_values(array_filter(['host', 'user', 'private_key', 'path'], fn ($k) => empty($config[$k])));
+            if ($missing) {
+                throw ApiException::validation(collect($missing)->mapWithKeys(fn ($k) => ["destination_config.{$k}" => ['Required for SFTP destinations.']])->all());
+            }
+        }
+        // BKM-008: object lock needs an S3 API, and locked data must outlive the retention window.
+        $lock = array_key_exists('object_lock_days', $data) ? $data['object_lock_days'] : $model?->object_lock_days;
+        if ($lock) {
+            if (! in_array($destination, BackupDestination::S3_LIKE, true)) {
+                throw ApiException::validation(['object_lock_days' => ['Object lock needs an S3, R2 or B2 bucket with object lock turned on.']]);
+            }
+            $retention = $data['retention_days'] ?? $model?->retention_days ?? 14;
+            if ($lock > $retention) {
+                throw ApiException::validation(['object_lock_days' => ["Lock for at most the retention window ({$retention} days), or snapshots cannot be forgotten when they expire."]]);
+            }
+        }
+
         return $data;
     }
 
@@ -85,6 +115,7 @@ class BackupPolicyController extends CrudController
 
         return $policy->toArray() + [
             'destination_summary' => BackupDestination::present($policy->destination_config),
+            'usage' => \App\Services\BackupService::usage($policy),
             'next_run_at' => $policy->enabled ? (new CronExpression($policy->schedule))->getNextRunDate(now())->format(DATE_ATOM) : null,
             'success_14d' => collect(range(13, 0))->map(fn ($d) => [
                 'date' => now()->subDays($d)->toDateString(),

@@ -56,7 +56,8 @@ func (e *Executor) stream(ctx context.Context, env []string, stdin io.Reader, st
 	return s(ctx, env, stdin, stdout, name, args...)
 }
 
-var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_"}
+// RCLONE_CONFIG_* carries an rclone remote (SFTP, Google Drive) without a config file (BKM-007).
+var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_", "RCLONE_CONFIG_"}
 
 var (
 	reContainer  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
@@ -311,6 +312,9 @@ type forgetSpec struct {
 	KeepMonthly int    `json:"keep_monthly"`
 	KeepWithin  string `json:"keep_within"`
 	Tag         string `json:"tag"`
+	// NoPrune forgets snapshots without deleting their data: an object-locked
+	// bucket refuses deletes until the lock ends (BKM-008).
+	NoPrune bool `json:"no_prune"`
 }
 
 type checkSpec struct {
@@ -392,7 +396,11 @@ func (e *Executor) backupRun(ctx context.Context, raw []byte, progress func(int,
 		if err != nil {
 			return out, err
 		}
-		fb, ferr := e.run(cctx, "/", r.env, r.bin, append(append(append([]string{}, r.base...), "forget", "--prune", "--json"), fa...)...)
+		verb := []string{"forget", "--prune", "--json"}
+		if p.Forget.NoPrune {
+			verb = []string{"forget", "--json"}
+		}
+		fb, ferr := e.run(cctx, "/", r.env, r.bin, append(append(append([]string{}, r.base...), verb...), fa...)...)
 		if ferr != nil {
 			return out, fmt.Errorf("restic forget: %w: %s", ferr, tailString(lastLine(fb), 512))
 		}
@@ -927,4 +935,35 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// backupProbe (BKM-007) checks that a repository can be reached with its keys and
+// reports how much it stores: restic snapshots + stats --mode raw-data.
+func (e *Executor) backupProbe(ctx context.Context, raw []byte) (any, error) {
+	var p resticRepo
+	if err := decode(raw, &p); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	r, err := e.resticSetup(cctx, p)
+	if err != nil {
+		return nil, err
+	}
+	b, err := e.run(cctx, "/", r.env, r.bin, append(append([]string{}, r.base...), "snapshots", "--json", "--no-lock")...)
+	if err != nil {
+		return map[string]any{"reachable": false, "message": tailString(lastLine(b), 512)}, nil
+	}
+	var snaps []json.RawMessage
+	_ = json.Unmarshal(b, &snaps)
+	out := map[string]any{"reachable": true, "snapshots": len(snaps)}
+	if sb, err := e.run(cctx, "/", r.env, r.bin, append(append([]string{}, r.base...), "stats", "--mode", "raw-data", "--json", "--no-lock")...); err == nil {
+		var st struct {
+			TotalSize int64 `json:"total_size"`
+		}
+		if json.Unmarshal(sb, &st) == nil {
+			out["stored_bytes"] = st.TotalSize
+		}
+	}
+	return out, nil
 }
