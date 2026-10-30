@@ -58,3 +58,16 @@ func TestWPInventoryCollectsWhatItCan(t *testing.T) {
 		t.Fatal("a failed probe must leave its field out")
 	}
 }
+
+func TestWPDBIsLimitedToRestorePoints(t *testing.T) {
+	for _, ok := range [][]string{{"db", "export", "wp-content/ws-restore/rp-1.sql"}, {"db", "import", "wp-content/ws-restore/abc.sql"}} {
+		if err := checkWPArgs(ok); err != nil {
+			t.Errorf("%v: %v", ok, err)
+		}
+	}
+	for _, bad := range [][]string{{"db", "query", "DROP TABLE x"}, {"db", "export", "/etc/passwd"}, {"db", "import", "wp-content/ws-restore/../x.sql"}, {"db", "export"}, {"db", "export", "wp-content/ws-restore/a.sql", "--extra"}} {
+		if checkWPArgs(bad) == nil {
+			t.Errorf("%v should be refused", bad)
+		}
+	}
+}

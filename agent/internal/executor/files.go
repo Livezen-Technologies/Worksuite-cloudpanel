@@ -32,6 +32,8 @@ type fsPayload struct {
 	NewName   string `json:"new_name"`
 	Content   string `json:"content"`
 	Recursive bool   `json:"recursive"`
+	// ExistOK makes fs.mkdir succeed when the folder is already there.
+	ExistOK bool `json:"exist_ok"`
 	// Create refuses to overwrite: fs.write for a new file, fs.mkdir always.
 	Create bool `json:"create"`
 }
@@ -120,6 +122,9 @@ func (e *Executor) files(ctx context.Context, typ string, raw json.RawMessage) (
 		}
 		return fsWrite(root, rel, p.Content, p.Create)
 	case "fs.mkdir":
+		if fi, err := root.Lstat(rel); err == nil && fi.IsDir() && p.ExistOK {
+			return map[string]any{"path": rel}, nil
+		}
 		return fsMkdir(root, rel)
 	case "fs.rename":
 		return fsRename(root, rel, p.NewName)

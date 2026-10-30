@@ -9,6 +9,7 @@ use App\Models\Application;
 use App\Models\Container;
 use App\Models\Job;
 use App\Models\Server;
+use App\Models\WpRestorePoint;
 use App\Models\WpSite;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -22,6 +23,12 @@ class WordPressService implements HandlesCommandResults
 {
     /** WP-003: per-site switches and the WP-CLI steps that set them. */
     public const SETTINGS = ['maintenance', 'debug', 'indexing', 'auto_minor', 'platform_cron', 'redis'];
+
+    /** WP-009: hardening switches, applied by a must-use plugin and wp-config. */
+    public const HARDENING = ['xmlrpc', 'file_edit', 'user_enum', 'security_headers', 'limit_logins'];
+
+    /** Restore points kept per site; older dumps are deleted. */
+    public const KEEP_RESTORE_POINTS = 5;
 
     public const SLUG = '/^[a-z0-9][a-z0-9_.-]{0,99}$/';
 
@@ -79,6 +86,7 @@ class WordPressService implements HandlesCommandResults
         $args = match ($tool) {
             'flush_cache' => ['cache', 'flush'],
             'verify_checksums' => ['core', 'verify-checksums'],
+            'rotate_salts' => ['config', 'shuffle-salts'],
             'search_replace' => array_merge(['search-replace', (string) $input['search'], (string) $input['replace'], '--report-changed-only', '--skip-columns=guid'], ($input['dry_run'] ?? true) ? ['--dry-run'] : []),
             'plugin_activate' => ['plugin', 'activate', $slug('plugin')],
             'plugin_deactivate' => ['plugin', 'deactivate', $slug('plugin')],
@@ -157,6 +165,243 @@ PHP;
     }
 
     /** Platform-run WP-Cron (WP-003): due events of every site that switched page-load cron off. */
+    /**
+     * WP-005 / WP-006: update core, plugins or themes. A restore point is taken first, the
+     * site is checked over HTTP afterwards, and a failed check rolls the update back.
+     */
+    public function update(WpSite $site, string $scope, array $items, ?string $userId): Job
+    {
+        $pick = function (string $kind) use ($site, $items) {
+            $names = collect($kind === 'plugin' ? $site->plugins : $site->themes)->where('update', 'available')->pluck('name');
+            if ($items) {
+                $names = $names->intersect($items);
+            }
+
+            return $names->filter(fn ($n) => preg_match(self::SLUG, $n))->values()->all();
+        };
+        $touched = ['core' => in_array($scope, ['core', 'all'], true) && $site->core_update, 'plugins' => [], 'themes' => []];
+        $updates = [];
+        if ($touched['core']) {
+            $updates[] = ['wp.cli', ['args' => ['core', 'update']]];
+            $updates[] = ['wp.cli', ['args' => ['core', 'update-db']]];
+        }
+        foreach (['plugin' => 'plugins', 'theme' => 'themes'] as $kind => $key) {
+            if (in_array($scope, [$key, 'all'], true) && ($names = $pick($kind))) {
+                $touched[$key] = $names;
+                $updates[] = ['wp.cli', ['args' => array_merge([$kind, 'update'], $names)]];
+            }
+        }
+        if (! $updates) {
+            throw ApiException::conflict('There is nothing to update on this site.');
+        }
+        $point = $this->newRestorePoint($site, 'update', $userId);
+        $steps = array_merge($this->restorePointSteps($site, $point), $updates, [
+            ['local', ['op' => 'health', 'restore_point' => $point->id, 'touched' => $touched]],
+            ['wp.inventory', []],
+        ]);
+        $this->audit->log('wordpress.update', 'wp_sites', $site->id, ['scope' => $scope, 'core' => (bool) $touched['core'], 'plugins' => $touched['plugins'], 'themes' => $touched['themes']]);
+
+        return $this->run($site, 'update', $steps, ['scope' => $scope, 'restore_point_id' => $point->id], $userId);
+    }
+
+    /** WP-006: "Update all sites": each online site with updates gets its own job. */
+    public function updateAll(string $scope, ?string $userId): array
+    {
+        $jobs = [];
+        foreach (WpSite::query()->where('updates_count', '>', 0)->get() as $site) {
+            try {
+                $jobs[] = $this->update($site, $scope, [], $userId)->id;
+            } catch (ApiException) {
+                // Offline server, or nothing in this scope: skip the site.
+            }
+        }
+
+        return $jobs;
+    }
+
+    /** WP-011: a manual restore point. */
+    public function createRestorePoint(WpSite $site, ?string $userId): Job
+    {
+        $point = $this->newRestorePoint($site, 'manual', $userId);
+        $this->audit->log('wordpress.restore_point', 'wp_sites', $site->id, ['restore_point' => $point->id]);
+
+        return $this->run($site, 'restore_point', $this->restorePointSteps($site, $point), ['restore_point_id' => $point->id], $userId);
+    }
+
+    /** WP-011: one-click restore of the database and the versions in a restore point. */
+    public function restore(WpSite $site, WpRestorePoint $point, ?string $userId): Job
+    {
+        if (! in_array($point->status, ['ready', 'restored'], true)) {
+            throw ApiException::conflict('Only a completed restore point can be restored.');
+        }
+        $this->audit->log('wordpress.restore', 'wp_sites', $site->id, ['restore_point' => $point->id]);
+
+        return $this->run($site, 'restore', array_merge($this->rollbackSteps($site, $point, null), [['wp.inventory', []]]), ['restore_point_id' => $point->id], $userId);
+    }
+
+    /** WP-009: turn hardening measures on or off; one must-use plugin carries them all. */
+    public function harden(WpSite $site, array $changes, ?string $userId): Job
+    {
+        $state = array_replace(array_fill_keys(self::HARDENING, false), $site->settings['hardening'] ?? [], array_intersect_key(array_map('boolval', $changes), array_flip(self::HARDENING)));
+        $app = Application::allTenants()->find($site->application_id);
+        $steps = [
+            ['fs.mkdir', ['volume' => 'app-'.$app->name.'-data', 'path' => 'wp-content/mu-plugins', 'exist_ok' => true]],
+            ['fs.write', ['volume' => 'app-'.$app->name.'-data', 'path' => 'wp-content/mu-plugins/ws-hardening.php', 'content' => self::hardeningPlugin($state)]],
+            ['wp.cli', ['args' => $state['file_edit'] ? ['config', 'set', 'DISALLOW_FILE_EDIT', 'true', '--raw'] : ['config', 'delete', 'DISALLOW_FILE_EDIT']]],
+        ];
+        if (! $state['file_edit'] && ! ($site->settings['hardening']['file_edit'] ?? false)) {
+            array_pop($steps); // never set, nothing to delete
+        }
+        $this->audit->log('wordpress.hardening', 'wp_sites', $site->id, $state);
+
+        return $this->run($site, 'hardening', $steps, ['hardening' => $state], $userId);
+    }
+
+    public static function hardeningPlugin(array $on): string
+    {
+        $flags = var_export(array_map('boolval', $on), true);
+
+        return <<<PHP
+<?php
+// Managed by WorkSuite CloudPanel (WordPress hardening). Changes here are overwritten.
+\$ws = {$flags};
+if (\$ws['xmlrpc']) {
+    add_filter('xmlrpc_enabled', '__return_false');
+    add_filter('wp_headers', function (\$h) { unset(\$h['X-Pingback']); return \$h; });
+    if (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) { status_header(403); exit; }
+}
+if (\$ws['user_enum']) {
+    add_filter('rest_endpoints', function (\$e) {
+        if (! is_user_logged_in()) { unset(\$e['/wp/v2/users'], \$e['/wp/v2/users/(?P<id>[\\d]+)']); }
+        return \$e;
+    });
+    add_action('template_redirect', function () {
+        if (! is_admin() && isset(\$_GET['author'])) { wp_safe_redirect(home_url('/'), 301); exit; }
+    });
+}
+if (\$ws['security_headers']) {
+    add_action('send_headers', function () {
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    });
+}
+if (\$ws['limit_logins']) {
+    \$wsKey = function () { return 'ws_ll_' . md5(\$_SERVER['REMOTE_ADDR'] ?? ''); };
+    add_filter('authenticate', function (\$user) use (\$wsKey) {
+        if ((int) get_transient(\$wsKey()) >= 5) {
+            return new WP_Error('ws_locked', 'Too many failed logins. Try again in 15 minutes.');
+        }
+        return \$user;
+    }, 30);
+    add_action('wp_login_failed', function () use (\$wsKey) {
+        set_transient(\$wsKey(), (int) get_transient(\$wsKey()) + 1, 900);
+    });
+}
+
+PHP;
+    }
+
+    private function newRestorePoint(WpSite $site, string $reason, ?string $userId): WpRestorePoint
+    {
+        return WpRestorePoint::allTenants()->create([
+            'organization_id' => $site->organization_id, 'wp_site_id' => $site->id, 'reason' => $reason, 'created_by' => $userId,
+            'version' => $site->version,
+            'plugins' => collect($site->plugins ?? [])->map(fn ($p) => ['name' => $p['name'], 'version' => $p['version'] ?? null])->values()->all(),
+            'themes' => collect($site->themes ?? [])->map(fn ($t) => ['name' => $t['name'], 'version' => $t['version'] ?? null])->values()->all(),
+        ]);
+    }
+
+    /** Dump the database into the site's restore folder, then prune old points. */
+    private function restorePointSteps(WpSite $site, WpRestorePoint $point): array
+    {
+        $volume = 'app-'.Application::allTenants()->find($site->application_id)->name.'-data';
+        $steps = [
+            ['fs.mkdir', ['volume' => $volume, 'path' => 'wp-content/ws-restore', 'exist_ok' => true]],
+            ['fs.write', ['volume' => $volume, 'path' => 'wp-content/ws-restore/.htaccess', 'content' => "Require all denied\n"]],
+            ['fs.write', ['volume' => $volume, 'path' => 'wp-content/ws-restore/index.php', 'content' => "<?php\nhttp_response_code(404);\n"]],
+            ['wp.cli', ['args' => ['db', 'export', $point->dump()]]],
+            ['local', ['op' => 'ready', 'restore_point' => $point->id]],
+        ];
+        $old = WpRestorePoint::allTenants()->where('wp_site_id', $site->id)->whereKeyNot($point->id)
+            ->orderByDesc('created_at')->orderByDesc('id')->skip(self::KEEP_RESTORE_POINTS - 1)->take(100)->get();
+        foreach ($old as $o) {
+            if ($o->status !== 'pending') {
+                $steps[] = ['fs.delete', ['volume' => $volume, 'path' => $o->dump()]];
+            }
+            $steps[] = ['local', ['op' => 'forget', 'restore_point' => $o->id]];
+        }
+
+        return $steps;
+    }
+
+    /**
+     * Import the dump and put back the versions that changed. $touched names what an update
+     * changed; without it (a manual restore) everything whose version differs is reinstalled.
+     */
+    private function rollbackSteps(WpSite $site, WpRestorePoint $point, ?array $touched): array
+    {
+        $steps = [['wp.cli', ['args' => ['db', 'import', $point->dump()]]]];
+        if ($point->version && ($touched ? $touched['core'] : $point->version !== $site->version)) {
+            $steps[] = ['wp.cli', ['args' => ['core', 'update', '--version='.$point->version, '--force']]];
+        }
+        foreach (['plugin' => 'plugins', 'theme' => 'themes'] as $kind => $key) {
+            $now = collect($site->{$key} ?? [])->pluck('version', 'name');
+            foreach ($point->{$key} ?? [] as $item) {
+                $changed = $touched ? in_array($item['name'], $touched[$key], true) : ($now[$item['name']] ?? null) !== $item['version'];
+                if ($changed && $item['version'] && preg_match(self::SLUG, $item['name'])) {
+                    $steps[] = ['wp.cli', ['args' => [$kind, 'install', $item['name'], '--version='.$item['version'], '--force']]];
+                }
+            }
+        }
+        $steps[] = ['local', ['op' => 'restored', 'restore_point' => $point->id]];
+
+        return $steps;
+    }
+
+    /** Steps the API runs itself, between agent commands. */
+    private function localStep(WpSite $site, Job $job, array $p): void
+    {
+        $point = WpRestorePoint::allTenants()->find($p['restore_point'] ?? null);
+        match ($p['op']) {
+            'ready' => $point?->update(['status' => 'ready']),
+            'restored' => $point?->update(['status' => 'restored', 'restored_at' => now()]),
+            'forget' => $point?->delete(),
+            'health' => null,
+        };
+        if ($p['op'] === 'health' && ($error = $this->healthCheck($site))) {
+            // Swap what is left of the plan for the rollback, and fail the job at the end.
+            $done = array_slice($job->payload['steps'], 0, (int) $job->payload['step'] + 1);
+            $job->update(['payload' => array_merge($job->payload, [
+                'steps' => array_merge($done, $this->rollbackSteps($site, $point, $p['touched']), [['wp.inventory', []]]),
+                'health_error' => 'the site failed its health check ('.$error.')',
+            ])]);
+        }
+        $this->advance($site, $job->fresh());
+    }
+
+    /** Null when the site answers normally; otherwise what went wrong. */
+    public function healthCheck(WpSite $site): ?string
+    {
+        if (! $site->url) {
+            return null;
+        }
+        try {
+            $res = Http::timeout(20)->withOptions(['allow_redirects' => ['max' => 5]])->get($site->url);
+        } catch (\Throwable $e) {
+            return 'the site did not answer';
+        }
+        if ($res->serverError()) {
+            return 'HTTP '.$res->status();
+        }
+        if (str_contains($res->body(), 'There has been a critical error on this website')) {
+            return 'WordPress reported a critical error';
+        }
+
+        return null;
+    }
+
     public function runCron(): int
     {
         $n = 0;
@@ -177,6 +422,19 @@ PHP;
             if ($site && $command->type === 'wp.inventory') {
                 $site->update(['inventory_error' => (string) $command->message]);
             }
+            $point = $site ? WpRestorePoint::allTenants()->find($job->payload['restore_point_id'] ?? null) : null;
+            if (($job->payload['action'] ?? null) === 'update' && $point?->status === 'ready' && ! isset($job->payload['health_error'])) {
+                // An update step failed after the restore point was taken: roll back.
+                $touched = collect($job->payload['steps'])->firstWhere(fn ($s) => ($s[1]['op'] ?? null) === 'health')[1]['touched'];
+                $done = array_slice($job->payload['steps'], 0, (int) $job->payload['step'] + 1);
+                $job->update(['payload' => array_merge($job->payload, [
+                    'steps' => array_merge($done, $this->rollbackSteps($site, $point, $touched), [['wp.inventory', []]]),
+                    'health_error' => 'an update command failed: '.($command->message ?: 'unknown error'),
+                ])]);
+                $this->advance($site, $job->fresh());
+
+                return;
+            }
             $this->jobs->fail($job, (string) ($command->message ?: 'The WordPress command failed.'), 'execute');
 
             return;
@@ -184,6 +442,12 @@ PHP;
         if ($command->type === 'wp.inventory') {
             $this->saveInventory($site, (array) $command->output);
         }
+        $this->advance($site, $job, $command->output['output'] ?? null);
+    }
+
+    /** Runs the job's next step, or finishes it. */
+    private function advance(WpSite $site, Job $job, mixed $output = null): void
+    {
         $steps = $job->payload['steps'];
         $next = (int) $job->payload['step'] + 1;
         if ($next < count($steps)) {
@@ -195,7 +459,15 @@ PHP;
         if (($job->payload['action'] ?? null) === 'setting') {
             $site->update(['settings' => array_merge($site->settings ?? [], [$job->payload['setting'] => (bool) $job->payload['on']])]);
         }
-        $this->jobs->succeed($job, ['output' => $command->output['output'] ?? null]);
+        if (($job->payload['action'] ?? null) === 'hardening') {
+            $site->update(['settings' => array_merge($site->settings ?? [], ['hardening' => $job->payload['hardening']])]);
+        }
+        if ($error = $job->payload['health_error'] ?? null) {
+            $this->jobs->fail($job, 'The update was rolled back to the restore point because '.$error.'.', 'execute');
+
+            return;
+        }
+        $this->jobs->succeed($job, ['output' => $output]);
     }
 
     private function saveInventory(WpSite $site, array $inv): void
@@ -284,6 +556,11 @@ PHP;
     private function dispatchStep(WpSite $site, Job $job, array $step): void
     {
         [$type, $payload] = $step;
+        if ($type === 'local') {
+            $this->localStep($site, $job, $payload);
+
+            return;
+        }
         if (str_starts_with($type, 'wp.')) {
             $app = Application::allTenants()->find($site->application_id);
             $container = Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->value('name') ?? $app->containerName();

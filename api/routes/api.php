@@ -244,11 +244,17 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     // WordPress toolkit (SRS WP)
     Route::get('wordpress', [Admin\WordPressController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('wordpress.index');
     Route::post('wordpress/detect', [Admin\WordPressController::class, 'detect'])->middleware('perm:deploy')->name('wordpress.detect');
+    Route::post('wordpress/update-all', [Admin\WordPressController::class, 'updateAll'])->middleware('perm:deploy')->name('wordpress.update-all');
     Route::get('wordpress/{id}', [Admin\WordPressController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('wordpress.show');
     Route::post('wordpress/{id}/refresh', [Admin\WordPressController::class, 'refresh'])->middleware('perm:deploy')->name('wordpress.refresh');
     Route::patch('wordpress/{id}/settings', [Admin\WordPressController::class, 'setting'])->middleware('perm:deploy')->name('wordpress.setting');
-    Route::post('wordpress/{id}/tools/{tool}', [Admin\WordPressController::class, 'tool'])->middleware('perm:deploy')->whereIn('tool', ['flush_cache', 'verify_checksums', 'search_replace', 'plugin_activate', 'plugin_deactivate', 'theme_activate'])->name('wordpress.tool');
+    Route::post('wordpress/{id}/tools/{tool}', [Admin\WordPressController::class, 'tool'])->middleware('perm:deploy')->whereIn('tool', ['flush_cache', 'verify_checksums', 'search_replace', 'plugin_activate', 'plugin_deactivate', 'theme_activate', 'rotate_salts'])->name('wordpress.tool');
     Route::post('wordpress/{id}/reset-password', [Admin\WordPressController::class, 'resetPassword'])->middleware('perm:deploy')->name('wordpress.reset-password');
+    Route::post('wordpress/{id}/update', [Admin\WordPressController::class, 'update'])->middleware('perm:deploy')->name('wordpress.update');
+    Route::patch('wordpress/{id}/hardening', [Admin\WordPressController::class, 'hardening'])->middleware('perm:deploy')->name('wordpress.hardening');
+    Route::get('wordpress/{id}/restore-points', [Admin\WordPressController::class, 'restorePoints'])->middleware('perm:resources.view|servers.view')->name('wordpress.restore-points');
+    Route::post('wordpress/{id}/restore-points', [Admin\WordPressController::class, 'createRestorePoint'])->middleware('perm:deploy')->name('wordpress.restore-points.create');
+    Route::post('wordpress/{id}/restore-points/{point}/restore', [Admin\WordPressController::class, 'restore'])->middleware('perm:deploy')->name('wordpress.restore');
     Route::post('wordpress/{id}/login-link', [Admin\WordPressController::class, 'loginLink'])->middleware('perm:deploy')->name('wordpress.login-link');
     Route::get('antivirus/score', [Admin\AntivirusController::class, 'score'])->middleware('perm:resources.view|servers.view')->name('antivirus.score');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
