@@ -468,6 +468,12 @@ class DeploymentService implements HandlesCommandResults
             app(IntegrityService::class)->afterDeployment($app);
         } catch (\Throwable) {
         }
+        // WP-010: a new WordPress staging site is filled from its live site once it runs.
+        try {
+            app(WordPressService::class)->afterDeployment($app);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     private function failDeployment(Deployment $deployment, Job $job, string $error, ?string $serverId = null): void

@@ -255,6 +255,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('wordpress/{id}/restore-points', [Admin\WordPressController::class, 'restorePoints'])->middleware('perm:resources.view|servers.view')->name('wordpress.restore-points');
     Route::post('wordpress/{id}/restore-points', [Admin\WordPressController::class, 'createRestorePoint'])->middleware('perm:deploy')->name('wordpress.restore-points.create');
     Route::post('wordpress/{id}/restore-points/{point}/restore', [Admin\WordPressController::class, 'restore'])->middleware('perm:deploy')->name('wordpress.restore');
+    Route::post('wordpress/{id}/staging', [Admin\WordPressController::class, 'createStaging'])->middleware('perm:deploy')->name('wordpress.staging');
+    Route::post('wordpress/{id}/staging/{action}', [Admin\WordPressController::class, 'stagingAction'])->middleware('perm:deploy')->whereIn('action', ['refresh', 'push', 'delete'])->name('wordpress.staging.action');
     Route::post('wordpress/{id}/login-link', [Admin\WordPressController::class, 'loginLink'])->middleware('perm:deploy')->name('wordpress.login-link');
     Route::get('antivirus/score', [Admin\AntivirusController::class, 'score'])->middleware('perm:resources.view|servers.view')->name('antivirus.score');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');

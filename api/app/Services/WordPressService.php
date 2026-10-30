@@ -7,10 +7,14 @@ use App\Exceptions\ApiException;
 use App\Models\AgentCommand;
 use App\Models\Application;
 use App\Models\Container;
+use App\Models\Domain;
+use App\Models\EnvVar;
 use App\Models\Job;
 use App\Models\Server;
 use App\Models\WpRestorePoint;
+use App\Models\User;
 use App\Models\WpSite;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -29,6 +33,9 @@ class WordPressService implements HandlesCommandResults
 
     /** Restore points kept per site; older dumps are deleted. */
     public const KEEP_RESTORE_POINTS = 5;
+
+    /** WP-010: staging tables live beside the live ones under this prefix. */
+    public const STAGING_PREFIX = 'stg_';
 
     public const SLUG = '/^[a-z0-9][a-z0-9_.-]{0,99}$/';
 
@@ -368,6 +375,7 @@ PHP;
             'ready' => $point?->update(['status' => 'ready']),
             'restored' => $point?->update(['status' => 'restored', 'restored_at' => now()]),
             'forget' => $point?->delete(),
+            'staging' => $this->stagingStatus($p['site'], $p['status']),
             'health' => null,
         };
         if ($p['op'] === 'health' && ($error = $this->healthCheck($site))) {
@@ -379,6 +387,19 @@ PHP;
             ])]);
         }
         $this->advance($site, $job->fresh());
+    }
+
+    private function stagingStatus(string $id, string $status): void
+    {
+        $staging = WpSite::allTenants()->find($id);
+        if ($status === 'deleted' && $staging) {
+            Application::allTenants()->find($staging->application_id)?->retire();
+            WpRestorePoint::allTenants()->where('wp_site_id', $staging->id)->delete();
+            $staging->delete();
+
+            return;
+        }
+        $staging?->update(['staging_status' => $status]);
     }
 
     /** Null when the site answers normally; otherwise what went wrong. */
@@ -400,6 +421,174 @@ PHP;
         }
 
         return null;
+    }
+
+    /**
+     * WP-010: a staging copy. A second app runs the same image on the same server and
+     * database, with its own table prefix, a password and noindex; once it is deployed
+     * it is filled from the live site (afterDeployment).
+     */
+    public function createStaging(WpSite $site, ?string $userId): WpSite
+    {
+        if ($site->production_id) {
+            throw ApiException::conflict('This is already a staging site.');
+        }
+        if (WpSite::allTenants()->where('production_id', $site->id)->exists()) {
+            throw ApiException::conflict('This site already has a staging copy.');
+        }
+        $app = Application::allTenants()->findOrFail($site->application_id);
+        $env = EnvVar::allTenants()->where('application_id', $app->id)->get();
+        if (! $env->firstWhere('key', 'WORDPRESS_DB_HOST')) {
+            throw ApiException::conflict('Staging needs the site\'s database settings in its environment (WORDPRESS_DB_HOST and the other WORDPRESS_DB_ variables).');
+        }
+        if ($this->prefixOf($app) === self::STAGING_PREFIX) {
+            throw ApiException::conflict('The site already uses the table prefix '.self::STAGING_PREFIX.'.');
+        }
+        $name = substr($app->name, 0, 50).'-staging';
+        if (Application::allTenants()->withTrashed()->where('name', $name)->exists()) {
+            throw ApiException::conflict("An app named {$name} already exists.");
+        }
+        $password = Str::password(16, symbols: false);
+        $custom = Domain::allTenants()->where('application_id', $app->id)->where('platform_subdomain', false)->where('name', 'not like', '*%')->orderBy('created_at')->value('name');
+        $host = $custom ? 'staging.'.preg_replace('/^www\./', '', $custom) : $name.'.'.config('platform.domain');
+
+        return DB::transaction(function () use ($site, $app, $env, $name, $password, $host, $custom, $userId) {
+            $staging = Application::allTenants()->create([
+                'organization_id' => $app->organization_id, 'project_id' => $app->project_id, 'server_id' => $app->server_id,
+                'name' => $name, 'kind' => $app->kind, 'source_type' => $app->source_type, 'source' => $app->source, 'image' => $app->image,
+                'strategy' => 'recreate', 'environment' => 'staging', 'region' => $app->region, 'size' => $app->size, 'port' => $app->port,
+                'volume_path' => $app->volume_path, 'status' => 'deploying',
+            ]);
+            foreach ($env as $var) {
+                if (! in_array($var->key, ['WORDPRESS_TABLE_PREFIX', 'WORDPRESS_CONFIG_EXTRA'], true)) {
+                    EnvVar::allTenants()->create(['organization_id' => $staging->organization_id, 'application_id' => $staging->id, 'key' => $var->key, 'value' => $var->value, 'secret' => $var->secret, 'secret_id' => $var->secret_id]);
+                }
+            }
+            $extra = (string) $env->firstWhere('key', 'WORDPRESS_CONFIG_EXTRA')?->value;
+            EnvVar::allTenants()->create(['organization_id' => $staging->organization_id, 'application_id' => $staging->id, 'key' => 'WORDPRESS_TABLE_PREFIX', 'value' => self::STAGING_PREFIX, 'secret' => false]);
+            EnvVar::allTenants()->create(['organization_id' => $staging->organization_id, 'application_id' => $staging->id, 'key' => 'WORDPRESS_CONFIG_EXTRA', 'value' => trim($extra."\n".self::stagingGuard($password)), 'secret' => true]);
+            app(DomainService::class)->create(['name' => $host, 'application_id' => $staging->id, 'target_port' => $staging->port, 'platform_subdomain' => ! $custom], ! $custom);
+
+            $row = WpSite::allTenants()->create([
+                'organization_id' => $site->organization_id, 'application_id' => $staging->id, 'server_id' => $site->server_id,
+                'url' => 'https://'.$host, 'staging' => true, 'production_id' => $site->id, 'staging_status' => 'provisioning', 'staging_password' => $password,
+            ]);
+            $this->audit->log('wordpress.staging.create', 'wp_sites', $site->id, ['staging' => $row->id, 'host' => $host]);
+            app(DeploymentService::class)->start($staging, $userId ? User::find($userId) : null, 'manual');
+
+            return $row;
+        });
+    }
+
+    /** Called after every successful deployment: fills a newly provisioned staging site. */
+    public function afterDeployment(Application $app): void
+    {
+        $staging = WpSite::allTenants()->where('application_id', $app->id)->where('staging_status', 'provisioning')->first();
+        if ($staging) {
+            $this->refreshStaging($staging, null);
+        }
+    }
+
+    /** WP-010: copy the live database and wp-content into the staging site. */
+    public function refreshStaging(WpSite $staging, ?string $userId): Job
+    {
+        [$live, $liveApp, $stagingApp] = $this->stagingPair($staging);
+        $liveVol = 'app-'.$liveApp->name.'-data';
+        $stgVol = 'app-'.$stagingApp->name.'-data';
+        $steps = [
+            ['wp.copy_tables', ['container' => $this->containerOf($liveApp), 'from' => $this->prefixOf($liveApp), 'to' => self::STAGING_PREFIX]],
+            ['fs.mkdir', ['volume' => $liveVol, 'path' => 'wp-content/ws-restore', 'exist_ok' => true]],
+            ['fs.trash', ['volume' => $stgVol, 'paths' => ['wp-content']]],
+            ['fs.copy', ['volume' => $liveVol, 'paths' => ['wp-content'], 'dest' => '.', 'dest_volume' => $stgVol]],
+            ['fs.delete', ['volume' => $stgVol, 'path' => 'wp-content/ws-restore', 'recursive' => true]],
+        ];
+        if ($live->url && $live->url !== $staging->url) {
+            $steps[] = ['wp.cli', ['args' => ['search-replace', $live->url, $staging->url, '--skip-columns=guid', '--report-changed-only'], 'url' => '']];
+        }
+        $steps[] = ['wp.cli', ['args' => ['option', 'update', 'blog_public', '0']]];
+        $steps[] = ['local', ['op' => 'staging', 'site' => $staging->id, 'status' => 'ready']];
+        $steps[] = ['wp.inventory', []];
+        $staging->update(['staging_status' => 'cloning']);
+        $this->audit->log('wordpress.staging.refresh', 'wp_sites', $live->id, ['staging' => $staging->id]);
+
+        return $this->run($staging, 'staging_refresh', $steps, [], $userId);
+    }
+
+    /**
+     * WP-010: push the staging site to live. The live site gets a restore point first;
+     * its old wp-content goes to the file manager's Trash, and its restore dumps are kept.
+     */
+    public function pushStaging(WpSite $staging, ?string $userId): Job
+    {
+        [$live, $liveApp, $stagingApp] = $this->stagingPair($staging);
+        if ($staging->staging_status !== 'ready') {
+            throw ApiException::conflict('The staging site is not ready.');
+        }
+        $liveVol = 'app-'.$liveApp->name.'-data';
+        $stgVol = 'app-'.$stagingApp->name.'-data';
+        $point = $this->newRestorePoint($live, 'push', $userId);
+        $steps = array_merge($this->restorePointSteps($live, $point), [
+            ['wp.copy_tables', ['container' => $this->containerOf($stagingApp), 'from' => self::STAGING_PREFIX, 'to' => $this->prefixOf($liveApp)]],
+            ['fs.move', ['volume' => $liveVol, 'paths' => ['wp-content/ws-restore'], 'dest' => '.']],
+            ['fs.trash', ['volume' => $liveVol, 'paths' => ['wp-content']]],
+            ['fs.mkdir', ['volume' => $stgVol, 'path' => 'wp-content/ws-restore', 'exist_ok' => true]],
+            ['fs.copy', ['volume' => $stgVol, 'paths' => ['wp-content'], 'dest' => '.', 'dest_volume' => $liveVol]],
+            ['fs.delete', ['volume' => $liveVol, 'path' => 'wp-content/ws-restore', 'recursive' => true]],
+            ['fs.move', ['volume' => $liveVol, 'paths' => ['ws-restore'], 'dest' => 'wp-content']],
+        ]);
+        if ($live->url && $staging->url && $live->url !== $staging->url) {
+            $steps[] = ['wp.cli', ['args' => ['search-replace', $staging->url, $live->url, '--skip-columns=guid', '--report-changed-only'], 'url' => '']];
+        }
+        $steps[] = ['wp.cli', ['args' => ['option', 'update', 'blog_public', ($live->settings['indexing'] ?? true) ? '1' : '0']]];
+        $steps[] = ['wp.inventory', []];
+        $this->audit->log('wordpress.staging.push', 'wp_sites', $live->id, ['staging' => $staging->id, 'restore_point' => $point->id]);
+
+        return $this->run($live, 'staging_push', $steps, ['restore_point_id' => $point->id, 'staging_id' => $staging->id], $userId);
+    }
+
+    /** WP-010: remove the staging app and its tables. */
+    public function deleteStaging(WpSite $staging, ?string $userId): Job
+    {
+        [$live, , $stagingApp] = $this->stagingPair($staging);
+        $job = $this->run($staging, 'staging_delete', [
+            ['wp.drop_tables', ['container' => $this->containerOf($stagingApp), 'from' => self::STAGING_PREFIX]],
+            ['local', ['op' => 'staging', 'site' => $staging->id, 'status' => 'deleted']],
+        ], [], $userId);
+        $this->audit->log('wordpress.staging.delete', 'wp_sites', $live->id, ['staging' => $staging->id]);
+
+        return $job;
+    }
+
+    /** Basic auth and noindex for the staging site, run from wp-config (WORDPRESS_CONFIG_EXTRA). */
+    public static function stagingGuard(string $password): string
+    {
+        $hash = hash('sha256', $password);
+
+        return "if (PHP_SAPI !== 'cli') { header('X-Robots-Tag: noindex, nofollow');"
+            ." if (! (isset(\$_SERVER['PHP_AUTH_USER']) && \$_SERVER['PHP_AUTH_USER'] === 'staging' && hash_equals('{$hash}', hash('sha256', (string) (\$_SERVER['PHP_AUTH_PW'] ?? ''))))) {"
+            ." header('WWW-Authenticate: Basic realm=\"Staging\"'); http_response_code(401); exit('This staging site needs a password.'); } }";
+    }
+
+    /** @return array{WpSite, Application, Application} */
+    private function stagingPair(WpSite $staging): array
+    {
+        $live = WpSite::allTenants()->find($staging->production_id) ?? throw ApiException::conflict('This is not a staging site.');
+        $liveApp = Application::allTenants()->findOrFail($live->application_id);
+        $stagingApp = Application::allTenants()->find($staging->application_id) ?? throw ApiException::conflict('The staging app no longer exists.');
+
+        return [$live, $liveApp, $stagingApp];
+    }
+
+    private function prefixOf(Application $app): string
+    {
+        $prefix = (string) EnvVar::allTenants()->where('application_id', $app->id)->where('key', 'WORDPRESS_TABLE_PREFIX')->first()?->value;
+
+        return $prefix !== '' ? $prefix : 'wp_';
+    }
+
+    private function containerOf(Application $app): string
+    {
+        return Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->value('name') ?? $app->containerName();
     }
 
     public function runCron(): int
@@ -434,6 +623,9 @@ PHP;
                 $this->advance($site, $job->fresh());
 
                 return;
+            }
+            if (($job->payload['action'] ?? null) === 'staging_refresh') {
+                $site?->update(['staging_status' => 'failed']);
             }
             $this->jobs->fail($job, (string) ($command->message ?: 'The WordPress command failed.'), 'execute');
 

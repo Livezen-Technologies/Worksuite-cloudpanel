@@ -13,7 +13,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/** SRS WP-001..009, 011, 012: the WordPress toolkit through WP-CLI on the agent. */
+/** SRS WP-001..012: the WordPress toolkit through WP-CLI on the agent. */
 class WordPressToolkitTest extends TestCase
 {
     private function setUpSite(): array
@@ -217,5 +217,67 @@ class WordPressToolkitTest extends TestCase
         $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/tools/rotate_salts")->assertStatus(202);
         $this->assertSame(['config', 'shuffle-salts'], $this->step($secret, 'wp.cli')['payload']['args']);
         $this->assertSame(0, (new \Symfony\Component\Process\Process(['php', '-l']))->setInput(WordPressService::hardeningPlugin(array_fill_keys(WordPressService::HARDENING, true)))->run());
+    }
+    public function test_staging_is_created_filled_pushed_and_deleted(): void
+    {
+        [$org, $token, $secret, $site] = $this->setUpSite();
+        $app = Application::allTenants()->find($site->application_id);
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/staging")->assertStatus(409); // no WORDPRESS_DB_HOST yet
+        \App\Models\EnvVar::allTenants()->create(['organization_id' => $org->id, 'application_id' => $app->id, 'key' => 'WORDPRESS_DB_HOST', 'value' => 'db-blog', 'secret' => false]);
+        \App\Models\Domain::allTenants()->create(['organization_id' => $org->id, 'name' => 'www.blog.example.com', 'application_id' => $app->id, 'platform_subdomain' => false, 'dns_status' => 'verified']);
+
+        $res = $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/staging")->assertStatus(202)->json('data');
+        $this->assertSame('https://staging.blog.example.com', $res['url']);
+        $this->assertSame(16, strlen($res['password']));
+        $stagingApp = Application::allTenants()->where('name', 'blog-staging')->sole();
+        $this->assertSame(['staging', $app->server_id, 'wordpress:6'], [$stagingApp->environment, $stagingApp->server_id, $stagingApp->image]);
+        $env = \App\Models\EnvVar::allTenants()->where('application_id', $stagingApp->id)->get()->pluck('value', 'key');
+        $this->assertSame(['db-blog', 'stg_'], [$env['WORDPRESS_DB_HOST'], $env['WORDPRESS_TABLE_PREFIX']]);
+        $this->assertStringContainsString(hash('sha256', $res['password']), $env['WORDPRESS_CONFIG_EXTRA']);
+        $this->assertStringNotContainsString($res['password'], $env['WORDPRESS_CONFIG_EXTRA']);
+        $this->assertTrue(\App\Models\Domain::allTenants()->where('name', 'staging.blog.example.com')->where('application_id', $stagingApp->id)->exists());
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/staging")->assertStatus(409);
+        $staging = WpSite::allTenants()->where('production_id', $site->id)->sole();
+        $this->assertSame('provisioning', $staging->staging_status);
+
+        // The deployment finished: the live site is copied in.
+        AgentCommand::allTenants()->update(['status' => 'succeeded']);
+        app(WordPressService::class)->afterDeployment($stagingApp);
+        $copy = $this->step($secret, 'wp.copy_tables', ['tables' => 12]);
+        $this->assertSame(['app-blog', 'wp_', 'stg_'], [$copy['payload']['container'], $copy['payload']['from'], $copy['payload']['to']]);
+        $this->step($secret, 'fs.mkdir');
+        $this->assertSame(['app-blog-staging-data', ['wp-content']], [($t = $this->step($secret, 'fs.trash'))['payload']['volume'], $t['payload']['paths']]);
+        $cp = $this->step($secret, 'fs.copy');
+        $this->assertSame(['app-blog-data', 'app-blog-staging-data'], [$cp['payload']['volume'], $cp['payload']['dest_volume']]);
+        $this->step($secret, 'fs.delete');
+        $sr = $this->step($secret, 'wp.cli');
+        $this->assertSame(['search-replace', 'https://blog.example.com', 'https://staging.blog.example.com'], array_slice($sr['payload']['args'], 0, 3));
+        $this->assertSame('app-blog-staging', $sr['payload']['container']);
+        $this->assertSame(['option', 'update', 'blog_public', '0'], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->step($secret, 'wp.inventory', ['version' => '6.8.3', 'siteurl' => 'https://staging.blog.example.com']);
+        $this->assertSame('ready', $staging->fresh()->staging_status);
+        $this->api($token)->getJson('/api/v1/wordpress')->assertJsonPath('data.summary.staging', 1);
+
+        // Push to live: restore point on live first, then tables and files back.
+        $this->api($token)->postJson("/api/v1/wordpress/{$staging->id}/staging/push")->assertStatus(202);
+        $this->restorePointTaken($secret);
+        $back = $this->step($secret, 'wp.copy_tables');
+        $this->assertSame(['app-blog-staging', 'stg_', 'wp_'], [$back['payload']['container'], $back['payload']['from'], $back['payload']['to']]);
+        $this->assertSame(['wp-content/ws-restore'], $this->step($secret, 'fs.move')['payload']['paths']);
+        $this->assertSame('app-blog-data', $this->step($secret, 'fs.trash')['payload']['volume']);
+        $this->step($secret, 'fs.mkdir');
+        $this->assertSame('app-blog-data', $this->step($secret, 'fs.copy')['payload']['dest_volume']);
+        $this->step($secret, 'fs.delete');
+        $this->assertSame(['ws-restore'], $this->step($secret, 'fs.move')['payload']['paths']);
+        $this->assertSame('https://blog.example.com', $this->step($secret, 'wp.cli')['payload']['args'][2]);
+        $this->assertSame(['option', 'update', 'blog_public', '1'], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->step($secret, 'wp.inventory', ['version' => '6.8.3', 'siteurl' => 'https://blog.example.com']);
+        $this->assertSame('push', WpRestorePoint::allTenants()->where('wp_site_id', $site->id)->sole()->reason);
+
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/staging/push")->assertStatus(409); // live is not a staging site
+        $this->api($token)->postJson("/api/v1/wordpress/{$staging->id}/staging/delete")->assertStatus(202);
+        $this->assertSame('stg_', $this->step($secret, 'wp.drop_tables', ['dropped' => 12])['payload']['from']);
+        $this->assertNull(WpSite::allTenants()->find($staging->id));
+        $this->assertSoftDeleted($stagingApp);
     }
 }
