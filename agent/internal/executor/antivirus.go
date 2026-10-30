@@ -201,17 +201,22 @@ func (e *Executor) avQuarantine(root *os.Root, p avPayload) (any, error) {
 		return nil, err
 	}
 	defer q.Close()
+	encKey, macKey, err := e.quarantineKeys()
+	if err != nil {
+		return nil, err
+	}
 	if err := q.Mkdir(p.ID, 0o700); err != nil {
 		return nil, fmt.Errorf("quarantine item %s: %w", p.ID, err)
 	}
-	if err := transferOut(root, rel, q, path.Join(p.ID, "file")); err != nil {
-		q.Remove(p.ID)
+	// AV-5: the file is stored encrypted; the original leaves the volume only once
+	// the encrypted copy is complete.
+	if err := encryptInto(root, rel, q, path.Join(p.ID, "file.enc"), encKey, macKey); err != nil {
+		removeTree(q, p.ID)
 		return nil, err
 	}
-	// Nothing in the quarantine may be read, run or served by anyone but root.
-	if f, err := q.Open(path.Join(p.ID, "file")); err == nil {
-		f.Chmod(0)
-		f.Close()
+	if err := root.Remove(rel); err != nil {
+		removeTree(q, p.ID)
+		return nil, err
 	}
 	meta, _ := json.Marshal(quarantineMeta{Volume: p.Volume, Path: rel, SHA256: sum, Mode: uint32(fi.Mode().Perm()), At: e.now().UTC().Format(time.RFC3339)})
 	if f, err := q.OpenFile(path.Join(p.ID, "meta.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err == nil {
@@ -250,8 +255,16 @@ func (e *Executor) avRestore(root *os.Root, p avPayload) (any, error) {
 	if err := mkdirAll(root, path.Dir(rel)); err != nil {
 		return nil, err
 	}
-	// Give the file its old mode while it is still in the quarantine: it has none
-	// there, so it cannot be opened to change it, but its folder can.
+	if _, err := q.Lstat(path.Join(p.ID, "file.enc")); err == nil {
+		if err := e.restoreEncrypted(q, p.ID, root, rel, os.FileMode(m.Mode&0o777)); err != nil {
+			return nil, err
+		}
+		removeTree(q, p.ID)
+		return map[string]any{"id": p.ID, "path": rel}, nil
+	}
+	// Items quarantined before AV-5 are plain files. Give the file its old mode while
+	// it is still in the quarantine: it has none there, so it cannot be opened to
+	// change it, but its folder can.
 	if d, err := q.Open(p.ID); err == nil {
 		err = chmodAt(d, "file", os.FileMode(m.Mode&0o777))
 		d.Close()
@@ -279,4 +292,70 @@ func (e *Executor) avDelete(id string) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"id": id, "deleted": true}, nil
+}
+
+// encryptInto writes an encrypted copy of rel to dst (mode 0: only root can open it).
+func encryptInto(root *os.Root, rel string, q *os.Root, dst string, encKey, macKey []byte) error {
+	in, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := q.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	err = encryptQuarantine(out, in, encKey, macKey)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	d, err := q.Open(path.Dir(dst))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return chmodAt(d, path.Base(dst), 0)
+}
+
+// restoreEncrypted verifies and decrypts a quarantined file back into the volume.
+func (e *Executor) restoreEncrypted(q *os.Root, id string, root *os.Root, rel string, mode os.FileMode) error {
+	encKey, macKey, err := e.quarantineKeys()
+	if err != nil {
+		return err
+	}
+	d, err := q.Open(id)
+	if err != nil {
+		return err
+	}
+	err = chmodAt(d, "file.enc", 0o400)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	in, err := q.Open(path.Join(id, "file.enc"))
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	err = decryptQuarantine(out, in, encKey, macKey)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = root.Remove(rel) // never leave a partly restored file behind
+		return err
+	}
+	// The umask may have narrowed the mode on create.
+	if f, err := root.Open(rel); err == nil {
+		f.Chmod(mode)
+		f.Close()
+	}
+	return nil
 }

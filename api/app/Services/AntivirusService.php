@@ -169,6 +169,10 @@ class AntivirusService implements HandlesCommandResults
         if (! config('platform.crowdsec.enabled')) {
             $orgFixes[] = ['points' => 5, 'fix' => 'Enable the CrowdSec firewall so brute-force sources are banned.'];
         }
+        $critical = \App\Models\Image::query()->get()->filter(fn ($i) => ($i->scan_result['critical'] ?? 0) > 0)->count();
+        if ($critical) {
+            $orgFixes[] = ['points' => min(20, 10 * $critical), 'fix' => "Rebuild or update the {$critical} image".($critical === 1 ? '' : 's').' with critical vulnerabilities.'];
+        }
         $volumes = Volume::query()->where('type', '!=', 'nfs')->get()->map(function (Volume $v) use ($orgFixes) {
             $fixes = $orgFixes;
             $open = Threat::where('volume_id', $v->id)->where('status', 'infected')->count();
@@ -178,6 +182,10 @@ class AntivirusService implements HandlesCommandResults
             }
             if ($held) {
                 $fixes[] = ['points' => min(15, 5 * $held), 'fix' => "Decide on the {$held} quarantined file".($held === 1 ? '' : 's').': delete, clean or mark as not a threat.'];
+            }
+            $changed = \App\Models\IntegrityChange::where('volume_id', $v->id)->where('status', 'open')->count();
+            if ($changed) {
+                $fixes[] = ['points' => min(20, 10 * $changed), 'fix' => "Review the {$changed} code file".($changed === 1 ? '' : 's').' changed outside a deployment.'];
             }
             $last = Job::where('type', 'av.scan')->where('resource_type', 'Volume')->where('resource_id', $v->id)->where('status', 'succeeded')->max('finished_at');
             if (! $last || \Illuminate\Support\Carbon::parse($last)->lt(now()->subDays(8))) {
