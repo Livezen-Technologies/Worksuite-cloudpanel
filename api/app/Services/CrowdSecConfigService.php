@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Domain;
 use App\Models\FirewallCountry;
+use App\Models\FirewallIpList;
 use App\Models\FirewallProtectedPath;
 use App\Models\FirewallRule;
 use App\Models\Organization;
@@ -21,6 +22,10 @@ use Symfony\Component\Yaml\Yaml;
  *   country policy                           a trigger scenario on evt.Enriched.IsoCode
  *                                            (CrowdSec's GeoIP enrichment)
  *   protected path                           a trigger scenario that asks for a captcha
+ *   block list (FW-011)                      a trigger scenario on IpInRange, banned
+ *   allow list (FW-011)                      a whitelist parser, so nothing on it is ever
+ *                                            counted, challenged or banned for those hosts
+ *   under attack (FW-010)                    a trigger scenario on every request, captcha
  *
  * profiles.yaml then turns each scenario's alert into a ban or a captcha decision,
  * and the bouncer middleware attached to every router serves the block page or the
@@ -74,13 +79,14 @@ class CrowdSecConfigService
      * Scenario files and profiles.yaml for the domains an ingress routes.
      *
      * @param  Collection<int, Domain>  $domains
-     * @return array{scenarios: array<string, string>, profiles: string}
+     * @return array{scenarios: array<string, string>, profiles: string, whitelist: string}
      */
     public function render(Collection $domains): array
     {
         $scenarios = [];
         $bans = [];
         $captchas = [];
+        $allowed = [];
         $hostsByOrg = $domains->groupBy('organization_id')->map(fn ($ds) => $this->hosts($ds));
 
         foreach ($hostsByOrg as $orgId => $orgHosts) {
@@ -151,10 +157,72 @@ class CrowdSecConfigService
                 ]);
                 $captchas[] = $name;
             }
+
+            // FW-011. Expired entries are left out; firewall:expire-ips deletes them and re-renders.
+            $lists = FirewallIpList::allTenants()->where('organization_id', $orgId)->active()->get();
+            foreach ($lists->groupBy(fn ($e) => $e->list.'|'.($e->domain_id ?? '*')) as $key => $entries) {
+                [$list, $domainId] = explode('|', $key);
+                $hosts = $domainId === '*' ? $orgHosts : $this->hosts($domains->where('id', $domainId));
+                if (! $hosts) {
+                    continue;
+                }
+                $ranges = '('.implode(' || ', $entries->map(fn ($e) => "IpInRange(evt.Meta.source_ip, '".$e->cidr."')")->all()).')';
+                if ($list === 'allow') {
+                    $allowed[] = 'evt.Meta.target_fqdn in '.$this->list($hosts).' && '.$ranges;
+
+                    continue;
+                }
+                $suffix = $this->short($orgId).($domainId === '*' ? '' : '-'.$this->short($domainId));
+                $name = 'dmp/block-'.$orgId.($domainId === '*' ? '' : '-'.$this->short($domainId));
+                $scenarios['dmp-block-'.$suffix.'.yaml'] = $this->yaml([
+                    'type' => 'trigger',
+                    'name' => $name,
+                    'description' => 'IP block list',
+                    'filter' => $this->filter($hosts, ['*'], []).' && '.$ranges,
+                    'groupby' => 'evt.Meta.source_ip',
+                    'blackhole' => '1m',
+                    'labels' => ['service' => 'http', 'type' => 'dmp_blocklist', 'remediation' => true],
+                ]);
+                $bans[] = $name;
+            }
+
+            // FW-010. Under attack: every visitor on the scope gets a captcha.
+            $fw = $org ? $this->settings($org) : [];
+            if (! empty($fw['under_attack'])) {
+                $scope = $fw['under_attack_domain_id'] ?? null;
+                $hosts = $scope ? $this->hosts($domains->where('id', $scope)) : $orgHosts;
+                if ($hosts) {
+                    $name = 'dmp/attack-'.$orgId;
+                    $scenarios['dmp-attack-'.$this->short($orgId).'.yaml'] = $this->yaml([
+                        'type' => 'trigger',
+                        'name' => $name,
+                        'description' => 'Under attack mode',
+                        'filter' => $this->filter($hosts, ['*'], []),
+                        'groupby' => 'evt.Meta.source_ip',
+                        'blackhole' => '1m',
+                        'labels' => ['service' => 'http', 'type' => 'dmp_attack', 'remediation' => true],
+                    ]);
+                    $captchas[] = $name;
+                }
+            }
         }
         ksort($scenarios);
 
-        return ['scenarios' => $scenarios, 'profiles' => $this->profiles($bans, $captchas)];
+        return ['scenarios' => $scenarios, 'profiles' => $this->profiles($bans, $captchas), 'whitelist' => $this->whitelist($allowed)];
+    }
+
+    /** FW-011. The allow list as a CrowdSec whitelist parser (s02-enrich); empty when there is none. */
+    public function whitelist(array $expressions): string
+    {
+        if (! $expressions) {
+            return '';
+        }
+
+        return $this->yaml([
+            'name' => 'dmp/allowlist',
+            'description' => 'Firewall allow list',
+            'whitelist' => ['reason' => 'Firewall allow list', 'expression' => array_values($expressions)],
+        ]);
     }
 
     /** Profiles: the panel's own first, then CrowdSec's defaults for every other scenario. */

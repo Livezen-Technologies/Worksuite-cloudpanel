@@ -43,6 +43,8 @@ func (e *Executor) cscli(ctx context.Context, args ...string) ([]byte, error) {
 type crowdsecApply struct {
 	Scenarios map[string]string `json:"scenarios"`
 	Profiles  string            `json:"profiles"`
+	// Whitelist is the allow list (FW-011) as a whitelist parser; empty removes it.
+	Whitelist string `json:"whitelist"`
 }
 
 // crowdsecApply replaces the panel's scenarios (dmp-*.yaml) and profiles.yaml,
@@ -76,6 +78,8 @@ func (e *Executor) crowdsecApply(ctx context.Context, raw json.RawMessage) (any,
 	}
 	profilesPath := filepath.Join(dir, "profiles.yaml")
 	prevProfiles, prevErr := os.ReadFile(profilesPath)
+	allowPath := filepath.Join(dir, "parsers", "s02-enrich", "dmp-allowlist.yaml")
+	prevAllow, prevAllowErr := os.ReadFile(allowPath)
 
 	restore := func() {
 		cur, _ := filepath.Glob(filepath.Join(scenDir, "dmp-*.yaml"))
@@ -91,6 +95,11 @@ func (e *Executor) crowdsecApply(ctx context.Context, raw json.RawMessage) (any,
 			os.WriteFile(profilesPath, prevProfiles, 0o644)
 		} else {
 			os.Remove(profilesPath)
+		}
+		if prevAllowErr == nil {
+			os.WriteFile(allowPath, prevAllow, 0o644)
+		} else {
+			os.Remove(allowPath)
 		}
 	}
 
@@ -109,6 +118,21 @@ func (e *Executor) crowdsecApply(ctx context.Context, raw json.RawMessage) (any,
 		restore()
 		return nil, err
 	}
+	if strings.TrimSpace(p.Whitelist) == "" {
+		if err := os.Remove(allowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			restore()
+			return nil, err
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(allowPath), 0o755); err != nil {
+			restore()
+			return nil, err
+		}
+		if err := writeAtomic(allowPath, []byte(p.Whitelist), 0o644); err != nil {
+			restore()
+			return nil, err
+		}
+	}
 	if out, err := e.cscli(ctx, "crowdsec", "-t"); err != nil {
 		restore()
 		return nil, fmt.Errorf("CrowdSec rejected the configuration, the previous one is kept: %s", tailString(strings.TrimSpace(string(out)), 600))
@@ -116,7 +140,7 @@ func (e *Executor) crowdsecApply(ctx context.Context, raw json.RawMessage) (any,
 	if out, err := e.Run(ctx, "", nil, "docker", "kill", "--signal", "SIGHUP", e.crowdsecContainer()); err != nil {
 		return nil, fmt.Errorf("reload CrowdSec: %s", tailString(strings.TrimSpace(string(out)), 300))
 	}
-	return map[string]any{"scenarios": len(p.Scenarios), "reloaded": true}, nil
+	return map[string]any{"scenarios": len(p.Scenarios), "allowlist": strings.TrimSpace(p.Whitelist) != "", "reloaded": true}, nil
 }
 
 // CrowdSecAlert is the part of a cscli alert the panel records as a firewall event.

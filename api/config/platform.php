@@ -121,6 +121,8 @@ return [
             'trigger_rate_limit' => false,
             'trigger_anonymiser' => false,
             'trigger_country' => true,
+            'under_attack' => false,            // FW-010
+            'under_attack_domain_id' => null,
         ],
         // MON-00x. How often an open incident may notify, when it escalates,
         // and whether an unhealthy container is restarted automatically.

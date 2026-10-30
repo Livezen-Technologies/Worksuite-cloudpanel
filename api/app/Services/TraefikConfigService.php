@@ -255,7 +255,7 @@ class TraefikConfigService implements HandlesCommandResults
             }
             $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null]));
             if ($cs !== null) {
-                $this->bus->dispatch($server, 'crowdsec.apply', ['scenarios' => (object) $cs['scenarios'], 'profiles' => $cs['profiles']]);
+                $this->bus->dispatch($server, 'crowdsec.apply', ['scenarios' => (object) $cs['scenarios'], 'profiles' => $cs['profiles'], 'whitelist' => $cs['whitelist']]);
             }
             Cache::put($key, $hash, now()->addDays(30));
             Cache::forever('traefik-config:servers', array_values(array_unique(array_merge(Cache::get('traefik-config:servers', []), [$server->id]))));

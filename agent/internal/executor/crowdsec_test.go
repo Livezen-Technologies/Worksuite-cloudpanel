@@ -127,3 +127,35 @@ func TestCrowdSecAlertsAreCompacted(t *testing.T) {
 		t.Fatal("since is validated")
 	}
 }
+
+func TestCrowdSecApplyWritesAndRemovesTheAllowList(t *testing.T) {
+	e, f, dir := csExec(t)
+	allow := filepath.Join(dir, "parsers", "s02-enrich", "dmp-allowlist.yaml")
+	apply := func(wl string) error {
+		raw, _ := json.Marshal(map[string]any{"scenarios": map[string]string{}, "profiles": "p", "whitelist": wl})
+		_, err := e.crowdsecApply(context.Background(), raw)
+		return err
+	}
+	if err := apply("name: dmp/allowlist"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(allow); string(b) != "name: dmp/allowlist" {
+		t.Fatal("allow list not written")
+	}
+
+	f.rejectT = true
+	if err := apply("name: broken"); err == nil {
+		t.Fatal("a rejected config must fail")
+	}
+	if b, _ := os.ReadFile(allow); string(b) != "name: dmp/allowlist" {
+		t.Fatal("the previous allow list must be restored")
+	}
+
+	f.rejectT = false
+	if err := apply(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(allow); err == nil {
+		t.Fatal("an empty allow list removes the parser")
+	}
+}
