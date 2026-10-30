@@ -30,8 +30,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
     { label: 'Networks', to: '/admin/networks', icon: 'share' },
   ] },
-  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, firewall, antivirus, packages and hosting customers', items: [
+  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, firewall, antivirus, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
+    { label: 'DNS zones', to: '/admin/dns', icon: 'globe' },
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
     { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
     { label: 'Packages', to: '/admin/packages', icon: 'tag' },

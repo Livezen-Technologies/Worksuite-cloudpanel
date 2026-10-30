@@ -19,6 +19,7 @@ import { Users, Settings } from './pages/admin/Admin'
 import { AdminAccount } from './pages/admin/Account'
 import Firewall from './pages/admin/Firewall'
 import Antivirus from './pages/admin/Antivirus'
+import DnsZones from './pages/admin/DnsZones'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
@@ -64,6 +65,7 @@ export function AppRoutes() {
         <Route path="containers" element={<Containers />} />
         <Route path="firewall" element={<Firewall />} />
         <Route path="antivirus" element={<Antivirus />} />
+        <Route path="dns" element={<DnsZones />} />
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="applications/:id" element={<AppManage />} />

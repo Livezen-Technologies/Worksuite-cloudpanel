@@ -32,6 +32,12 @@ class ApiException extends RuntimeException
         return new self('quota_exceeded', $message, 402, [], $extra);
     }
 
+    /** An outside service (DNS provider, registrar, …) refused or failed the request. */
+    public static function upstream(string $message): self
+    {
+        return new self('provider_error', $message, 502);
+    }
+
     public static function validation(array $fields, string $message = 'The given data was invalid.'): self
     {
         return new self('validation_failed', $message, 422, $fields);

@@ -233,3 +233,22 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
   verification, attestation `none`, ES256/RS256. Challenges are single use, 5 min.
 - **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
   (`password`, `password+totp`, `password+passkey`, `passkey`).
+
+## DNS zones (SRS 4.18, DNS-001..007, 012)
+
+Cloudflare first. Every change is sent to the provider, and the panel's mirror is updated only once the provider accepts it. Reads need `resources.view|servers.view`; changes need `deploy|settings.manage`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/dns/providers` | Lists accounts as `{id, name, type, account, created_at}`. Credentials are never returned. |
+| POST | `/dns/providers` | Body `{name, type: cloudflare, token, account_id?}`. The token is checked first (`/user/tokens/verify`); a rejected token returns 502 `provider_error`. |
+| DELETE | `/dns/providers/{id}` | Returns 409 while the account still has zones in the panel. |
+| GET | `/dns/zones` | Lists zones as `{id, name, status pending\|active, nameservers[], records_count, provider, last_synced_at}`. |
+| POST | `/dns/zones` | Body `{dns_provider_id, name, defaults_to?}`. A zone that already exists at the provider is adopted. `defaults_to` (IPv4) adds an apex A record and a `www` CNAME. |
+| GET | `/dns/zones/{id}` | The zone plus its `records[]` `{id, type, name, content, ttl (1 = Auto), priority, proxied}`. |
+| DELETE | `/dns/zones/{id}` | Removes the zone from the panel only; it stays at the provider. |
+| POST | `/dns/zones/{id}/check-nameservers` | Returns `{status, expected[], found[], delegated}` and sets the zone active once its nameservers are delegated. |
+| POST | `/dns/zones/{id}/sync` | Returns `{added[], removed[], changed[], in_sync}` comparing the panel with the provider, then adopts the provider's records. |
+| POST | `/dns/zones/{id}/records` | Body `{type, name, content, ttl?, priority?, proxied?}`. The name is relative to the zone (`@` = apex). Types: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS. TTL is 1, 300, 3600 or 86400. Only A, AAAA and CNAME can be proxied, and proxied records always use Auto TTL. A CNAME at the apex is refused. |
+| PUT/PATCH | `/dns/zones/{id}/records/{recordId}` | Same body; the type cannot change. |
+| DELETE | `/dns/zones/{id}/records/{recordId}` | |
