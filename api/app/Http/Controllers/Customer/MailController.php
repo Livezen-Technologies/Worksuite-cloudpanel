@@ -28,6 +28,7 @@ class MailController extends Controller
         return $this->data([
             'available' => (bool) $this->server(), 'limit' => $this->billing->limit('mailboxes', 5), 'max_quota_mb' => $this->billing->limit('mailbox_quota_mb', 5120),
             'used' => Mailbox::query()->count(),
+            'webmail_url' => ($s = $this->server()) && $s->webmail_hostname && $s->webmail_status === 'running' ? 'https://'.$s->webmail_hostname : null,
             'settings' => ($s = $this->server()) ? ['imap' => ['host' => $s->hostname, 'port' => 993, 'security' => 'SSL/TLS'], 'smtp' => ['host' => $s->hostname, 'port' => 587, 'security' => 'STARTTLS'], 'username' => 'Your full email address'] : null,
             'domains' => $domains->map(fn (MailDomain $d) => [
                 'id' => $d->id, 'name' => $d->name,
@@ -35,6 +36,8 @@ class MailController extends Controller
                 'mailboxes' => Mailbox::where('mail_domain_id', $d->id)->orderBy('local_part')->get()->map(fn (Mailbox $b) => [
                     'id' => $b->id, 'address' => $b->local_part.'@'.$d->name, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled,
                     'autoresponder' => $b->autoresponder,
+                    // UMAIL: one-click webmail and the mail-app settings for this address.
+                    'client' => ($s = $this->server()) ? MailService::clientSettings($s, $b->local_part.'@'.$d->name) : null,
                 ]),
                 'aliases' => MailAlias::where('mail_domain_id', $d->id)->orderBy('local_part')->get()->map(fn ($a) => ['id' => $a->id, 'address' => $a->local_part.'@'.$d->name, 'destinations' => $a->destinations]),
             ]),
@@ -146,5 +149,31 @@ class MailController extends Controller
     private function server(): ?MailServer
     {
         return MailServer::allTenants()->where('status', 'running')->orderBy('created_at')->first();
+    }
+
+    /** MCL-10: start an IMAP import into a mailbox. */
+    public function startImport(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate([
+            'host' => 'required|string|max:253', 'port' => 'sometimes|integer|min:1|max:65535', 'security' => 'sometimes|in:ssl,starttls,none',
+            'username' => 'required|string|max:190', 'password' => 'required|string|max:500',
+        ]);
+        $request->attributes->set('audit_skip', true);
+        $import = app(\App\Services\MailImportService::class)->start(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box), $data, $request->user()->id);
+
+        return $this->accepted(\App\Models\Job::find($import->job_id), ['import' => \App\Services\MailImportService::present($import)]);
+    }
+
+    /** Imports into a domain's mailboxes, newest first, with the provider presets. */
+    public function imports(string $id)
+    {
+        $d = MailDomain::findOrFail($id);
+        $boxes = Mailbox::where('mail_domain_id', $d->id)->pluck('id');
+
+        return $this->data([
+            'presets' => \App\Services\MailImportService::PRESETS,
+            'imports' => \App\Models\MailImport::whereIn('mailbox_id', $boxes)->latest()->limit(50)->get()->map(fn ($i) => \App\Services\MailImportService::present($i)),
+        ]);
     }
 }

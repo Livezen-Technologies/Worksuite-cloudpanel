@@ -24,6 +24,7 @@ class MailController extends Controller
             'servers' => MailServer::query()->get()->map(fn (MailServer $m) => [
                 'id' => $m->id, 'server_id' => $m->server_id, 'server' => $servers[$m->server_id] ?? null, 'hostname' => $m->hostname,
                 'status' => $m->status, 'error' => $m->error, 'synced_at' => $m->synced_at?->toIso8601ZuluString(),
+                'webmail_hostname' => $m->webmail_hostname, 'webmail_status' => $m->webmail_status,
                 'settings' => $this->presentSettings($m), 'health' => $m->health, 'tls' => $m->tls, 'health_checked_at' => $m->health_checked_at?->toIso8601ZuluString(),
             ]),
             'domains' => MailDomain::query()->orderBy('name')->get()->map(fn (MailDomain $d) => $this->presentDomain($d)),
@@ -228,5 +229,41 @@ class MailController extends Controller
     private function presentBox(Mailbox $b): array
     {
         return ['id' => $b->id, 'local_part' => $b->local_part, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled, 'autoresponder' => $b->autoresponder, 'created_at' => $b->created_at?->toIso8601ZuluString()];
+    }
+
+    /** MCL-10: start an IMAP import into a mailbox. */
+    public function startImport(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate([
+            'host' => 'required|string|max:253', 'port' => 'sometimes|integer|min:1|max:65535', 'security' => 'sometimes|in:ssl,starttls,none',
+            'username' => 'required|string|max:190', 'password' => 'required|string|max:500',
+        ]);
+        $request->attributes->set('audit_skip', true);
+        $import = app(\App\Services\MailImportService::class)->start(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box), $data, $request->user()->id);
+
+        return $this->accepted(\App\Models\Job::find($import->job_id), ['import' => \App\Services\MailImportService::present($import)]);
+    }
+
+    /** Imports into a domain's mailboxes, newest first, with the provider presets. */
+    public function imports(string $id)
+    {
+        $d = MailDomain::findOrFail($id);
+        $boxes = Mailbox::where('mail_domain_id', $d->id)->pluck('id');
+
+        return $this->data([
+            'presets' => \App\Services\MailImportService::PRESETS,
+            'imports' => \App\Models\MailImport::whereIn('mailbox_id', $boxes)->latest()->limit(50)->get()->map(fn ($i) => \App\Services\MailImportService::present($i)),
+        ]);
+    }
+
+    /** Roundcube webmail beside the mail container, on its own hostname. */
+    public function webmail(Request $request, string $id)
+    {
+        $data = $request->validate(['hostname' => ['required', 'string', 'max:253', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i']]);
+        $request->attributes->set('audit_skip', true);
+        $mail = $this->mail->installWebmail(MailServer::findOrFail($id), $data['hostname'], $request->user()->id);
+
+        return $this->data(['webmail_hostname' => $mail->webmail_hostname, 'webmail_status' => $mail->webmail_status], 202);
     }
 }

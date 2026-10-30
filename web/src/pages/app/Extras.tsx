@@ -6,6 +6,7 @@ import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
 import { CronManager } from '../../components/CronManager'
+import { ImportDialog, ImportList } from '../../components/MailImport'
 
 
 /** UCRON-1..4, CRON-1..8: scheduled jobs in the customer's apps or calling a URL. */
@@ -57,12 +58,14 @@ export function UserMail() {
   const w = page.item ?? {}
   const [domain, setDomain] = useState('')
   const [box, setBox] = useState<Record<string, { local: string; password: string }>>({})
+  const [importing, setImporting] = useState<{ domain: string; box: R } | null>(null)
   const refetch = () => page.refetch()
   if (page.item && !w.available) return <><PageHeader title="Email" /><Card><p className="m-0 text-sm">Email hosting is not available yet. Contact support to turn it on.</p></Card></>
   const s = w.settings as R | null
   return (
     <>
-      <PageHeader title="Email" subtitle={`Mailboxes on your own domains. ${w.used ?? 0} of ${w.limit ?? '…'} mailboxes used.`} />
+      <PageHeader title="Email" subtitle={`Mailboxes on your own domains. ${w.used ?? 0} of ${w.limit ?? '…'} mailboxes used.`}
+        actions={w.webmail_url ? <a className="btn" href={String(w.webmail_url)} target="_blank" rel="noopener noreferrer">Open webmail</a> : undefined} />
       <Card title="Add email to a domain">
         <div className="flex flex-wrap gap-2 text-sm">
           <input className="input" placeholder="example.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
@@ -98,6 +101,8 @@ export function UserMail() {
                   {(d.mailboxes as R[]).map((b) => <li key={String(b.id)} className="flex flex-wrap items-center gap-2">
                     <span className="flex-1 font-mono text-xs">{String(b.address)}</span>
                     {(b.autoresponder as R)?.enabled ? <Badge tone="b">auto-reply</Badge> : null}
+                    {(b.client as R)?.webmail_url ? <a className="btn btn-sm" href={String((b.client as R).webmail_url)} target="_blank" rel="noopener noreferrer">Webmail</a> : null}
+                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setImporting({ domain: String(d.id), box: b })}>Import mail</button>
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { const p = window.prompt(`New password for ${b.address} (10+ characters):`); if (p) run({ path: `/app/mail/domains/${d.id}/mailboxes/${b.id}`, method: 'PATCH', body: { password: p }, label: 'Reset password', success: 'Password changed' }) }}>Reset password</button>
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
                       if ((b.autoresponder as R)?.enabled) { run({ path: `/app/mail/domains/${d.id}/mailboxes/${b.id}/autoresponder`, method: 'PATCH', body: { enabled: false }, label: 'Auto-reply off' }).then(refetch); return }
@@ -115,6 +120,7 @@ export function UserMail() {
                   <button type="button" className="btn btn-sm btn-primary" disabled={busy || !f.local || f.password.length < 10} onClick={() => run({ path: `/app/mail/domains/${d.id}/mailboxes`, body: { local_part: f.local, password: f.password }, label: 'Create mailbox', success: 'Mailbox created' }).then(() => { setBox({ ...box, [String(d.id)]: { local: '', password: '' } }); refetch() }).catch((e) => toast.error(e, 'Mailbox not created'))}>Create mailbox</button>
                 </div>
               </section>
+              <ImportList base="/app" domainId={String(d.id)} boxes={d.mailboxes as R[]} />
               <section>
                 <h3 className="m-0 mb-1 text-sm font-semibold">Forwarding</h3>
                 <ul className="m-0 mb-2 p-0 list-none flex flex-col gap-1">{(d.aliases as R[]).map((a) => <li key={String(a.id)} className="flex items-center gap-2"><span className="flex-1 font-mono text-xs">{String(a.address)} → {(a.destinations as string[]).join(', ')}</span>
@@ -125,6 +131,7 @@ export function UserMail() {
           </Card>
         )
       })}
+      <ImportDialog base="/app" domainId={importing?.domain ?? ''} box={importing ? String(importing.box.id) : null} address={String(importing?.box.address ?? '')} onClose={() => { setImporting(null); refetch() }} />
     </>
   )
 }
