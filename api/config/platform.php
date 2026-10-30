@@ -34,6 +34,7 @@ return [
         'local_repository' => env('BUILD_LOCAL_REPOSITORY', 'dmp-build'), // tag prefix when the image is not pushed
         'health_timeout' => (int) env('HEALTH_CHECK_TIMEOUT', 60),
         'health_path' => '/',
+        'timeout_minutes' => (int) env('BUILD_TIMEOUT_MINUTES', 60),
         'push_registry' => ['url' => env('BUILD_PUSH_REGISTRY'), 'username' => env('BUILD_PUSH_REGISTRY_USERNAME'), 'password' => env('BUILD_PUSH_REGISTRY_PASSWORD')],
     ],
 

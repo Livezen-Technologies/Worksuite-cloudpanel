@@ -30,6 +30,7 @@ class AppController extends Controller
             'source.repo' => 'required_if:source.type,git|nullable|string|max:255',
             'source.branch' => 'nullable|string|max:120',
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
+            'source.builder' => 'nullable|in:dockerfile,auto', 'source.no_cache' => 'nullable|boolean',
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',
             'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(config('platform.app_templates')))],
         ];

@@ -17,6 +17,42 @@ use App\Support\Tenant;
  */
 class BuildService
 {
+    /** Customer packages: monthly build minutes (0 = unlimited) and the per-build timeout (BLD-9). */
+    public function limits(Application $app): array
+    {
+        if ($app->kind !== 'customer') {
+            return ['build_minutes' => 0, 'timeout_minutes' => (int) config('platform.builds.timeout_minutes', 60)];
+        }
+        $billing = app(BillingService::class);
+
+        return ['build_minutes' => max(0, $billing->limit('build_minutes', 0)), 'timeout_minutes' => max(1, $billing->limit('build_timeout_minutes', 30))];
+    }
+
+    /** Build minutes, cache hit rate and stacks for the current tenant this month. */
+    public function usage(?string $kind = null): array
+    {
+        $q = Deployment::whereNotNull('build_seconds')->where('created_at', '>=', now()->startOfMonth())
+            ->when($kind, fn ($q) => $q->whereHas('application', fn ($a) => $a->where('kind', $kind)));
+        $rows = $q->get(['build_seconds', 'build_cache_steps', 'build_cache_hits', 'build_stack']);
+        $steps = (int) $rows->sum('build_cache_steps');
+
+        return [
+            'builds' => $rows->count(),
+            'minutes_used' => (int) ceil($rows->sum('build_seconds') / 60),
+            'average_seconds' => $rows->count() ? (int) round($rows->avg('build_seconds')) : null,
+            'cache_hit_rate' => $steps ? round($rows->sum('build_cache_hits') / $steps * 100, 1) : null,
+            'stacks' => $rows->whereNotNull('build_stack')->countBy('build_stack')->all(),
+        ];
+    }
+
+    public function assertWithinMinutes(Application $app): void
+    {
+        $limit = $this->limits($app)['build_minutes'];
+        if ($limit > 0 && ($used = $this->usage('customer')['minutes_used']) >= $limit) {
+            throw ApiException::conflict("This month's build minutes are used up ({$used} of {$limit}). Upgrade the package or deploy a prebuilt image.", ['reason' => 'build_minutes']);
+        }
+    }
+
     public function needsBuild(Application $app): bool
     {
         return in_array($app->source_type, ['git', 'dockerfile'], true) && ! empty($app->source['repo']);
@@ -97,6 +133,11 @@ class BuildService
             'image_tag' => strtolower($repository).':'.$tag,
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.deployment' => $deployment->id],
         ];
+        $payload['builder'] = ($source['builder'] ?? 'dockerfile') === 'auto' ? 'auto' : 'dockerfile';
+        $payload['timeout_seconds'] = $this->limits($app)['timeout_minutes'] * 60;
+        if (! empty($source['no_cache'])) {
+            $payload['no_cache'] = true;
+        }
         if (! empty($source['build_args'])) {
             $payload['build_args'] = array_map('strval', (array) $source['build_args']);
         }

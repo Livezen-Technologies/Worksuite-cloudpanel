@@ -256,4 +256,39 @@ class BuildPipelineTest extends TestCase
         $this->assertSame(['builder'], Server::allTenants()->find($builder->id)->roles);
         $this->assertSame(0, AgentCommand::allTenants()->count());
     }
+
+    public function test_auto_builder_records_stack_cache_hits_and_build_minutes_within_the_plan(): void
+    {
+        [$token, $org, $target, , , $builderSecret] = $this->fleet();
+        $registry = $this->api($token)->postJson('/api/v1/registries', ['name' => 'reg', 'type' => 'private', 'url' => 'https://reg.example.com', 'username' => 'ci', 'password' => 'pw'])->assertCreated()->json('data.id');
+        $appId = $this->gitApp($token, $target, ['builder' => 'auto', 'no_cache' => true, 'dockerfile_path' => null, 'push_registry_id' => $registry]);
+        $dep = $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202)->json('data');
+        [$build] = $this->heartbeat($builderSecret)['commands'];
+        $this->assertSame('auto', $build['payload']['builder']);
+        $this->assertTrue($build['payload']['no_cache']);
+        $this->assertSame(3600, $build['payload']['timeout_seconds']);
+
+        $this->commandResult($builderSecret, $build['id'], 'succeeded', ['output' => [
+            'image' => $build['payload']['image_tag'], 'image_id' => 'sha256:feed', 'digest' => 'sha256:feed',
+            'stack' => 'node', 'cache_steps' => 4, 'cache_hits' => 3, 'duration_seconds' => 130,
+        ]])->assertOk();
+        $d = Deployment::allTenants()->where("job_id", $dep["job_id"])->first();
+        $this->assertSame(['node', 130, 4, 3], [$d->build_stack, $d->build_seconds, $d->build_cache_steps, $d->build_cache_hits]);
+        $stage = collect(Job::allTenants()->find($dep['job_id'])->stages)->firstWhere('name', 'build_scan');
+        $this->assertStringContainsString('detected node, 3/4 steps cached, 130s', $stage['message']);
+
+        $usage = $this->api($token)->getJson('/api/v1/builds/usage')->assertOk()->json('data');
+        $this->assertSame([1, 3, 75, ['node' => 1]], [$usage['builds'], $usage['minutes_used'], (int) $usage['cache_hit_rate'], $usage['stacks']]);
+
+        // Customer packages cap monthly build minutes.
+        \App\Models\Application::allTenants()->whereKey($appId)->update(['kind' => 'customer']);
+        app(\App\Support\Tenant::class)->as($org->id, function () {
+            $plan = app(\App\Services\BillingService::class)->plan();
+            $plan->update(['limits' => array_merge($plan->limits ?? [], ['build_minutes' => 3, 'build_timeout_minutes' => 10])]);
+        });
+        $page = $this->api($token)->getJson('/api/v1/app/builds/usage')->assertOk()->json('data');
+        $this->assertSame(['build_minutes' => 3, 'timeout_minutes' => 10], $page['limits']);
+        $this->assertSame(3, $page['minutes_used']);
+        $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(409)->assertSee('build minutes are used up');
+    }
 }

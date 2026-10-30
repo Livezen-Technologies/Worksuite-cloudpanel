@@ -18,6 +18,7 @@ type BuildOptions struct {
 	Dockerfile string // path inside the context
 	BuildArgs  map[string]string
 	Labels     map[string]string
+	NoCache    bool
 }
 
 // streamMsg is one JSON line of a build or push progress stream.
@@ -50,6 +51,9 @@ func (c *Client) BuildImage(ctx context.Context, tarCtx io.Reader, o BuildOption
 	}
 	if o.Dockerfile != "" {
 		q.Set("dockerfile", o.Dockerfile)
+	}
+	if o.NoCache {
+		q.Set("nocache", "1")
 	}
 	if len(o.BuildArgs) > 0 {
 		b, _ := json.Marshal(o.BuildArgs)

@@ -13,6 +13,7 @@ import { useToast } from '../../components/Toasts'
 import { ago, unwrap } from '../../lib/format'
 import { type R } from '../../lib/util'
 import Select from '../../components/Select'
+import { BuildUsage } from '../../components/BuildUsage'
 
 const SOURCES = [['git', 'Git repository', 'GitHub · GitLab · Gitea'], ['image', 'Docker image', 'Public or private registry'], ['dockerfile', 'Dockerfile', 'Build from source, isolated runner'], ['compose', 'Compose stack', 'Multi-service application']] as const
 const STRATEGIES = [['recreate', 'Recreate', 'Simple; brief downtime'], ['rolling', 'Rolling update', 'Replace instances one by one'], ['blue_green', 'Blue-green', 'Switch traffic after health checks']] as const
@@ -25,7 +26,7 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
   const registries = useList<R>('/registries')
   const { run, busy } = useAction()
   const [f, setF] = useState({ name: '', source_type: 'git' as string, repo: '', branch: 'main', image: '', environment: 'production', strategy: 'rolling' as string, server_id: '', require_approval: true,
-    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '' })
+    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '', builder: 'dockerfile', no_cache: false })
   const builds = f.source_type === 'git' || f.source_type === 'dockerfile'
   const [errors, setErrors] = useState<Record<string, string>>({})
   const submit = async () => {
@@ -34,7 +35,7 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
         name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
         port: f.port ? Number(f.port) : null, health_path: f.health_path || null,
         ...(f.source_type === 'image' ? { image: f.image } : {
-          source: { repo: f.repo, branch: f.branch, ...(builds ? { dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null, ...(f.git_token ? { git_token: f.git_token } : {}) } : {}) },
+          source: { repo: f.repo, branch: f.branch, ...(builds ? { builder: f.builder, no_cache: f.no_cache, dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null, ...(f.git_token ? { git_token: f.git_token } : {}) } : {}) },
         }),
       }
       await run({ path: '/applications', body, label: `Create ${f.name}`, success: 'Application created' })
@@ -60,9 +61,11 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
             : <><Field label="Repository URL" error={errors.repo ?? errors['source.repo']}><input className="input font-mono" value={f.repo} onChange={(e) => setF({ ...f, repo: e.target.value })} /></Field>
               <Field label="Branch"><input className="input" value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} /></Field></>}
           {builds && <>
+            <Field label="Builder" hint="Auto detect builds Node.js, Python, Go, PHP or static sites when the repository has no Dockerfile"><Select className="input" value={f.builder} onChange={(e) => setF({ ...f, builder: e.target.value })}><option value="dockerfile">Dockerfile</option><option value="auto">Auto detect</option></Select></Field>
             <Field label="Dockerfile path" error={errors['source.dockerfile_path']}><input className="input font-mono" value={f.dockerfile_path} onChange={(e) => setF({ ...f, dockerfile_path: e.target.value })} /></Field>
             <Field label="Build context" error={errors['source.context']}><input className="input font-mono" value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></Field>
             <Field label="Push to registry" hint="Without one the image stays on the builder, which must then be the target"><Select className="input" value={f.push_registry_id} onChange={(e) => setF({ ...f, push_registry_id: e.target.value })}><option value="">Do not push</option>{registries.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>
+            <Field label="Layer cache"><Toggle checked={!f.no_cache} onChange={(v) => setF({ ...f, no_cache: !v })} label="Reuse cached layers" /></Field>
             <Field label="Git access token" hint="Optional; stored as an encrypted secret"><input className="input font-mono" type="password" autoComplete="off" value={f.git_token} onChange={(e) => setF({ ...f, git_token: e.target.value })} /></Field>
           </>}
           <Field label="Container port" error={errors.port}><input className="input" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} /></Field>
@@ -159,6 +162,7 @@ export function Applications() {
     <>
       <PageHeader title="Applications" subtitle="Deploy from Git, a Docker image, a Dockerfile or a Compose stack"
         actions={<><a className="btn" href="/admin/catalog">Install from catalogue</a><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
+      <BuildUsage path="/builds/usage" />
       {approvals.rows.length > 0 && (
         <Card title="Waiting for approval">
           <ul className="list-none m-0 p-0">
