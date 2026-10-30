@@ -3,7 +3,7 @@ import { api, apiBase, errorMessage, request, tokenStore } from '../../api/clien
 import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
 import { Badge } from '../../components/Badge'
-import { Empty } from '../../components/Card'
+import { Empty, Meter, PageHeader } from '../../components/Card'
 import { FileEditor } from '../../components/FileEditor'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
@@ -75,17 +75,22 @@ const P = {
 const CODE = /\.(php|js|mjs|ts|tsx|jsx|css|scss|html?|json|ya?ml|py|rb|go|sh|sql|xml|vue)$/i
 const iconFor = (e: Entry) => (e.type === 'dir' ? P.folder : e.type === 'symlink' ? P.link : CODE.test(e.name) ? P.code : P.doc)
 
+const TONE: Record<string, string> = { y: 'bg-[var(--y-bg)] text-[var(--y-fg)]', g: 'bg-[var(--g-bg)] text-[var(--g-fg)]', b: 'bg-[var(--b-bg)] text-[var(--b-fg)]', n: 'bg-[var(--n-bg)] text-[var(--n-fg)]' }
+const IMG = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i
+/** Small extension tile, tinted by kind (folder, archive, image, code, other). */
+function FileIcon({ e, big = false }: { e: Entry; big?: boolean }) {
+  const ext = e.type === 'dir' ? 'dir' : e.type === 'symlink' ? 'link' : (e.name.includes('.') ? e.name.split('.').pop()! : 'file').slice(0, 4)
+  const tone = e.type === 'dir' ? 'y' : ARCHIVE.test(e.name) ? 'n' : IMG.test(e.name) ? 'g' : CODE.test(e.name) ? 'b' : 'n'
+  return <span aria-hidden="true" className={`inline-grid place-items-center shrink-0 uppercase font-bold tracking-wide ${TONE[tone]} ${big ? 'w-12 h-12 rounded-xl text-xs' : 'w-7 h-7 rounded-md text-[9.5px]'}`}>{ext}</span>
+}
+const permText = (e: Entry) => {
+  const m = parseInt(e.mode || '0', 8) & 0o777
+  return (e.type === 'dir' ? 'd' : '-') + [6, 3, 0].map((sh) => ((m >> sh) & 4 ? 'r' : '-') + ((m >> sh) & 2 ? 'w' : '-') + ((m >> sh) & 1 ? 'x' : '-')).join('')
+}
+const fmtDate = (d?: string) => { if (!d) return '—'; const t = new Date(d); return isNaN(t.getTime()) ? d : t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: t.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) }
+
 function IconSvg({ d, size = 20, className = '' }: { d: string; size?: number; className?: string }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}><path d={d} /></svg>
-}
-
-function ToolButton({ label, d, onClick, disabled, expanded }: { label: string; d: string; onClick?: () => void; disabled?: boolean; expanded?: boolean }) {
-  return (
-    <button type="button" aria-label={label} title={label} aria-expanded={expanded} disabled={disabled} onClick={onClick}
-      className="grid place-content-center w-11 h-11 rounded-xl border border-line bg-[var(--head)] text-[var(--text)] cursor-pointer hover:border-[var(--accent)] disabled:opacity-45 disabled:cursor-not-allowed">
-      <IconSvg d={d} size={20} />
-    </button>
-  )
 }
 
 function SideLink({ d, label, active, onClick, disabled, note }: { d: string; label: string; active?: boolean; onClick?: () => void; disabled?: boolean; note?: string }) {
@@ -186,6 +191,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
   const [op, setOp] = useState<{ kind: 'copy' | 'move' | 'compress' | 'extract'; names: string[]; dest: string; name: string; format: string; overwrite: boolean; destId: string; separate: boolean } | null>(null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState(false)
+  const [layout, setLayout] = useState<'list' | 'grid'>('list')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [transfer, setTransfer] = useState<{ label: string; pct: number | null } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -510,82 +516,113 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
   const folders = shown.filter((e) => e.type === 'dir').length
   const used = volume?.size_gb != null ? `${Number(volume.size_gb).toFixed(1)}` : null
 
+  const sel = chosen()
+  const one = sel.length === 1 ? sel[0] : null
+  const allArchives = sel.length > 0 && sel.every((e) => e.type === 'file' && ARCHIVE.test(e.name))
+  const none = !sel.length || busy
+  const sortedShown = [...shown].sort((a, b) => (a.type === 'dir') === (b.type === 'dir') ? 0 : a.type === 'dir' ? -1 : 1)
+  const quotaPct = used && volume?.quota_gb ? Math.min(100, (Number(volume.size_gb) / Number(volume.quota_gb)) * 100) : null
+
   return (
     <>
-      <section className="card overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 px-6 pt-5 pb-4">
-          <IconSvg d={P.folderOpen} size={26} className="text-muted" />
-          <h1 className="m-0 text-xl font-semibold flex-1 min-w-[160px]">File Manager</h1>
-          <label className="sr-only" htmlFor="fm-volume">Volume</label>
-          <Select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
-            {usable.map((v) => <option key={v.id} value={v.id}>{customer ? v.name : `${v.name} · ${serverName(v)}`}</option>)}
+      <PageHeader title="File manager" subtitle={customer ? 'Browse and edit the files your apps keep. Every change is audited.' : 'Browse and edit files in app containers and volumes. Every change is audited.'} />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <label className="sr-only" htmlFor="fm-volume">Location</label>
+          <Select id="fm-volume" className="input !w-auto max-w-full sm:max-w-[280px] font-semibold" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
+            {usable.map((v) => <option key={v.id} value={v.id}>{customer ? v.name : `${serverName(v)} · ${v.name}`}</option>)}
           </Select>
-          <ToolButton label="Upload files" d={P.upload} disabled={!entries || busy} onClick={() => fileInput.current?.click()} />
-          <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
-          <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.webkitRelativePath || file.name }))) }} />
-          <ToolButton label="New folder" d={P.folderPlus} disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })} />
-          <div className="relative">
-            <ToolButton label="More actions" d={P.dots} expanded={menu} disabled={!entries} onClick={() => setMenu(!menu)} />
-            {menu && (
-              <div role="menu" className="absolute right-0 top-12 z-20 card shadow-lg py-1 w-44">
-                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); setNaming({ kind: 'file', value: '' }) }}>New file</button>
-                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); load(dir) }}>Refresh</button>
-                <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); folderInput.current?.click() }}>Upload a folder</button>
-              </div>
-            )}
-          </div>
+          <nav aria-label="Breadcrumb" className="flex-[1_1_300px] min-w-0 flex flex-wrap items-center gap-1 min-h-[38px] px-2.5 rounded-lg border border-line bg-head font-mono text-[13px]">
+            <button type="button" className="bg-transparent border-0 px-1 min-h-7 cursor-pointer font-[inherit] text-[var(--text)] hover:text-accent" onClick={() => load('')}>{volume?.name ?? '—'}{customer && volume?.volume_path ? ` (${volume.volume_path})` : ''}</button>
+            {crumbs.map((c, i) => (
+              <span key={i} className="flex items-center gap-1"><span aria-hidden="true" className="text-muted">/</span>
+                <button type="button" aria-current={i === crumbs.length - 1 ? 'location' : undefined} className={`bg-transparent border-0 px-1 min-h-7 cursor-pointer font-[inherit] hover:text-accent ${i === crumbs.length - 1 ? 'text-[var(--text)] font-semibold' : 'text-muted'}`} onClick={() => load(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
+              </span>
+            ))}
+          </nav>
+          {(view === 'files' || view === 'search') && <label className="flex-[1_1_200px] sm:flex-[0_1_240px] flex items-center gap-2 h-[38px] px-2.5 rounded-lg border border-line bg-card text-muted">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <span className="sr-only">Filter this folder</span>
+            <input id="fm-filter" className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-[var(--text)] font-[inherit]" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filter.trim()) { setQuery({ ...query, name: filter.trim() }); setAdvanced(true) } }} />
+          </label>}
         </div>
 
-        <nav aria-label="Path" className="mx-6 flex flex-wrap items-center gap-1 rounded-xl bg-[var(--head)] px-4 py-3 text-[15px] text-muted">
-          <IconSvg d={P.server} size={20} className="mr-2" />
-          {!customer && <><span>{volume ? serverName(volume) : '—'}</span>
-          <span aria-hidden="true">/</span></>}
-          <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load('')}>{volume?.name ?? ''}{customer && volume?.volume_path ? ` (${volume.volume_path})` : ''}</button>
-          {crumbs.map((c, i) => (
-            <span key={i} className="flex items-center gap-1"><span aria-hidden="true">/</span>
-              <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-muted hover:text-[var(--text)] font-[inherit]" onClick={() => load(crumbs.slice(0, i + 1).join('/'))}>{c}</button>
+        <div role="toolbar" aria-label="File actions" className="card flex flex-wrap items-center gap-1.5 p-2">
+          <button type="button" className="btn btn-primary btn-sm" disabled={!entries || busy} onClick={() => fileInput.current?.click()}><IconSvg d={P.upload} size={15} />Upload</button>
+          <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
+          <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.webkitRelativePath || file.name }))) }} />
+          <button type="button" className="btn btn-sm" disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })}>New folder</button>
+          <button type="button" className="btn btn-sm" disabled={!entries || busy} onClick={() => setNaming({ kind: 'file', value: '' })}>New file</button>
+          <span aria-hidden="true" className="w-px h-6 bg-line mx-1" />
+          <button type="button" className="btn btn-sm" disabled={busy || one?.type !== 'file'} onClick={() => one && open(one)}>Edit</button>
+          <button type="button" className="btn btn-sm" disabled={busy || !one} onClick={() => one && setNaming({ kind: 'rename', target: one, value: one.name })}>Rename</button>
+          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
+          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('move', [...selected])}>Move to…</button>
+          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('compress', [...selected])}>Compress</button>
+          <button type="button" className="btn btn-sm" disabled={busy || !allArchives} onClick={() => opFor('extract', [...selected])}>Extract</button>
+          <button type="button" className="btn btn-sm" disabled={none || !sel.some((e) => e.type === 'file' || e.type === 'dir')} onClick={() => openPerms(sel.filter((e) => e.type === 'file' || e.type === 'dir'))}>Permissions</button>
+          <button type="button" className="btn btn-sm" disabled={none} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button>
+          <button type="button" className="btn btn-sm" disabled={none} onClick={() => setSharing({ paths: [...selected].map((n) => join(dir, n)), hours: '72', max: '', password: '' })}>Share</button>
+          <button type="button" className="btn btn-sm btn-danger" disabled={none} onClick={() => { setPermanent(false); setDeleting(sel) }}>Delete</button>
+          <span className="ml-auto flex items-center gap-1.5">
+            {(view === 'files' || view === 'search') && <button type="button" className="btn btn-sm btn-ghost" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!query.name && filter) setQuery({ ...query, name: filter }) }}>Search all folders</button>}
+            <span className="relative">
+              <button type="button" className="btn btn-sm btn-ghost" aria-label="More actions" aria-expanded={menu} disabled={!entries} onClick={() => setMenu(!menu)}><IconSvg d={P.dots} size={18} /></button>
+              {menu && (
+                <div role="menu" className="absolute right-0 top-10 z-20 card shadow-lg py-1 w-44">
+                  <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); load(dir) }}>Refresh</button>
+                  <button type="button" role="menuitem" className="w-full text-left px-3 h-10 bg-transparent border-0 text-sm cursor-pointer hover:bg-[var(--head)]" onClick={() => { setMenu(false); folderInput.current?.click() }}>Upload a folder</button>
+                </div>
+              )}
             </span>
-          ))}
-        </nav>
+            {view === 'files' && <span className="flex gap-1 p-[3px] rounded-lg bg-head" role="group" aria-label="View">
+              {(['list', 'grid'] as const).map((v) => <button key={v} type="button" aria-pressed={layout === v} aria-label={`${v} view`} onClick={() => setLayout(v)}
+                className={`min-h-8 px-2.5 rounded-md border-0 text-xs font-semibold capitalize cursor-pointer ${layout === v ? 'bg-card text-[var(--text)] shadow-sm' : 'bg-transparent text-muted'}`}>{v}</button>)}
+            </span>}
+          </span>
+        </div>
 
-        <div className="flex flex-wrap gap-4 p-6">
-          <nav aria-label="Folders" className="flex-[0_1_200px] min-w-[160px] flex flex-col gap-1">
-            <SideLink d={P.drive} label="Root" active={view === 'files' && !dir} onClick={() => load('')} />
+        <div className="flex flex-wrap gap-3 items-stretch">
+          <nav aria-label="Folders" className="card flex-[1_1_100%] md:flex-[0_1_230px] md:min-w-[200px] p-2 flex flex-col gap-0.5">
+            <SideLink d={P.drive} label={volume?.name ?? 'Root'} active={view === 'files' && !dir} onClick={() => load('')} />
             {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={view === 'files' && i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
+            {view === 'files' && sortedShown.filter((e) => e.type === 'dir').slice(0, 12).map((e) => <span key={e.name} className="pl-4"><SideLink d={P.folder} label={e.name} onClick={() => load(join(dir, e.name))} /></span>)}
+            <div className="my-1 border-t border-line" />
             {!customer && <SideLink d={P.shield} label="Security scan" active={view === 'scan'} disabled={!volumeId} onClick={runScan} />}
             <SideLink d={P.up} label="Transfers" active={view === 'transfers'} disabled={!volumeId} onClick={loadTransfers} />
             <SideLink d={P.link} label="Shared links" active={view === 'shares'} disabled={!volumeId} onClick={loadShares} />
             <SideLink d={P.trash} label="Trash" active={view === 'trash'} disabled={!volumeId} onClick={loadTrash} />
+            {used && <div className="mt-auto pt-3 px-2 pb-1 border-t border-line text-xs text-muted">
+              <div>Disk {used} GB{volume?.quota_gb ? ` of ${volume.quota_gb} GB` : ''}</div>
+              {quotaPct != null && <div className="mt-1.5"><Meter value={quotaPct} label="Volume usage" /></div>}
+            </div>}
           </nav>
 
-          <div className={`relative flex-[999_1_480px] min-w-0 rounded-xl border overflow-hidden ${dragging ? 'border-[var(--accent)] border-dashed' : 'border-line'}`}
+          <section aria-label="Files" className={`card relative flex-[999_1_420px] min-w-0 overflow-hidden flex flex-col ${dragging ? '!border-[var(--accent)] border-dashed' : ''}`}
             onDragOver={(e) => { if (entries && !busy) { e.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
             {dragging && <div className="absolute inset-0 z-10 grid place-content-center bg-[var(--sel)]/80 text-[15px] font-semibold pointer-events-none">Drop files or folders to upload to {dir || volume?.name}</div>}
             {transfer && (
-              <div role="status" className="px-4 py-3 border-b border-line text-sm">
-                <div className="flex justify-between mb-2"><span>{transfer.label}</span><span className="text-muted">{transfer.pct !== null ? `${transfer.pct}%` : 'Working…'}</span></div>
+              <div role="status" className="px-4 py-3 border-b border-line bg-head text-[13px]">
+                <div className="flex justify-between mb-2"><span className="truncate">{transfer.label}</span><span className="text-muted">{transfer.pct !== null ? `${transfer.pct}%` : 'Working…'}</span></div>
                 <div className="h-1.5 rounded bg-[var(--track)] overflow-hidden"><div className={`h-full bg-[var(--accent)] ${transfer.pct === null ? 'w-1/3 animate-pulse' : ''}`} style={transfer.pct !== null ? { width: `${transfer.pct}%` } : undefined} /></div>
+                <div className="mt-2 text-xs text-muted">Drop files anywhere in this panel to upload</div>
               </div>
             )}
-            {(view === 'files' || view === 'search') && <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line">
-              <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
-              <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filter.trim()) { setQuery({ ...query, name: filter.trim() }); setAdvanced(true) } }} />
-              <button type="button" className="btn btn-sm" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!query.name && filter) setQuery({ ...query, name: filter }) }}>Search all folders</button>
-              {advanced && (
-                <form className="w-full grid gap-3 py-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
-                  <label className="label">Name contains<input className="input h-9" value={query.name} onChange={(e) => setQuery({ ...query, name: e.target.value })} /></label>
-                  <label className="label">Extensions<input className="input h-9 font-mono" placeholder="php, js" value={query.extensions} onChange={(e) => setQuery({ ...query, extensions: e.target.value })} /></label>
-                  <label className="label">Min size (MB)<input className="input h-9" inputMode="decimal" value={query.min} onChange={(e) => setQuery({ ...query, min: e.target.value })} /></label>
-                  <label className="label">Max size (MB)<input className="input h-9" inputMode="decimal" value={query.max} onChange={(e) => setQuery({ ...query, max: e.target.value })} /></label>
-                  <label className="label">Modified after<input type="date" className="input h-9" value={query.after} onChange={(e) => setQuery({ ...query, after: e.target.value })} /></label>
-                  <label className="label">Modified before<input type="date" className="input h-9" value={query.before} onChange={(e) => setQuery({ ...query, before: e.target.value })} /></label>
-                  <div className="flex items-end gap-2">
-                    <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !Object.values(query).some((v) => v.trim())}>Search</button>
-                    {view === 'search' && <button type="button" className="btn btn-sm" onClick={() => load(dir)}>Clear</button>}
-                  </div>
-                </form>
-              )}
-            </div>}
+            {(view === 'files' || view === 'search') && advanced && (
+              <form className="grid gap-3 p-4 border-b border-line bg-head [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
+                <label className="label">Name contains<input className="input h-9" value={query.name} onChange={(e) => setQuery({ ...query, name: e.target.value })} /></label>
+                <label className="label">Extensions<input className="input h-9 font-mono" placeholder="php, js" value={query.extensions} onChange={(e) => setQuery({ ...query, extensions: e.target.value })} /></label>
+                <label className="label">Min size (MB)<input className="input h-9" inputMode="decimal" value={query.min} onChange={(e) => setQuery({ ...query, min: e.target.value })} /></label>
+                <label className="label">Max size (MB)<input className="input h-9" inputMode="decimal" value={query.max} onChange={(e) => setQuery({ ...query, max: e.target.value })} /></label>
+                <label className="label">Modified after<input type="date" className="input h-9" value={query.after} onChange={(e) => setQuery({ ...query, after: e.target.value })} /></label>
+                <label className="label">Modified before<input type="date" className="input h-9" value={query.before} onChange={(e) => setQuery({ ...query, before: e.target.value })} /></label>
+                <div className="flex items-end gap-2">
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !Object.values(query).some((v) => v.trim())}>Search</button>
+                  {view === 'search' && <button type="button" className="btn btn-sm" onClick={() => load(dir)}>Clear</button>}
+                </div>
+              </form>
+            )}
+            <div className="flex-1 min-w-0 overflow-x-auto">
             {view === 'scan' ? (
               error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading || !scan ? <Empty>Scanning {dir || 'the whole site'}. Large sites can take a minute…</Empty>
@@ -720,80 +757,108 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
             ) : !volumeId && !volumes.isLoading ? <Empty>{customer ? 'None of your apps keeps files yet. Turn on persistent storage when you host an app.' : <>No volumes yet. Create one under Volumes &amp; Storage.</>}</Empty>
               : error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading && !entries ? <Empty>Loading…</Empty>
-              : (
-                <table className="w-full border-collapse text-[15px]">
-                  <thead><tr className="bg-[var(--head)] text-left">
-                    <th className="w-10 pl-4"><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => selected.has(r.name))} onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((r) => r.name)) : new Set())} /></th>
-                    <th className="px-4 py-3 font-semibold">Name</th>
-                    <th className="px-4 py-3 font-medium text-muted text-right w-32">Size</th>
+              : layout === 'grid' ? (
+                <div className="p-3.5 grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))]">
+                  {dir && <button type="button" className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-line bg-transparent cursor-pointer text-accent font-semibold text-[13px] font-[inherit]" onClick={() => load(parentOf(dir))}><IconSvg d={P.up} size={28} />Parent folder</button>}
+                  {sortedShown.map((r) => (
+                    <button key={r.name} type="button" aria-pressed={selected.has(r.name)} onClick={() => toggle(r.name)} onDoubleClick={() => { if (!busy && (r.type === 'dir' || r.type === 'file')) open(r) }}
+                      className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border cursor-pointer font-[inherit] text-[var(--text)] min-w-0 ${selected.has(r.name) ? 'border-accent bg-[var(--sel)]' : 'border-line bg-transparent hover:bg-[var(--head)]'}`}>
+                      <FileIcon e={r} big />
+                      <span className="text-[12.5px] font-medium max-w-full truncate">{r.name}</span>
+                      <span className="text-[11.5px] text-muted">{r.type === 'dir' ? 'Folder' : size(r.size)}</span>
+                    </button>
+                  ))}
+                  {entries && shown.length === 0 && <div className="col-span-full"><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></div>}
+                </div>
+              ) : (
+                <table className="w-full border-collapse text-[13px] min-w-[640px]">
+                  <thead><tr className="bg-head text-left text-xs text-muted">
+                    <th className="w-10 pl-3 py-2.5"><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => selected.has(r.name))} onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((r) => r.name)) : new Set())} /></th>
+                    <th className="px-3 py-2.5 font-semibold">Name</th>
+                    <th className="px-3 py-2.5 font-semibold">Size</th>
+                    <th className="px-3 py-2.5 font-semibold">Modified</th>
+                    <th className="px-3 py-2.5 font-semibold">Permissions</th>
+                    <th className="px-3 py-2.5 font-semibold">Owner</th>
                   </tr></thead>
                   <tbody>
                     {dir && (
                       <tr className="border-t border-line">
-                        <td className="px-4 py-3" colSpan={3}><button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit]" onClick={() => load(parentOf(dir))}><IconSvg d={P.up} size={20} className="text-muted" />Up one folder</button></td>
+                        <td />
+                        <td className="px-3 py-2.5" colSpan={5}><button type="button" className="bg-transparent border-0 p-0 min-h-7 cursor-pointer text-accent font-semibold text-[13px] font-[inherit]" onClick={() => load(parentOf(dir))}>↑ Parent folder</button></td>
                       </tr>
                     )}
-                    {shown.map((r) => (
+                    {sortedShown.map((r) => (
                       <tr key={r.name} className={`group border-t border-line hover:bg-[var(--head)] ${selected.has(r.name) ? 'bg-[var(--sel)]' : ''}`}>
-                        <td className="w-10 pl-4"><input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.name)} onChange={() => toggle(r.name)} /></td>
-                        <td className="px-4 py-2 min-w-0"><div className="flex items-center gap-3 min-h-9">
-                          <button type="button" className="flex items-center gap-3 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-[inherit] text-left disabled:cursor-default" disabled={busy || r.type === 'other' || r.type === 'symlink'} onClick={() => open(r)}>
-                            <IconSvg d={iconFor(r)} size={20} className="text-muted shrink-0" />
+                        <td className="w-10 pl-3 py-2"><input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.name)} onChange={() => toggle(r.name)} /></td>
+                        <td className="px-3 py-2 min-w-0"><div className="flex items-center gap-2.5 min-h-[30px]">
+                          <button type="button" className="flex items-center gap-2.5 bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-medium text-[13.5px] font-[inherit] text-left min-w-0 disabled:cursor-default" disabled={busy || r.type === 'other' || r.type === 'symlink'} onClick={() => open(r)}>
+                            <FileIcon e={r} />
                             <span className="truncate">{r.name}{r.type === 'symlink' ? ' (link)' : ''}</span>
                           </button>
                           <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                            {r.type === 'file' && ARCHIVE.test(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Extract ${r.name}`} onClick={() => opFor('extract', [r.name])}>Extract</button>}
-                            {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
                             {r.type === 'file' && previewKind(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Preview ${r.name}`} onClick={() => openPreview(r.name, join(dir, r.name))}>Preview</button>}
                             {r.type === 'file' && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`History of ${r.name}`} onClick={() => openHistory(join(dir, r.name))}>History</button>}
-                            {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Permissions of ${r.name}`} onClick={() => openPerms([r])}>Permissions</button>}
-                            <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
-                            <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => { setPermanent(false); setDeleting([r]) }}>Delete</button>
                           </span>
                         </div></td>
-                        <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{r.type === 'dir' ? 'Folder' : size(r.size)}</td>
+                        <td className="px-3 py-2 text-muted tabular-nums whitespace-nowrap">{r.type === 'dir' ? '—' : size(r.size)}</td>
+                        <td className="px-3 py-2 text-muted whitespace-nowrap">{fmtDate(r.modified)}</td>
+                        <td className="px-3 py-2 text-muted font-mono text-xs whitespace-nowrap">{permText(r)}</td>
+                        <td className="px-3 py-2 text-muted whitespace-nowrap">{r.uid != null && r.uid >= 0 ? `${r.uid}:${r.gid ?? ''}` : '—'}</td>
                       </tr>
                     ))}
-                    {entries && shown.length === 0 && <tr><td colSpan={3}><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></td></tr>}
+                    {entries && shown.length === 0 && <tr><td colSpan={6}><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></td></tr>}
                   </tbody>
                 </table>
               )}
-          </div>
-        </div>
+            </div>
 
-        <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
-          {view === 'scan' ? (
-            <span className="flex flex-wrap items-center gap-3">{scan ? `Scanned ${scan.files.toLocaleString()} files in ${scan.folders.toLocaleString()} folders${scan.truncated ? ' (stopped early on a very large site)' : ''}` : ''}
-              {scan && <button type="button" className="btn btn-sm" disabled={loading} onClick={runScan}>Scan again</button>}</span>
-          ) : view === 'search' ? (
-            <span>{hits ? `${hits.items.length} found${hits.truncated ? ' (showing the first 500; narrow the search for more)' : ''}` : ''}</span>
-          ) : view === 'shares' ? (
-            <span>Links share a copy taken when they are made; later edits do not change what they serve.</span>
-          ) : view === 'transfers' ? (
-            <span className="flex flex-wrap items-center gap-3">Failed transfers can be retried; queued ones can be cancelled until the server starts them.
-              <button type="button" className="btn btn-sm" disabled={loading} onClick={loadTransfers}>Refresh</button></span>
-          ) : view === 'trash' ? (
-            <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
-              {trashSel.size > 0 && <><span className="font-semibold text-[var(--text)]">{trashSel.size} selected</span>
-                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => trashAct(`Restored ${trashSel.size} items`, () => api.post(`${base}/trash/restore`, { ids: [...trashSel] }))}>Restore</button>
-                <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm('Delete the selected items forever? This cannot be undone.')) trashAct(`Deleted ${trashSel.size} items forever`, () => request(`${base}/trash`, { method: 'DELETE', body: { ids: [...trashSel] } })) }}>Delete forever</button></>}
-            </span>
-          ) : (
-          <span className="flex flex-wrap items-center gap-3">{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}
-            {selected.size > 0 && <><span className="font-semibold text-[var(--text)]">{selected.size} selected</span>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setSharing({ paths: [...selected].map((n) => join(dir, n)), hours: '72', max: '', password: '' })}>Share</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('move', [...selected])}>Move to…</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('compress', [...selected])}>Compress</button>
-              {[...selected].every((n) => ARCHIVE.test(n)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('extract', [...selected])}>Extract{selected.size > 1 ? ' all' : ''}</button>}
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPerms(chosen().filter((e) => e.type === 'file' || e.type === 'dir'))}>Permissions</button>
-              <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { setPermanent(false); setDeleting(chosen()) }}>Delete</button></>}
-          </span>
+            <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 px-3.5 py-2.5 border-t border-line bg-head text-[12.5px] text-muted">
+              {view === 'scan' ? (
+                <span className="flex flex-wrap items-center gap-3">{scan ? `Scanned ${scan.files.toLocaleString()} files in ${scan.folders.toLocaleString()} folders${scan.truncated ? ' (stopped early on a very large site)' : ''}` : ''}
+                  {scan && <button type="button" className="btn btn-sm" disabled={loading} onClick={runScan}>Scan again</button>}</span>
+              ) : view === 'search' ? (
+                <span>{hits ? `${hits.items.length} found${hits.truncated ? ' (showing the first 500; narrow the search for more)' : ''}` : ''}</span>
+              ) : view === 'shares' ? (
+                <span>Links share a copy taken when they are made; later edits do not change what they serve.</span>
+              ) : view === 'transfers' ? (
+                <span className="flex flex-wrap items-center gap-3">Failed transfers can be retried; queued ones can be cancelled until the server starts them.
+                  <button type="button" className="btn btn-sm" disabled={loading} onClick={loadTransfers}>Refresh</button></span>
+              ) : view === 'trash' ? (
+                <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
+                  {trashSel.size > 0 && <><span className="font-semibold text-[var(--text)]">{trashSel.size} selected</span>
+                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => trashAct(`Restored ${trashSel.size} items`, () => api.post(`${base}/trash/restore`, { ids: [...trashSel] }))}>Restore</button>
+                    <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm('Delete the selected items forever? This cannot be undone.')) trashAct(`Deleted ${trashSel.size} items forever`, () => request(`${base}/trash`, { method: 'DELETE', body: { ids: [...trashSel] } })) }}>Delete forever</button></>}
+                </span>
+              ) : <>
+                <span>{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}</span>
+                {selected.size > 0 && <span className="font-semibold text-[var(--text)]">{selected.size} selected</span>}
+              </>}
+            </div>
+          </section>
+
+          {view === 'files' && one && (
+            <aside aria-label="Details" className="card flex-[1_1_100%] lg:flex-[0_1_260px] lg:min-w-[220px] p-4 flex flex-col gap-3.5">
+              <div className="flex items-center gap-3 min-w-0"><FileIcon e={one} big /><div className="min-w-0"><div className="font-semibold text-sm truncate">{one.name}</div><div className="text-xs text-muted">{one.type === 'dir' ? 'Folder' : one.type === 'symlink' ? 'Link' : ARCHIVE.test(one.name) ? 'Archive' : 'File'}</div></div></div>
+              <dl className="m-0 text-[13px]">
+                {([
+                  ['Size', one.type === 'dir' ? '—' : size(one.size), false],
+                  ['Modified', one.modified ? new Date(one.modified).toLocaleString() : '—', false],
+                  ['Permissions', permText(one), true],
+                  ['Owner', one.uid != null && one.uid >= 0 ? `uid ${one.uid} · gid ${one.gid ?? '—'}` : '—', false],
+                  ['Path', `/${join(dir, one.name)}`, true],
+                ] as const).map(([k, v, mono]) => (
+                  <div key={k} className="flex justify-between gap-2.5 py-2 border-t border-line"><dt className="text-muted">{k}</dt><dd className={`m-0 font-medium text-right break-all ${mono ? 'font-mono text-xs' : ''}`}>{v}</dd></div>
+                ))}
+              </dl>
+              <div className="flex flex-wrap gap-1.5">
+                {one.type === 'file' && previewKind(one.name) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPreview(one.name, join(dir, one.name))}>Preview</button>}
+                {one.type === 'file' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openHistory(join(dir, one.name))}>History</button>}
+              </div>
+              <p className="m-0 text-xs text-muted">Click a file name to edit it. Archives (.zip, .tar.gz) can be extracted in place.</p>
+            </aside>
           )}
-          {used && <span>Storage: {used}{volume?.quota_gb ? ` / ${volume.quota_gb}` : ''} GB</span>}
         </div>
-      </section>
+      </div>
 
       <Modal open={!!sharing} onClose={() => setSharing(null)} title={sharing?.url ? 'Link ready' : `Share ${sharing?.paths.length === 1 ? sharing.paths[0] : `${sharing?.paths.length} items`}`}
         footer={sharing?.url
