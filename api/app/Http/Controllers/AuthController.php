@@ -33,6 +33,7 @@ class AuthController extends Controller
         });
         $this->audit->log('auth.register', 'users', $user->id, [], $org->id, $user->id, $user->email);
         app(\App\Services\EmailTemplateService::class)->notify('welcome', $user);
+        app(AccountRecoveryController::class)->sendVerification($user);
 
         return $this->data(['token' => $this->issue($user), 'user' => $user], 201);
     }

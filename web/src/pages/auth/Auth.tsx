@@ -1,6 +1,6 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router'
-import { isApiError } from '../../api/client'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { api, isApiError } from '../../api/client'
 import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
 import { Brand } from '../../components/Shell'
@@ -39,7 +39,7 @@ function AuthCard({ title, subtitle, children, footer }: { title: string; subtit
 export function Login() {
   const { login, loginPasskey, me } = useAuth()
   const nav = useNavigate()
-  const loc = useLocation() as { state?: { from?: string } }
+  const loc = useLocation() as { state?: { from?: string; reset?: boolean } }
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
@@ -72,9 +72,11 @@ export function Login() {
   }
   return (
     <AuthCard title="Welcome back" subtitle="Sign in to your account to continue." footer={<>Not a member? <Link to="/register" className="font-medium">Create an account</Link></>}>
+      {loc.state?.reset && <p role="status" className="m-0 -mt-2 text-sm text-[var(--g-fg)]">Your password is changed. Sign in with the new one.</p>}
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <Field label="Email" error={fields.email}><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Password" error={fields.password}><input className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+        <Link to="/forgot-password" className="-mt-2 self-end text-sm font-medium">Forgot password?</Link>
         <Field label={needOtp ? 'Authentication code' : 'Authentication code (if two-factor is on)'} error={fields.otp}>
           <input className="input font-mono tracking-widest" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
         </Field>
@@ -123,6 +125,75 @@ export function Register() {
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
         <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
       </form>
+    </AuthCard>
+  )
+}
+
+export function ForgotPassword() {
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(null)
+    try { await api.post('/auth/forgot-password', { email: email.trim() }); setSent(true) } catch (ex) { setErr(isApiError(ex) ? ex.message : 'Could not send the link. Try again.') } finally { setBusy(false) }
+  }
+  return (
+    <AuthCard title="Reset your password" subtitle="We'll email you a link to choose a new one." footer={<>Remembered it? <Link to="/login" className="font-medium">Sign in</Link></>}>
+      {sent
+        ? <p role="status" className="m-0 text-sm">If an account uses <strong>{email}</strong>, a reset link is on its way. It works for an hour.</p>
+        : <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field label="Email"><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
+          <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy || !/^\S+@\S+\.\S+$/.test(email)}>{busy ? 'Sending…' : 'Send reset link'}</button>
+        </form>}
+    </AuthCard>
+  )
+}
+
+export function ResetPassword() {
+  const [params] = useSearchParams()
+  const nav = useNavigate()
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const email = params.get('email') ?? ''
+  const token = params.get('token') ?? ''
+  const mismatch = confirm.length > 0 && confirm !== password
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(null)
+    try {
+      await api.post('/auth/reset-password', { email, token, password })
+      nav('/login', { replace: true, state: { reset: true } })
+    } catch (ex) { setErr(isApiError(ex) ? (ex.field('token') ?? ex.field('password') ?? ex.message) : 'Could not reset the password.') } finally { setBusy(false) }
+  }
+  return (
+    <AuthCard title="Choose a new password" subtitle={email ? `For ${email}. Every device is signed out afterwards.` : 'This link is missing its details.'} footer={<><Link to="/forgot-password" className="font-medium">Send a new link</Link></>}>
+      <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        <Field label="New password" hint="At least 8 characters"><input className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+        <Field label="Repeat it" error={mismatch ? 'The passwords do not match.' : undefined}><input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
+        {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
+        <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy || !email || !token || password.length < 8 || confirm !== password}>{busy ? 'Saving…' : 'Set new password'}</button>
+      </form>
+    </AuthCard>
+  )
+}
+
+export function VerifyEmail() {
+  const [params] = useSearchParams()
+  const [state, setState] = useState<{ ok: boolean | null; message: string }>({ ok: null, message: 'Confirming…' })
+  const once = useRef(false)
+  useEffect(() => {
+    if (once.current) return
+    once.current = true
+    api.post<{ data: { email: string } }>('/auth/verify-email', { id: params.get('id') ?? '', token: params.get('token') ?? '' })
+      .then((r) => setState({ ok: true, message: `${r.data.email} is confirmed. Thank you.` }))
+      .catch((ex) => setState({ ok: false, message: isApiError(ex) ? (ex.field('token') ?? ex.message) : 'Could not confirm the address.' }))
+  }, [params])
+  return (
+    <AuthCard title="Confirm your email" subtitle="" footer={<Link to="/login" className="font-medium">Continue to sign in</Link>}>
+      <p role={state.ok === false ? 'alert' : 'status'} className={`m-0 text-sm ${state.ok === false ? 'text-danger font-semibold' : ''}`}>{state.message}</p>
     </AuthCard>
   )
 }

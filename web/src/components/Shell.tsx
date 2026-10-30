@@ -6,6 +6,7 @@ import { CommandPalette, type PageLink } from './CommandPalette'
 import { useTheme } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
+import { api, errorMessage } from '../api/client'
 
 export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean }
 
@@ -186,11 +187,29 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
       <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
       <div className="flex-1 min-w-0 flex flex-col">
         <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
+          {me && !me.user.email_verified_at && <VerifyBanner email={String(me.user.email)} />}
           <Outlet />
         </main>
       </div>
       </div>
       <CommandPalette pages={pages} open={palette} setOpen={setPalette} remote={!touch} />
+    </div>
+  )
+}
+
+/** Shown until the account's email address is confirmed; "Resend" mails a new link. */
+function VerifyBanner({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | string>('idle')
+  const resend = async () => {
+    setState('sending')
+    try { await api.post('/me/verify-email'); setState('sent') } catch (e) { setState(errorMessage(e)) }
+  }
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-line bg-[var(--y-bg)] text-[var(--y-fg)] text-sm">
+      <span className="flex-1 min-w-[200px]">Confirm your email address, <strong>{email}</strong>, with the link we sent you.</span>
+      {state === 'sent' ? <span>A new link is on its way.</span>
+        : <button type="button" className="btn btn-sm" disabled={state === 'sending'} onClick={resend}>{state === 'sending' ? 'Sending…' : 'Resend link'}</button>}
+      {state !== 'idle' && state !== 'sending' && state !== 'sent' ? <span className="w-full text-xs">{state}</span> : null}
     </div>
   )
 }

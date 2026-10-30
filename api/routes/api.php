@@ -21,6 +21,9 @@ Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
     Route::post('auth/passkey/options', [\App\Http\Controllers\PasskeyController::class, 'loginOptions'])->name('auth.passkey-options');
     Route::post('auth/passkey/login', [\App\Http\Controllers\PasskeyController::class, 'login'])->name('auth.passkey-login');
+    Route::post('auth/forgot-password', [\App\Http\Controllers\AccountRecoveryController::class, 'forgot'])->name('auth.forgot-password');
+    Route::post('auth/reset-password', [\App\Http\Controllers\AccountRecoveryController::class, 'reset'])->name('auth.reset-password');
+    Route::post('auth/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'verify'])->name('auth.verify-email');
 });
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
@@ -32,6 +35,7 @@ Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::c
 Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audit'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('me', [AuthController::class, 'me'])->name('me.show');
+    Route::post('me/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'resend'])->middleware('throttle:3,10')->name('me.verify-email');
     Route::match(['get', 'patch'], 'me/email-preferences', [Admin\EmailTemplateController::class, 'preferences'])->name('me.email-preferences');
     Route::post('me/mfa/enable', [AuthController::class, 'mfaEnable'])->name('me.mfa-enable');
     Route::post('me/mfa/confirm', [AuthController::class, 'mfaConfirm'])->name('me.mfa-confirm');

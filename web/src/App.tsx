@@ -5,7 +5,7 @@ import { isApiError } from './api/client'
 import { AuthProvider, homeFor, useAuth } from './lib/auth'
 import { ToastProvider } from './components/Toasts'
 import { JobsProvider } from './api/jobs'
-import { Login, Register } from './pages/auth/Auth'
+import { ForgotPassword, Login, Register, ResetPassword, VerifyEmail } from './pages/auth/Auth'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import Overview from './pages/admin/Overview'
 import Servers from './pages/admin/Servers'
@@ -64,6 +64,9 @@ export function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Overview />} />
         <Route path="servers" element={<Servers />} />

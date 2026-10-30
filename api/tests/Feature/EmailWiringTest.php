@@ -28,17 +28,18 @@ class EmailWiringTest extends TestCase
     {
         $this->postJson('/api/v1/auth/register', ['name' => 'Ann', 'email' => 'ann@example.test', 'password' => 'secret-pass', 'organization' => 'Acme'])->assertCreated();
         $this->assertSame('ann@example.test', $this->sent[0]['to']);
-        $this->assertCount(1, $this->sent, 'welcome only');
+        $this->assertCount(2, $this->sent, 'welcome and verify email');
+        $this->sent = [];
 
         $login = fn (string $ip) => $this->withServerVariables(['REMOTE_ADDR' => $ip])
             ->postJson('/api/v1/auth/login', ['email' => 'ann@example.test', 'password' => 'secret-pass'])->assertOk();
         $login('192.0.2.1');
-        $this->assertCount(1, $this->sent, 'the first sign-in has nothing to compare with');
+        $this->assertCount(0, $this->sent, 'the first sign-in has nothing to compare with');
         $login('192.0.2.1');
-        $this->assertCount(1, $this->sent, 'a known address sends nothing');
+        $this->assertCount(0, $this->sent, 'a known address sends nothing');
         $login('198.51.100.7');
-        $this->assertCount(2, $this->sent);
-        $this->assertStringNotContainsString('{{', $this->sent[1]['subject']);
+        $this->assertCount(1, $this->sent);
+        $this->assertStringNotContainsString('{{', $this->sent[0]['subject']);
     }
 
     public function test_turning_off_two_factor_sends_a_security_email(): void
