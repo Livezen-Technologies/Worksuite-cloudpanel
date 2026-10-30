@@ -22,6 +22,8 @@ class Application extends Model
             'auto_restart' => 'boolean',
             'last_deployed_at' => 'datetime',
             'purge_after' => 'datetime',
+            'scaling' => 'array',
+            'replicas' => 'integer',
         ];
     }
 

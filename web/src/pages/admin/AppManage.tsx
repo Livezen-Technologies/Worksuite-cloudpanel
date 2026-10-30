@@ -5,10 +5,11 @@ import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
+import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
 
 type R = Record<string, any>
-const TABS = ['Settings', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
+const TABS = ['Settings', 'Scaling', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
 type Tab = typeof TABS[number]
 
 export default function AppManage() {
@@ -35,6 +36,7 @@ export default function AppManage() {
 
       {!row && <Card>Loading…</Card>}
       {row && tab === 'Settings' && <SettingsTab app={row} />}
+      {row && tab === 'Scaling' && <ScalingPanel path={`/applications/${row.id}/scaling`} />}
       {row && tab === 'Databases' && <DatabasesTab app={row} />}
       {row && tab === 'SSL/TLS' && <DomainsTab app={row} />}
       {row && tab === 'Cron Jobs' && <CronTab app={row} />}

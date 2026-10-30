@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/Overlay'
 import { LogView } from '../../components/LogView'
 import { ago, mb } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
 
 /** Customer-friendly state words (no Docker jargon). */
@@ -51,7 +52,7 @@ export function MyApps() {
   )
 }
 
-type Tab = 'overview' | 'logs' | 'env' | 'releases' | 'settings'
+type Tab = 'overview' | 'scaling' | 'logs' | 'env' | 'releases' | 'settings'
 interface Env { key: string; value: string; secret: boolean; masked?: boolean }
 
 const SIZES = [['small', 'Small — 0.5 vCPU · 512 MB · 5 GB'], ['standard', 'Standard — 1 vCPU · 1 GB · 10 GB'], ['pro', 'Pro — 2 vCPU · 4 GB · 40 GB']] as const
@@ -111,7 +112,7 @@ export function AppDetail() {
         <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
         <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
       </div>
-      <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
+      <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'scaling', label: 'Scaling' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
       {tab === 'overview' && (
         <>
           {a.last_deployment?.status === 'failed' && (
@@ -131,6 +132,7 @@ export function AppDetail() {
           </Card>
         </>
       )}
+      {tab === 'scaling' && <ScalingPanel path={`/app/apps/${a.id}/scaling`} />}
       {tab === 'logs' && <Card><LogView path={`/app/apps/${a.id}/logs`} title="What your app is printing" height={420} /></Card>}
       {tab === 'env' && (
         <Card title="Environment variables">

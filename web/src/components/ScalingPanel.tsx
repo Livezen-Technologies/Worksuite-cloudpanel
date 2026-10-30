@@ -1,0 +1,114 @@
+import { useEffect, useState } from 'react'
+import { useAction, useOne } from '../api/hooks'
+import { Card, Field, StatTile, Toggle } from './Card'
+import { Badge } from './Badge'
+import Select from './Select'
+import { ago } from '../lib/format'
+import { num, type R } from '../lib/util'
+
+const MODE: Record<string, [string, string]> = {
+  fixed: ['Fixed', 'Always this many copies'],
+  autoscale: ['Autoscale', 'Add a copy when CPU stays high, remove one when it stays low'],
+  scheduled: ['Scheduled', 'More copies during set hours'],
+}
+
+/**
+ * SCL-1..5, 9 / USCL-1..3: copies of an app, how they scale, health checks and sticky sessions.
+ * `path` is the API path: /applications/{id}/scaling for admins, /app/apps/{id}/scaling for customers.
+ */
+export function ScalingPanel({ path }: { path: string }) {
+  const page = useOne<R>(path, undefined, { refetchInterval: 15000 })
+  const { run, busy } = useAction()
+  const w = page.item ?? {}
+  const s = (w.settings ?? {}) as R
+  const lim = (w.limits ?? {}) as R
+  const [f, setF] = useState<R | null>(null)
+  useEffect(() => { if (page.item && !f) setF({ ...(page.item.settings as R) }) }, [page.item, f])
+  const save = (body: R, label: string, success: string) => run({ path, method: 'PATCH', body, label, success }).then(() => { setF(null); page.refetch() }).catch(() => {})
+  const replicas = num(w.replicas) || 1
+  const max = num(lim.max_replicas) || 1
+  const modes = Object.keys(MODE).filter((m) => m === 'fixed' || (m === 'autoscale' ? lim.autoscale : lim.schedule))
+  const health = ((f?.health ?? s.health) ?? {}) as R
+  if (!page.item || !f) return <Card>Loading…</Card>
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+        <StatTile label="Copies" value={replicas} delta={`up to ${max} on this plan`} />
+        <StatTile label="Healthy" value={`${num(w.healthy)} / ${((w.copies as R[]) ?? []).length}`} deltaTone={num(w.healthy) < ((w.copies as R[]) ?? []).length ? 'r' : undefined} />
+        <StatTile label="Scaling" value={MODE[String(s.mode)]?.[0] ?? String(s.mode)} delta={s.mode === 'autoscale' ? `${s.min}–${s.max} copies at ${s.cpu_target}% CPU` : undefined} />
+      </div>
+
+      {((w.warnings as string[]) ?? []).length > 0 && replicas > 1 && <Card>
+        <ul className="m-0 pl-5 text-sm flex flex-col gap-1">{(w.warnings as string[]).map((x) => <li key={x}>{x}</li>)}</ul>
+      </Card>}
+
+      <Card title="Copies" actions={<span className="flex items-center gap-2">
+        <button type="button" className="btn btn-sm" aria-label="Remove a copy" disabled={busy || replicas <= 1 || s.mode !== 'fixed'} onClick={() => save({ replicas: replicas - 1 }, 'Remove a copy', `${replicas - 1} copies`)}>−</button>
+        <span className="font-semibold w-6 text-center">{replicas}</span>
+        <button type="button" className="btn btn-sm" aria-label="Add a copy" disabled={busy || replicas >= max || s.mode !== 'fixed'} onClick={() => save({ replicas: replicas + 1 }, 'Add a copy', `${replicas + 1} copies`)}>+</button>
+      </span>}>
+        <p className="m-0 mb-3 text-xs text-muted">Visitors are spread across every healthy copy. A copy that fails its health check stops getting traffic until it recovers. Removing a copy lets it finish its current requests for up to 30 seconds.{s.mode !== 'fixed' ? ' Switch to Fixed to change the count by hand.' : ''}</p>
+        <ul className="m-0 p-0 list-none flex flex-col text-sm">
+          {((w.copies as R[]) ?? []).map((c) => <li key={String(c.name)} className="flex flex-wrap items-center gap-3 py-2 border-t border-line first:border-t-0">
+            <span className="font-mono text-xs flex-1 min-w-0">{String(c.name)}</span>
+            {c.cpu_pct != null ? <span className="text-xs text-muted">CPU {Math.round(num(c.cpu_pct))}%{c.mem_mb != null ? ` · ${Math.round(num(c.mem_mb))} MB` : ''}</span> : null}
+            <Badge tone={c.state === 'running' && (!c.health || c.health === 'healthy') ? 'g' : c.state === 'running' ? 'y' : 'n'}>{String(c.health && c.state === 'running' ? c.health : c.state)}</Badge>
+          </li>)}
+        </ul>
+      </Card>
+
+      <Card title="How it scales">
+        <div className="flex flex-wrap gap-2 mb-4" role="radiogroup" aria-label="Scaling mode">
+          {modes.map((m) => <button key={m} type="button" role="radio" aria-checked={f.mode === m} onClick={() => setF({ ...f, mode: m })}
+            className={`flex-[1_1_200px] text-left p-3 rounded-lg border ${f.mode === m ? 'border-accent bg-[var(--sel)]' : 'border-line bg-card'}`}>
+            <span className="block font-semibold text-sm">{MODE[m][0]}</span><span className="block text-xs text-muted">{MODE[m][1]}</span>
+          </button>)}
+        </div>
+        {f.mode !== 'fixed' && <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
+          <Field label="Fewest copies"><input className="input" type="number" min={1} max={max} value={String(f.min)} onChange={(e) => setF({ ...f, min: Number(e.target.value) })} /></Field>
+          <Field label="Most copies"><input className="input" type="number" min={1} max={max} value={String(f.max)} onChange={(e) => setF({ ...f, max: Number(e.target.value) })} /></Field>
+          {f.mode === 'autoscale' && <Field label="Target CPU" hint="Add a copy after 3 minutes above it; remove one after 15 minutes under half of it.">
+            <Select className="input" value={String(f.cpu_target)} onChange={(e) => setF({ ...f, cpu_target: Number(e.target.value) })}>{[50, 60, 70, 80, 90].map((v) => <option key={v} value={v}>{v}%</option>)}</Select>
+          </Field>}
+        </div>}
+        {f.mode === 'scheduled' && <div className="mt-3 flex flex-col gap-2 text-sm">
+          {((f.schedule as R[]) ?? []).map((win, i) => <div key={i} className="flex flex-wrap items-center gap-2">
+            <span>Weekdays</span>
+            <input className="input w-24" aria-label="From" value={String(win.from)} onChange={(e) => setF({ ...f, schedule: (f.schedule as R[]).map((x, j) => (j === i ? { ...x, from: e.target.value } : x)) })} />
+            <span>to</span>
+            <input className="input w-24" aria-label="To" value={String(win.to)} onChange={(e) => setF({ ...f, schedule: (f.schedule as R[]).map((x, j) => (j === i ? { ...x, to: e.target.value } : x)) })} />
+            <input className="input w-20" type="number" aria-label="Copies" min={1} max={max} value={String(win.replicas)} onChange={(e) => setF({ ...f, schedule: (f.schedule as R[]).map((x, j) => (j === i ? { ...x, replicas: Number(e.target.value) } : x)) })} />
+            <span>copies (UTC)</span>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setF({ ...f, schedule: (f.schedule as R[]).filter((_, j) => j !== i) })}>Remove</button>
+          </div>)}
+          <button type="button" className="btn btn-sm self-start" onClick={() => setF({ ...f, schedule: [...((f.schedule as R[]) ?? []), { days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00', replicas: 2 }] })}>Add a window</button>
+        </div>}
+        <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
+          <Field label="Health check path"><input className="input font-mono" value={String(health.path ?? '/')} onChange={(e) => setF({ ...f, health: { ...health, path: e.target.value } })} /></Field>
+          <Field label="Check every (s)"><input className="input" type="number" min={2} value={String(health.interval ?? 10)} onChange={(e) => setF({ ...f, health: { ...health, interval: Number(e.target.value) } })} /></Field>
+          <Field label="Timeout (s)"><input className="input" type="number" min={1} value={String(health.timeout ?? 5)} onChange={(e) => setF({ ...f, health: { ...health, timeout: Number(e.target.value) } })} /></Field>
+        </div>
+        <div className="mt-4 flex items-center gap-3 text-sm">
+          <Toggle checked={!!f.sticky} label="Sticky sessions" onChange={(v) => setF({ ...f, sticky: v })} />
+          <span><span className="font-semibold">Sticky sessions</span> <span className="text-muted">— keep each visitor on one copy. Better: store sessions in Redis.</span></span>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, schedule: f.schedule ?? [], sticky: !!f.sticky, health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
+          <span className="text-xs text-muted">{((w.notes as string[]) ?? []).join(' ')}</span>
+        </div>
+      </Card>
+
+      <Card title="Scaling history">
+        {((w.events as R[]) ?? []).length === 0 ? <p className="m-0 text-sm text-muted">No changes yet.</p> : <ul className="m-0 p-0 list-none flex flex-col text-sm">
+          {(w.events as R[]).map((e, i) => <li key={i} className="flex flex-wrap items-center gap-2 py-1.5 border-t border-line first:border-t-0">
+            <span className="font-semibold">{String(e.from)} → {String(e.to)}</span>
+            <span className="flex-1 min-w-0 text-muted">{String(e.reason)}</span>
+            {e.result === 'at_max' ? <Badge tone="y">at maximum</Badge> : null}
+            <span className="text-xs text-muted">{ago(String(e.at))}</span>
+          </li>)}
+        </ul>}
+      </Card>
+    </div>
+  )
+}

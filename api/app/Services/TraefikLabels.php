@@ -17,7 +17,7 @@ class TraefikLabels
         $router = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name));
         if (config('platform.drivers.certificates') === 'traefik') {
             // Routers + TLS come from the file provider (TraefikConfigService); labels only expose the service.
-            return ['traefik.enable' => 'true', "traefik.http.services.{$router}.loadbalancer.server.port" => (string) $port];
+            return ['traefik.enable' => 'true', "traefik.http.services.{$router}.loadbalancer.server.port" => (string) $port] + self::balancing($app, $router);
         }
         $hosts = $domains->flatMap(fn (Domain $d) => $d->www_redirect ? [$d->name, 'www.'.$d->name] : [$d->name])
             ->map(fn ($h) => "Host(`{$h}`)")->implode(' || ');
@@ -34,6 +34,7 @@ class TraefikLabels
             "traefik.http.routers.{$router}-http.middlewares" => "{$router}-https",
             "traefik.http.middlewares.{$router}-https.redirectscheme.scheme" => 'https',
         ];
+        $labels += self::balancing($app, $router);
         $middlewares = [];
         foreach ($domains as $domain) {
             $options = $domain->options ?? [];
@@ -55,5 +56,30 @@ class TraefikLabels
         }
 
         return $labels;
+    }
+
+    /**
+     * SCL-3/4: health checks take a failing copy out of rotation; sticky sessions pin a
+     * visitor to one copy by cookie. Only when the app runs more than one copy or asks for them.
+     */
+    public static function balancing(Application $app, string $router): array
+    {
+        $s = ScalingService::settings($app);
+        if (($app->replicas ?? 1) < 2 && empty($app->scaling)) {
+            return [];
+        }
+        $h = $s['health'];
+        $out = [
+            "traefik.http.services.{$router}.loadbalancer.healthcheck.path" => (string) $h['path'],
+            "traefik.http.services.{$router}.loadbalancer.healthcheck.interval" => (int) $h['interval'].'s',
+            "traefik.http.services.{$router}.loadbalancer.healthcheck.timeout" => (int) $h['timeout'].'s',
+        ];
+        if ($s['sticky']) {
+            $out["traefik.http.services.{$router}.loadbalancer.sticky.cookie.name"] = 'ws_affinity';
+            $out["traefik.http.services.{$router}.loadbalancer.sticky.cookie.secure"] = 'true';
+            $out["traefik.http.services.{$router}.loadbalancer.sticky.cookie.httponly"] = 'true';
+        }
+
+        return $out;
     }
 }
