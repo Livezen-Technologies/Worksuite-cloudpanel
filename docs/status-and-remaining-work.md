@@ -9,8 +9,11 @@ Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
 Firewall           ~90%   enforced through CrowdSec (#14): rate limits,
                           countries, challenges, events; live sites still
                           on hand-written Traefik files
-Antivirus          ~70%   ClamAV + YARA scans, threats, quarantine (#15);
-                          no scheduled scans or reports yet
+Antivirus          ~65%   9 of 14: ClamAV + YARA, threats, quarantine, false
+                          positives, brute-force bans (#15), per-org scan
+                          schedule, WordPress core clean, security score,
+                          notifications; left: real-time scan, WAF,
+                          integrity, image CVEs, outbound limits
 Monitoring         ~85%   websites + containers + servers every 5 min,
                           cooldowns, escalation, auto-restart, uptime
                           reports, WhatsApp/SMS; no Grafana or status page
@@ -23,7 +26,7 @@ DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
 Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
                           email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~49%   up from ~40%: file manager, firewall enforcement,
+Overall            ~50%   up from ~40%: file manager, firewall enforcement,
                           antivirus and DNS zones
 ```
 

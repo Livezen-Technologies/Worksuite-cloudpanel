@@ -237,6 +237,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::delete('dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'destroyRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.destroy');
     // Antivirus (SRS 4.25)
     Route::get('antivirus', [Admin\AntivirusController::class, 'summary'])->middleware('perm:resources.view|servers.view')->name('antivirus.summary');
+    Route::get('antivirus/score', [Admin\AntivirusController::class, 'score'])->middleware('perm:resources.view|servers.view')->name('antivirus.score');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
     Route::post('antivirus/scan', [Admin\AntivirusController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.scan');
     Route::post('antivirus/threats/{id}/{action}', [Admin\AntivirusController::class, 'action'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.action');

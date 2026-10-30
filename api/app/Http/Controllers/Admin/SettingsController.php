@@ -32,6 +32,11 @@ class SettingsController extends Controller
             'smtp.encryption' => 'sometimes|nullable|in:tls,ssl,none',
             'smtp.from_address' => 'sometimes|nullable|email|max:190',
             'smtp.from_name' => 'sometimes|nullable|string|max:120',
+            'antivirus' => 'sometimes|array',
+            'antivirus.schedule' => 'sometimes|in:daily,weekly,off',
+            'antivirus.day' => 'sometimes|integer|min:0|max:6',
+            'antivirus.time' => 'sometimes|date_format:H:i',
+            'antivirus.notify' => 'sometimes|boolean',
             'security' => 'sometimes|array',
             'security.*' => 'boolean',
             'firewall' => 'sometimes|array',
@@ -82,7 +87,7 @@ class SettingsController extends Controller
             }
         }
 
-        foreach (['general', 'security'] as $section) {
+        foreach (['general', 'security', 'antivirus'] as $section) {
             foreach ($data[$section] ?? [] as $key => $value) {
                 if (array_key_exists($key, config("platform.default_settings.{$section}"))) {
                     $settings[$section][$key] = $value;
@@ -111,6 +116,7 @@ class SettingsController extends Controller
             'organization' => ['id' => $org->id, 'name' => $org->name, 'slug' => $org->slug],
             'general' => $settings['general'] + ['name' => $org->name],
             'security' => $settings['security'],
+            'antivirus' => $settings['antivirus'],
             'smtp' => $smtp + ['password_set' => $hasPassword],
             'firewall' => $firewall + ['secret_key_set' => $hasSecret],
         ];
