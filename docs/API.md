@@ -234,9 +234,17 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
 - **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
   (`password`, `password+totp`, `password+passkey`, `passkey`).
 
-## DNS zones (SRS 4.18, DNS-001..012)
+## DNS zones (SRS 4.18, DNS-001..013)
 
 Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and the panel's mirror is updated only once the provider accepts it. Reads need `resources.view|servers.view`; changes need `deploy|settings.manage`.
+
+**Domains & SSL use these zones (DNS-013).** A domain whose name falls inside one of the organisation's zones (the longest match wins) is handled through that zone:
+
+- With no `challenge` and no `dns_token` given, the domain defaults to DNS-01.
+- On create and on every `verify`, the panel writes the records the domain needs (A, the `www` CNAME, the `_acme-challenge` TXT) into the zone, unproxied. Records already there are left alone. A different value under the same name is reported in the `verify` response as `zone_records[{name, type, status: created|present|conflict|failed, message?}]` and is never overwritten.
+- Traefik gets the zone's credentials for the challenge: `CF_DNS_API_TOKEN` for Cloudflare, or `PDNS_API_URL`/`PDNS_API_KEY`/`PDNS_SERVER_NAME` with the `le-dns-pdns` resolver for PowerDNS.
+- A token given on a domain still wins.
+- Domain responses carry `dns_zone {id, name, provider}`, or `null`.
 
 | Method | Path | Notes |
 |---|---|---|

@@ -16,7 +16,7 @@ class TraefikCertificateIssuer implements CertificateIssuer
 
     public function issue(Domain $domain, array $names, string $challenge): array
     {
-        if ($challenge === 'dns-01' && ! $domain->dns_secret_id && ! config('platform.traefik.allow_static_dns_credentials', true)) {
+        if ($challenge === 'dns-01' && ! $domain->dns_secret_id && ! \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id) && ! config('platform.traefik.allow_static_dns_credentials', true)) {
             throw new \RuntimeException('DNS-01 needs a DNS provider token for '.$domain->name.'.');
         }
         $this->traefik->push();

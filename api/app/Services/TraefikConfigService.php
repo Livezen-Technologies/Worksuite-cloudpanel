@@ -6,6 +6,7 @@ use App\Contracts\HandlesCommandResults;
 use App\Models\AgentCommand;
 use App\Models\Application;
 use App\Models\Certificate;
+use App\Models\DnsZone;
 use App\Models\Domain;
 use App\Models\Job;
 use App\Models\Secret;
@@ -31,7 +32,11 @@ class TraefikConfigService implements HandlesCommandResults
         'hetzner' => ['HETZNER_API_KEY'],
         'route53' => ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
         'gandiv5' => ['GANDIV5_PERSONAL_ACCESS_TOKEN'],
+        'pdns' => ['PDNS_API_URL', 'PDNS_API_KEY'],
     ];
+
+    /** DNS-013: panel DNS provider type => lego provider used for its zones. */
+    public const ZONE_PROVIDERS = ['cloudflare' => 'cloudflare', 'powerdns' => 'pdns'];
 
     public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall, private CrowdSecConfigService $crowdsec) {}
 
@@ -62,7 +67,10 @@ class TraefikConfigService implements HandlesCommandResults
     public function resolverFor(Domain $domain): string
     {
         if ($domain->challenge === 'dns-01') {
-            return config('platform.traefik.dns_resolver_prefix').($domain->dns_provider ?: 'cloudflare');
+            $zone = $domain->dns_secret_id ? null : DnsZone::forDomain($domain->name, $domain->organization_id);
+            $provider = $zone ? self::ZONE_PROVIDERS[$zone->provider->type] : ($domain->dns_provider ?: 'cloudflare');
+
+            return config('platform.traefik.dns_resolver_prefix').$provider;
         }
 
         return config('platform.traefik.http_resolver');
@@ -154,6 +162,17 @@ class TraefikConfigService implements HandlesCommandResults
     public function dnsSecrets(): array
     {
         $out = [];
+        // DNS-013: domains without their own token use the credentials of the zone that holds them.
+        // Lego reads one set of variables per provider, so a token given on a domain wins.
+        foreach (Domain::allTenants()->where('challenge', 'dns-01')->whereNull('dns_secret_id')->get() as $domain) {
+            $zone = DnsZone::forDomain($domain->name, $domain->organization_id);
+            $c = $zone?->provider?->credentials ?? [];
+            $out += match ($zone?->provider?->type) {
+                'cloudflare' => ['CF_DNS_API_TOKEN' => (string) ($c['token'] ?? '')],
+                'powerdns' => ['PDNS_API_URL' => (string) ($c['api_url'] ?? ''), 'PDNS_API_KEY' => (string) ($c['api_key'] ?? ''), 'PDNS_SERVER_NAME' => (string) ($c['server_id'] ?? 'localhost')],
+                default => [],
+            };
+        }
         foreach (Domain::allTenants()->where('challenge', 'dns-01')->whereNotNull('dns_secret_id')->get() as $domain) {
             $secret = Secret::allTenants()->find($domain->dns_secret_id);
             $vars = self::DNS_PROVIDERS[$domain->dns_provider ?: 'cloudflare'] ?? [];
@@ -163,12 +182,12 @@ class TraefikConfigService implements HandlesCommandResults
             $values = count($vars) > 1 ? (json_decode($secret->value, true) ?: []) : [$vars[0] => $secret->value];
             foreach ($vars as $var) {
                 if (isset($values[$var])) {
-                    $out[$var] = (string) $values[$var];
+                    $explicit[$var] = (string) $values[$var];
                 }
             }
         }
 
-        return $out;
+        return ($explicit ?? []) + $out;
     }
 
     /** Pushes the rendered config to every ingress server whose content changed. Returns commands queued. */
