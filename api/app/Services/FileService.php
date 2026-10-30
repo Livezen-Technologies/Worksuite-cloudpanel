@@ -48,7 +48,7 @@ class FileService implements HandlesCommandResults
             $this->audit->log('files.'.$operation, 'volumes', $volume->id, array_filter([
                 'path' => $payload['path'] !== '' ? $payload['path'] : null, 'paths' => $payload['paths'] ?? null, 'dest' => $payload['dest'] ?? null,
                 'ids' => $payload['ids'] ?? null, 'format' => $payload['format'] ?? null,
-                'mode' => $payload['mode'] ?? null, 'uid' => $payload['uid'] ?? null, 'gid' => $payload['gid'] ?? null, 'new_name' => $payload['new_name'] ?? null,
+                'mode' => $payload['mode'] ?? null, 'dest_volume' => $payload['dest_volume'] ?? null, 'separate' => $payload['separate'] ?? null, 'uid' => $payload['uid'] ?? null, 'gid' => $payload['gid'] ?? null, 'new_name' => $payload['new_name'] ?? null,
                 'recursive' => $payload['recursive'] ?? null, 'bytes' => isset($payload['content']) ? strlen($payload['content']) : null,
                 'job_id' => $job->id,
             ], fn ($v) => $v !== null));
