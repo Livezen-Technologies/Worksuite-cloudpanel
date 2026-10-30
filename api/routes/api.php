@@ -71,6 +71,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('servers/{id}/verification', [Admin\ServerController::class, 'verification'])->name('servers.verification');
         Route::get('servers/{id}/containers', [Admin\ServerController::class, 'containers'])->name('servers.containers');
         Route::get('servers/{id}/cleanup', [Admin\CleanupController::class, 'show'])->name('servers.cleanup');
+        Route::get('servers/{id}/tunnel', [Admin\TunnelController::class, 'show'])->name('servers.tunnel');
     });
     Route::middleware('perm:servers.manage')->group(function () {
         Route::post('servers', [Admin\ServerController::class, 'store'])->name('servers.store');
@@ -78,6 +79,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::post('servers/enrollment', [Admin\ServerController::class, 'enrollment'])->name('servers.enrollment');
         Route::patch('servers/{id}/cleanup', [Admin\CleanupController::class, 'update'])->name('servers.cleanup.update');
         Route::post('servers/{id}/cleanup', [Admin\CleanupController::class, 'run'])->name('servers.cleanup.run');
+        Route::post('servers/{id}/tunnel', [Admin\TunnelController::class, 'enable'])->name('servers.tunnel.enable');
+        Route::post('servers/{id}/tunnel/sync', [Admin\TunnelController::class, 'sync'])->name('servers.tunnel.sync');
+        Route::post('servers/{id}/tunnel/restart', [Admin\TunnelController::class, 'restart'])->name('servers.tunnel.restart');
+        Route::delete('servers/{id}/tunnel', [Admin\TunnelController::class, 'disable'])->name('servers.tunnel.disable');
         Route::post('servers/{id}/maintenance', [Admin\ServerController::class, 'maintenance'])->name('servers.maintenance');
         Route::post('servers/{id}/agent/{action}', [Admin\ServerController::class, 'agent'])->whereIn('action', ['restart', 'update'])->name('servers.agent');
     });
