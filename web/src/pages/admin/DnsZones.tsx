@@ -7,6 +7,7 @@ import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'NS']
 const TTLS: [number, string][] = [[1, 'Auto'], [300, '5 min'], [3600, '1 hour'], [86400, '1 day']]
@@ -77,10 +78,10 @@ export default function DnsZones() {
             : { type: conn.type, name: conn.name, api_url: conn.api_url, api_key: conn.api_key, server_id: conn.server_id || null, nameservers: conn.nameservers.split(/[\s,]+/).filter(Boolean) } })
             .then(() => { setConnectOpen(false); setConn(EMPTY_CONN) })}>Verify and connect</button>}>
         <label className="label mb-3 block">Provider
-          <select className="input" value={conn.type} onChange={(e) => setConn({ ...conn, type: e.target.value })}>
+          <Select className="input" value={conn.type} onChange={(e) => setConn({ ...conn, type: e.target.value })}>
             <option value="cloudflare">Cloudflare</option>
             <option value="powerdns">PowerDNS</option>
-          </select>
+          </Select>
         </label>
         <label className="label mb-3 block">Name<input className="input" value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} placeholder={conn.type === 'cloudflare' ? 'Main account' : 'Own nameservers'} /></label>
         {conn.type === 'cloudflare' ? <>
@@ -99,9 +100,9 @@ export default function DnsZones() {
         footer={<button type="button" className="btn btn-primary" disabled={busy || !newZone.name}
           onClick={() => run<{ data: R }>({ path: '/dns/zones', body: { ...newZone, defaults_to: newZone.defaults_to || null }, label: `Add ${newZone.name}` }).then((res) => { setZoneOpen(false); setSelected(String(res.data.id)) })}>Add zone</button>}>
         <label className="label mb-3 block">Provider
-          <select className="input" value={newZone.dns_provider_id} onChange={(e) => setNewZone({ ...newZone, dns_provider_id: e.target.value })}>
+          <Select className="input" value={newZone.dns_provider_id} onChange={(e) => setNewZone({ ...newZone, dns_provider_id: e.target.value })}>
             {providers.rows.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Select>
         </label>
         <label className="label mb-3 block">Domain<input className="input" value={newZone.name} onChange={(e) => setNewZone({ ...newZone, name: e.target.value })} placeholder="example.com" /></label>
         <label className="label mb-3 block">Default records point at (optional IPv4)<input className="input" value={newZone.defaults_to} onChange={(e) => setNewZone({ ...newZone, defaults_to: e.target.value })} placeholder="203.0.113.10" /></label>
@@ -179,19 +180,19 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
       {!!z.supports_settings && settings.item && (
         <div className="p-4 text-sm border-b border-line grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
           <label className="label">SSL mode
-            <select className="input h-9" value={String(st.ssl)} disabled={busy} onChange={(e) => setSetting('ssl', e.target.value)}>
+            <Select className="input h-9" value={String(st.ssl)} disabled={busy} onChange={(e) => setSetting('ssl', e.target.value)}>
               {SSL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="label">Minimum TLS
-            <select className="input h-9" value={String(st.min_tls_version)} disabled={busy} onChange={(e) => setSetting('min_tls_version', e.target.value)}>
+            <Select className="input h-9" value={String(st.min_tls_version)} disabled={busy} onChange={(e) => setSetting('min_tls_version', e.target.value)}>
               {['1.0', '1.1', '1.2', '1.3'].map((v) => <option key={v} value={v}>TLS {v}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="label">Cache level
-            <select className="input h-9" value={String(st.cache_level)} disabled={busy} onChange={(e) => setSetting('cache_level', e.target.value)}>
+            <Select className="input h-9" value={String(st.cache_level)} disabled={busy} onChange={(e) => setSetting('cache_level', e.target.value)}>
               {CACHE_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex items-center gap-2 self-end h-9">
             <input type="checkbox" checked={!!st.always_use_https} disabled={busy} onChange={(e) => setSetting('always_use_https', e.target.checked)} /> Always use HTTPS
@@ -220,17 +221,17 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit record' : 'Add record'}
         footer={<button type="button" className="btn btn-primary" disabled={busy || !form.content} onClick={save}>Save</button>}>
         <label className="label mb-3 block">Type
-          <select className="input" value={String(form.type)} disabled={!!editing?.id} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          <Select className="input" value={String(form.type)} disabled={!!editing?.id} onChange={(e) => setForm({ ...form, type: e.target.value })}>
             {TYPES.map((t) => <option key={t}>{t}</option>)}
-          </select>
+          </Select>
         </label>
         <label className="label mb-3 block">Name (@ for {String(z.name)})<input className="input" value={String(form.name)} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label className="label mb-3 block">Content<input className="input" value={String(form.content)} onChange={(e) => setForm({ ...form, content: e.target.value })} /></label>
         {['MX', 'SRV'].includes(String(form.type)) && <label className="label mb-3 block">Priority<input className="input" type="number" min={0} value={Number(form.priority)} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} /></label>}
         <label className="label mb-3 block">TTL
-          <select className="input" value={Number(form.ttl)} disabled={canProxy && !!form.proxied} onChange={(e) => setForm({ ...form, ttl: Number(e.target.value) })}>
+          <Select className="input" value={Number(form.ttl)} disabled={canProxy && !!form.proxied} onChange={(e) => setForm({ ...form, ttl: Number(e.target.value) })}>
             {TTLS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
+          </Select>
         </label>
         {canProxy && PROXIABLE.includes(String(form.type)) && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.proxied} onChange={(e) => setForm({ ...form, proxied: e.target.checked })} /> Proxy through Cloudflare</label>}
       </Modal>

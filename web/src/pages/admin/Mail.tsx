@@ -6,6 +6,7 @@ import { DataTable } from '../../components/DataTable'
 import { Drawer } from '../../components/Overlay'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 /** Mail hosting (SRS MAIL): a mail stack per server, domains, mailboxes, aliases and DNS. */
 export default function Mail() {
@@ -33,10 +34,10 @@ export default function Mail() {
         </ul>}
         <div className="flex flex-wrap items-end gap-2 text-sm">
           <label className="flex flex-col gap-1">Server
-            <select className="input" value={install.server_id} onChange={(e) => setInstall({ ...install, server_id: e.target.value })}>
+            <Select className="input" value={install.server_id} onChange={(e) => setInstall({ ...install, server_id: e.target.value })}>
               <option value="">Choose…</option>
               {servers.rows.filter((s) => !mailServers.some((m) => m.server_id === s.id)).map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex flex-col gap-1">Mail hostname
             <input className="input" placeholder="mail.example.com" value={install.hostname} onChange={(e) => setInstall({ ...install, hostname: e.target.value })} />
@@ -49,10 +50,10 @@ export default function Mail() {
       <Card title="Domains" pad={false}>
         <div className="p-4 flex flex-wrap items-end gap-2 text-sm">
           <label className="flex flex-col gap-1">Mail server
-            <select className="input" value={domain.mail_server_id} onChange={(e) => setDomain({ ...domain, mail_server_id: e.target.value })}>
+            <Select className="input" value={domain.mail_server_id} onChange={(e) => setDomain({ ...domain, mail_server_id: e.target.value })}>
               <option value="">Choose…</option>
               {mailServers.filter((m) => m.status === 'running').map((m) => <option key={String(m.id)} value={String(m.id)}>{String(m.hostname)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex flex-col gap-1">Domain
             <input className="input" placeholder="example.com" value={domain.name} onChange={(e) => setDomain({ ...domain, name: e.target.value })} />
@@ -182,9 +183,9 @@ function DomainDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="flex flex-wrap gap-2">
             <input className="input w-32" placeholder="name" value={box.local_part} onChange={(e) => setBox({ ...box, local_part: e.target.value })} />
             <input className="input w-44" type="password" autoComplete="new-password" placeholder="password (10+)" value={box.password} onChange={(e) => setBox({ ...box, password: e.target.value })} />
-            <select className="input" value={box.quota_mb} onChange={(e) => setBox({ ...box, quota_mb: Number(e.target.value) })}>
+            <Select className="input" value={box.quota_mb} onChange={(e) => setBox({ ...box, quota_mb: Number(e.target.value) })}>
               {[512, 1024, 2048, 5120, 10240].map((q) => <option key={q} value={q}>{q >= 1024 ? `${q / 1024} GB` : `${q} MB`}</option>)}
-            </select>
+            </Select>
             <button type="button" className="btn btn-sm btn-primary" disabled={busy || !box.local_part || box.password.length < 10} onClick={() => run({ path: `/mail/domains/${id}/mailboxes`, body: box, label: 'Add mailbox' }).then(() => { setBox({ local_part: '', password: '', quota_mb: 1024 }); refetch() })}>Add mailbox</button>
           </div>
           <p className="m-0 mt-1 text-xs text-muted">IMAP: port 993 (SSL). SMTP: port 587 (STARTTLS) or 465 (SSL). Username: the full address.</p>

@@ -8,6 +8,7 @@ import { Drawer } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const tone = (s: string): Tone => (['migrated', 'ready', 'live'].includes(s) ? 'g' : s === 'failed' ? 'r' : ['fetching', 'migrating', 'deploying', 'copying', 'requested'].includes(s) ? 'y' : 'n')
 const mb = (b: unknown) => `${(Number(b ?? 0) / 1048576).toFixed(1)} MB`
@@ -30,10 +31,10 @@ export default function Migrations() {
       <Card title="New migration">
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] text-sm">
           <label className="flex flex-col gap-1">Target server
-            <select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
+            <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
               <option value="">Choose…</option>
               {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex flex-col gap-1">cPanel full backup URL
             <input className="input font-mono text-xs" placeholder="https://…/cpmove-user.tar.gz" value={form.archive_url} onChange={(e) => setForm({ ...form, archive_url: e.target.value })} />
@@ -98,10 +99,10 @@ function MigrationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         {w.decision ? <p className="m-0"><span className="text-muted">Decision:</span> {String(w.decision)}</p> : null}
         {w.status === 'requested' && <section className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">Approve onto
-            <select className="input" value={approveTo} onChange={(e) => setApproveTo(e.target.value)}>
+            <Select className="input" value={approveTo} onChange={(e) => setApproveTo(e.target.value)}>
               <option value="">Choose a server…</option>
               {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
+            </Select>
           </label>
           <button type="button" className="btn btn-primary" disabled={busy || !approveTo} onClick={() => run({ path: `/migrations/${id}/approve`, body: { server_id: approveTo }, label: 'Approve migration' }).then(() => m.refetch())}>Approve</button>
           <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { const reason = window.prompt('Reason, shown to the customer:'); if (reason !== null) run({ path: `/migrations/${id}/reject`, body: { reason }, label: 'Reject migration' }).then(() => m.refetch()) }}>Reject</button>
@@ -119,12 +120,12 @@ function MigrationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     <td className="p-1"><span className="font-semibold">{String(s.domain)}</span>{s.wordpress ? <> <Badge tone="b">WordPress</Badge></> : null}<br /><span className="text-muted">{String(s.kind)}</span></td>
                     <td className="p-1"><input className="input font-mono text-xs w-28" disabled={!ready} value={String(s.docroot ?? '')} onChange={(e) => edit(i, { docroot: e.target.value })} /></td>
                     <td className="p-1"><input className="input font-mono text-xs w-28" disabled={!ready} value={String(s.app_name ?? '')} onChange={(e) => edit(i, { app_name: e.target.value })} /></td>
-                    <td className="p-1"><select className="input text-xs" disabled={!ready} value={String(s.database ?? '')} onChange={(e) => edit(i, { database: e.target.value || null })}>
+                    <td className="p-1"><Select className="input text-xs" disabled={!ready} value={String(s.database ?? '')} onChange={(e) => edit(i, { database: e.target.value || null })}>
                       <option value="">None</option>{((inv.databases as string[]) ?? []).map((d) => <option key={d}>{d}</option>)}
-                    </select></td>
-                    <td className="p-1"><select className="input text-xs" disabled={!ready || !s.database} value={String(s.target_database_id ?? '')} onChange={(e) => edit(i, { target_database_id: e.target.value || null })}>
+                    </Select></td>
+                    <td className="p-1"><Select className="input text-xs" disabled={!ready || !s.database} value={String(s.target_database_id ?? '')} onChange={(e) => edit(i, { target_database_id: e.target.value || null })}>
                       <option value="">Choose…</option>{targets.map((d) => <option key={String(d.id)} value={String(d.id)}>{String(d.name)} ({String(d.engine)})</option>)}
-                    </select></td>
+                    </Select></td>
                     <td className="p-1">
                       <Badge tone={tone(String(s.status))}>{String(s.status)}</Badge>
                       {s.temp_url ? <><br /><a href={String(s.temp_url)} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)]">temporary address</a></> : null}

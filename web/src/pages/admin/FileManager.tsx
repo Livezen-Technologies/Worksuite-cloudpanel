@@ -9,6 +9,7 @@ import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
 import type { R } from '../../lib/util'
 import { useAuth } from '../../lib/auth'
+import Select from '../../components/Select'
 
 /** Platform roles that may change file ownership (the API enforces the same rule). */
 const OWNER_ROLES = ['super_admin', 'infra_admin', 'devops']
@@ -516,9 +517,9 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <IconSvg d={P.folderOpen} size={26} className="text-muted" />
           <h1 className="m-0 text-xl font-semibold flex-1 min-w-[160px]">File Manager</h1>
           <label className="sr-only" htmlFor="fm-volume">Volume</label>
-          <select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
+          <Select id="fm-volume" className="input h-11 max-w-[260px]" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
             {usable.map((v) => <option key={v.id} value={v.id}>{customer ? v.name : `${v.name} · ${serverName(v)}`}</option>)}
-          </select>
+          </Select>
           <ToolButton label="Upload files" d={P.upload} disabled={!entries || busy} onClick={() => fileInput.current?.click()} />
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
           <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.webkitRelativePath || file.name }))) }} />
@@ -804,9 +805,9 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <p className="m-0 mt-2 text-xs text-muted">It works once the copy is ready, usually within a minute. See Shared links.</p>
         </> : sharing && <>
           <label className="label mb-3">Expires after
-            <select className="input" value={sharing.hours} onChange={(e) => setSharing({ ...sharing, hours: e.target.value })}>
+            <Select className="input" value={sharing.hours} onChange={(e) => setSharing({ ...sharing, hours: e.target.value })}>
               {[['1', '1 hour'], ['24', '1 day'], ['72', '3 days'], ['168', '7 days'], ['720', '30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="label mb-3">Download limit (optional)<input className="input" inputMode="numeric" value={sharing.max} onChange={(e) => setSharing({ ...sharing, max: e.target.value.replace(/\D/g, '') })} placeholder="No limit" /></label>
           <label className="label mb-3">Password (optional, 6+ characters)<input className="input" type="password" autoComplete="new-password" value={sharing.password} onChange={(e) => setSharing({ ...sharing, password: e.target.value })} /></label>
@@ -943,9 +944,9 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <div className="flex flex-col gap-3">
             <label className="label">Archive name<input className="input font-mono" value={op.name} onChange={(e) => setOp({ ...op, name: e.target.value })} /></label>
             <label className="label">Format
-              <select className="input" value={op.format} onChange={(e) => setOp({ ...op, format: e.target.value })}>
+              <Select className="input" value={op.format} onChange={(e) => setOp({ ...op, format: e.target.value })}>
                 <option value="zip">ZIP</option><option value="tar.gz">TAR.GZ</option><option value="tar">TAR</option>
-              </select>
+              </Select>
             </label>
             <p className="m-0 text-xs text-muted">The archive is created in {dir || 'the top folder'}. Links are left out.</p>
           </div>
@@ -953,9 +954,9 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <div className="flex flex-col gap-3">
             {op.kind !== 'extract' && sameServer.length > 1 && (
               <label className="label">Into
-                <select className="input" value={op.destId} onChange={(e) => setOp({ ...op, destId: e.target.value, dest: e.target.value === volumeId ? dir : '' })}>
+                <Select className="input" value={op.destId} onChange={(e) => setOp({ ...op, destId: e.target.value, dest: e.target.value === volumeId ? dir : '' })}>
                   {sameServer.map((v) => <option key={v.id} value={v.id}>{v.name}{v.id === volumeId ? ' (this one)' : ''}</option>)}
-                </select>
+                </Select>
               </label>
             )}
             <label className="label">{op.kind === 'extract' ? 'Extract into folder' : 'Destination folder'}

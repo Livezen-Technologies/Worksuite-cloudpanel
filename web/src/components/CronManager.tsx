@@ -5,6 +5,7 @@ import { Card, PageHeader } from './Card'
 import { Badge } from './Badge'
 import { ago } from '../lib/format'
 import type { R } from '../lib/util'
+import Select from './Select'
 
 const PRESETS: [string, string][] = [['* * * * *', 'Every minute'], ['*/5 * * * *', 'Every 5 minutes'], ['0 * * * *', 'Hourly'], ['0 3 * * *', 'Daily at 03:00'], ['0 3 * * 1', 'Weekly (Monday 03:00)']]
 
@@ -83,31 +84,31 @@ export function CronManager({ base, title, subtitle }: { base: string; title: st
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))] text-sm">
           <label className={field}>Name<input className="input" value={String(f.name)} onChange={(e) => set({ name: e.target.value })} placeholder="Nightly cleanup" /></label>
           <label className={field}>Run
-            <select className="input" value={mode} onChange={(e) => set({ run_mode: e.target.value })}>
+            <Select className="input" value={mode} onChange={(e) => set({ run_mode: e.target.value })}>
               {modes.map((m) => <option key={m} value={m}>{MODE_LABEL[m] ?? m}</option>)}
-            </select>
+            </Select>
           </label>
           {mode === 'http' ? <>
             <label className={field}>URL<input className="input font-mono text-xs" value={String(f.url)} onChange={(e) => set({ url: e.target.value })} placeholder="https://example.com/cron.php" /></label>
-            <label className={field}>Method<select className="input" value={String(f.method)} onChange={(e) => set({ method: e.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map((m) => <option key={m}>{m}</option>)}</select></label>
+            <label className={field}>Method<Select className="input" value={String(f.method)} onChange={(e) => set({ method: e.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map((m) => <option key={m}>{m}</option>)}</Select></label>
             <label className={field}>Expected status<input className="input" type="number" value={String(f.expected_status)} onChange={(e) => set({ expected_status: e.target.value })} placeholder="any 2xx" /></label>
           </> : <>
             {mode === 'host'
-              ? <label className={field}>Server<select className="input" value={String(f.server_id || servers.rows[0]?.id || '')} onChange={(e) => set({ server_id: e.target.value })}>{servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}</select></label>
-              : <label className={field}>App<select className="input" value={String(f.application_id || apps[0]?.id || '')} onChange={(e) => set({ application_id: e.target.value })}>{apps.map((a) => <option key={String(a.id)} value={String(a.id)}>{String(a.name)}</option>)}</select></label>}
+              ? <label className={field}>Server<Select className="input" value={String(f.server_id || servers.rows[0]?.id || '')} onChange={(e) => set({ server_id: e.target.value })}>{servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}</Select></label>
+              : <label className={field}>App<Select className="input" value={String(f.application_id || apps[0]?.id || '')} onChange={(e) => set({ application_id: e.target.value })}>{apps.map((a) => <option key={String(a.id)} value={String(a.id)}>{String(a.name)}</option>)}</Select></label>}
             <label className={field}>Command<input className="input font-mono text-xs" value={String(f.command)} onChange={(e) => set({ command: e.target.value })} placeholder="php artisan schedule:run" /></label>
           </>}
           <label className={field}>When
             {f.custom ? <input className="input font-mono text-xs" value={String(f.cron)} onChange={(e) => set({ cron: e.target.value })} placeholder="m h dom mon dow" />
-              : <select className="input" value={String(f.cron)} onChange={(e) => e.target.value === 'custom' ? set({ custom: true }) : set({ cron: e.target.value })}>{PRESETS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}<option value="custom">Custom expression…</option></select>}
+              : <Select className="input" value={String(f.cron)} onChange={(e) => e.target.value === 'custom' ? set({ custom: true }) : set({ cron: e.target.value })}>{PRESETS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}<option value="custom">Custom expression…</option></Select>}
           </label>
-          <label className={field}>Timezone<select className="input" value={String(f.timezone)} onChange={(e) => set({ timezone: e.target.value })}>{ZONES.map((z) => <option key={z}>{z}</option>)}</select></label>
+          <label className={field}>Timezone<Select className="input" value={String(f.timezone)} onChange={(e) => set({ timezone: e.target.value })}>{ZONES.map((z) => <option key={z}>{z}</option>)}</Select></label>
           <label className={field}>If still running
-            <select className="input" value={String(f.overlap)} onChange={(e) => set({ overlap: e.target.value })}>
+            <Select className="input" value={String(f.overlap)} onChange={(e) => set({ overlap: e.target.value })}>
               <option value="skip">Skip the new run</option><option value="parallel">Run in parallel</option><option value="stop">Stop the old run</option>
-            </select>
+            </Select>
           </label>
-          <label className={field}>Retries<select className="input" value={String(f.retries)} onChange={(e) => set({ retries: e.target.value })}>{[0, 1, 2, 3, 5].map((n) => <option key={n} value={n}>{n === 0 ? 'None' : `${n}, with backoff`}</option>)}</select></label>
+          <label className={field}>Retries<Select className="input" value={String(f.retries)} onChange={(e) => set({ retries: e.target.value })}>{[0, 1, 2, 3, 5].map((n) => <option key={n} value={n}>{n === 0 ? 'None' : `${n}, with backoff`}</option>)}</Select></label>
           <label className={field}>Timeout (s)<input className="input" type="number" min={10} value={String(f.timeout)} onChange={(e) => set({ timeout: e.target.value })} /></label>
           <label className={field}>Alert if running longer than (s)<input className="input" type="number" min={60} value={String(f.long_after)} onChange={(e) => set({ long_after: e.target.value })} placeholder="off" /></label>
         </div>
