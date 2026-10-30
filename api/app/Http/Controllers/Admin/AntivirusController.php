@@ -24,6 +24,7 @@ class AntivirusController extends Controller
             'resolved' => (int) (($counts['restored'] ?? 0) + ($counts['deleted'] ?? 0) + ($counts['ignored'] ?? 0)),
             'last_detected_at' => Threat::max('detected_at'),
             'auto_quarantine' => (bool) config('platform.antivirus.auto_quarantine'),
+            'schedule' => AntivirusService::settings(\App\Support\Tenant::current()?->id),
         ]);
     }
 
@@ -50,9 +51,15 @@ class AntivirusController extends Controller
         return $this->data(['queued' => $this->antivirus->scanAll()], 202);
     }
 
+    /** AV-13 */
+    public function score()
+    {
+        return $this->data($this->antivirus->score());
+    }
+
     public function action(Request $request, string $id, string $action)
     {
-        abort_unless(in_array($action, ['quarantine', 'restore', 'delete', 'ignore'], true), 404);
+        abort_unless(in_array($action, ['quarantine', 'restore', 'delete', 'ignore', 'clean'], true), 404);
         $job = $this->antivirus->act(Threat::findOrFail($id), $action, $request->user()->id);
         $request->attributes->set('audit_skip', true);
 

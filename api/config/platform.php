@@ -117,6 +117,13 @@ return [
             'auto_restart_max_per_hour' => 2,
             'uptime_retention_days' => 90,
         ],
+        // AV-3 / AV-14: when full scans run, and whether new detections notify the channels.
+        'antivirus' => [
+            'schedule' => 'weekly',   // daily | weekly | off
+            'day' => 0,               // weekly: 0 = Sunday … 6 = Saturday
+            'time' => '02:00',        // server time
+            'notify' => true,
+        ],
         'security' => [
             'require_mfa' => false,
             'require_approval_destructive' => true,

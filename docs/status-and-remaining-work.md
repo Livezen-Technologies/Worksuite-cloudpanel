@@ -9,21 +9,24 @@ Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
 Firewall           ~90%   enforced through CrowdSec (#14): rate limits,
                           countries, challenges, events; live sites still
                           on hand-written Traefik files
-Antivirus          ~70%   ClamAV + YARA scans, threats, quarantine (#15);
-                          no scheduled scans or reports yet
+Antivirus          ~65%   9 of 14: ClamAV + YARA, threats, quarantine, false
+                          positives, brute-force bans (#15), per-org scan
+                          schedule, WordPress core clean, security score,
+                          notifications; left: real-time scan, WAF,
+                          integrity, image CVEs, outbound limits
 Monitoring         ~85%   websites + containers + servers every 5 min,
                           cooldowns, escalation, auto-restart, uptime
                           reports, WhatsApp/SMS; no Grafana or status page
-File manager       ~80%   15 of 19 features + customer page (#7-#13); left:
-                          sharing, transfer manager, highlighting, bulk
-                          extract, cross-volume copy
+File manager       100%   all 19 features + customer page (#7-#13, #24,
+                          #25): sharing links, transfer manager, syntax
+                          highlighting, bulk extract, copy between volumes
 DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
                           DNSSEC, zone settings, BIND import/export, zones
                           drive DNS-01 certificates (#16, #18, #20, #22)
 Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
                           email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~47%   up from ~40%: file manager, firewall enforcement,
+Overall            ~50%   up from ~40%: file manager, firewall enforcement,
                           antivirus and DNS zones
 ```
 
