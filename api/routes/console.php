@@ -18,6 +18,10 @@ Artisan::command('deployments:resume {--stale=10}', function (DeploymentService 
     $this->info('Re-driven deployments: '.$deployments->resumeInterrupted((int) $this->option('stale')));
 })->purpose('Resume or roll back interrupted deployments (SRS 8.3)');
 
+Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
+    $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
+})->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -157,6 +161,7 @@ Artisan::command('monitoring:prune', function () {
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
+Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
 // FM-002/003: transfer folders left by finished or abandoned uploads and downloads.
 Schedule::call(function () {
     $disk = \Illuminate\Support\Facades\Storage::disk('local');

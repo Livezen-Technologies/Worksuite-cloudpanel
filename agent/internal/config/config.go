@@ -39,6 +39,10 @@ type Config struct {
 	// AcmeJSON is Traefik's ACME store read by proxy.certs (names/expiry only).
 	ProxyConfigDir string `json:"proxy_config_dir,omitempty"`
 	AcmeJSON       string `json:"acme_json,omitempty"`
+	// CrowdSecDir is where crowdsec.apply writes scenarios and profiles.yaml
+	// (mounted into the CrowdSec container); CrowdSecContainer is its name.
+	CrowdSecDir       string `json:"crowdsec_dir,omitempty"`
+	CrowdSecContainer string `json:"crowdsec_container,omitempty"`
 }
 
 // ResolvePath picks flag value, then env, then default.

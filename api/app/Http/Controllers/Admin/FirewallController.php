@@ -42,8 +42,8 @@ class FirewallController extends Controller
             // Stated rather than implied: these actions have no enforcement path
             // today, so the screen must not suggest they are in force.
             'unsupported' => $this->firewall->unsupported(),
-            'country_enforcement' => 'unavailable',
-            'challenge_enforcement' => 'unavailable',
+            'country_enforcement' => \App\Services\CrowdSecConfigService::enabled() ? 'crowdsec' : 'unavailable',
+            'challenge_enforcement' => \App\Services\CrowdSecConfigService::enabled() ? 'crowdsec' : 'unavailable',
         ]);
     }
 

@@ -95,6 +95,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.search(ctx, c.Payload)
 	case "fs.scan":
 		return e.scanFiles(ctx, c.Payload)
+	case "crowdsec.apply":
+		return e.crowdsecApply(ctx, c.Payload)
+	case "crowdsec.alerts":
+		return e.crowdsecAlerts(ctx, c.Payload)
 	case "fs.history_list", "fs.history_read", "fs.history_restore":
 		return e.history(ctx, c.Type, c.Payload)
 	case "firewall.apply":
