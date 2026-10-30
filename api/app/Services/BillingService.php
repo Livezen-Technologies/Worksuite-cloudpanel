@@ -34,6 +34,16 @@ class BillingService
         return $this->subscription()->plan;
     }
 
+    /** A package limit (cron_jobs, mailboxes, …) with a default when the package does not set it. */
+    public function limit(string $key, int $default): int
+    {
+        try {
+            return (int) ($this->plan()->limits[$key] ?? $default);
+        } catch (\Throwable) {
+            return $default;
+        }
+    }
+
     public function usage(): array
     {
         $apps = Application::where('kind', 'customer')->get();

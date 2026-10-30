@@ -22,6 +22,7 @@ class ScheduledJob extends Model
             'params' => 'array',
             'enabled' => 'boolean',
             'last_run_at' => 'datetime',
+            'timeout' => 'integer',
             'next_run_at' => 'datetime',
         ];
     }
