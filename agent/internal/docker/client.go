@@ -135,6 +135,7 @@ type ContainerSummary struct {
 	ID      string            `json:"Id"`
 	Names   []string          `json:"Names"`
 	Image   string            `json:"Image"`
+	ImageID string            `json:"ImageID"`
 	State   string            `json:"State"`
 	Status  string            `json:"Status"`
 	Created int64             `json:"Created"`
@@ -390,6 +391,18 @@ func (c *Client) PruneContainers(ctx context.Context, filters map[string][]strin
 	return c.prune(ctx, "/containers/prune", filters)
 }
 
+// PruneBuildCache removes BuildKit/classic build cache (all=false keeps
+// cache still referenced by images).
+func (c *Client) PruneBuildCache(ctx context.Context, all bool, until string) (PruneReport, error) {
+	q := url.Values{"all": {fmt.Sprint(all)}}
+	if until != "" {
+		f, _ := json.Marshal(map[string][]string{"until": {until}})
+		q.Set("filters", string(f))
+	}
+	var out PruneReport
+	return out, c.call(ctx, "POST", "/build/prune", q, nil, &out)
+}
+
 func (c *Client) PruneImages(ctx context.Context, filters map[string][]string) (PruneReport, error) {
 	return c.prune(ctx, "/images/prune", filters)
 }
@@ -397,10 +410,11 @@ func (c *Client) PruneImages(ctx context.Context, filters map[string][]string) (
 // ---- images ----
 
 type ImageSummary struct {
-	ID       string   `json:"Id"`
-	RepoTags []string `json:"RepoTags"`
-	Size     int64    `json:"Size"`
-	Created  int64    `json:"Created"`
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	RepoDigests []string `json:"RepoDigests"`
+	Size        int64    `json:"Size"`
+	Created     int64    `json:"Created"`
 }
 
 func (c *Client) ListImages(ctx context.Context) ([]ImageSummary, error) {

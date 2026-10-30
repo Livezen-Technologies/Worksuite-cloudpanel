@@ -69,11 +69,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('servers/{id}', [Admin\ServerController::class, 'show'])->name('servers.show');
         Route::get('servers/{id}/verification', [Admin\ServerController::class, 'verification'])->name('servers.verification');
         Route::get('servers/{id}/containers', [Admin\ServerController::class, 'containers'])->name('servers.containers');
+        Route::get('servers/{id}/cleanup', [Admin\CleanupController::class, 'show'])->name('servers.cleanup');
     });
     Route::middleware('perm:servers.manage')->group(function () {
         Route::post('servers', [Admin\ServerController::class, 'store'])->name('servers.store');
         Route::patch('servers/{id}', [Admin\ServerController::class, 'update'])->name('servers.update');
         Route::post('servers/enrollment', [Admin\ServerController::class, 'enrollment'])->name('servers.enrollment');
+        Route::patch('servers/{id}/cleanup', [Admin\CleanupController::class, 'update'])->name('servers.cleanup.update');
+        Route::post('servers/{id}/cleanup', [Admin\CleanupController::class, 'run'])->name('servers.cleanup.run');
         Route::post('servers/{id}/maintenance', [Admin\ServerController::class, 'maintenance'])->name('servers.maintenance');
         Route::post('servers/{id}/agent/{action}', [Admin\ServerController::class, 'agent'])->whereIn('action', ['restart', 'update'])->name('servers.agent');
     });

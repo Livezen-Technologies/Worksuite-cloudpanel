@@ -177,6 +177,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			return nil, err
 		}
 		return d.RemoveImage(ctx, p.Image, p.Force)
+	case "server.cleanup":
+		return e.cleanup(ctx, c.Payload, progress)
 	case "image.prune":
 		var p struct {
 			All    bool              `json:"all"` // false: dangling only
