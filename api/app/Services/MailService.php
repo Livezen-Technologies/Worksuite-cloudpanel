@@ -27,6 +27,14 @@ class MailService implements HandlesCommandResults
 
     public const CONTAINER = 'mailserver';
 
+    /** Roundcube, beside the mail container (UMAIL / MAIL webmail). */
+    public const WEBMAIL_IMAGE = 'roundcube/roundcubemail:1.6.9-apache';
+
+    public const WEBMAIL_CONTAINER = 'webmail';
+
+    /** The Dovecot master user imports sign in as ("box@domain*dmpimport"). */
+    public const MASTER_USER = 'dmpimport';
+
     /** The volume mounted at /tmp/docker-mailserver, where the config files live. */
     public const CONFIG_VOLUME = 'mailserver-config';
 
@@ -269,10 +277,79 @@ class MailService implements HandlesCommandResults
             }
         }
 
+        // MCL-10: imports sign in as a master user, so mailbox passwords are never needed.
+        $extra['dovecot-masters.cf'] = self::MASTER_USER.'|'.self::hash($this->masterPassword($mail))."\n";
+
         return $extra + [
             'postfix-accounts.cf' => $lines($accounts), 'postfix-virtual.cf' => $lines($virtual), 'dovecot-quotas.cf' => $lines($quotas),
             'opendkim/KeyTable' => $lines($keyTable), 'opendkim/SigningTable' => $lines($signing), 'opendkim/TrustedHosts' => "127.0.0.1\nlocalhost\n",
         ] + $keys;
+    }
+
+    /** The master user's password, created on first use and kept encrypted. */
+    public function masterPassword(MailServer $mail): string
+    {
+        if (! $mail->master_password) {
+            $mail->forceFill(['master_password' => \Illuminate\Support\Str::password(40, symbols: false)])->save();
+        }
+
+        return $mail->master_password;
+    }
+
+    /**
+     * Roundcube on its own hostname, routed by Traefik and signing in to this mail
+     * server over IMAPS / submission. Its settings live in a SQLite volume.
+     */
+    public function installWebmail(MailServer $mail, string $hostname, ?string $userId): MailServer
+    {
+        if ($mail->status !== 'running') {
+            throw ApiException::conflict('Install the mail server first.');
+        }
+        $server = Server::allTenants()->find($mail->server_id);
+        if (! $server?->isOnline()) {
+            throw ApiException::conflict('The server is offline.');
+        }
+        $hostname = strtolower($hostname);
+        $router = 'webmail-'.substr(str_replace('-', '', $mail->id), 0, 8);
+        $spec = ContainerSpec::build([
+            'name' => self::WEBMAIL_CONTAINER, 'image' => self::WEBMAIL_IMAGE, 'read_only_rootfs' => false,
+            'env' => [
+                'ROUNDCUBEMAIL_DEFAULT_HOST' => 'ssl://'.$mail->hostname, 'ROUNDCUBEMAIL_DEFAULT_PORT' => '993',
+                'ROUNDCUBEMAIL_SMTP_SERVER' => 'tls://'.$mail->hostname, 'ROUNDCUBEMAIL_SMTP_PORT' => '587',
+                'ROUNDCUBEMAIL_DB_TYPE' => 'sqlite', 'ROUNDCUBEMAIL_SKIN' => 'elastic', 'ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE' => '25M',
+            ],
+            'networks' => [['name' => 'proxy']],
+            'mounts' => [['source' => 'webmail-db', 'target' => '/var/roundcube/db']],
+            'memory_mb' => 256,
+            'labels' => [
+                'io.dockermgr.mail' => $mail->id,
+                'traefik.enable' => 'true',
+                "traefik.http.routers.{$router}.rule" => "Host(`{$hostname}`)",
+                "traefik.http.routers.{$router}.entrypoints" => 'websecure',
+                "traefik.http.routers.{$router}.tls" => 'true',
+                "traefik.http.routers.{$router}.tls.certresolver" => 'letsencrypt',
+                "traefik.http.services.{$router}.loadbalancer.server.port" => '80',
+            ],
+        ], Tenant::current());
+        $mail->update(['webmail_hostname' => $hostname, 'webmail_status' => 'installing']);
+        $steps = [['container.remove', ['container_id' => self::WEBMAIL_CONTAINER, 'keep_volumes' => true, 'force' => true]], ['container.create', $spec]];
+        $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'webmail', 'steps' => $steps, 'step' => 0], $userId, $mail->organization_id);
+        $this->dispatch($mail, $job, $steps[0]);
+        $this->audit->log('mail.webmail_install', 'mail_servers', $mail->id, ['hostname' => $hostname]);
+
+        return $mail->fresh();
+    }
+
+    /** UMAIL: where to point a mail app, and the webmail address. */
+    public static function clientSettings(MailServer $mail, string $address): array
+    {
+        return [
+            'username' => $address,
+            'imap' => ['host' => $mail->hostname, 'port' => 993, 'security' => 'SSL/TLS'],
+            'pop3' => ['host' => $mail->hostname, 'port' => 995, 'security' => 'SSL/TLS'],
+            'smtp' => ['host' => $mail->hostname, 'port' => 587, 'security' => 'STARTTLS', 'auth' => 'normal password'],
+            'webmail_url' => $mail->webmail_hostname && $mail->webmail_status === 'running' ? 'https://'.$mail->webmail_hostname.'/?_user='.rawurlencode($address) : null,
+        ];
     }
 
     public function settings(MailServer $mail): array
@@ -497,6 +574,17 @@ class MailService implements HandlesCommandResults
             if ($job->payload['action'] === 'install') {
                 $mail->update(['status' => 'failed', 'error' => $message]);
             }
+            if ($job->payload['action'] === 'webmail' && $command->type !== 'container.remove') {
+                $mail->update(['webmail_status' => 'failed']);
+            }
+            if ($job->payload['action'] === 'webmail' && $command->type === 'container.remove') {
+                // Nothing to remove on a first install: carry on.
+                $next = $job->payload['steps'][1];
+                $job->update(['payload' => ['step' => 1] + $job->payload]);
+                $this->dispatch($mail, $job, $next);
+
+                return;
+            }
             $this->jobs->fail($job, $message, 'execute');
 
             return;
@@ -526,6 +614,12 @@ class MailService implements HandlesCommandResults
         if ($next < count($steps)) {
             $job->update(['payload' => ['step' => $next] + $job->payload]);
             $this->dispatch($mail, $job, $steps[$next]);
+
+            return;
+        }
+        if ($job->payload['action'] === 'webmail') {
+            $mail->update(['webmail_status' => 'running']);
+            $this->jobs->succeed($job, ['webmail' => 'https://'.$mail->webmail_hostname]);
 
             return;
         }

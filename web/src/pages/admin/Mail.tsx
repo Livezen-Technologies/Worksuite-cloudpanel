@@ -6,6 +6,7 @@ import { DataTable } from '../../components/DataTable'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
 import Select from '../../components/Select'
+import { ImportDialog, ImportList } from '../../components/MailImport'
 
 const size = (q: unknown) => (Number(q) >= 1024 ? `${Number(q) / 1024} GB` : `${q} MB`)
 
@@ -115,6 +116,7 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
   }
   return (
     <div className="mt-1 ml-4 flex flex-col gap-1 text-xs">
+      {m.webmail_hostname ? <span>Webmail <Badge tone={m.webmail_status === 'running' ? 'g' : m.webmail_status === 'failed' ? 'r' : 'y'}>{String(m.webmail_status)}</Badge>{m.webmail_status === 'running' ? <> · <a href={`https://${m.webmail_hostname}`} target="_blank" rel="noopener noreferrer">{String(m.webmail_hostname)}</a></> : null}</span> : null}
       <span className="text-muted">Limit {String(set.send_per_hour)} messages/hour per mailbox · spam header at {String(set.spam_header)}, reject at {String(set.spam_reject)} · relay: {set.relay ? String((set.relay as R).host) : 'none (direct delivery)'}</span>
       {m.tls ? <span>TLS <Badge tone={(m.tls as R).source === 'acme' ? 'g' : 'y'}>{(m.tls as R).source === 'acme' ? "Let's Encrypt (from Traefik)" : 'self-signed'}</Badge>{(m.tls as R).not_after ? <span className="text-muted"> until {String((m.tls as R).not_after).slice(0, 10)}</span> : null}{(m.tls as R).source !== 'acme' ? <span className="text-muted"> · add the mail hostname as a domain so Traefik issues a certificate</span> : null}</span> : null}
       {h && <span>
@@ -128,6 +130,10 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/certs`, label: 'Refresh certificate', success: 'Checking Traefik for a certificate' }).then(onChange)}>Refresh certificate</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/backups`, body: {}, label: 'Back up mailboxes nightly', success: 'Nightly backup policy saved; change its destination under Backups' }).then(onChange)}>Nightly backup</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={relay}>Relay</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+          const hostname = window.prompt('Webmail address (point its A record at this server):', String(m.webmail_hostname ?? 'webmail.' + String(m.hostname).replace(/^mail\./, '')))
+          if (hostname) run({ path: `/mail/servers/${m.id}/webmail`, body: { hostname }, label: 'Install webmail', success: 'Installing Roundcube webmail' }).then(onChange)
+        }}>{m.webmail_hostname ? 'Reinstall webmail' : 'Install webmail'}</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/health`, label: 'Check reverse DNS and blocklists', silent: true }).then(onChange)}>Check health</button>
         <button type="button" className="btn btn-sm" onClick={async () => { const { api } = await import('../../api/client'); const r = await api.get<{ data: { lines: string[] } }>(`/mail/servers/${m.id}/logs`, { tail: 200 }); setLogs(r.data.lines) }}>Logs</button>
       </span>
@@ -142,6 +148,7 @@ function DomainPanel({ id, domains, onPick, newBox, setNewBox, onChange }: { id:
   const { run, busy } = useAction()
   const [box, setBox] = useState({ local_part: '', password: '', quota_mb: 1024 })
   const [alias, setAlias] = useState({ local_part: '', destinations: '' })
+  const [importing, setImporting] = useState<R | null>(null)
   const refetch = () => { d.refetch(); onChange() }
   const status = new Map(((w.dns as R[]) ?? []).map((r) => [`${r.type} ${r.name}`, String(r.status)]))
   const boxes = (w.mailbox_list as R[]) ?? []
@@ -186,6 +193,7 @@ function DomainPanel({ id, domains, onPick, newBox, setNewBox, onChange }: { id:
                         const until = window.prompt('Until (YYYY-MM-DD, empty for no end date):', '') ?? ''
                         run({ path: `/mail/domains/${id}/mailboxes/${b.id}/autoresponder`, method: 'PATCH', body: { enabled: true, subject, body, until: until || null }, label: 'Auto-reply on' }).then(refetch)
                       }}>{(b.autoresponder as R)?.enabled ? 'Auto-reply off' : 'Auto-reply'}</button>
+                      <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setImporting(b)}>Import</button>
                       <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { const password = window.prompt('New password (at least 10 characters):'); if (password) run({ path: `/mail/domains/${id}/mailboxes/${b.id}`, method: 'PATCH', body: { password }, label: 'Change password' }) }}>Password</button>
                       <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${b.local_part}@${w.name}? Stored mail stays on the server until it is cleaned up.`)) run({ path: `/mail/domains/${id}/mailboxes/${b.id}`, method: 'DELETE', label: 'Delete mailbox' }).then(refetch) }}>Delete</button>
                     </div></td>
@@ -194,6 +202,9 @@ function DomainPanel({ id, domains, onPick, newBox, setNewBox, onChange }: { id:
               </table>
             </div>}
         </Card>
+
+        <ImportList base="" domainId={id} boxes={boxes} />
+        <ImportDialog base="" domainId={id} box={importing ? String(importing.id) : null} address={importing ? `${importing.local_part}@${name}` : ''} onClose={() => setImporting(null)} />
 
         <Card title="Aliases and forwarding" className="text-sm">
           <ul className="m-0 mb-2 p-0 list-none flex flex-col gap-1">

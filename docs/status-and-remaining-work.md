@@ -39,7 +39,7 @@ Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           aliases, DNS + autoconfig, TLS from Traefik, limits,
                           relay, rDNS/blocklists with alerts, backups,
                           auto-replies, logs, customer page, package quotas;
-                          left: IMAP import, auto-hold of spamming mailboxes,
+                          left: auto-hold of spamming mailboxes,
                           per-domain limits, per-mailbox spam settings,
                           searchable logs per organisation, webmail
 Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
@@ -187,6 +187,23 @@ prune, lock no longer than retention).
 Left: BKM-009 restore tests restore and validate in a scratch directory; starting the
 app from the restored data in a sandbox container and counting database rows is not
 built yet.
+
+## 1d. Mail: IMAP import and webmail
+
+Built: **IMAP import** (MCL-10, UMAIL) from Google Workspace / Gmail, Microsoft 365,
+cPanel or any IMAP server, per mailbox, from the admin Mail page and the customer Email
+page. The agent's `mail.import` runs imapsync in a one-off container on the mail
+container's network and signs in to Dovecot as a master user (`dovecot-masters.cf`,
+written with every sync), so the mailbox's own password is never needed. Passwords go
+to imapsync in files, never on the command line; the source password is forgotten when
+the import ends. Results: messages, folders, bytes, errors and the last 16 KB of log.
+**Webmail**: Roundcube (`roundcube/roundcubemail`) beside the mail container on its own
+hostname, routed and certified by Traefik; customers get "Open webmail" and per-mailbox
+links with the address filled in, and the mail-app settings.
+
+Left: live progress during an import (the result arrives at the end), one-click
+sign-in to webmail without typing the password, and importing from the migration
+wizard (MIG-001).
 
 ## 2. Firewall — enforced through CrowdSec (#14)
 

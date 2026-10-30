@@ -109,6 +109,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.mailCerts(ctx, c.Payload)
 	case "cron.exec":
 		return e.cronExec(ctx, c.Payload)
+	case "mail.import":
+		return e.mailImport(ctx, c.Payload)
 	case "cron.stop":
 		return e.cronStop(ctx, c.Payload)
 	case "wp.drop_tables":

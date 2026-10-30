@@ -13,10 +13,10 @@ class MailServer extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['relay_password'];
+    protected $hidden = ['relay_password', 'master_password'];
 
     protected function casts(): array
     {
-        return ['synced_at' => 'datetime', 'settings' => 'array', 'relay_password' => 'encrypted', 'health' => 'array', 'tls' => 'array', 'health_checked_at' => 'datetime'];
+        return ['synced_at' => 'datetime', 'settings' => 'array', 'relay_password' => 'encrypted', 'master_password' => 'encrypted', 'health' => 'array', 'tls' => 'array', 'health_checked_at' => 'datetime'];
     }
 }
