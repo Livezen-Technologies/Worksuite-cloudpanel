@@ -67,6 +67,10 @@ Artisan::command('firewall:expire-ips', function (\App\Services\TraefikConfigSer
     $this->info("Removed {$n} expired firewall IP entr".($n === 1 ? 'y' : 'ies').'.');
 })->purpose('FW-011: drop expired allow/block list entries and re-render the edge');
 
+Artisan::command('scaling:evaluate', function (\App\Services\ScalingService $scaling) {
+    $this->info('Apps rescaled: '.$scaling->evaluate());
+})->purpose('SCL-2: autoscale on CPU and follow scaling schedules');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -211,6 +215,7 @@ Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlappin
 Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
+Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

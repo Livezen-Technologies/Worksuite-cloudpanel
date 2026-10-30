@@ -102,6 +102,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('applications', [Admin\ApplicationController::class, 'index'])->name('applications.index');
         Route::get('applications/{id}', [Admin\ApplicationController::class, 'show'])->name('applications.show');
         Route::get('applications/{id}/releases', [Admin\ApplicationController::class, 'releases'])->name('applications.releases');
+        Route::get('applications/{id}/scaling', [Admin\ScalingController::class, 'show'])->name('applications.scaling');
         Route::get('deployments', [Admin\DeploymentController::class, 'index'])->name('deployments.index');
         Route::get('deployments/{id}', [Admin\DeploymentController::class, 'show'])->name('deployments.show');
     });
@@ -109,6 +110,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::post('applications', [Admin\ApplicationController::class, 'store'])->name('applications.store');
         Route::patch('applications/{id}', [Admin\ApplicationController::class, 'update'])->name('applications.update');
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
+        Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
     });
     Route::delete('applications/{id}', [Admin\ApplicationController::class, 'destroy'])->middleware('perm:deploy|production.delete')->name('applications.destroy');
@@ -416,6 +418,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::post('apps', [Customer\AppController::class, 'store'])->name('apps.store');
             Route::post('apps/validate-source', [Customer\AppController::class, 'validateSource'])->name('apps.validate-source');
             Route::get('apps/{id}', [Customer\AppController::class, 'show'])->name('apps.show');
+            Route::get('apps/{id}/scaling', [Customer\ScalingController::class, 'show'])->name('apps.scaling');
+            Route::patch('apps/{id}/scaling', [Customer\ScalingController::class, 'update'])->name('apps.scaling.update');
             Route::patch('apps/{id}', [Customer\AppController::class, 'update'])->name('apps.update');
             Route::delete('apps/{id}', [Customer\AppController::class, 'destroy'])->name('apps.destroy');
             Route::post('apps/{id}/restart', [Customer\AppController::class, 'restart'])->name('apps.restart');

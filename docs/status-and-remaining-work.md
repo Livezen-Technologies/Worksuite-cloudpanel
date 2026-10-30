@@ -88,7 +88,7 @@ CoreDNS. The platform currently uses Laravel queues and a Laravel job runner, Pr
 through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues as the MVP
 alternative.
 
-Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
+Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
 private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
 Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
 (PUB, done in #41).
@@ -204,6 +204,24 @@ links with the address filled in, and the mail-app settings.
 Left: live progress during an import (the result arrives at the end), one-click
 sign-in to webmail without typing the password, and importing from the migration
 wizard (MIG-001).
+
+## 1e. Scaling and load balancing (SCL, USCL)
+
+Built: copies of an app on its server (SCL-1, USCL-1). The primary container is
+`app-<name>`; copies are `app-<name>-r2…rN` from the current release with the same
+Traefik service labels, so Traefik balances across them; health checks (path, interval,
+timeout) take a failing copy out of rotation and sticky sessions pin visitors by cookie
+(SCL-3/4). Scaling down stops a copy with a 30 s grace before removing it, and a deploy
+replaces copies one at a time (SCL-5). Modes: fixed, autoscale on CPU (3 min above the
+target adds a copy, 15 min under half removes one, the maximum is recorded as a warning)
+and scheduled windows (SCL-2), evaluated every minute by `scaling:evaluate`; every change
+is logged with reason and result. Shared-state warnings (SCL-9) and plan limits
+`max_replicas` / `autoscale` for customers (SCL-10, USCL-2/3). Screens: Scaling tab on
+the admin app page and the customer app page.
+
+Left: placement across servers or regions (SCL-6), traffic splitting between releases
+(SCL-7), edge nodes and failover (SCL-8), least-connections / weighted strategies,
+requests-per-second autoscaling, and billing extra copies by usage.
 
 ## 2. Firewall — enforced through CrowdSec (#14)
 
