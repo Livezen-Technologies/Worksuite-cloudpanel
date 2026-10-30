@@ -41,7 +41,18 @@ class UserController extends Controller
             $user->forceFill(['current_organization_id' => $membership->organization_id])->save();
         }
 
-        return self::present($membership->load('user')) + ['invite_url' => rtrim(config('platform.panel_url'), '/').'/invite/'.$token];
+        $url = rtrim(config('platform.panel_url'), '/').'/invite/'.$token;
+        // EML-1: the invitation email; a mail failure must not lose the invite (the URL is returned too).
+        try {
+            app(\App\Services\EmailTemplateService::class)->send('invite', $user, [
+                'inviter' => (string) (auth()->user()?->name ?? 'An administrator'), 'organization' => (string) \App\Models\Organization::find($membership->organization_id)?->name,
+                'role' => str_replace('_', ' ', $role), 'accept_url' => $url,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return self::present($membership->load('user')) + ['invite_url' => $url];
     }
 
     public function store(Request $request)

@@ -41,9 +41,12 @@ Mail hosting       ~75%   mail stack per server, domains with DKIM and key
                           reverse DNS and blocklist checks, auto-replies,
                           logs; left: real TLS certificates, backups, IMAP
                           import, webmail
-Email templates      0%   specified only
+Email templates    ~90%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
+                          validated variables, HTML + text, 600/360 px and
+                          dark mode, tests, user opt-outs; wired to alert
+                          emails and invitations, other events still to hook
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~64%   up from ~40%: file manager, firewall enforcement,
+Overall            ~66%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
 
