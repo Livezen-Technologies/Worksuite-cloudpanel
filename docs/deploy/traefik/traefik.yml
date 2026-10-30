@@ -51,6 +51,12 @@ certificatesResolvers:
       email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge: { provider: hetzner }
+  # PowerDNS zones connected under DNS zones (DNS-013); the panel writes the PDNS_* secrets.
+  le-dns-pdns:
+    acme:
+      email: hasarinda@livezentech.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge: { provider: pdns }
   le-dns-route53:
     acme:
       email: hasarinda@livezentech.com

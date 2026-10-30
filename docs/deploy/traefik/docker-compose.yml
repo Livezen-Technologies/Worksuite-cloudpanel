@@ -12,6 +12,10 @@ services:
       HETZNER_API_KEY_FILE: /etc/dockermgr/traefik/secrets/HETZNER_API_KEY
       AWS_ACCESS_KEY_ID_FILE: /etc/dockermgr/traefik/secrets/AWS_ACCESS_KEY_ID
       AWS_SECRET_ACCESS_KEY_FILE: /etc/dockermgr/traefik/secrets/AWS_SECRET_ACCESS_KEY
+      # PowerDNS zones managed in the panel (DNS-013).
+      PDNS_API_URL_FILE: /etc/dockermgr/traefik/secrets/PDNS_API_URL
+      PDNS_API_KEY_FILE: /etc/dockermgr/traefik/secrets/PDNS_API_KEY
+      PDNS_SERVER_NAME_FILE: /etc/dockermgr/traefik/secrets/PDNS_SERVER_NAME
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - /etc/dockermgr/traefik:/etc/dockermgr/traefik   # dynamic/, secrets/, acme.json (0600)

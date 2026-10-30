@@ -14,19 +14,22 @@ use App\Models\Route;
 /** Domains, DNS readiness (DOM-003), certificates (DOM-002), conflicts (DOM-004, UDOM-006). */
 class DomainService
 {
-    public function __construct(private DnsResolver $dns, private CertificateIssuer $issuer, private CommandBus $bus) {}
+    public function __construct(private DnsResolver $dns, private CertificateIssuer $issuer, private CommandBus $bus, private DnsZoneService $zones) {}
 
     public function create(array $data, bool $internal = false): Domain
     {
         $name = strtolower(trim($data['name'], '. '));
         $this->assertAvailable($name, null, $internal);
+        // DNS-013: a domain inside one of the organisation's DNS zones gets its certificate by DNS-01
+        // through that zone, unless a challenge or a provider token is given.
+        $zone = empty($data['platform_subdomain']) && empty($data['dns_token']) ? \App\Models\DnsZone::forDomain($name, \App\Support\Tenant::current()?->id) : null;
         $domain = Domain::create([
             'name' => $name,
             'application_id' => $data['application_id'] ?? null,
             'target_port' => $data['target_port'] ?? null,
             'wildcard' => str_starts_with($name, '*.') || ! empty($data['wildcard']),
             'www_redirect' => (bool) ($data['www_redirect'] ?? false),
-            'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? 'http-01'),
+            'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? ($zone ? 'dns-01' : 'http-01')),
             'platform_subdomain' => (bool) ($data['platform_subdomain'] ?? false),
             'options' => $data['options'] ?? null,
             'dns_provider' => $data['dns_provider'] ?? null,
@@ -35,11 +38,49 @@ class DomainService
         if (! empty($data['dns_token'])) {
             $this->setDnsToken($domain, $data['dns_token']);
         }
+        if ($zone) {
+            $this->publishToZone($domain);
+        }
         if ($domain->application_id) {
             Route::create(['domain_id' => $domain->id, 'application_id' => $domain->application_id, 'port' => $domain->target_port]);
         }
 
         return $domain;
+    }
+
+    /**
+     * DNS-013: writes the records the domain needs into the managed zone that holds it. Records the
+     * zone already has are left alone; a different value under the same name is reported, never
+     * overwritten. Returns [name, type, status: created|present|conflict|failed, message?] per record.
+     */
+    public function publishToZone(Domain $domain): array
+    {
+        $zone = \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id);
+        if (! $zone || $domain->platform_subdomain || $domain->dns_secret_id) {
+            return [];
+        }
+        $existing = $zone->records()->withoutGlobalScope('organization')->get();
+        $out = [];
+        foreach ($this->expectedRecords($domain) as $r) {
+            $same = $existing->filter(fn ($e) => $e->type === $r['type'] && $e->name === $r['name']);
+            if ($same->contains(fn ($e) => rtrim($e->content, '.') === rtrim($r['value'], '.'))) {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'present'];
+                continue;
+            }
+            // Several TXT values may share a name; any other type with a different value is a conflict.
+            if ($same->isNotEmpty() && $r['type'] !== 'TXT') {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'conflict', 'message' => 'The zone already has '.$same->first()->content.'.'];
+                continue;
+            }
+            try {
+                $this->zones->createRecord($zone, ['type' => $r['type'], 'name' => $r['name'], 'content' => $r['value'], 'ttl' => 1, 'proxied' => false]);
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'created'];
+            } catch (\Throwable $e) {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'failed', 'message' => $e->getMessage()];
+            }
+        }
+
+        return $out;
     }
 
     /** DNS-01 provider token, stored encrypted and write-only. */
@@ -89,6 +130,7 @@ class DomainService
     /** Checks each record; issues the certificate as soon as DNS verifies (UDOM-004). */
     public function verify(Domain $domain): array
     {
+        $published = $this->publishToZone($domain);
         $records = [];
         foreach ($this->expectedRecords($domain) as $record) {
             $lookupName = ltrim($record['name'], '*.');
@@ -104,7 +146,8 @@ class DomainService
             $this->issueCertificate($domain);
         }
 
-        return ['domain_id' => $domain->id, 'records' => array_map(fn ($r) => array_diff_key($r, ['found' => 1]), $records), 'dns_status' => $domain->dns_status, 'https_status' => $domain->fresh()->https_status];
+        return array_filter(['domain_id' => $domain->id, 'records' => array_map(fn ($r) => array_diff_key($r, ['found' => 1]), $records), 'dns_status' => $domain->dns_status,
+            'https_status' => $domain->fresh()->https_status, 'zone_records' => $published ?: null], fn ($v) => $v !== null);
     }
 
     public function issueCertificate(Domain $domain): Certificate
@@ -156,6 +199,7 @@ class DomainService
             'challenge' => $domain->challenge,
             'dns_provider' => $domain->dns_provider,
             'has_dns_token' => (bool) $domain->dns_secret_id,
+            'dns_zone' => ($z = $domain->dns_secret_id ? null : \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id)) ? ['id' => $z->id, 'name' => $z->name, 'provider' => $z->provider?->type] : null,
             'dns_status' => $domain->dns_status,
             'https_status' => $domain->https_status,
             'records' => $this->expectedRecords($domain),
