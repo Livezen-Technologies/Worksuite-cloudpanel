@@ -250,12 +250,17 @@ func (e *Executor) avRestore(root *os.Root, p avPayload) (any, error) {
 	if err := mkdirAll(root, path.Dir(rel)); err != nil {
 		return nil, err
 	}
+	// Give the file its old mode while it is still in the quarantine: it has none
+	// there, so it cannot be opened to change it, but its folder can.
+	if d, err := q.Open(p.ID); err == nil {
+		err = chmodAt(d, "file", os.FileMode(m.Mode&0o777))
+		d.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := transferOut(q, path.Join(p.ID, "file"), root, rel); err != nil {
 		return nil, err
-	}
-	if f, err := root.Open(rel); err == nil {
-		f.Chmod(os.FileMode(m.Mode & 0o777))
-		f.Close()
 	}
 	removeTree(q, p.ID)
 	return map[string]any{"id": p.ID, "path": rel}, nil
