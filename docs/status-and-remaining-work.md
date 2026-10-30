@@ -90,7 +90,7 @@ alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
 private network (PNET, 9), firewall (FW, 1: FW-015 customer controls), environments (ENV, 7), templates (TPL, 6),
-Cloudflare Tunnel (CFT, 6), cron engine (CRON, 7), backup manager (BKM, 4), public pages
+Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 4), public pages
 (PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -147,6 +147,27 @@ Image compliance, Quota usage. Nothing collects that data, so they would have
 been invented numbers. Build them only alongside the collection.
 
 ---
+
+## 1b. Cron engine (CRON-1..9)
+
+Built: run modes (in the app container, a one-off container from the app's image with
+its env and volumes, the server's shell for platform admins, HTTP with method, headers
+and expected status); timezone with a plain-words preview and the next three runs;
+overlap policy (skip / parallel / stop the old run via `cron.stop`); timeout; retries
+with doubling backoff; run history with attempt, 64 KB output, search and download;
+Run now, Test run (no alerts), Pause, Resume, Duplicate, Delete, all audited; alerts on
+failure, missed runs (server offline, or the scheduler down at the scheduled time) and
+long-running runs by email and webhook, and a Monitoring alert after three failures in
+a row that a success resolves; plan limits for jobs, interval, runtime and modes;
+secrets redacted from output; jobs deleted with their app; Operations → Cron &
+scheduler lists every customer's job for platform admins. The agent runs `cron.exec`
+beside its command queue so a long job never blocks other commands.
+
+Left: the dedicated runner services from the SRS (an `lz-scheduler` supercronic
+container or systemd timers per server, and a Swarm leader runner). The panel's own
+scheduler dispatches each run to the agent, so a run happens once per minute
+already, but scheduling stops while the panel is down (those runs are reported as
+missed afterwards).
 
 ## 2. Firewall — enforced through CrowdSec (#14)
 

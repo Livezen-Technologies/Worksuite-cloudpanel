@@ -46,6 +46,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Backups', to: '/admin/backups', icon: 'archive' },
     { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file' },
     { label: 'Automation', to: '/admin/automation', icon: 'clock' },
+    { label: 'Cron & scheduler', to: '/admin/cron', icon: 'clock' },
   ] },
   { id: 'settings', label: 'Settings', icon: 'gear', desc: 'Users, permissions and configuration', items: [
     { label: 'Users & Teams', to: '/admin/users', icon: 'users' },

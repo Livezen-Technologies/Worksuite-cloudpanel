@@ -59,6 +59,10 @@ class Application extends Model
     public function retire(): void
     {
         $this->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
+        // CRON-7: an app's scheduled jobs go with it.
+        $jobs = ScheduledJob::allTenants()->where('application_id', $this->id)->pluck('id');
+        ScheduledJobRun::allTenants()->whereIn('scheduled_job_id', $jobs)->delete();
+        ScheduledJob::allTenants()->whereIn('id', $jobs)->delete();
         foreach (Container::where('application_id', $this->id)->get() as $container) {
             app(\App\Services\ContainerService::class)->perform($container, 'remove', ['keep_volumes' => true]);
         }
