@@ -290,7 +290,7 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 
 ## Mail hosting (SRS MAIL)
 
-One [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/) container (`mailserver`) per mail server runs Postfix, Dovecot, OpenDKIM and Rspamd. It publishes ports 25, 465, 587 and 993 and uses the volumes `mailserver-data`, `mailserver-state` and `mailserver-config` (mounted at `/tmp/docker-mailserver`). The panel owns the config files in that volume and rewrites them all after every change, using `fs.mkdir` and `fs.write`; the container picks the changes up by itself. File contents (password hashes, DKIM keys) are read when each command is dispatched, so jobs never store them. Reads need `resources.view|servers.view`; changes need `deploy` (install: `servers.manage`).
+One [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/) container (`mailserver`) per mail server runs Postfix, Dovecot, OpenDKIM and Rspamd. It publishes ports 25, 465, 587 and 993 and uses the volumes `mailserver-data`, `mailserver-state` and `mailserver-config` (mounted at `/tmp/docker-mailserver`). The panel owns the config files in that volume and rewrites them all after every change, using `fs.mkdir` and `fs.write`; the container picks the changes up by itself. File contents (password hashes, DKIM keys) are read when each command is dispatched, so jobs never store them. Reads need `resources.view|servers.view`; changes need `deploy` (install and server settings: `servers.manage`).
 
 | Method | Path | Notes |
 |---|---|---|
@@ -303,6 +303,11 @@ One [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/) 
 | POST | `/mail/domains/{id}/mailboxes` | MAIL-003 `{local_part, password (10+), quota_mb?=1024}`. The password is stored only as `{SHA512-CRYPT}` (in `postfix-accounts.cf`); quotas go to `dovecot-quotas.cf`. |
 | PATCH \| DELETE | `/mail/domains/{id}/mailboxes/{box}` | `{password?, quota_mb?, enabled?}`; a disabled mailbox is left out of the accounts file. |
 | POST \| DELETE | `/mail/domains/{id}/aliases[/{alias}]` | MAIL-004 `{local_part, destinations[]}` (up to 50 addresses) goes to `postfix-virtual.cf`. A name cannot be both a mailbox and an alias. |
+| PATCH | `/mail/servers/{id}` | MAIL-008/009 `{send_per_hour?, spam_reject?, spam_header?, relay?: {host, port (25\|465\|587\|2525), username, password?} \| null}`. Defaults: 200 per hour, header at 6, reject at 15; the header score must be below the reject score. These write `rspamd/override.d/ratelimit.conf` (per authenticated user) and `actions.conf` (greylist at header − 2). A relay writes `postfix-main.cf` (`relayhost`, SASL, `smtp_tls_security_level = encrypt`) and `postfix-sasl-password.cf`. The relay password is stored encrypted, returned only as `password_set`, and kept when omitted. The container restarts afterwards. |
+| POST | `/mail/servers/{id}/health` | MAIL-010 (also daily at 05:20, `mail:health`): reverse DNS of the server's IPv4 must equal the hostname (`ptr_ok`), the hostname's A record must be the server (`a_ok`), and `listed[]` names the DNS blocklists that list it (Spamhaus ZEN, SpamCop, Barracuda, SORBS; `127.255.255.x` refusals are ignored). A new listing is audited as `mail.blocklisted`. |
+| GET | `/mail/servers/{id}/logs?tail=200` | MAIL-014: the mail container's logs (Postfix, Dovecot, Rspamd), through the container log fetch. |
+| POST | `/mail/domains/{id}/dkim/rotate` \| `/complete` | MAIL-006: `rotate` creates a 2048-bit key under selector `mailYYYYMM` and publishes its TXT record (listed in `records` with `next: true`); the old key keeps signing. `complete` (409 until DNS shows the new record) switches signing and keeps `dkim_previous_selector`, whose record can be deleted a few days later. |
+| PATCH | `/mail/domains/{id}/mailboxes/{box}/autoresponder` | MAIL-012 `{enabled, subject, body, until?}` writes a per-user Sieve vacation script (`<address>.dovecot.sieve`), at most one reply per sender per day, stopping after `until`. Off writes an empty script. |
 
 ## Migration wizard (SRS MIG)
 

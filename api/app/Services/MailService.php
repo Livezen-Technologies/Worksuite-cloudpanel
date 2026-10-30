@@ -17,7 +17,7 @@ use App\Models\Server;
 use App\Support\Tenant;
 
 /**
- * Mail hosting (SRS MAIL-001..005). One docker-mailserver container per server runs Postfix,
+ * Mail hosting (SRS MAIL-001..010, 012, 014). One docker-mailserver container per server runs Postfix,
  * Dovecot, OpenDKIM and Rspamd. The panel owns its account, alias, quota and DKIM files and
  * rewrites them on every change; the container picks the changes up by itself.
  */
@@ -29,6 +29,12 @@ class MailService implements HandlesCommandResults
 
     /** The volume mounted at /tmp/docker-mailserver, where the config files live. */
     public const CONFIG_VOLUME = 'mailserver-config';
+
+    /** MAIL-008 defaults: sending limit per mailbox and Rspamd action scores. */
+    public const DEFAULTS = ['send_per_hour' => 200, 'spam_reject' => 15, 'spam_header' => 6, 'relay' => null];
+
+    /** MAIL-010: DNS blocklists checked for the server's address. */
+    public const BLOCKLISTS = ['zen.spamhaus.org', 'bl.spamcop.net', 'b.barracudacentral.org', 'dnsbl.sorbs.net'];
 
     public const LOCAL_PART = '/^[a-z0-9]([a-z0-9._+-]{0,62}[a-z0-9])?$/';
 
@@ -97,6 +103,7 @@ class MailService implements HandlesCommandResults
             ['type' => 'MX', 'name' => $domain->name, 'value' => $host, 'priority' => 10],
             ['type' => 'TXT', 'name' => $domain->name, 'value' => 'v=spf1 mx a:'.$host.' ~all'],
             ['type' => 'TXT', 'name' => $domain->dkim_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_public],
+            ...($domain->dkim_next_selector ? [['type' => 'TXT', 'name' => $domain->dkim_next_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_next_public, 'next' => true]] : []),
             ['type' => 'TXT', 'name' => '_dmarc.'.$domain->name, 'value' => 'v=DMARC1; p=quarantine; rua=mailto:postmaster@'.$domain->name.'; adkim=s; aspf=s'],
         ];
     }
@@ -228,17 +235,179 @@ class MailService implements HandlesCommandResults
             $keyTable[] = "{$d->dkim_selector}._domainkey.{$d->name} {$d->name}:{$d->dkim_selector}:/etc/opendkim/keys/{$d->name}/{$d->dkim_selector}.private";
             $signing[] = "*@{$d->name} {$d->dkim_selector}._domainkey.{$d->name}";
             $keys["opendkim/keys/{$d->name}/{$d->dkim_selector}.private"] = $d->dkim_private;
+            if ($d->dkim_next_selector) {
+                $keys["opendkim/keys/{$d->name}/{$d->dkim_next_selector}.private"] = $d->dkim_next_private;
+            }
         }
         $lines = fn (array $l) => $l ? implode("\n", $l)."\n" : '';
+        $set = $this->settings($mail);
+        // MAIL-008: per-user sending limit and spam actions in Rspamd.
+        $extra = [
+            'rspamd/override.d/ratelimit.conf' => "rates {\n  user = \"{$set['send_per_hour']} / 1h\";\n}\n",
+            'rspamd/override.d/actions.conf' => "reject = {$set['spam_reject']};\nadd_header = {$set['spam_header']};\ngreylist = ".max(1, $set['spam_header'] - 2).";\n",
+        ];
+        // MAIL-009: send everything through a smarthost.
+        $relay = $set['relay'];
+        $extra['postfix-main.cf'] = $relay ? implode("\n", [
+            "relayhost = [{$relay['host']}]:{$relay['port']}", 'smtp_sasl_auth_enable = yes', 'smtp_sasl_security_options = noanonymous',
+            'smtp_sasl_password_maps = texthash:/tmp/docker-mailserver/postfix-sasl-password.cf', 'smtp_tls_security_level = encrypt',
+        ])."\n" : '';
+        $extra['postfix-sasl-password.cf'] = $relay ? "[{$relay['host']}]:{$relay['port']} {$relay['username']}:{$mail->relay_password}\n" : '';
+        // MAIL-012: auto-replies as per-user Sieve scripts, which docker-mailserver installs.
+        foreach ($domains as $d) {
+            foreach (Mailbox::allTenants()->where('mail_domain_id', $d->id)->whereNotNull('autoresponder')->get() as $b) {
+                $extra[$b->local_part.'@'.$d->name.'.dovecot.sieve'] = self::sieve($b->autoresponder);
+            }
+        }
 
-        return [
+        return $extra + [
             'postfix-accounts.cf' => $lines($accounts), 'postfix-virtual.cf' => $lines($virtual), 'dovecot-quotas.cf' => $lines($quotas),
             'opendkim/KeyTable' => $lines($keyTable), 'opendkim/SigningTable' => $lines($signing), 'opendkim/TrustedHosts' => "127.0.0.1\nlocalhost\n",
         ] + $keys;
     }
 
+    public function settings(MailServer $mail): array
+    {
+        return array_replace(self::DEFAULTS, $mail->settings ?? []);
+    }
+
+    /** MAIL-008 / MAIL-009: limits, spam scores and the relay; the container restarts to load them. */
+    public function updateSettings(MailServer $mail, array $data, ?string $userId): MailServer
+    {
+        $set = $this->settings($mail);
+        foreach (['send_per_hour', 'spam_reject', 'spam_header'] as $k) {
+            if (isset($data[$k])) {
+                $set[$k] = $data[$k];
+            }
+        }
+        if ($set['spam_header'] >= $set['spam_reject']) {
+            throw ApiException::validation(['spam_header' => ['The header score must be below the reject score.']]);
+        }
+        if (array_key_exists('relay', $data)) {
+            $set['relay'] = $data['relay'] ? ['host' => strtolower($data['relay']['host']), 'port' => (int) ($data['relay']['port'] ?? 587), 'username' => (string) $data['relay']['username']] : null;
+            if (! $data['relay']) {
+                $mail->relay_password = null;
+            } elseif (isset($data['relay']['password'])) {
+                $mail->relay_password = $data['relay']['password'];
+            } elseif (! $mail->relay_password) {
+                throw ApiException::validation(['relay.password' => ['Enter the relay password.']]);
+            }
+        }
+        $mail->settings = $set;
+        $mail->save();
+        $this->audit->log('mail.settings', 'mail_servers', $mail->id, ['send_per_hour' => $set['send_per_hour'], 'spam_reject' => $set['spam_reject'], 'spam_header' => $set['spam_header'], 'relay' => $set['relay']['host'] ?? null]);
+        $this->sync($mail, $userId, restart: true);
+
+        return $mail;
+    }
+
+    /** MAIL-012 */
+    public function setAutoresponder(Mailbox $box, ?array $reply, ?string $userId): Mailbox
+    {
+        $box->update(['autoresponder' => $reply ? ['enabled' => true, 'subject' => $reply['subject'], 'body' => $reply['body'], 'until' => $reply['until'] ?? null] : ['enabled' => false]]);
+        $this->audit->log('mail.autoresponder', 'mailboxes', $box->id, ['enabled' => (bool) $reply, 'until' => $reply['until'] ?? null]);
+        $this->sync(MailServer::allTenants()->find(MailDomain::allTenants()->find($box->mail_domain_id)->mail_server_id), $userId);
+
+        return $box;
+    }
+
+    /** A vacation script; quotes and backslashes are escaped for Sieve strings. */
+    public static function sieve(?array $reply): string
+    {
+        $active = ($reply['enabled'] ?? false) && (empty($reply['until']) || now()->lt(\Carbon\Carbon::parse($reply['until'])->endOfDay()));
+        if (! $active) {
+            return "# Auto-reply is off.\n";
+        }
+        $q = fn (string $v) => '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], $v).'"';
+        $script = "require [\"vacation\"";
+        $cond = '';
+        if (! empty($reply['until'])) {
+            $script .= ', "date", "relational"';
+            $cond = 'if currentdate :value "le" "date" '.$q(\Carbon\Carbon::parse($reply['until'])->toDateString()).' { ';
+        }
+
+        return $script."];\n".$cond.'vacation :days 1 :subject '.$q((string) $reply['subject']).' '.$q((string) $reply['body']).';'.($cond ? ' }' : '')."\n";
+    }
+
+    /**
+     * MAIL-006: a new DKIM key under a new selector. It signs nothing until its record is in DNS
+     * and the rotation is completed; the old record can be removed a few days later.
+     */
+    public function rotateDkim(MailDomain $domain, ?string $userId): MailDomain
+    {
+        $selector = 'mail'.now()->format('Ym');
+        if ($selector === $domain->dkim_selector) {
+            $selector .= 'b';
+        }
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($key, $private);
+        $domain->update(['dkim_next_selector' => $selector, 'dkim_next_private' => $private,
+            'dkim_next_public' => preg_replace('/-----[^-]+-----|\s+/', '', openssl_pkey_get_details($key)['key'])]);
+        $this->audit->log('mail.dkim_rotate', 'mail_domains', $domain->id, ['selector' => $selector]);
+        $this->publish($domain);
+        $this->sync(MailServer::allTenants()->find($domain->mail_server_id), $userId);
+
+        return $domain;
+    }
+
+    public function completeDkimRotation(MailDomain $domain, ?string $userId): MailDomain
+    {
+        if (! $domain->dkim_next_selector) {
+            throw ApiException::conflict('No DKIM rotation is in progress.');
+        }
+        $name = $domain->dkim_next_selector.'._domainkey.'.$domain->name;
+        $found = array_map(fn ($v) => str_replace(['"', ' '], '', (string) $v), $this->dns->lookup($name, 'TXT'));
+        if (! in_array(str_replace(' ', '', 'v=DKIM1;k=rsa;p='.$domain->dkim_next_public), $found, true)) {
+            throw ApiException::conflict("The new key is not in DNS yet ({$name}); signing with it now would fail verification.");
+        }
+        $domain->update([
+            'dkim_previous_selector' => $domain->dkim_selector, 'dkim_selector' => $domain->dkim_next_selector,
+            'dkim_private' => $domain->dkim_next_private, 'dkim_public' => $domain->dkim_next_public,
+            'dkim_next_selector' => null, 'dkim_next_private' => null, 'dkim_next_public' => null, 'dkim_rotated_at' => now(),
+        ]);
+        $this->audit->log('mail.dkim_activate', 'mail_domains', $domain->id, ['selector' => $domain->dkim_selector, 'previous' => $domain->dkim_previous_selector]);
+        $this->sync(MailServer::allTenants()->find($domain->mail_server_id), $userId);
+
+        return $domain;
+    }
+
+    /** MAIL-010: reverse DNS, the hostname's A record, and DNS blocklists for the server's address. */
+    public function checkHealth(MailServer $mail): array
+    {
+        $ip = (string) Server::allTenants()->find($mail->server_id)?->ip;
+        $out = ['ip' => $ip, 'ptr' => [], 'ptr_ok' => false, 'a_ok' => false, 'listed' => []];
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $rev = implode('.', array_reverse(explode('.', $ip)));
+            $out['ptr'] = array_map(fn ($v) => rtrim((string) $v, '.'), $this->dns->lookup($rev.'.in-addr.arpa', 'PTR'));
+            $out['ptr_ok'] = in_array($mail->hostname, $out['ptr'], true);
+            $out['a_ok'] = in_array($ip, $this->dns->lookup($mail->hostname, 'A'), true);
+            foreach (self::BLOCKLISTS as $bl) {
+                // 127.255.255.x answers mean the query was refused (e.g. a public resolver), not a listing.
+                $hits = array_filter($this->dns->lookup($rev.'.'.$bl, 'A'), fn ($a) => str_starts_with((string) $a, '127.') && ! str_starts_with((string) $a, '127.255.255.'));
+                if ($hits) {
+                    $out['listed'][] = $bl;
+                }
+            }
+        }
+        $was = $mail->health['listed'] ?? [];
+        $mail->update(['health' => $out, 'health_checked_at' => now()]);
+        if ($new = array_diff($out['listed'], $was)) {
+            $this->audit->log('mail.blocklisted', 'mail_servers', $mail->id, ['ip' => $ip, 'lists' => array_values($new)], $mail->organization_id);
+        }
+
+        return $out;
+    }
+
+    /** MAIL-014 */
+    public function logs(MailServer $mail, int $tail): array
+    {
+        $container = Container::allTenants()->where('server_id', $mail->server_id)->where('name', self::CONTAINER)->firstOrFail();
+
+        return app(ContainerService::class)->logs($container, $tail);
+    }
+
     /** Rewrites every file on the mail server; folders first. */
-    public function sync(MailServer $mail, ?string $userId): ?Job
+    public function sync(MailServer $mail, ?string $userId, bool $restart = false): ?Job
     {
         if ($mail->status !== 'running') {
             return null; // the install job syncs once the container runs
@@ -254,6 +423,9 @@ class MailService implements HandlesCommandResults
         foreach (array_keys($files) as $path) {
             // Content is read at dispatch, so the job never stores password hashes or DKIM keys.
             $steps[] = ['fs.write', ['volume' => self::CONFIG_VOLUME, 'path' => $path, 'file' => $path]];
+        }
+        if ($restart) {
+            $steps[] = ['container.restart', ['container_id' => self::CONTAINER]];
         }
         $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'sync', 'steps' => $steps, 'step' => 0], $userId, $mail->organization_id);
         $this->dispatch($mail, $job, $steps[0]);
