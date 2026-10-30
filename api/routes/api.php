@@ -25,6 +25,7 @@ Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/reset-password', [\App\Http\Controllers\AccountRecoveryController::class, 'reset'])->name('auth.reset-password');
     Route::post('auth/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'verify'])->name('auth.verify-email');
 });
+Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('throttle:api')->name('hooks.git');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
 Route::match(['get', 'post'], 'shares/{token}', [\App\Http\Controllers\ShareController::class, 'show'])->middleware('throttle:api')->where('token', '[A-Za-z0-9]{40}')->name('files.share-public');
@@ -107,6 +108,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('applications/{id}/releases', [Admin\ApplicationController::class, 'releases'])->name('applications.releases');
         Route::get('applications/{id}/scaling', [Admin\ScalingController::class, 'show'])->name('applications.scaling');
         Route::get('builds/usage', Admin\BuildUsageController::class)->name('builds.usage');
+        Route::get('projects', [Admin\ProjectController::class, 'index'])->name('projects.index');
+        Route::get('projects/{id}', [Admin\ProjectController::class, 'show'])->name('projects.show');
+        Route::get('environments/{id}', [Admin\ProjectController::class, 'showEnvironment'])->name('environments.show');
         Route::get('deployments', [Admin\DeploymentController::class, 'index'])->name('deployments.index');
         Route::get('deployments/{id}', [Admin\DeploymentController::class, 'show'])->name('deployments.show');
     });
@@ -116,6 +120,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
         Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
+        Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
+        Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
+        Route::post('projects/{id}/webhook-secret', [Admin\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
+        Route::post('projects/{id}/environments', [Admin\ProjectController::class, 'storeEnvironment'])->name('environments.store');
+        Route::patch('environments/{id}', [Admin\ProjectController::class, 'updateEnvironment'])->name('environments.update');
+        Route::delete('environments/{id}', [Admin\ProjectController::class, 'destroyEnvironment'])->name('environments.destroy');
+        Route::post('environments/{id}/duplicate', [Admin\ProjectController::class, 'duplicate'])->name('environments.duplicate');
+        Route::post('environments/{id}/promote', [Admin\ProjectController::class, 'promote'])->name('environments.promote');
+        Route::post('environments/{id}/wake', [Admin\ProjectController::class, 'wake'])->name('environments.wake');
     });
     Route::delete('applications/{id}', [Admin\ApplicationController::class, 'destroy'])->middleware('perm:deploy|production.delete')->name('applications.destroy');
     Route::post('deployments/{id}/approve', [Admin\DeploymentController::class, 'approve'])->middleware('perm:approvals.decide')->name('deployments.approve');

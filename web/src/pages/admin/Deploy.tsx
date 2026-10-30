@@ -24,15 +24,16 @@ function choice(on: boolean) { return on ? { border: '2px solid var(--accent)', 
 function NewApplication({ open, onClose }: { open: boolean; onClose: () => void }) {
   const servers = useList<Server>('/servers')
   const registries = useList<R>('/registries')
+  const projects = useList<R>('/projects')
   const { run, busy } = useAction()
   const [f, setF] = useState({ name: '', source_type: 'git' as string, repo: '', branch: 'main', image: '', environment: 'production', strategy: 'rolling' as string, server_id: '', require_approval: true,
-    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '', builder: 'dockerfile', no_cache: false })
+    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '', builder: 'dockerfile', no_cache: false, environment_id: '' })
   const builds = f.source_type === 'git' || f.source_type === 'dockerfile'
   const [errors, setErrors] = useState<Record<string, string>>({})
   const submit = async () => {
     try {
       const body = {
-        name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
+        name: f.name, source_type: f.source_type, environment: f.environment, environment_id: f.environment_id || null, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
         port: f.port ? Number(f.port) : null, health_path: f.health_path || null,
         ...(f.source_type === 'image' ? { image: f.image } : {
           source: { repo: f.repo, branch: f.branch, ...(builds ? { builder: f.builder, no_cache: f.no_cache, dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null, ...(f.git_token ? { git_token: f.git_token } : {}) } : {}) },
@@ -70,6 +71,7 @@ function NewApplication({ open, onClose }: { open: boolean; onClose: () => void 
           </>}
           <Field label="Container port" error={errors.port}><input className="input" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} /></Field>
           <Field label="Health check path" hint="GET on the port after start; 2xx/3xx passes" error={errors.health_path}><input className="input font-mono" value={f.health_path} onChange={(e) => setF({ ...f, health_path: e.target.value })} /></Field>
+          {projects.rows.length > 0 && <Field label="Project environment" hint="Shares its variables, branch and approval rules"><Select className="input" value={f.environment_id} onChange={(e) => setF({ ...f, environment_id: e.target.value })}><option value="">None</option>{projects.rows.flatMap((p) => (p.environments as R[]).map((e) => <option key={e.id} value={e.id}>{p.name} / {e.name}</option>))}</Select></Field>}
           <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></Select></Field>
           <Field label="Target server" hint="Leave empty to let the scheduler place it"><Select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</Select></Field>
         </div>

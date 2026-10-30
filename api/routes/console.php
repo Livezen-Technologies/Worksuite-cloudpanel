@@ -75,6 +75,10 @@ Artisan::command('cleanup:evaluate', function (\App\Services\CleanupService $cle
     $this->info('Cleanups started: '.$cleanup->evaluate());
 })->purpose('CLN-2: clean servers whose disk use crossed the policy threshold');
 
+Artisan::command('environments:sleep', function (\App\Services\EnvironmentService $envs) {
+    $this->info('Apps put to sleep: '.$envs->sleepIdle());
+})->purpose('ENV-7: stop idle apps in environments with a sleep window');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -221,6 +225,7 @@ Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlappin
 Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
 Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

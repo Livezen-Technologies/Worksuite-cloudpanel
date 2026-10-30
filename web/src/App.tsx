@@ -32,6 +32,7 @@ import HostApp from './pages/app/HostApp'
 import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
+import Projects from './pages/admin/Projects'
 import { Packages, Customers } from './pages/admin/Hosting'
 import AppManage from './pages/admin/AppManage'
 
@@ -82,6 +83,7 @@ export function AppRoutes() {
         <Route path="cron" element={<CronManager base="/cron" title="Cron & scheduler" subtitle="Every scheduled job, its runs and its alerts" />} />
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
+        <Route path="projects" element={<Projects />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="packages" element={<Packages />} />
         <Route path="customers" element={<Customers />} />

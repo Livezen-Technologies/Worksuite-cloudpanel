@@ -18,6 +18,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   ] },
   { id: 'deploy', label: 'Deploy', icon: 'rocket', desc: 'Applications, stacks, containers and images', items: [
     { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
+    { label: 'Projects', to: '/admin/projects', icon: 'layers' },
     { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
     { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
     { label: 'Containers', to: '/admin/containers', icon: 'box' },
