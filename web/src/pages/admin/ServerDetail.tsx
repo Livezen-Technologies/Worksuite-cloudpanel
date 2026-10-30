@@ -11,8 +11,9 @@ import { LineChart } from '../../components/Charts'
 import { ago, mb, pct, str } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { CleanupPanel } from '../../components/CleanupPanel'
+import { TunnelPanel } from '../../components/TunnelPanel'
 
-const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Agent', 'Settings'] as const
+const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
 
 function SimpleList({ path, query, columns, label }: { path: string; query?: R; columns: Column<R>[]; label: string }) {
@@ -85,6 +86,7 @@ export default function ServerDetail() {
       {tab === 'Security' && <Card title="Agent transport"><p className="m-0 text-sm text-muted">The agent connects outbound over HTTPS with a per-agent secret; every command is HMAC-signed and checked against local policy. No Docker socket is exposed.</p></Card>}
       {tab === 'Backups' && <SimpleList label="Backup jobs" path="/backup-jobs" query={{ server_id: id }} columns={[{ key: 'policy', header: 'Policy', value: (r) => r.policy_name ?? r.policy?.name ?? r.policy_id }, { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> }, { key: 'created_at', header: 'When', render: (r) => ago(r.created_at) }]} />}
       {tab === 'Cleanup' && id && <CleanupPanel serverId={id} />}
+      {tab === 'Tunnel' && id && <TunnelPanel serverId={id} />}
       {tab === 'Agent' && (
         <Card title="Agent">
           <dl className="grid gap-3 m-0 text-sm mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>

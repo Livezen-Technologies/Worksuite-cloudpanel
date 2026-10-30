@@ -101,6 +101,10 @@ Artisan::command('templates:validate', function (\App\Services\TemplateService $
     return $failed ? 1 : 0;
 })->purpose('TPL-6: render and check every bundled template');
 
+Artisan::command('tunnels:sync', function (\App\Services\CloudflareTunnelService $tunnels) {
+    $this->info('Tunnels synced: '.$tunnels->syncAll());
+})->purpose('CFT-3..5: refresh Cloudflare Tunnel hostnames, DNS and health');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -249,6 +253,7 @@ Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('templates:sync')->daily();
+Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).
