@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { api, apiBase, errorMessage, request, tokenStore } from '../../api/client'
 import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
+import { Badge } from '../../components/Badge'
 import { Empty } from '../../components/Card'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
@@ -48,6 +49,8 @@ async function fsCall<T>(start: () => Promise<unknown>): Promise<T> {
   throw new Error('The server did not answer in time. Is its agent online?')
 }
 
+type ShareRow = { id: string; paths: string[]; status: string; download_count: number; max_downloads: number | null; expires_at: string; password: boolean }
+type TransferRow = { id: string; operation: string; status: string; progress: number; paths: string[]; error: string | null; retry_of: string | null; can_retry: boolean; can_cancel: boolean; created_at: string | null }
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
 const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`)
@@ -163,7 +166,10 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
   const [naming, setNaming] = useState<{ kind: 'folder' | 'file' | 'rename'; target?: Entry; value: string } | null>(null)
   const [deleting, setDeleting] = useState<Entry[] | null>(null)
   const [permanent, setPermanent] = useState(false)
-  const [view, setView] = useState<'files' | 'trash' | 'search' | 'scan'>('files')
+  const [view, setView] = useState<'files' | 'trash' | 'search' | 'scan' | 'shares' | 'transfers'>('files')
+  const [shares, setShares] = useState<ShareRow[] | null>(null)
+  const [transfers, setTransfers] = useState<TransferRow[] | null>(null)
+  const [sharing, setSharing] = useState<{ paths: string[]; hours: string; max: string; password: string; url?: string } | null>(null)
   const [scan, setScan] = useState<ScanResult | null>(null)
   const [hist, setHist] = useState<{ path: string; versions: Version[] | null; changes: Change[]; viewing?: { id: string; text?: string; binary?: boolean } } | null>(null)
   const [advanced, setAdvanced] = useState(false)
@@ -261,6 +267,37 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
     e.preventDefault(); setDragging(false)
     if (!entries || busy) return
     droppedFiles(e.dataTransfer).then((p) => upload(p))
+  }
+
+  async function loadShares() {
+    setView('shares'); setLoading(true); setError(null)
+    try { setShares((await api.get<{ data: ShareRow[] }>(`${base}/shares`)).data) } catch (e) { setError(errorMessage(e)) } finally { setLoading(false) }
+  }
+
+  async function loadTransfers() {
+    setView('transfers'); setLoading(true); setError(null)
+    try { setTransfers((await api.get<{ data: TransferRow[] }>(`${base}/transfers`)).data) } catch (e) { setError(errorMessage(e)) } finally { setLoading(false) }
+  }
+
+  async function createShare() {
+    if (!sharing) return
+    setBusy(true)
+    try {
+      const r = await api.post<{ data: { url: string } }>(`${base}/shares`, {
+        paths: sharing.paths, expires_in_hours: Number(sharing.hours),
+        max_downloads: sharing.max ? Number(sharing.max) : null, password: sharing.password || null,
+      })
+      setSharing({ ...sharing, url: r.data.url })
+    } catch (e) { toast.error(e, 'Could not create the link') } finally { setBusy(false) }
+  }
+
+  async function transferAct(row: TransferRow, action: 'retry' | 'cancel') {
+    setBusy(true)
+    try {
+      await api.post(`${base}/transfers/${row.id}/${action}`)
+      toast.success(action === 'retry' ? `Retrying ${row.operation}` : `Cancelled ${row.operation}`)
+      await loadTransfers()
+    } catch (e) { toast.error(e, `Could not ${action}`) } finally { setBusy(false) }
   }
 
   async function loadTrash() {
@@ -509,6 +546,8 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
             <SideLink d={P.drive} label="Root" active={view === 'files' && !dir} onClick={() => load('')} />
             {crumbs.map((c, i) => <SideLink key={i} d={i === crumbs.length - 1 ? P.folderOpen : P.folder} label={c} active={view === 'files' && i === crumbs.length - 1} onClick={() => load(crumbs.slice(0, i + 1).join('/'))} />)}
             {!customer && <SideLink d={P.shield} label="Security scan" active={view === 'scan'} disabled={!volumeId} onClick={runScan} />}
+            <SideLink d={P.up} label="Transfers" active={view === 'transfers'} disabled={!volumeId} onClick={loadTransfers} />
+            <SideLink d={P.link} label="Shared links" active={view === 'shares'} disabled={!volumeId} onClick={loadShares} />
             <SideLink d={P.trash} label="Trash" active={view === 'trash'} disabled={!volumeId} onClick={loadTrash} />
           </nav>
 
@@ -604,6 +643,46 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
                   ))}</tbody>
                 </table>
               )
+            ) : view === 'shares' ? (
+              error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading && !shares ? <Empty>Loading…</Empty>
+              : !shares?.length ? <Empty>No shared links yet. Select files and choose Share.</Empty>
+              : (
+                <table className="w-full border-collapse text-[15px]">
+                  <thead><tr className="text-left text-muted text-sm"><th className="px-4 py-2">Shared</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Downloads</th><th className="px-4 py-2">Expires</th><th className="px-4 py-2" /></tr></thead>
+                  <tbody>{shares.map((sh) => (
+                    <tr key={sh.id} className="border-t border-line">
+                      <td className="px-4 py-2"><span className="font-mono text-xs break-all">{sh.paths.join(', ')}</span>{sh.password && <span className="ml-2 text-xs text-muted">password</span>}</td>
+                      <td className="px-4 py-2"><Badge tone={sh.status === 'active' ? 'g' : sh.status === 'preparing' ? 'y' : 'n'}>{sh.status}</Badge></td>
+                      <td className="px-4 py-2 text-sm">{sh.download_count}{sh.max_downloads ? ` / ${sh.max_downloads}` : ''}</td>
+                      <td className="px-4 py-2 text-sm text-muted whitespace-nowrap">{new Date(sh.expires_at).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right">{['active', 'preparing'].includes(sh.status) && <button type="button" className="btn btn-sm btn-danger" disabled={busy}
+                        onClick={() => { if (window.confirm('Revoke this link? Anyone who has it will no longer be able to download.')) act('Link revoked', () => request(`${base}/shares/${sh.id}`, { method: 'DELETE' }), loadShares) }}>Revoke</button>}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )
+            ) : view === 'transfers' ? (
+              error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading && !transfers ? <Empty>Loading…</Empty>
+              : !transfers?.length ? <Empty>No transfers yet. Uploads, downloads, copies, moves and archives appear here.</Empty>
+              : (
+                <table className="w-full border-collapse text-[15px]">
+                  <thead><tr className="text-left text-muted text-sm"><th className="px-4 py-2">Transfer</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Started</th><th className="px-4 py-2" /></tr></thead>
+                  <tbody>{transfers.map((t) => (
+                    <tr key={t.id} className="border-t border-line">
+                      <td className="px-4 py-2"><span className="capitalize">{t.operation}</span> <span className="font-mono text-xs break-all text-muted">{t.paths.join(', ')}</span>
+                        {t.error && <div className="text-xs text-danger">{t.error}</div>}{t.retry_of && <div className="text-xs text-muted">Retry of an earlier attempt</div>}</td>
+                      <td className="px-4 py-2"><Badge tone={t.status === 'succeeded' ? 'g' : t.status === 'failed' ? 'r' : 'y'}>{t.status === 'running' && t.progress ? `running ${t.progress}%` : t.status}</Badge></td>
+                      <td className="px-4 py-2 text-sm text-muted whitespace-nowrap">{t.created_at ? new Date(t.created_at).toLocaleString() : ''}</td>
+                      <td className="px-4 py-2 text-right whitespace-nowrap">
+                        {t.can_retry && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => transferAct(t, 'retry')}>Retry</button>}
+                        {t.can_cancel && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => transferAct(t, 'cancel')}>Cancel</button>}
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )
             ) : view === 'trash' ? (
               error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading && !trash ? <Empty>Loading…</Empty>
@@ -681,6 +760,11 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               {scan && <button type="button" className="btn btn-sm" disabled={loading} onClick={runScan}>Scan again</button>}</span>
           ) : view === 'search' ? (
             <span>{hits ? `${hits.items.length} found${hits.truncated ? ' (showing the first 500; narrow the search for more)' : ''}` : ''}</span>
+          ) : view === 'shares' ? (
+            <span>Links share a copy taken when they are made; later edits do not change what they serve.</span>
+          ) : view === 'transfers' ? (
+            <span className="flex flex-wrap items-center gap-3">Failed transfers can be retried; queued ones can be cancelled until the server starts them.
+              <button type="button" className="btn btn-sm" disabled={loading} onClick={loadTransfers}>Refresh</button></span>
           ) : view === 'trash' ? (
             <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
               {trashSel.size > 0 && <><span className="font-semibold text-[var(--text)]">{trashSel.size} selected</span>
@@ -691,6 +775,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <span className="flex flex-wrap items-center gap-3">{shown.length} items · {folders} folders · {shown.length - folders} files{truncated ? ' (first 5,000 shown)' : ''}
             {selected.size > 0 && <><span className="font-semibold text-[var(--text)]">{selected.size} selected</span>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setSharing({ paths: [...selected].map((n) => join(dir, n)), hours: '72', max: '', password: '' })}>Share</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('move', [...selected])}>Move to…</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => opFor('compress', [...selected])}>Compress</button>
@@ -701,6 +786,26 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           {used && <span>Storage: {used}{volume?.quota_gb ? ` / ${volume.quota_gb}` : ''} GB</span>}
         </div>
       </section>
+
+      <Modal open={!!sharing} onClose={() => setSharing(null)} title={sharing?.url ? 'Link ready' : `Share ${sharing?.paths.length === 1 ? sharing.paths[0] : `${sharing?.paths.length} items`}`}
+        footer={sharing?.url
+          ? <button type="button" className="btn btn-primary" onClick={() => { navigator.clipboard?.writeText(sharing.url!).catch(() => {}); toast.success('Link copied') }}>Copy link</button>
+          : <button type="button" className="btn btn-primary" disabled={busy} onClick={createShare}>Create link</button>}>
+        {sharing?.url ? <>
+          <p className="m-0 mb-2 text-sm">Anyone with this link can download {sharing.paths.length > 1 ? 'a ZIP of the selection' : 'the file'}{sharing.password ? ' with the password' : ''}. It is shown only now.</p>
+          <input className="input w-full font-mono text-xs" readOnly value={sharing.url} onFocus={(e) => e.target.select()} aria-label="Share link" />
+          <p className="m-0 mt-2 text-xs text-muted">It works once the copy is ready, usually within a minute. See Shared links.</p>
+        </> : sharing && <>
+          <label className="label mb-3">Expires after
+            <select className="input" value={sharing.hours} onChange={(e) => setSharing({ ...sharing, hours: e.target.value })}>
+              {[['1', '1 hour'], ['24', '1 day'], ['72', '3 days'], ['168', '7 days'], ['720', '30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="label mb-3">Download limit (optional)<input className="input" inputMode="numeric" value={sharing.max} onChange={(e) => setSharing({ ...sharing, max: e.target.value.replace(/\D/g, '') })} placeholder="No limit" /></label>
+          <label className="label mb-3">Password (optional, 6+ characters)<input className="input" type="password" autoComplete="new-password" value={sharing.password} onChange={(e) => setSharing({ ...sharing, password: e.target.value })} /></label>
+          <p className="m-0 text-xs text-muted">The link shares a copy taken now. Later changes to the files are not included.</p>
+        </>}
+      </Modal>
 
       <ConfirmDialog open={!!overwrite} onClose={() => setOverwrite(null)} title="Replace existing items?" confirmLabel="Replace"
         onConfirm={() => { const p = overwrite!; setOverwrite(null); upload(p, true) }}>

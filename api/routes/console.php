@@ -179,6 +179,8 @@ Schedule::call(function () {
         }
     }
 })->hourly()->name('files:prune-transfers');
+// FM File Sharing: ended links lose their stored copy.
+Schedule::call(fn () => app(\App\Services\FileShareService::class)->prune())->hourly()->name('files:prune-shares');
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
