@@ -36,5 +36,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Pinned so a developer .env (copied from .env.example) cannot change what the tests expect. -->
+        <env name="TERMINAL_WS_URL" value="/relay/terminal" force="true"/>
     </php>
 </phpunit>
