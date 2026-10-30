@@ -50,7 +50,11 @@ class SignedFileController extends Controller
         ]));
     }
 
-    /** FM-003: what a finished download job left behind, served once its signed URL is opened. */
+    /**
+     * FM-003 / FM-012: what a finished download job left behind. A preview job of a
+     * safe type is served inline (with byte ranges, for video); everything else is an
+     * attachment, so a customer's HTML or SVG can never run on the panel's origin.
+     */
     public function fileDownload(string $id)
     {
         $job = \App\Models\Job::allTenants()->where('type', 'files')->where('status', 'succeeded')->findOrFail($id);
@@ -59,8 +63,19 @@ class SignedFileController extends Controller
         $path = \App\Services\FileService::downloadPath($job->id);
         abort_unless($disk->exists($path), 404);
         $name = str_replace(['/', '\\', '"'], '_', (string) ($job->result['name'] ?? 'download'));
+        $headers = ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store'];
+        $type = ($job->result['format'] ?? '') === 'file' ? \App\Services\FileService::previewType($name) : null;
+        if (($job->payload['inline'] ?? false) && $type) {
+            $headers['Content-Type'] = $type;
+            if ($type !== 'application/pdf') {
+                // Images and media need no script; the browser's PDF viewer does not run under a sandbox.
+                $headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox";
+            }
 
-        return $disk->download($path, $name, ['Content-Type' => ($job->result['format'] ?? '') === 'zip' ? 'application/zip' : 'application/octet-stream']);
+            return response()->file($disk->path($path), $headers + ['Content-Disposition' => 'inline; filename="'.$name.'"']);
+        }
+
+        return $disk->download($path, $name, $headers + ['Content-Type' => ($job->result['format'] ?? '') === 'zip' ? 'application/zip' : 'application/octet-stream']);
     }
 
     /** FM-003: the agent sends a download here (signed relative URL, PUT body = the file or ZIP). */

@@ -25,7 +25,7 @@ class FileService implements HandlesCommandResults
         'upload' => 'fs.upload', 'download' => 'fs.download',
         'copy' => 'fs.copy', 'move' => 'fs.move', 'compress' => 'fs.compress', 'extract' => 'fs.extract',
         'trash' => 'fs.trash', 'trash_list' => 'fs.trash_list', 'trash_restore' => 'fs.trash_restore', 'trash_purge' => 'fs.trash_purge',
-        'chmod' => 'fs.chmod', 'chown' => 'fs.chown',
+        'chmod' => 'fs.chmod', 'chown' => 'fs.chown', 'search' => 'fs.search',
     ];
 
     /** Where upload and download bytes wait on the panel's own disk, one folder per job. */
@@ -86,15 +86,15 @@ class FileService implements HandlesCommandResults
     }
 
     /** FM-003: the agent sends one file as is, or a ZIP of the selection, to the panel. */
-    public function download(Volume $volume, array $paths): Job
+    public function download(Volume $volume, array $paths, bool $inline = false): Job
     {
         $this->reachable($volume);
-        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths]);
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths, 'inline' => $inline]);
         $this->bus->dispatch($volume->server, 'fs.download', [
             'volume' => $volume->name, 'paths' => $paths,
             'upload' => ['url' => $this->agentUrl('agent.file-transfer-put', ['id' => $job->id]), 'method' => 'PUT'],
         ], $job);
-        $this->audit->log('files.download', 'volumes', $volume->id, ['paths' => $paths, 'job_id' => $job->id]);
+        $this->audit->log($inline ? 'files.preview' : 'files.download', 'volumes', $volume->id, ['paths' => $paths, 'job_id' => $job->id]);
 
         return $job;
     }
@@ -118,6 +118,23 @@ class FileService implements HandlesCommandResults
             ];
         }
         $this->jobs->succeed($job, $result);
+    }
+
+    /**
+     * FM-012: types a browser may show inline from the panel's own origin. HTML,
+     * SVG and anything else that can run script are never in this list; they are
+     * previewed as text through fs.read instead.
+     */
+    public const PREVIEW_TYPES = [
+        'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp',
+        'avif' => 'image/avif', 'bmp' => 'image/bmp', 'ico' => 'image/x-icon', 'pdf' => 'application/pdf',
+        'mp4' => 'video/mp4', 'webm' => 'video/webm', 'ogv' => 'video/ogg', 'mov' => 'video/quicktime',
+        'mp3' => 'audio/mpeg', 'ogg' => 'audio/ogg', 'oga' => 'audio/ogg', 'wav' => 'audio/wav', 'm4a' => 'audio/mp4',
+    ];
+
+    public static function previewType(string $name): ?string
+    {
+        return self::PREVIEW_TYPES[strtolower(pathinfo($name, PATHINFO_EXTENSION))] ?? null;
     }
 
     /** The downloaded file a finished fs.download job left on the panel's disk. */

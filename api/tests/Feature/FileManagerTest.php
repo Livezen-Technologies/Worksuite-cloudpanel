@@ -244,4 +244,48 @@ class FileManagerTest extends TestCase
         $log = AuditLog::where('organization_id', $org->id)->where('action', 'files.chmod')->sole();
         $this->assertSame('755', $log->meta['mode']);
     }
+
+    public function test_search_needs_a_condition_and_dispatches_fs_search(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files/search";
+
+        $this->api($token)->getJson("{$base}?path=wp-content")->assertStatus(422);
+        $this->api($token)->getJson("{$base}?modified_after=yesterday")->assertStatus(422);
+        $this->api($token)->getJson("{$base}?path=wp-content&extensions[]=php&min_size=1000&modified_after=2026-10-01")->assertStatus(202);
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.search', $command['type']);
+        $this->assertSame(['php'], $command['payload']['extensions']);
+        $this->assertSame('1000', (string) $command['payload']['min_size']);
+    }
+
+    public function test_preview_serves_safe_types_inline_and_never_html(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'index.html'])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'logo.svg'])->assertStatus(422);
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'uploads/photo.png'])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], "\x89PNG")->assertCreated();
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['format' => 'file', 'name' => 'photo.png', 'bytes' => 4, 'files' => 1]])->assertOk();
+
+        $url = $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->json('data.result.download_url');
+        $response = $this->withHeaders(['Authorization' => ''])->get(substr($url, strpos($url, '/api/')));
+        $response->assertOk()->assertHeader('Content-Type', 'image/png')->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringStartsWith('inline', $response->headers->get('Content-Disposition'));
+        $this->assertStringContainsString('sandbox', $response->headers->get('Content-Security-Policy'));
+        $this->assertSame('files.preview', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
+    }
 }
