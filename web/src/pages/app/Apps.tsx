@@ -10,6 +10,7 @@ import { ago, mb } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
+import { BuildUsage } from '../../components/BuildUsage'
 
 /** Customer-friendly state words (no Docker jargon). */
 export function appState(s?: string): string {
@@ -25,6 +26,7 @@ export function MyApps() {
     <>
       <PageHeader title="My apps" subtitle="Everything you host, with its address and health"
         actions={<Link to="/app/host" className="btn btn-primary no-underline">+ Host a Docker app</Link>} />
+      {rows.some((a) => a.source_type === 'git') && <BuildUsage path="/app/builds/usage" />}
       {error && <div role="alert" className="card p-4 text-danger text-sm">We could not load your apps. Refresh the page to try again.</div>}
       {isLoading ? <Card>Loading your apps…</Card> : rows.length === 0 ? (
         <Card><Empty>You are not hosting anything yet. <Link to="/app/host" className="font-semibold">Host your first app</Link> — it takes about two minutes.</Empty></Card>

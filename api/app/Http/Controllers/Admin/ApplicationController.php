@@ -31,6 +31,7 @@ class ApplicationController extends Controller
             'source.ref' => ['nullable', 'string', 'max:200', 'regex:#^[A-Za-z0-9][A-Za-z0-9._/-]*$#'],
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.context' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
+            'source.builder' => 'nullable|in:dockerfile,auto', 'source.no_cache' => 'nullable|boolean',
             'source.build_args' => 'nullable|array', 'source.build_args.*' => 'nullable|string|max:4096',
             'source.git_token' => 'nullable|string|max:4096', // write-only: stored as a secret, sent to the builder by reference
             'source.git_username' => 'nullable|string|max:120',

@@ -36,6 +36,11 @@ type BuildSpec struct {
 		Password string `json:"password"`
 	} `json:"push"`
 	Labels map[string]string `json:"labels"`
+	// Builder is "dockerfile" (default) or "auto": with "auto" a missing
+	// Dockerfile is generated from the detected stack (BLD-2).
+	Builder        string `json:"builder"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	NoCache        bool   `json:"no_cache"`
 }
 
 var (
@@ -101,6 +106,16 @@ func (s *BuildSpec) validate(e *Executor) error {
 		if !reLabelKey.MatchString(k) {
 			return fmt.Errorf("invalid label %q", k)
 		}
+	}
+	switch s.Builder {
+	case "":
+		s.Builder = "dockerfile"
+	case "dockerfile", "auto":
+	default:
+		return fmt.Errorf("invalid builder %q", s.Builder)
+	}
+	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > 6*3600 {
+		return fmt.Errorf("invalid timeout_seconds %d", s.TimeoutSeconds)
 	}
 	if err := checkImage(s.ImageTag); err != nil || strings.Contains(s.ImageTag, "@") {
 		return fmt.Errorf("invalid image_tag %q", s.ImageTag)
@@ -185,11 +200,21 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if err := s.validate(e); err != nil {
 		return nil, err
 	}
+	if s.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	started := time.Now()
 	sink := &logSink{progress: progress}
 	out := map[string]any{"image": s.ImageTag}
 	fail := func(err error) (any, error) {
 		sink.flush()
 		out["log"] = sink.lines()
+		out["duration_seconds"] = int(time.Since(started).Seconds())
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("build exceeded the %d minute limit", s.TimeoutSeconds/60)
+		}
 		return out, err
 	}
 
@@ -243,6 +268,18 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 		return fail(fmt.Errorf("build context %q not found in the repository", s.Context))
 	}
 	df := filepath.Join(realSrc, s.DockerfilePath)
+	if _, err := os.Lstat(df); errors.Is(err, fs.ErrNotExist) && s.Builder == "auto" {
+		stack, content := detectStack(ctxDir)
+		if stack == "" {
+			return fail(errors.New("no Dockerfile and no supported stack detected (Node.js, Python, Go, PHP or static HTML)"))
+		}
+		df = filepath.Join(ctxDir, ".dockermgr.Dockerfile")
+		if err := os.WriteFile(df, []byte(content), 0o600); err != nil {
+			return fail(err)
+		}
+		out["stack"] = stack
+		sink.line("no Dockerfile found; detected " + stack + ", using a generated Dockerfile")
+	}
 	if st, err := os.Lstat(df); err != nil || !st.Mode().IsRegular() {
 		return fail(fmt.Errorf("dockerfile %q not found in the repository", s.DockerfilePath))
 	}
@@ -263,8 +300,13 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if c, ok := out["commit"].(string); ok {
 		labels["io.dockermgr.commit"] = c
 	}
-	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels}, sink.line)
+	cache := &cacheStats{}
+	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels, NoCache: s.NoCache}, func(l string) {
+		cache.line(l)
+		sink.line(l)
+	})
 	pr.Close()
+	out["cache_steps"], out["cache_hits"] = cache.steps, cache.hits
 	if err != nil {
 		return fail(err)
 	}
@@ -285,9 +327,10 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	} else {
 		out["digest"] = id
 	}
-	sink.line("built " + s.ImageTag + " (" + id + ")")
+	sink.line(fmt.Sprintf("built %s (%s); %d of %d steps cached", s.ImageTag, id, cache.hits, cache.steps))
 	sink.flush()
 	out["log"] = sink.lines()
+	out["duration_seconds"] = int(time.Since(started).Seconds())
 	return out, nil
 }
 

@@ -43,6 +43,9 @@ class DeploymentService implements HandlesCommandResults
             throw ApiException::conflict("Server {$app->server->name} is in maintenance mode; deployments are blocked.");
         }
         $customer = $app->kind === 'customer';
+        if (! $release && $this->builds->needsBuild($app)) {
+            $this->builds->assertWithinMinutes($app);
+        }
         $needsApproval = ! $customer && $source !== 'rollback' && ($app->requires_approval
             || ($app->environment === 'production' && $app->organization->setting('security.require_production_deploy_approval')));
 
@@ -172,6 +175,12 @@ class DeploymentService implements HandlesCommandResults
         $customer = $app->kind === 'customer';
         $out = (array) ($command->output ?? []);
         $log = array_values(array_filter((array) ($out['log'] ?? []), 'is_string'));
+        $deployment->update(array_filter([
+            'build_seconds' => isset($out['duration_seconds']) ? (int) $out['duration_seconds'] : null,
+            'build_cache_steps' => isset($out['cache_steps']) ? (int) $out['cache_steps'] : null,
+            'build_cache_hits' => isset($out['cache_hits']) ? (int) $out['cache_hits'] : null,
+            'build_stack' => isset($out['stack']) ? substr((string) $out['stack'], 0, 20) : null,
+        ], fn ($v) => $v !== null));
         if ($command->status !== 'succeeded') {
             $deployment->update(['logs_tail' => array_slice($log, -50)]);
             $cloneFailed = str_contains((string) $command->message, 'git clone') || str_contains((string) $command->message, 'repositor');
@@ -194,12 +203,28 @@ class DeploymentService implements HandlesCommandResults
         $app->update(['image' => $image]);
         $this->phase($job, 'built', ['pushed' => $pushed, 'commit' => $out['commit'] ?? null]);
         if ($customer) {
-            $this->jobs->stage($job, 'build', 'succeeded', 'Built '.$command->payload['image_tag'].($commit ? " from {$commit}" : ''));
+            $this->jobs->stage($job, 'build', 'succeeded', 'Built '.$command->payload['image_tag'].($commit ? " from {$commit}" : '').$this->cacheNote($deployment));
         } else {
             $this->jobs->stage($job, 'checkout', 'succeeded', 'Checked out '.$command->payload['repo'].'@'.$command->payload['ref'].($commit ? " ({$commit})" : ''));
-            $this->jobs->stage($job, 'build_scan', 'running', 'Built '.$command->payload['image_tag'].' ('.substr((string) ($out['image_id'] ?? ''), 0, 19).'); scanning');
+            $this->jobs->stage($job, 'build_scan', 'running', 'Built '.$command->payload['image_tag'].' ('.substr((string) ($out['image_id'] ?? ''), 0, 19).')'.$this->cacheNote($deployment).'; scanning');
         }
         $this->imageReady($deployment, $app, $job, $image, $command->server);
+    }
+
+    private function cacheNote(Deployment $deployment): string
+    {
+        $parts = [];
+        if ($deployment->build_stack) {
+            $parts[] = "detected {$deployment->build_stack}";
+        }
+        if ($deployment->build_cache_steps) {
+            $parts[] = "{$deployment->build_cache_hits}/{$deployment->build_cache_steps} steps cached";
+        }
+        if ($deployment->build_seconds !== null) {
+            $parts[] = "{$deployment->build_seconds}s";
+        }
+
+        return $parts ? ' ('.implode(', ', $parts).')' : '';
     }
 
     /** Image exists (built or prebuilt): scan it (IMG-003), then place and deploy. */
@@ -254,7 +279,7 @@ class DeploymentService implements HandlesCommandResults
                     throw ApiException::conflict("Image {$image} has {$scan['critical']} critical vulnerabilities; deploy blocked by policy.");
                 }
             }
-            $this->jobs->stage($job, 'build_scan', 'succeeded', ($built ? 'Built on an isolated builder; ' : '').($scan ? 'scan: '.ScanReport::summary($scan) : ($scanNote ?? 'not scanned')));
+            $this->jobs->stage($job, 'build_scan', 'succeeded', ($built ? 'Built on an isolated builder'.$this->cacheNote($deployment).'; ' : '').($scan ? 'scan: '.ScanReport::summary($scan) : ($scanNote ?? 'not scanned')));
             $this->jobs->stage($job, 'push', $built && $pushed ? 'succeeded' : 'skipped', match (true) {
                 $built && $pushed => 'Pushed '.$image,
                 $built => 'Not pushed: local image on the builder, deployed there',
