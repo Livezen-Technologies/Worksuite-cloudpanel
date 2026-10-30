@@ -28,6 +28,7 @@ export default function Mail() {
             <span className="font-semibold">{String(m.hostname)}</span> on {String(m.server)} <Badge tone={m.status === 'running' ? 'g' : m.status === 'failed' ? 'r' : 'y'}>{String(m.status)}</Badge>
             {m.synced_at ? <span className="text-muted"> · synced {ago(String(m.synced_at))}</span> : null}
             {m.error ? <span className="text-danger"> · {String(m.error)}</span> : null}
+            {m.status === 'running' && <ServerTools m={m} onChange={() => list.refetch()} />}
           </li>)}
         </ul>}
         <div className="flex flex-wrap items-end gap-2 text-sm">
@@ -72,6 +73,49 @@ export default function Mail() {
   )
 }
 
+function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
+  const { run, busy } = useAction()
+  const set = (m.settings as R) ?? {}
+  const h = m.health as R | null
+  const [logs, setLogs] = useState<string[] | null>(null)
+  const edit = () => {
+    const per = window.prompt('Messages each mailbox may send per hour:', String(set.send_per_hour))
+    if (per === null) return
+    const reject = window.prompt('Reject mail with a spam score of at least:', String(set.spam_reject))
+    if (reject === null) return
+    const header = window.prompt('Mark as spam (header) from a score of:', String(set.spam_header))
+    if (header === null) return
+    run({ path: `/mail/servers/${m.id}`, method: 'PATCH', body: { send_per_hour: Number(per), spam_reject: Number(reject), spam_header: Number(header) }, label: 'Mail limits', success: 'Saved; the mail server restarts' }).then(onChange)
+  }
+  const relay = () => {
+    const host = window.prompt('Relay (smarthost) hostname, e.g. email-smtp.eu-north-1.amazonaws.com. Empty turns the relay off:', String((set.relay as R)?.host ?? ''))
+    if (host === null) return
+    if (!host) { run({ path: `/mail/servers/${m.id}`, method: 'PATCH', body: { relay: null }, label: 'Relay off' }).then(onChange); return }
+    const username = window.prompt('Relay username:', String((set.relay as R)?.username ?? ''))
+    if (!username) return
+    const password = window.prompt((set.relay as R)?.password_set ? 'Relay password (empty keeps the current one):' : 'Relay password:') ?? ''
+    run({ path: `/mail/servers/${m.id}`, method: 'PATCH', body: { relay: { host, port: 587, username, ...(password ? { password } : {}) } }, label: 'Relay', success: 'Saved; the mail server restarts' }).then(onChange)
+  }
+  return (
+    <div className="mt-1 ml-4 flex flex-col gap-1 text-xs">
+      <span className="text-muted">Limit {String(set.send_per_hour)} messages/hour per mailbox · spam header at {String(set.spam_header)}, reject at {String(set.spam_reject)} · relay: {set.relay ? String((set.relay as R).host) : 'none (direct delivery)'}</span>
+      {h && <span>
+        Reverse DNS <Badge tone={h.ptr_ok ? 'g' : 'r'}>{h.ptr_ok ? 'ok' : `${((h.ptr as string[]) ?? []).join(', ') || 'missing'}`}</Badge>{' '}
+        A record <Badge tone={h.a_ok ? 'g' : 'r'}>{h.a_ok ? 'ok' : 'missing'}</Badge>{' '}
+        Blocklists <Badge tone={((h.listed as string[]) ?? []).length ? 'r' : 'g'}>{((h.listed as string[]) ?? []).join(', ') || 'clean'}</Badge>
+        {m.health_checked_at ? <span className="text-muted"> · {ago(String(m.health_checked_at))}</span> : null}
+      </span>}
+      <span className="flex flex-wrap gap-2">
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={edit}>Limits and spam</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={relay}>Relay</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/health`, label: 'Check reverse DNS and blocklists', silent: true }).then(onChange)}>Check health</button>
+        <button type="button" className="btn btn-sm" onClick={async () => { const { api } = await import('../../api/client'); const r = await api.get<{ data: { lines: string[] } }>(`/mail/servers/${m.id}/logs`, { tail: 200 }); setLogs(r.data.lines) }}>Logs</button>
+      </span>
+      {logs && <pre className="m-0 p-2 rounded bg-[var(--code-bg)] text-[var(--code-fg)] text-xs whitespace-pre-wrap max-h-64 overflow-auto">{logs.join('\n') || 'Fetching… press Logs again in a moment.'}</pre>}
+    </div>
+  )
+}
+
 function DomainDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const d = useOne<R>(`/mail/domains/${id}`)
   const w = d.item ?? {}
@@ -104,6 +148,15 @@ function DomainDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         </section>
 
         <section>
+          <h3 className="m-0 mb-2 text-sm font-semibold">DKIM key</h3>
+          <p className="m-0">Signing with selector <span className="font-mono">{String(w.dkim_selector)}</span>{w.dkim_rotated_at ? `, rotated ${ago(String(w.dkim_rotated_at))}` : ''}.{w.dkim_previous_selector ? <> The old record <span className="font-mono">{String(w.dkim_previous_selector)}._domainkey</span> can be deleted after a few days.</> : null}</p>
+          {w.dkim_next_selector
+            ? <div className="mt-2 flex flex-wrap items-center gap-2"><span>New key <span className="font-mono">{String(w.dkim_next_selector)}</span> is waiting for its DNS record.</span>
+                <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => run({ path: `/mail/domains/${id}/dkim/complete`, label: 'Switch to the new DKIM key' }).then(refetch)}>Switch to new key</button></div>
+            : <button type="button" className="btn btn-sm mt-2" disabled={busy} onClick={() => run({ path: `/mail/domains/${id}/dkim/rotate`, label: 'Rotate DKIM key', success: 'New key created; publish its record, then switch' }).then(refetch)}>Rotate key</button>}
+        </section>
+
+        <section>
           <h3 className="m-0 mb-2 text-sm font-semibold">Mailboxes</h3>
           <ul className="m-0 mb-2 p-0 list-none flex flex-col gap-1">
             {((w.mailbox_list as R[]) ?? []).map((b) => <li key={String(b.id)} className="flex flex-wrap items-center gap-2">
@@ -111,6 +164,14 @@ function DomainDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <span className="text-muted text-xs">{Number(b.quota_mb) >= 1024 ? `${Number(b.quota_mb) / 1024} GB` : `${b.quota_mb} MB`}</span>
               <Badge tone={b.enabled ? 'g' : 'n'}>{b.enabled ? 'on' : 'off'}</Badge>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/domains/${id}/mailboxes/${b.id}`, method: 'PATCH', body: { enabled: !b.enabled }, label: b.enabled ? 'Disable mailbox' : 'Enable mailbox' }).then(refetch)}>{b.enabled ? 'Disable' : 'Enable'}</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+                const ar = (b.autoresponder as R) ?? {}
+                if (ar.enabled) { run({ path: `/mail/domains/${id}/mailboxes/${b.id}/autoresponder`, method: 'PATCH', body: { enabled: false }, label: 'Auto-reply off' }).then(refetch); return }
+                const subject = window.prompt('Auto-reply subject:', 'Out of office'); if (!subject) return
+                const body = window.prompt('Auto-reply message:', 'I am away and will reply when I am back.'); if (!body) return
+                const until = window.prompt('Until (YYYY-MM-DD, empty for no end date):', '') ?? ''
+                run({ path: `/mail/domains/${id}/mailboxes/${b.id}/autoresponder`, method: 'PATCH', body: { enabled: true, subject, body, until: until || null }, label: 'Auto-reply on' }).then(refetch)
+              }}>{(b.autoresponder as R)?.enabled ? 'Auto-reply off' : 'Auto-reply'}</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { const password = window.prompt('New password (at least 10 characters):'); if (password) run({ path: `/mail/domains/${id}/mailboxes/${b.id}`, method: 'PATCH', body: { password }, label: 'Change password' }) }}>Password</button>
               <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${b.local_part}@${w.name}? Stored mail stays on the server until it is cleaned up.`)) run({ path: `/mail/domains/${id}/mailboxes/${b.id}`, method: 'DELETE', label: 'Delete mailbox' }).then(refetch) }}>Delete</button>
             </li>)}

@@ -13,12 +13,12 @@ class MailDomain extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['dkim_private', 'password_hash'];
+    protected $hidden = ['dkim_private', 'dkim_next_private'];
 
     public function server() { return $this->belongsTo(MailServer::class, 'mail_server_id'); }
 
     protected function casts(): array
     {
-        return ['dkim_private' => 'encrypted', 'dns' => 'array', 'dns_checked_at' => 'datetime'];
+        return ['dkim_private' => 'encrypted', 'dns' => 'array', 'dns_checked_at' => 'datetime', 'dkim_next_private' => 'encrypted', 'dkim_rotated_at' => 'datetime'];
     }
 }

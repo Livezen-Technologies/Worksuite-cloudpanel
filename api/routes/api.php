@@ -245,6 +245,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     // Mail hosting (MAIL-001..005).
     Route::get('mail', [Admin\MailController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('mail.index');
     Route::post('mail/servers', [Admin\MailController::class, 'install'])->middleware('perm:servers.manage')->name('mail.install');
+    Route::patch('mail/servers/{id}', [Admin\MailController::class, 'updateServer'])->middleware('perm:servers.manage')->name('mail.servers.update');
+    Route::post('mail/servers/{id}/health', [Admin\MailController::class, 'health'])->middleware('perm:resources.view|servers.view')->name('mail.servers.health');
+    Route::get('mail/servers/{id}/logs', [Admin\MailController::class, 'logs'])->middleware('perm:logs.view|servers.view')->name('mail.servers.logs');
+    Route::post('mail/domains/{id}/dkim/{step}', [Admin\MailController::class, 'dkim'])->middleware('perm:deploy')->whereIn('step', ['rotate', 'complete'])->name('mail.dkim');
+    Route::patch('mail/domains/{id}/mailboxes/{box}/autoresponder', [Admin\MailController::class, 'autoresponder'])->middleware('perm:deploy')->name('mail.autoresponder');
     Route::post('mail/domains', [Admin\MailController::class, 'storeDomain'])->middleware('perm:deploy')->name('mail.domains.store');
     Route::get('mail/domains/{id}', [Admin\MailController::class, 'showDomain'])->middleware('perm:resources.view|servers.view')->name('mail.domains.show');
     Route::patch('mail/domains/{id}', [Admin\MailController::class, 'updateDomain'])->middleware('perm:deploy')->name('mail.domains.update');
