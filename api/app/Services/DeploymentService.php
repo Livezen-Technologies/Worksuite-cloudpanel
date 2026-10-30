@@ -471,6 +471,7 @@ class DeploymentService implements HandlesCommandResults
         // WP-010: a new WordPress staging site is filled from its live site once it runs.
         try {
             app(WordPressService::class)->afterDeployment($app);
+            app(MigrationService::class)->afterDeployment($app);
         } catch (\Throwable $e) {
             report($e);
         }

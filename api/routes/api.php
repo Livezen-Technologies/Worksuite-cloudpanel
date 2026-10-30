@@ -242,6 +242,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('antivirus/integrity/{id}/{action}', [Admin\AntivirusController::class, 'integrityAction'])->middleware('perm:deploy|network_storage.manage')->whereIn('action', ['baseline', 'check', 'accept'])->name('antivirus.integrity-action');
     Route::match(['get', 'patch'], 'antivirus/servers/{id}', [Admin\AntivirusController::class, 'serverSecurity'])->middleware('perm:settings.manage')->name('antivirus.server');
     // WordPress toolkit (SRS WP)
+    Route::get('migrations', [Admin\MigrationController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('migrations.index');
+    Route::post('migrations', [Admin\MigrationController::class, 'store'])->middleware('perm:deploy')->name('migrations.store');
+    Route::get('migrations/{id}', [Admin\MigrationController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('migrations.show');
+    Route::patch('migrations/{id}/sites', [Admin\MigrationController::class, 'map'])->middleware('perm:deploy')->name('migrations.map');
+    Route::post('migrations/{id}/start', [Admin\MigrationController::class, 'start'])->middleware('perm:deploy')->name('migrations.start');
+    Route::post('migrations/{id}/sites/{site}/retry', [Admin\MigrationController::class, 'retry'])->middleware('perm:deploy')->whereNumber('site')->name('migrations.retry');
     Route::get('wordpress', [Admin\WordPressController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('wordpress.index');
     Route::post('wordpress/detect', [Admin\WordPressController::class, 'detect'])->middleware('perm:deploy')->name('wordpress.detect');
     Route::post('wordpress/update-all', [Admin\WordPressController::class, 'updateAll'])->middleware('perm:deploy')->name('wordpress.update-all');
