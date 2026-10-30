@@ -128,4 +128,29 @@ class CloudflareDnsProvider implements DnsProvider
     {
         $this->result($this->http()->delete("/zones/{$zoneId}/dns_records/{$recordId}"));
     }
+
+    public function supportsProxy(): bool
+    {
+        return true;
+    }
+
+    /** Cloudflare reports active, pending (waiting for the DS at the registrar), disabled or pending-disabled. */
+    private function dnssecState(?array $d): array
+    {
+        $status = match ($d['status'] ?? 'disabled') {
+            'active' => 'active', 'pending' => 'pending', default => 'disabled',
+        };
+
+        return ['status' => $status, 'ds' => $status === 'disabled' || empty($d['ds']) ? [] : [(string) $d['ds']]];
+    }
+
+    public function dnssec(string $zoneId): array
+    {
+        return $this->dnssecState($this->result($this->http()->get("/zones/{$zoneId}/dnssec")));
+    }
+
+    public function setDnssec(string $zoneId, bool $enabled): array
+    {
+        return $this->dnssecState($this->result($this->http()->patch("/zones/{$zoneId}/dnssec", ['status' => $enabled ? 'active' : 'disabled'])));
+    }
 }

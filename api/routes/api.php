@@ -219,6 +219,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::delete('dns/zones/{id}', [Admin\DnsController::class, 'destroy'])->middleware('perm:deploy|settings.manage')->name('dns.zones.destroy');
     Route::post('dns/zones/{id}/check-nameservers', [Admin\DnsController::class, 'checkNameservers'])->middleware('perm:resources.view|servers.view')->name('dns.zones.check-ns');
     Route::post('dns/zones/{id}/sync', [Admin\DnsController::class, 'sync'])->middleware('perm:deploy|settings.manage')->name('dns.zones.sync');
+    Route::get('dns/zones/{id}/dnssec', [Admin\DnsController::class, 'dnssec'])->middleware('perm:resources.view|servers.view')->name('dns.zones.dnssec');
+    Route::match(['put', 'patch'], 'dns/zones/{id}/dnssec', [Admin\DnsController::class, 'setDnssec'])->middleware('perm:deploy|settings.manage')->name('dns.zones.dnssec.update');
     Route::post('dns/zones/{id}/records', [Admin\DnsController::class, 'storeRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.store');
     Route::match(['put', 'patch'], 'dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'updateRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.update');
     Route::delete('dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'destroyRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.destroy');
