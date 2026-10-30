@@ -10,7 +10,7 @@ use App\Models\WpSite;
 use App\Services\WordPressService;
 use Illuminate\Http\Request;
 
-/** WordPress toolkit (SRS WP-001..009, 011, 012). */
+/** WordPress toolkit (SRS WP-001..012). */
 class WordPressController extends Controller
 {
     public function __construct(private WordPressService $wp) {}
@@ -38,6 +38,7 @@ class WordPressController extends Controller
         $s = WpSite::findOrFail($id);
 
         return $this->data($this->present($s, Application::allTenants()->find($s->application_id), Server::allTenants()->find($s->server_id)?->name) + [
+            'staging_password' => $s->production_id ? $s->staging_password : null,
             'plugins' => $s->plugins ?? [], 'themes' => $s->themes ?? [], 'vulnerabilities' => $s->vulnerabilities ?? [],
         ]);
     }
@@ -149,6 +150,27 @@ class WordPressController extends Controller
         return $this->accepted($this->wp->restore($site, WpRestorePoint::query()->where('wp_site_id', $site->id)->findOrFail($point), $request->user()->id));
     }
 
+    /** WP-010: create (from the live site) or act on a staging site. */
+    public function createStaging(Request $request, string $id)
+    {
+        $request->attributes->set('audit_skip', true);
+        $staging = $this->wp->createStaging(WpSite::findOrFail($id), $request->user()->id);
+
+        return $this->data(['staging_id' => $staging->id, 'url' => $staging->url, 'user' => 'staging', 'password' => $staging->staging_password], 202);
+    }
+
+    public function stagingAction(Request $request, string $id, string $action)
+    {
+        $staging = WpSite::findOrFail($id);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted(match ($action) {
+            'refresh' => $this->wp->refreshStaging($staging, $request->user()->id),
+            'push' => $this->wp->pushStaging($staging, $request->user()->id),
+            'delete' => $this->wp->deleteStaging($staging, $request->user()->id),
+        });
+    }
+
     private function present(WpSite $s, ?Application $app, ?string $server): array
     {
         return [
@@ -157,6 +179,8 @@ class WordPressController extends Controller
             'updates' => $s->updates_count, 'security' => $s->security_count, 'score' => $s->score, 'staging' => $s->staging,
             'settings' => array_replace(array_fill_keys(WordPressService::SETTINGS, false), array_diff_key($s->settings ?? [], ['hardening' => 1])),
             'hardening' => array_replace(array_fill_keys(WordPressService::HARDENING, false), $s->settings['hardening'] ?? []),
+            'production_id' => $s->production_id, 'staging_status' => $s->staging_status,
+            'staging_id' => $s->production_id ? null : WpSite::query()->where('production_id', $s->id)->value('id'),
             'error' => $s->inventory_error, 'inventoried_at' => $s->inventoried_at?->toIso8601ZuluString(),
         ];
     }

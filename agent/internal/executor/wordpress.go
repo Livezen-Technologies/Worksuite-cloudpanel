@@ -67,6 +67,14 @@ func (e *Executor) runWP(ctx context.Context, container string, args []string, u
 	if err := checkWPArgs(args); err != nil {
 		return nil, err
 	}
+	return e.execWP(ctx, container, args, url)
+}
+
+// execWP runs WP-CLI without the allow-list; only fixed, agent-built commands use it.
+func (e *Executor) execWP(ctx context.Context, container string, args []string, url string) ([]byte, error) {
+	if !reRef.MatchString(container) {
+		return nil, errors.New("invalid container name")
+	}
 	image := firstNonEmpty(e.WPCLIImage, DefaultWPCLIImage)
 	run := []string{"run", "--rm", "--volumes-from", container, "--network", "container:" + container,
 		"--user", "33:33", "-e", "HOME=/tmp", image, "wp", "--path=/var/www/html", "--no-color"}
@@ -141,4 +149,89 @@ func (e *Executor) wpInventory(ctx context.Context, raw json.RawMessage) (any, e
 		}
 	}
 	return inv, nil
+}
+
+// rePrefix is a WordPress table prefix the staging copy accepts.
+var rePrefix = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}_$`)
+
+type wpTablesPayload struct {
+	Container string `json:"container"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+}
+
+// wpCopyTables copies every table with one prefix to another prefix in the same
+// database (WP-010 staging and push to live), replacing what the target had, and
+// renames the prefix-bound option and user-meta keys. Neither prefix may start
+// the other, so a copy can never touch its own source.
+func (e *Executor) wpCopyTables(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p wpTablesPayload
+	if err := decode(raw, &p); err != nil {
+		return nil, err
+	}
+	if !rePrefix.MatchString(p.From) || !rePrefix.MatchString(p.To) || strings.HasPrefix(p.From, p.To) || strings.HasPrefix(p.To, p.From) {
+		return nil, errors.New("invalid or overlapping table prefixes")
+	}
+	out, err := e.execWP(ctx, p.Container, []string{"db", "query", "SHOW TABLES", "--skip-column-names"}, "")
+	if err != nil {
+		return nil, fmt.Errorf("listing tables: %s", tailString(strings.TrimSpace(string(out)), 400))
+	}
+	var src, stale []string
+	for _, t := range strings.Fields(string(out)) {
+		switch {
+		case strings.HasPrefix(t, p.From):
+			src = append(src, t)
+		case strings.HasPrefix(t, p.To):
+			stale = append(stale, t)
+		}
+	}
+	if len(src) == 0 {
+		return nil, fmt.Errorf("no tables start with %s", p.From)
+	}
+	q := func(name string) string { return "`" + strings.ReplaceAll(name, "`", "") + "`" }
+	var sql strings.Builder
+	sql.WriteString("SET FOREIGN_KEY_CHECKS=0;")
+	for _, t := range stale {
+		fmt.Fprintf(&sql, "DROP TABLE %s;", q(t))
+	}
+	for _, t := range src {
+		dst := p.To + strings.TrimPrefix(t, p.From)
+		fmt.Fprintf(&sql, "CREATE TABLE %s LIKE %s;INSERT INTO %s SELECT * FROM %s;", q(dst), q(t), q(dst), q(t))
+	}
+	n := len(p.From) + 1
+	fmt.Fprintf(&sql, "UPDATE %s SET option_name=CONCAT('%s',SUBSTRING(option_name,%d)) WHERE LEFT(option_name,%d)='%s';", q(p.To+"options"), p.To, n, len(p.From), p.From)
+	fmt.Fprintf(&sql, "UPDATE %s SET meta_key=CONCAT('%s',SUBSTRING(meta_key,%d)) WHERE LEFT(meta_key,%d)='%s';", q(p.To+"usermeta"), p.To, n, len(p.From), p.From)
+	sql.WriteString("SET FOREIGN_KEY_CHECKS=1;")
+	if out, err := e.execWP(ctx, p.Container, []string{"db", "query", sql.String()}, ""); err != nil {
+		return nil, fmt.Errorf("copying tables: %s", tailString(strings.TrimSpace(string(out)), 600))
+	}
+	return map[string]any{"tables": len(src), "dropped": len(stale)}, nil
+}
+
+// wpDropTables removes a staging copy's tables. Only prefixes starting with
+// "stg" are accepted, so a live site's tables can never be dropped this way.
+func (e *Executor) wpDropTables(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p wpTablesPayload
+	if err := decode(raw, &p); err != nil {
+		return nil, err
+	}
+	if !rePrefix.MatchString(p.From) || !strings.HasPrefix(p.From, "stg") {
+		return nil, errors.New("only staging table prefixes (stg…_) can be dropped")
+	}
+	out, err := e.execWP(ctx, p.Container, []string{"db", "query", "SHOW TABLES", "--skip-column-names"}, "")
+	if err != nil {
+		return nil, fmt.Errorf("listing tables: %s", tailString(strings.TrimSpace(string(out)), 400))
+	}
+	var drop []string
+	for _, t := range strings.Fields(string(out)) {
+		if strings.HasPrefix(t, p.From) {
+			drop = append(drop, "`"+strings.ReplaceAll(t, "`", "")+"`")
+		}
+	}
+	if len(drop) > 0 {
+		if out, err := e.execWP(ctx, p.Container, []string{"db", "query", "SET FOREIGN_KEY_CHECKS=0;DROP TABLE " + strings.Join(drop, ",") + ";SET FOREIGN_KEY_CHECKS=1;"}, ""); err != nil {
+			return nil, fmt.Errorf("dropping tables: %s", tailString(strings.TrimSpace(string(out)), 400))
+		}
+	}
+	return map[string]any{"dropped": len(drop)}, nil
 }

@@ -17,7 +17,7 @@ class WpSite extends Model
     {
         return [
             'plugins' => 'array', 'themes' => 'array', 'settings' => 'array', 'vulnerabilities' => 'array',
-            'staging' => 'boolean', 'inventoried_at' => 'datetime', 'scanned_at' => 'datetime',
+            'staging' => 'boolean', 'staging_password' => 'encrypted', 'inventoried_at' => 'datetime', 'scanned_at' => 'datetime',
         ];
     }
 

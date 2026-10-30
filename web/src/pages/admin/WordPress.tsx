@@ -61,7 +61,7 @@ export default function WordPress() {
       <Card title="Sites" pad={false}>
         <DataTable label="WordPress sites" rows={(list.item?.sites as R[]) ?? []} loading={list.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setOpen(String(r.id))}
           columns={[
-            { key: 'url', header: 'Site', render: (r) => <span className="flex flex-col"><span className="font-semibold">{String(r.url ?? r.app)}</span><span className="text-xs text-muted">{String(r.app)} · {String(r.server ?? '')}</span></span> },
+            { key: 'url', header: 'Site', render: (r) => <span className="flex flex-col"><span className="font-semibold">{String(r.url ?? r.app)}</span><span className="text-xs text-muted">{String(r.app)} · {String(r.server ?? '')}{r.production_id ? ' · staging' : ''}</span></span> },
             { key: 'version', header: 'WordPress', render: (r) => <span>{String(r.version ?? '—')}{r.core_update ? <Badge tone="y">→ {String(r.core_update)}</Badge> : null}</span> },
             { key: 'php_version', header: 'PHP', render: (r) => r.php_version ? <Badge tone={String(r.php_version) < '8.1' ? 'y' : 'n'}>{String(r.php_version)}</Badge> : '—' },
             { key: 'updates', header: 'Updates', value: (r) => Number(r.updates) },
@@ -95,6 +95,17 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       const job = await waitJob(r.data.job_id)
       setReport(job.status === 'succeeded' ? String((job.result as R)?.output ?? 'No changes.') : String(job.error ?? 'Failed.'))
     } catch (e) { toast.error(e, 'Search and replace failed') }
+  }
+  const createStaging = async () => {
+    if (!window.confirm('Create a staging copy? It runs as a second app on the same server, with its own tables, behind a password.')) return
+    try {
+      const r = await api.post<{ data: { url: string; user: string; password: string } }>(`/wordpress/${id}/staging`)
+      setSecret(`Staging ${r.data.url}: user ${r.data.user}, password ${r.data.password}. It is filled from the live site once its deployment finishes.`)
+      refetch()
+    } catch (e) { toast.error(e, 'Staging failed') }
+  }
+  const stagingAction = (sid: string, action: 'refresh' | 'push' | 'delete', question: string, label: string) => {
+    if (window.confirm(question)) run({ path: `/wordpress/${sid}/staging/${action}`, label }).then(after)
   }
   const update = (scope: string, items: string[] = []) => run({ path: `/wordpress/${id}/update`, body: { scope, items }, label: 'Update', success: 'Updating with a restore point first' }).then(after)
   const harden = (key: string, on: boolean) => run({ path: `/wordpress/${id}/hardening`, method: 'PATCH', body: { [key]: on }, label: HARDENING.find(([k]) => k === key)?.[1] ?? key }).then(after)
@@ -150,6 +161,27 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => update('themes')}>All themes</button>
             </div> : <p className="m-0 text-muted">Everything is up to date.</p>}
             <p className="m-0 mt-1 text-xs text-muted">A restore point is taken first. If the site errors afterwards, the update is rolled back automatically.</p>
+          </section>
+
+          <section>
+            <h3 className="m-0 mb-2 text-sm font-semibold">Staging</h3>
+            {w.production_id ? (
+              <div className="flex flex-col gap-2">
+                <p className="m-0">This is a staging copy <Badge tone={w.staging_status === 'ready' ? 'g' : w.staging_status === 'failed' ? 'r' : 'y'}>{String(w.staging_status)}</Badge>. Sign in with user <span className="font-mono">staging</span>, password <span className="font-mono">{String(w.staging_password ?? '')}</span>. Search engines are asked not to index it.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => stagingAction(id, 'refresh', 'Replace the staging site with a fresh copy of the live site? Changes made on staging are lost.', 'Refresh staging')}>Refresh from live</button>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={busy || w.staging_status !== 'ready'} onClick={() => stagingAction(id, 'push', 'Push staging to the live site? The live database and wp-content are replaced. A restore point is taken first, and the old wp-content goes to the Trash.', 'Push to live')}>Push to live</button>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => stagingAction(id, 'delete', 'Delete the staging site, its app and its tables?', 'Delete staging')}>Delete staging</button>
+                </div>
+              </div>
+            ) : w.staging_id ? (
+              <p className="m-0">This site has a staging copy. Open it from the Sites list to refresh, push or delete it.</p>
+            ) : (
+              <div>
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={createStaging}>Create staging</button>
+                <p className="m-0 mt-1 text-xs text-muted">staging.&lt;your domain&gt; (or a platform subdomain), password-protected and not indexed. Needs the WORDPRESS_DB_ settings in the app environment.</p>
+              </div>
+            )}
           </section>
 
           <section>

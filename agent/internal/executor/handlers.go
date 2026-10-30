@@ -101,6 +101,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.wpCLI(ctx, c.Payload)
 	case "wp.inventory":
 		return e.wpInventory(ctx, c.Payload)
+	case "wp.copy_tables":
+		return e.wpCopyTables(ctx, c.Payload)
+	case "wp.drop_tables":
+		return e.wpDropTables(ctx, c.Payload)
 	case "egress.apply":
 		return e.applyEgress(ctx, c.Payload)
 	case "av.realtime":

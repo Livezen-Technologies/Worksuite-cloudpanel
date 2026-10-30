@@ -25,15 +25,16 @@ File manager       100%   all 19 features + customer page (#7-#13, #24,
 DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
                           DNSSEC, zone settings, BIND import/export, zones
                           drive DNS-01 certificates (#16, #18, #20, #22)
-WordPress toolkit  ~90%   11 of 12: inventory, summary, settings, tools,
-                          plugins/themes, vulnerability scan, one-time login,
-                          updates with restore points and automatic rollback,
-                          update all, hardening, restore points; left: staging
+WordPress toolkit  100%   all 12 (WP-001..012, #29, #30): inventory, settings,
+                          tools, vulnerability scan, one-time login, updates
+                          with restore points and automatic rollback, update
+                          all, hardening, restore points, staging (clone,
+                          refresh, push to live, password + noindex)
 Other new features   0%   migration wizard, mail hosting, email templates
                           (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~55%   up from ~40%: file manager, firewall enforcement,
-                          antivirus and DNS zones
+Overall            ~56%   up from ~40%: file manager, firewall enforcement,
+                          antivirus, DNS zones and the WordPress toolkit
 ```
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`

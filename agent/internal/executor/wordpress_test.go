@@ -71,3 +71,54 @@ func TestWPDBIsLimitedToRestorePoints(t *testing.T) {
 		}
 	}
 }
+
+func TestWPCopyTablesRenamesThePrefix(t *testing.T) {
+	var sql string
+	e := &Executor{Run: func(_ context.Context, _ string, _ []string, _ string, args ...string) ([]byte, error) {
+		if args[len(args)-1] == "--skip-column-names" {
+			return []byte("wp_options\nwp_posts\nwp_usermeta\nstg_old\nother_x\n"), nil
+		}
+		sql = args[len(args)-1]
+		return nil, nil
+	}}
+	out, err := e.wpCopyTables(context.Background(), json.RawMessage(`{"container":"app-blog","from":"wp_","to":"stg_"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.(map[string]any)["tables"] != 3 || out.(map[string]any)["dropped"] != 1 {
+		t.Fatalf("counts: %v", out)
+	}
+	for _, want := range []string{"DROP TABLE `stg_old`;", "CREATE TABLE `stg_posts` LIKE `wp_posts`;INSERT INTO `stg_posts` SELECT * FROM `wp_posts`;", "UPDATE `stg_usermeta` SET meta_key=CONCAT('stg_',SUBSTRING(meta_key,4)) WHERE LEFT(meta_key,3)='wp_';"} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("missing %q in %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "other_x") {
+		t.Error("tables of other prefixes must be left alone")
+	}
+	for _, bad := range []string{`{"container":"a","from":"wp_","to":"wp_stg_"}`, `{"container":"a","from":"wp_","to":"x';--_"}`, `{"container":"a","from":"wp_","to":"wp_"}`} {
+		if _, err := e.wpCopyTables(context.Background(), json.RawMessage(bad)); err == nil {
+			t.Errorf("%s must be refused", bad)
+		}
+	}
+}
+
+func TestWPDropTablesOnlyDropsStaging(t *testing.T) {
+	var sql string
+	e := &Executor{Run: func(_ context.Context, _ string, _ []string, _ string, args ...string) ([]byte, error) {
+		if args[len(args)-1] == "--skip-column-names" {
+			return []byte("wp_posts\nstg_posts\nstg_options\n"), nil
+		}
+		sql = args[len(args)-1]
+		return nil, nil
+	}}
+	if _, err := e.wpDropTables(context.Background(), json.RawMessage(`{"container":"app-blog","from":"stg_"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "DROP TABLE `stg_posts`,`stg_options`;") || strings.Contains(sql, "wp_posts") {
+		t.Fatalf("sql: %s", sql)
+	}
+	if _, err := e.wpDropTables(context.Background(), json.RawMessage(`{"container":"app-blog","from":"wp_"}`)); err == nil {
+		t.Fatal("a live prefix must be refused")
+	}
+}
