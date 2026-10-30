@@ -96,7 +96,7 @@ class DnsController extends Controller
         return $this->data($this->dns->sync(DnsZone::findOrFail($id)));
     }
 
-    /** DNS-008 */
+    /** DNS-009 */
     public function dnssec(string $id)
     {
         return $this->data($this->dns->dnssec(DnsZone::findOrFail($id)));
@@ -108,6 +108,52 @@ class DnsController extends Controller
         $request->attributes->set('audit_skip', true);
 
         return $this->data($this->dns->setDnssec(DnsZone::findOrFail($id), (bool) $data['enabled']));
+    }
+
+    /** DNS-010 */
+    public function settings(string $id)
+    {
+        return $this->data($this->dns->settings(DnsZone::findOrFail($id)));
+    }
+
+    public function updateSettings(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'ssl' => 'sometimes|in:'.implode(',', DnsZoneService::SETTINGS['ssl']),
+            'always_use_https' => 'sometimes|boolean',
+            'min_tls_version' => 'sometimes|in:'.implode(',', DnsZoneService::SETTINGS['min_tls_version']),
+            'cache_level' => 'sometimes|in:'.implode(',', DnsZoneService::SETTINGS['cache_level']),
+        ]);
+        if (isset($data['always_use_https'])) {
+            $data['always_use_https'] = (bool) $data['always_use_https'];
+        }
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data($this->dns->updateSettings(DnsZone::findOrFail($id), $data));
+    }
+
+    /** DNS-011: the zone as a BIND file. */
+    public function export(Request $request, string $id)
+    {
+        $zone = DnsZone::findOrFail($id);
+        $file = $this->dns->exportBind($zone);
+        if ($request->wantsJson()) {
+            return $this->data(['filename' => $zone->name.'.zone', 'content' => $file]);
+        }
+
+        return response($file, 200, [
+            'Content-Type' => 'text/dns; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="'.$zone->name.'.zone"',
+        ]);
+    }
+
+    /** DNS-011: adds a BIND file's records; dry_run only reports what would change. */
+    public function import(Request $request, string $id)
+    {
+        $data = $request->validate(['zone_file' => 'required|string|max:1048576', 'dry_run' => 'sometimes|boolean']);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data($this->dns->importBind(DnsZone::findOrFail($id), $data['zone_file'], (bool) ($data['dry_run'] ?? false)));
     }
 
     public function storeRecord(Request $request, string $id)
@@ -155,6 +201,7 @@ class DnsController extends Controller
             'last_synced_at' => $z->last_synced_at?->toIso8601ZuluString(),
             'dnssec' => ['status' => $z->dnssec_status ?? 'disabled', 'ds' => $z->ds_records ?? []],
             'supports_proxy' => $z->provider?->type === 'cloudflare',
+            'supports_settings' => $z->provider?->type === 'cloudflare',
         ];
     }
 

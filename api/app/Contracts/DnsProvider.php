@@ -35,12 +35,22 @@ interface DnsProvider
 
     public function deleteRecord(string $zoneId, string $recordId): void;
 
+    /**
+     * DNS-010: edge settings (Cloudflare). Throws when the provider has none.
+     *
+     * @return array{ssl: string, always_use_https: bool, min_tls_version: string, cache_level: string}
+     */
+    public function settings(string $zoneId): array;
+
+    /** @param  array<string, mixed>  $settings  any subset of the keys settings() returns */
+    public function updateSettings(string $zoneId, array $settings): array;
+
     /** Whether records can be proxied through the provider's edge (Cloudflare). */
     public function supportsProxy(): bool;
 
-    /** DNS-008 @return array{status: string, ds: string[]} */
+    /** DNS-009 @return array{status: string, ds: string[]} */
     public function dnssec(string $zoneId): array;
 
-    /** DNS-008 @return array{status: string, ds: string[]} */
+    /** DNS-009 @return array{status: string, ds: string[]} */
     public function setDnssec(string $zoneId, bool $enabled): array;
 }

@@ -67,7 +67,7 @@ class PowerDnsProvider implements DnsProvider
     public function createZone(string $name): array
     {
         return $this->zone($this->result($this->http()->post($this->at('/zones'), [
-            'name' => self::fqdn($name), 'kind' => 'Native', 'soa_edit_api' => 'DEFAULT',
+            'name' => self::fqdn($name), 'kind' => 'Native', 'soa_edit_api' => 'INCREASE',
             'nameservers' => array_map(self::fqdn(...), $this->nameservers),
         ])));
     }
@@ -253,5 +253,15 @@ class PowerDnsProvider implements DnsProvider
         }
 
         return $this->dnssec($zoneId);
+    }
+
+    public function settings(string $zoneId): array
+    {
+        throw ApiException::conflict('PowerDNS has no edge settings; SSL mode, HTTPS redirects and caching are Cloudflare features.');
+    }
+
+    public function updateSettings(string $zoneId, array $settings): array
+    {
+        return $this->settings($zoneId);
     }
 }

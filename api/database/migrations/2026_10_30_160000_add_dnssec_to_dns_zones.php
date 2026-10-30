@@ -4,7 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/** DNS-008: the zone's DNSSEC state and the DS records to give the registrar. */
+/** DNS-009: the zone's DNSSEC state and the DS records to give the registrar. */
 return new class extends Migration
 {
     public function up(): void

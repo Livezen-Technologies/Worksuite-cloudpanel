@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, PageHeader } from '../../components/Card'
 import { Badge } from '../../components/Badge'
@@ -12,9 +13,11 @@ const TTLS: [number, string][] = [[1, 'Auto'], [300, '5 min'], [3600, '1 hour'],
 const PROXIABLE = ['A', 'AAAA', 'CNAME']
 const EMPTY_CONN = { type: 'cloudflare', name: '', token: '', account_id: '', api_url: '', api_key: '', server_id: '', nameservers: '' }
 const PROVIDER_NAMES: Record<string, string> = { cloudflare: 'Cloudflare', powerdns: 'PowerDNS' }
+const SSL_MODES: [string, string][] = [['off', 'Off'], ['flexible', 'Flexible'], ['full', 'Full'], ['strict', 'Full (strict)']]
+const CACHE_LEVELS: [string, string][] = [['basic', 'No query string'], ['simplified', 'Ignore query string'], ['aggressive', 'Standard']]
 const EMPTY_RECORD = { type: 'A', name: '', content: '', ttl: 1, priority: 10, proxied: false }
 
-/** DNS zones (SRS 4.18): Cloudflare and PowerDNS accounts, zones, nameservers, DNSSEC and records. */
+/** DNS zones (SRS 4.18): Cloudflare and PowerDNS accounts, zones, nameservers, DNSSEC, settings, BIND files and records. */
 export default function DnsZones() {
   const providers = useList<R>('/dns/providers')
   const zones = useList<R>('/dns/zones')
@@ -121,6 +124,21 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
   const canProxy = !!z.supports_proxy
   const dnssec = (z.dnssec as R | undefined) ?? { status: 'disabled', ds: [] }
   const [dnssecConfirm, setDnssecConfirm] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [zoneFile, setZoneFile] = useState('')
+  const [preview, setPreview] = useState<R | null>(null)
+  const settings = useOne<R>(z.supports_settings ? `/dns/zones/${id}/settings` : null)
+  const st = settings.item ?? {}
+  const setSetting = (key: string, value: unknown) => run({ path: `/dns/zones/${id}/settings`, method: 'PATCH', body: { [key]: value }, label: 'Zone setting' })
+  const download = async () => {
+    const res = await api.get<{ data: { filename: string; content: string } }>(`/dns/zones/${id}/export`)
+    const url = URL.createObjectURL(new Blob([res.data.content], { type: 'text/plain' }))
+    const a = Object.assign(document.createElement('a'), { href: url, download: res.data.filename })
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  const importFile = (dryRun: boolean) => run<{ data: R }>({ path: `/dns/zones/${id}/import`, body: { zone_file: zoneFile, dry_run: dryRun }, label: dryRun ? 'Import preview' : 'Import zone file', silent: dryRun })
+    .then((r) => { if (dryRun) setPreview(r.data); else { setImportOpen(false); setPreview(null); setZoneFile('') } })
   const open = (r: R | null) => { setEditing(r ?? {}); setForm(r ? { ...EMPTY_RECORD, ...r, name: r.name === z.name ? '@' : String(r.name).replace(`.${z.name}`, '') } : EMPTY_RECORD) }
   const save = () => {
     const body = { ...form, priority: ['MX', 'SRV'].includes(String(form.type)) ? form.priority : null, proxied: canProxy && PROXIABLE.includes(String(form.type)) && !!form.proxied }
@@ -133,6 +151,8 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
     <Card title={String(z.name ?? 'Zone')} pad={false} actions={<>
       <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run<{ data: R }>({ path: `/dns/zones/${id}/check-nameservers`, label: 'Nameserver check', silent: true }).then((r) => setNs(r.data))}>Check nameservers</button>
       <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run<{ data: R }>({ path: `/dns/zones/${id}/sync`, label: 'Sync', silent: true }).then((r) => setDrift(r.data))}>Sync</button>
+      <button type="button" className="btn btn-sm" onClick={download}>Export</button>
+      <button type="button" className="btn btn-sm" onClick={() => { setPreview(null); setImportOpen(true) }}>Import</button>
       <button type="button" className="btn btn-sm btn-primary" onClick={() => open(null)}>Add record</button>
     </>}>
       {z.status === 'pending' && (
@@ -156,6 +176,28 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
           ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/dns/zones/${id}/dnssec`, method: 'PATCH', body: { enabled: true }, label: 'Turn on DNSSEC' })}>Turn on DNSSEC</button>
           : <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setDnssecConfirm(true)}>Turn off</button>}
       </div>
+      {!!z.supports_settings && settings.item && (
+        <div className="p-4 text-sm border-b border-line grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+          <label className="label">SSL mode
+            <select className="input h-9" value={String(st.ssl)} disabled={busy} onChange={(e) => setSetting('ssl', e.target.value)}>
+              {SSL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="label">Minimum TLS
+            <select className="input h-9" value={String(st.min_tls_version)} disabled={busy} onChange={(e) => setSetting('min_tls_version', e.target.value)}>
+              {['1.0', '1.1', '1.2', '1.3'].map((v) => <option key={v} value={v}>TLS {v}</option>)}
+            </select>
+          </label>
+          <label className="label">Cache level
+            <select className="input h-9" value={String(st.cache_level)} disabled={busy} onChange={(e) => setSetting('cache_level', e.target.value)}>
+              {CACHE_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 self-end h-9">
+            <input type="checkbox" checked={!!st.always_use_https} disabled={busy} onChange={(e) => setSetting('always_use_https', e.target.checked)} /> Always use HTTPS
+          </label>
+        </div>
+      )}
       <DataTable label="Records" rows={records} loading={zone.isLoading} rowKey={(r) => r.id}
         columns={[
           { key: 'type', header: 'Type', render: (r) => <Badge tone="n">{String(r.type)}</Badge> },
@@ -191,6 +233,26 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
           </select>
         </label>
         {canProxy && PROXIABLE.includes(String(form.type)) && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.proxied} onChange={(e) => setForm({ ...form, proxied: e.target.checked })} /> Proxy through Cloudflare</label>}
+      </Modal>
+
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} title={`Import into ${z.name}`} width={640}
+        footer={<>
+          <button type="button" className="btn" disabled={busy || !zoneFile.trim()} onClick={() => importFile(true)}>Preview</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !preview || !(preview.created as R[]).length} onClick={() => importFile(false)}>
+            Import {preview ? (preview.created as R[]).length : ''} records
+          </button>
+        </>}>
+        <p className="m-0 mb-3 text-sm">Paste a BIND zone file or choose one. New records are added; records already in the zone are left as they are, and SOA is skipped.</p>
+        <input type="file" accept=".zone,.txt,.db,text/plain" className="mb-3 text-sm" aria-label="Zone file"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((t) => { setZoneFile(t); setPreview(null) }) }} />
+        <textarea className="input font-mono text-xs w-full" rows={10} aria-label="Zone file contents" value={zoneFile}
+          onChange={(e) => { setZoneFile(e.target.value); setPreview(null) }} placeholder={'$ORIGIN example.com.\n@  3600 IN A 203.0.113.10'} />
+        {preview && (
+          <div className="mt-3 text-sm">
+            <p className="m-0">{(preview.created as R[]).length} to add · {String(preview.unchanged)} already in the zone · {(preview.skipped as R[]).length} skipped</p>
+            {(preview.skipped as R[]).length > 0 && <ul className="m-0 mt-1 text-xs text-muted">{(preview.skipped as R[]).map((k) => <li key={String(k.line)}>Line {String(k.line)}: {String(k.reason)}</li>)}</ul>}
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog open={dnssecConfirm} onClose={() => setDnssecConfirm(false)} busy={busy} danger title="Turn off DNSSEC?" confirmLabel="Turn off"

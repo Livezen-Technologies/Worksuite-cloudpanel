@@ -7,7 +7,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/** SRS 4.18: PowerDNS as a provider and DNSSEC (DNS-008), against fake PowerDNS and Cloudflare APIs. */
+/** SRS 4.18: PowerDNS as a provider and DNSSEC (DNS-009), against fake PowerDNS and Cloudflare APIs. */
 class DnsPowerDnsTest extends TestCase
 {
     private const API = 'https://pdns.example.net:8081/api/v1/servers/localhost';
@@ -106,6 +106,9 @@ class DnsPowerDnsTest extends TestCase
         $this->assertSame('PowerDNS 4.9.4 (localhost)', $provider['account']);
         $this->assertSame(['ns1.example.net', 'ns2.example.net'], $zone['nameservers']);
         $this->assertFalse($zone['supports_proxy']);
+        // DNS-008: PowerDNS bumps the SOA serial on every change made through the API.
+        Http::assertSent(fn (Request $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/zones') && $r['soa_edit_api'] === 'INCREASE');
+        $this->api($token)->getJson("/api/v1/dns/zones/{$zone['id']}/settings")->assertStatus(409);
         // The apex NS set is listed; SOA is PowerDNS's own and left out.
         $this->assertSame(2, $zone['records_count']);
 

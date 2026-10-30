@@ -153,4 +153,29 @@ class CloudflareDnsProvider implements DnsProvider
     {
         return $this->dnssecState($this->result($this->http()->patch("/zones/{$zoneId}/dnssec", ['status' => $enabled ? 'active' : 'disabled'])));
     }
+
+    public const SETTINGS = ['ssl', 'always_use_https', 'min_tls_version', 'cache_level'];
+
+    public function settings(string $zoneId): array
+    {
+        $values = collect($this->result($this->http()->get("/zones/{$zoneId}/settings")) ?? [])->pluck('value', 'id');
+
+        return [
+            'ssl' => (string) ($values['ssl'] ?? 'off'), 'always_use_https' => ($values['always_use_https'] ?? 'off') === 'on',
+            'min_tls_version' => (string) ($values['min_tls_version'] ?? '1.0'), 'cache_level' => (string) ($values['cache_level'] ?? 'aggressive'),
+        ];
+    }
+
+    public function updateSettings(string $zoneId, array $settings): array
+    {
+        $items = [];
+        foreach (array_intersect_key($settings, array_flip(self::SETTINGS)) as $id => $value) {
+            $items[] = ['id' => $id, 'value' => is_bool($value) ? ($value ? 'on' : 'off') : (string) $value];
+        }
+        if ($items) {
+            $this->result($this->http()->patch("/zones/{$zoneId}/settings", ['items' => $items]));
+        }
+
+        return $this->settings($zoneId);
+    }
 }
