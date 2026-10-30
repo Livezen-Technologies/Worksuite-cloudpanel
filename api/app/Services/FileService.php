@@ -26,13 +26,14 @@ class FileService implements HandlesCommandResults
         'copy' => 'fs.copy', 'move' => 'fs.move', 'compress' => 'fs.compress', 'extract' => 'fs.extract',
         'trash' => 'fs.trash', 'trash_list' => 'fs.trash_list', 'trash_restore' => 'fs.trash_restore', 'trash_purge' => 'fs.trash_purge',
         'chmod' => 'fs.chmod', 'chown' => 'fs.chown', 'search' => 'fs.search', 'scan' => 'fs.scan',
+        'history' => 'fs.history_list', 'history_read' => 'fs.history_read', 'history_restore' => 'fs.history_restore',
     ];
 
     /** Where upload and download bytes wait on the panel's own disk, one folder per job. */
     public const TRANSFER_DIR = 'file-transfers';
 
     /** Operations that change files, plus security scans; each is audited with its path (FM-014). */
-    private const WRITES = ['scan', 'write', 'mkdir', 'rename', 'delete', 'copy', 'move', 'compress', 'extract', 'trash', 'trash_restore', 'trash_purge', 'chmod', 'chown'];
+    private const WRITES = ['scan', 'write', 'mkdir', 'rename', 'delete', 'copy', 'move', 'compress', 'extract', 'trash', 'trash_restore', 'trash_purge', 'chmod', 'chown', 'history_restore'];
 
     public function __construct(private CommandBus $bus, private JobService $jobs, private AuditLogger $audit) {}
 
@@ -135,6 +136,22 @@ class FileService implements HandlesCommandResults
     public static function previewType(string $name): ?string
     {
         return self::PREVIEW_TYPES[strtolower(pathinfo($name, PATHINFO_EXTENSION))] ?? null;
+    }
+
+    /**
+     * FM-014: who changed a file through the panel and when, from the audit log
+     * (the agent keeps the content, the panel keeps the people).
+     */
+    public function changes(Volume $volume, string $path, int $limit = 50): array
+    {
+        $path = trim($path, '/');
+
+        return \App\Models\AuditLog::where('resource_type', 'volumes')->where('resource_id', $volume->id)->where('action', 'like', 'files.%')
+            ->latest('id')->limit(2000)->get()
+            ->filter(fn ($log) => ($log->meta['path'] ?? null) === $path || in_array($path, (array) ($log->meta['paths'] ?? []), true))
+            ->take($limit)
+            ->map(fn ($log) => ['action' => substr($log->action, 6), 'actor' => $log->actor, 'at' => $log->created_at?->toIso8601ZuluString()])
+            ->values()->all();
     }
 
     /** The downloaded file a finished fs.download job left on the panel's disk. */

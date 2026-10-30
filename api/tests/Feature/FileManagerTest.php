@@ -311,4 +311,27 @@ class FileManagerTest extends TestCase
         $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.result.findings.0.rule', 'script_in_uploads')->assertJsonPath('data.result.counts.high', 1);
         $this->assertSame('files.scan', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
     }
+
+    public function test_history_lists_versions_with_who_changed_the_file_and_restores(): void
+    {
+        [$user, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        $this->api($token)->putJson("{$base}/content", ['path' => 'wp-config.php', 'content' => 'x'])->assertStatus(202);
+        $this->api($token)->putJson("{$base}/content", ['path' => 'index.php', 'content' => 'y'])->assertStatus(202);
+        $changes = $this->api($token)->getJson("{$base}/history?path=wp-config.php")->assertStatus(202)->json('data.changes');
+        $this->assertCount(1, $changes);
+        $this->assertSame('write', $changes[0]['action']);
+
+        $this->api($token)->getJson("{$base}/history/version?path=wp-config.php&id=../../etc")->assertStatus(422);
+        $this->api($token)->postJson("{$base}/history/restore", ['path' => 'wp-config.php', 'id' => '1761786000000000000-edit'])->assertStatus(202);
+
+        $types = collect($this->heartbeat($secret)['commands'])->pluck('type')->all();
+        $this->assertSame(['fs.write', 'fs.write', 'fs.history_list', 'fs.history_restore'], $types);
+        $this->assertSame(1, AuditLog::where('organization_id', $org->id)->where('action', 'files.history_restore')->count());
+    }
 }

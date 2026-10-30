@@ -169,6 +169,26 @@ class FileController extends Controller
         return $this->run($request, $id, 'scan', $request->validate(['path' => self::PATH, 'recent_days' => 'nullable|integer|min:1|max:90']));
     }
 
+    /** FM-014: saved versions (from the agent) and who changed the file (from the audit log). */
+    public function history(Request $request, string $id)
+    {
+        $data = $request->validate(['path' => 'required|string|max:4096']);
+        $volume = Volume::findOrFail($id);
+        $job = $this->files->run($volume, 'history', $data);
+
+        return $this->accepted($job, ['changes' => $this->files->changes($volume, $data['path'])]);
+    }
+
+    public function historyShow(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'history_read', $request->validate(['path' => 'required|string|max:4096', 'id' => ['required', 'string', 'regex:/^[0-9]{1,20}-[a-z-]{1,20}$/']]));
+    }
+
+    public function historyRestore(Request $request, string $id)
+    {
+        return $this->run($request, $id, 'history_restore', $request->validate(['path' => 'required|string|max:4096', 'id' => ['required', 'string', 'regex:/^[0-9]{1,20}-[a-z-]{1,20}$/']]));
+    }
+
     private function selection(Request $request): array
     {
         return $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);

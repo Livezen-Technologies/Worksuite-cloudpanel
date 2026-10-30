@@ -19,6 +19,9 @@ const MEDIA = /\.(png|jpe?g|gif|webp|avif|bmp|ico|pdf|mp4|webm|ogv|mov|mp3|ogg|o
 const TEXT = /\.(txt|md|log|csv|json|ya?ml|xml|ini|conf|env|htaccess|php|js|mjs|ts|tsx|jsx|css|scss|html?|svg|sql|sh|py|rb|go|vue|twig|blade\.php)$|^\.[a-z]+$/i
 const previewKind = (name: string) => (MEDIA.test(name) ? 'media' : TEXT.test(name) ? 'text' : null)
 interface Hit extends Entry { path: string }
+interface Version { id: string; saved_at: string; reason: string; size: number }
+interface Change { action: string; actor: string | null; at: string }
+const REASON: Record<string, string> = { edit: 'Before an edit', upload: 'Before an upload replaced it', delete: 'Before it was deleted', restore: 'Before a restore' }
 interface Finding { path: string; rule: string; severity: 'critical' | 'high' | 'medium' | 'info'; detail: string; type: string; size: number; mode: string; modified: string }
 interface ScanResult { findings: Finding[]; counts: Record<string, number>; files: number; folders: number; truncated: boolean; scanned_at?: string; recent_days?: number }
 const SEVERITY: Record<string, { label: string; tone: string }> = {
@@ -158,6 +161,7 @@ export function FileManager() {
   const [permanent, setPermanent] = useState(false)
   const [view, setView] = useState<'files' | 'trash' | 'search' | 'scan'>('files')
   const [scan, setScan] = useState<ScanResult | null>(null)
+  const [hist, setHist] = useState<{ path: string; versions: Version[] | null; changes: Change[]; viewing?: { id: string; text?: string; binary?: boolean } } | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [query, setQuery] = useState({ name: '', extensions: '', min: '', max: '', after: '', before: '' })
   const [hits, setHits] = useState<{ items: Hit[]; truncated: boolean } | null>(null)
@@ -347,6 +351,35 @@ export function FileManager() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function openHistory(path: string) {
+    setHist({ path, versions: null, changes: [] })
+    try {
+      const res = (await api.get(`${base}/history`, { path })) as { data: { job_id: string; changes: Change[] } }
+      setHist({ path, versions: null, changes: res.data.changes })
+      const r = await waitJob<{ versions: Version[] }>(res.data.job_id)
+      setHist((h) => h && h.path === path ? { ...h, versions: r.versions } : h)
+    } catch (e) {
+      toast.push({ kind: 'error', title: 'Could not load history', detail: errorMessage(e) })
+      setHist(null)
+    }
+  }
+
+  async function viewVersion(id: string) {
+    if (!hist) return
+    try {
+      const r = await fsCall<{ content?: string; binary?: boolean }>(() => api.get(`${base}/history/version`, { path: hist.path, id }))
+      setHist((h) => h && { ...h, viewing: { id, text: r.content, binary: r.binary } })
+    } catch (e) {
+      toast.push({ kind: 'error', title: 'Could not open that version', detail: errorMessage(e) })
+    }
+  }
+
+  function restoreVersion(id: string) {
+    if (!hist || !window.confirm(`Restore this version of ${hist.path}? The current file is saved in history first, so this can be undone.`)) return
+    const path = hist.path
+    return act(`Restored ${path}`, () => api.post(`${base}/history/restore`, { path, id }), () => openHistory(path))
   }
 
   async function runScan() {
@@ -622,6 +655,7 @@ export function FileManager() {
                             {r.type === 'file' && ARCHIVE.test(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Extract ${r.name}`} onClick={() => opFor('extract', [r.name])}>Extract</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
                             {r.type === 'file' && previewKind(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Preview ${r.name}`} onClick={() => openPreview(r.name, join(dir, r.name))}>Preview</button>}
+                            {r.type === 'file' && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`History of ${r.name}`} onClick={() => openHistory(join(dir, r.name))}>History</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Permissions of ${r.name}`} onClick={() => openPerms([r])}>Permissions</button>}
                             <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => { setPermanent(false); setDeleting([r]) }}>Delete</button>
@@ -690,6 +724,41 @@ export function FileManager() {
         <label className="flex items-center gap-2 text-sm mt-3"><input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />Delete permanently instead</label>
         {permanent && deleting?.some((d) => d.type === 'dir') && <p className="text-sm mt-2 mb-0">This includes folders and everything in them. Type DELETE to confirm.</p>}
       </ConfirmDialog>
+
+      <Modal open={!!hist} width={860} onClose={() => setHist(null)} title={hist ? `History · ${hist.path}` : ''}
+        footer={<button type="button" className="btn btn-primary" onClick={() => setHist(null)}>Close</button>}>
+        {hist && (
+          <div className="flex flex-col gap-4">
+            <section>
+              <h3 className="m-0 mb-2 text-sm font-semibold">Saved versions</h3>
+              {hist.versions === null ? <p className="m-0 text-sm text-muted">Loading…</p>
+                : !hist.versions.length ? <p className="m-0 text-sm text-muted">No earlier versions. A version is kept each time the file manager changes or deletes this file (last 20, for 30 days).</p>
+                : (
+                  <ul className="m-0 p-0 list-none flex flex-col">
+                    {hist.versions.map((v) => (
+                      <li key={v.id} className={`flex flex-wrap items-center gap-3 py-2 border-t border-line text-sm ${hist.viewing?.id === v.id ? 'bg-[var(--sel)]' : ''}`}>
+                        <span className="flex-1 min-w-[200px]"><span className="font-semibold">{new Date(v.saved_at).toLocaleString()}</span> <span className="text-muted">· {REASON[v.reason] ?? v.reason} · {size(v.size)}</span></span>
+                        <button type="button" className="btn btn-sm" onClick={() => viewVersion(v.id)}>View</button>
+                        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => restoreVersion(v.id)}>Restore</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              {hist.viewing && (hist.viewing.binary
+                ? <p className="mt-2 mb-0 text-sm text-muted">This version is not text; restore it to see it.</p>
+                : <pre className="mt-2 mb-0 max-h-[40vh] overflow-auto rounded-lg bg-[var(--code-bg)] text-[var(--code-fg)] p-4 text-xs leading-relaxed whitespace-pre">{hist.viewing.text}</pre>)}
+            </section>
+            <section>
+              <h3 className="m-0 mb-2 text-sm font-semibold">Changes made in the panel</h3>
+              {!hist.changes.length ? <p className="m-0 text-sm text-muted">No changes recorded through the panel.</p> : (
+                <ul className="m-0 p-0 list-none">
+                  {hist.changes.map((c, i) => <li key={i} className="py-1.5 border-t border-line text-sm"><span className="font-semibold">{c.actor ?? 'Someone'}</span> <span className="text-muted">{c.action.replace(/_/g, ' ')} · {new Date(c.at).toLocaleString()}</span></li>)}
+                </ul>
+              )}
+            </section>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={!!preview} width={960} onClose={() => setPreview(null)} title={preview ? `Preview · ${preview.path}` : ''}
         footer={<>

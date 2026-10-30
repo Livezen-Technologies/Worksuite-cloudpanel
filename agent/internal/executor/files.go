@@ -115,12 +115,16 @@ func (e *Executor) files(ctx context.Context, typ string, raw json.RawMessage) (
 	case "fs.read":
 		return fsRead(root, rel)
 	case "fs.write":
+		if !p.Create {
+			e.snapshot(p.Volume, root, rel, "edit")
+		}
 		return fsWrite(root, rel, p.Content, p.Create)
 	case "fs.mkdir":
 		return fsMkdir(root, rel)
 	case "fs.rename":
 		return fsRename(root, rel, p.NewName)
 	case "fs.delete":
+		e.snapshot(p.Volume, root, rel, "delete") // single files only; folders go to Trash
 		return fsDelete(root, rel, p.Recursive)
 	}
 	return nil, fmt.Errorf("unknown file command %s", typ)
