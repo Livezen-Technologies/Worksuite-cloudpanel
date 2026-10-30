@@ -64,6 +64,30 @@ class TraefikConfigService implements HandlesCommandResults
         return Server::allTenants()->whereIn('id', $serverIds)->get();
     }
 
+    /** AV-9: modes a domain can choose. */
+    public const WAF_MODES = ['off', 'detect', 'block'];
+
+    /** The Coraza middleware for a domain, or null when the WAF is off for it or not installed. */
+    public static function wafMiddleware(Domain $domain): ?array
+    {
+        $waf = $domain->options['waf'] ?? [];
+        $mode = $waf['mode'] ?? 'off';
+        if (! config('platform.waf.enabled') || $mode === 'off') {
+            return null;
+        }
+        $directives = [
+            'Include @coraza.conf-recommended',
+            'Include @crs-setup.conf.example',
+            'Include @owasp_crs/*.conf',
+            'SecRuleEngine '.($mode === 'block' ? 'On' : 'DetectionOnly'),
+        ];
+        foreach ($waf['exclusions'] ?? [] as $id) {
+            $directives[] = 'SecRuleRemoveById '.(int) $id;
+        }
+
+        return ['plugin' => [config('platform.waf.plugin') => ['directives' => $directives]]];
+    }
+
     public function resolverFor(Domain $domain): string
     {
         if ($domain->challenge === 'dns-01') {
@@ -131,6 +155,23 @@ class TraefikConfigService implements HandlesCommandResults
                 $middlewares[$bouncer] ??= $this->crowdsec->middleware($org);
                 foreach (array_merge([$name], array_keys($fw['routers'])) as $r) {
                     $routers[$r]['middlewares'] = array_values(array_unique(array_merge([$bouncer], $routers[$r]['middlewares'] ?? [])));
+                }
+            }
+        }
+        // AV-9: the WAF runs after the CrowdSec bouncer, so banned sources never cost a rule evaluation.
+        foreach ($this->domainsFor($server, $dedicated) as $domain) {
+            $waf = self::wafMiddleware($domain);
+            if (! $waf) {
+                continue;
+            }
+            $name = self::routerName($domain);
+            $middlewares[$name.'-waf'] = $waf;
+            foreach (array_keys($routers) as $r) {
+                if ($r === $name || str_starts_with($r, $name.'-')) {
+                    $mw = $routers[$r]['middlewares'] ?? [];
+                    $at = (CrowdSecConfigService::enabled() && $mw && str_starts_with($mw[0], 'dmp-crowdsec-')) ? 1 : 0;
+                    array_splice($mw, $at, 0, [$name.'-waf']);
+                    $routers[$r]['middlewares'] = array_values(array_unique($mw));
                 }
             }
         }

@@ -34,6 +34,14 @@ Artisan::command('images:scan-stale', function (\App\Services\ScanService $scans
     $this->info('Queued '.$scans->scanStale().' image scan(s).');
 })->purpose('AV-11: rescan images not scanned in the last day');
 
+Artisan::command('antivirus:realtime-events', function (\App\Services\ServerSecurityService $security) {
+    $this->info('Collecting real-time detections from '.$security->collectEvents().' server(s).');
+})->purpose('AV-2: turn clamonacc detections into threats');
+
+Artisan::command('antivirus:reapply', function (\App\Services\ServerSecurityService $security) {
+    $this->info('Re-applied server security on '.$security->reapplyAll().' server(s).');
+})->purpose('AV-2 / AV-12: push real-time scanning and outbound limits again (they do not survive a reboot)');
+
 Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
     $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
 })->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
@@ -181,6 +189,8 @@ Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlappin
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).
+Schedule::command('antivirus:realtime-events')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('antivirus:reapply')->hourly()->withoutOverlapping();
 Schedule::command('integrity:check-all')->dailyAt('03:40')->withoutOverlapping();
 Schedule::command('images:scan-stale')->dailyAt('01:20')->withoutOverlapping();
 // FM-002/003: transfer folders left by finished or abandoned uploads and downloads.

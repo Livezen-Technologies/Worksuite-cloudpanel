@@ -82,6 +82,24 @@ class AntivirusController extends Controller
         return $this->accepted($job);
     }
 
+    /** AV-2 / AV-12: real-time scanning and outbound limits of one server. Platform staff only. */
+    public function serverSecurity(Request $request, string $id)
+    {
+        abort_unless($this->seesAllTenants($request), 403, 'Only platform administrators can change server security.');
+        $server = \App\Models\Server::findOrFail($id);
+        if ($request->isMethod('get')) {
+            return $this->data(\App\Services\ServerSecurityService::settings($server));
+        }
+        $data = $request->validate([
+            'realtime' => 'sometimes|boolean',
+            'egress' => 'sometimes|array', 'egress.enabled' => 'sometimes|boolean', 'egress.block_mining' => 'sometimes|boolean',
+            'egress.smtp_per_minute' => 'sometimes|integer|min:0|max:10000',
+        ]);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(app(\App\Services\ServerSecurityService::class)->update($server, $data));
+    }
+
     /** AV-13 */
     public function score()
     {

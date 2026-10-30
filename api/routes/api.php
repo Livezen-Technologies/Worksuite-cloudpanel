@@ -187,6 +187,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
 
     // Domains & databases
     $crud('domains', Admin\DomainController::class, 'resources.view', 'deploy');
+    Route::match(['put', 'patch'], 'domains/{id}/waf', [Admin\DomainController::class, 'waf'])->middleware('perm:deploy|settings.manage')->name('domains.waf');
     Route::post('domains/{id}/verify', [Admin\DomainController::class, 'verify'])->middleware('perm:deploy')->name('domains.verify');
     Route::post('domains/{id}/certificate', [Admin\DomainController::class, 'certificate'])->middleware('perm:deploy')->name('domains.certificate');
     $crud('databases', Admin\DatabaseController::class, 'resources.view', 'deploy');
@@ -239,6 +240,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('antivirus', [Admin\AntivirusController::class, 'summary'])->middleware('perm:resources.view|servers.view')->name('antivirus.summary');
     Route::get('antivirus/integrity', [Admin\AntivirusController::class, 'integrity'])->middleware('perm:resources.view|servers.view')->name('antivirus.integrity');
     Route::post('antivirus/integrity/{id}/{action}', [Admin\AntivirusController::class, 'integrityAction'])->middleware('perm:deploy|network_storage.manage')->whereIn('action', ['baseline', 'check', 'accept'])->name('antivirus.integrity-action');
+    Route::match(['get', 'patch'], 'antivirus/servers/{id}', [Admin\AntivirusController::class, 'serverSecurity'])->middleware('perm:settings.manage')->name('antivirus.server');
     Route::get('antivirus/score', [Admin\AntivirusController::class, 'score'])->middleware('perm:resources.view|servers.view')->name('antivirus.score');
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
     Route::post('antivirus/scan', [Admin\AntivirusController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.scan');

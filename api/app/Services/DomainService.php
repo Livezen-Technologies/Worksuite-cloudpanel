@@ -31,7 +31,7 @@ class DomainService
             'www_redirect' => (bool) ($data['www_redirect'] ?? false),
             'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? ($zone ? 'dns-01' : 'http-01')),
             'platform_subdomain' => (bool) ($data['platform_subdomain'] ?? false),
-            'options' => $data['options'] ?? null,
+            'options' => isset($data['options']) ? array_diff_key($data['options'], ['waf' => 1]) : null,
             'dns_provider' => $data['dns_provider'] ?? null,
             'dns_status' => ! empty($data['platform_subdomain']) ? 'verified' : 'pending',
         ]);

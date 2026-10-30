@@ -60,6 +60,10 @@ class DomainController extends Controller
             'www_redirect' => 'sometimes|boolean', 'challenge' => 'sometimes|in:http-01,dns-01', 'options' => 'nullable|array',
             'dns_provider' => 'nullable|in:'.implode(',', array_keys(\App\Services\TraefikConfigService::DNS_PROVIDERS)), 'dns_token' => 'nullable|string|max:4096',
         ]);
+        // The WAF setting changes only through PUT /domains/{id}/waf, which validates and audits it.
+        if (array_key_exists('options', $data)) {
+            $data['options'] = array_diff_key($data['options'] ?? [], ['waf' => 1]) + array_intersect_key($domain->options ?? [], ['waf' => 1]);
+        }
         $domain->update(collect($data)->except('dns_token')->all());
         if (! empty($data['dns_token'])) {
             $this->domains->setDnsToken($domain, $data['dns_token']);
@@ -74,6 +78,26 @@ class DomainController extends Controller
         $this->findDomain($request, $id)->delete();
 
         return response()->noContent();
+    }
+
+    /** AV-9: WAF mode (off, detect, block) and CRS rules switched off for this domain. */
+    public function waf(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'mode' => 'required|in:'.implode(',', \App\Services\TraefikConfigService::WAF_MODES),
+            'exclusions' => 'sometimes|array|max:100', 'exclusions.*' => 'integer|min:1|max:9999999',
+        ]);
+        $domain = $this->findDomain($request, $id);
+        $before = $domain->options['waf'] ?? ['mode' => 'off'];
+        $waf = ['mode' => $data['mode'], 'exclusions' => array_values(array_unique(array_map('intval', $data['exclusions'] ?? $before['exclusions'] ?? [])))];
+        $domain->update(['options' => array_merge($domain->options ?? [], ['waf' => $waf])]);
+        app(\App\Services\AuditLogger::class)->log('domains.waf_updated', 'domains', $domain->id, ['name' => $domain->name, 'from' => $before, 'to' => $waf]);
+        $request->attributes->set('audit_skip', true);
+        if (\App\Services\TraefikConfigService::enabled()) {
+            app(\App\Services\TraefikConfigService::class)->push();
+        }
+
+        return $this->data(['mode' => $waf['mode'], 'exclusions' => $waf['exclusions'], 'installed' => (bool) config('platform.waf.enabled')]);
     }
 
     public function verify(Request $request, string $id)

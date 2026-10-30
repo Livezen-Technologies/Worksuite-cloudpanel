@@ -18,6 +18,7 @@ class Server extends Model
     {
         return [
             'tags' => 'array',
+            'security' => 'array',
             'roles' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
