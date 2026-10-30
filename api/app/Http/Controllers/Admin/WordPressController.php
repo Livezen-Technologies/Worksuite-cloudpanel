@@ -5,11 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\Server;
+use App\Models\WpRestorePoint;
 use App\Models\WpSite;
 use App\Services\WordPressService;
 use Illuminate\Http\Request;
 
-/** WordPress toolkit (SRS WP-001..004, 007, 008, 012). */
+/** WordPress toolkit (SRS WP-001..009, 011, 012). */
 class WordPressController extends Controller
 {
     public function __construct(private WordPressService $wp) {}
@@ -91,13 +92,71 @@ class WordPressController extends Controller
         return $this->accepted($job, ['url' => $url, 'expires_in' => 60]);
     }
 
+    /** WP-005 */
+    public function update(Request $request, string $id)
+    {
+        $data = $request->validate(['scope' => 'required|in:core,plugins,themes,all', 'items' => 'sometimes|array|max:200', 'items.*' => 'string|max:100']);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($this->wp->update(WpSite::findOrFail($id), $data['scope'], $data['items'] ?? [], $request->user()->id));
+    }
+
+    /** WP-006 */
+    public function updateAll(Request $request)
+    {
+        $data = $request->validate(['scope' => 'required|in:core,plugins,themes,all']);
+        $request->attributes->set('audit_skip', true);
+        $jobs = $this->wp->updateAll($data['scope'], $request->user()->id);
+
+        return $this->data(['queued' => count($jobs), 'job_ids' => $jobs], 202);
+    }
+
+    /** WP-009 */
+    public function hardening(Request $request, string $id)
+    {
+        $rules = collect(WordPressService::HARDENING)->mapWithKeys(fn ($k) => [$k => 'sometimes|boolean'])->all();
+        $data = $request->validate($rules);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($this->wp->harden(WpSite::findOrFail($id), $data, $request->user()->id));
+    }
+
+    /** WP-011 */
+    public function restorePoints(string $id)
+    {
+        $site = WpSite::findOrFail($id);
+
+        return $this->data(WpRestorePoint::query()->where('wp_site_id', $site->id)->orderByDesc('created_at')->orderByDesc('id')->get()
+            ->map(fn (WpRestorePoint $p) => [
+                'id' => $p->id, 'reason' => $p->reason, 'status' => $p->status, 'version' => $p->version,
+                'plugins' => count($p->plugins ?? []), 'themes' => count($p->themes ?? []),
+                'created_at' => $p->created_at?->toIso8601ZuluString(), 'restored_at' => $p->restored_at?->toIso8601ZuluString(),
+            ]));
+    }
+
+    public function createRestorePoint(Request $request, string $id)
+    {
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($this->wp->createRestorePoint(WpSite::findOrFail($id), $request->user()->id));
+    }
+
+    public function restore(Request $request, string $id, string $point)
+    {
+        $site = WpSite::findOrFail($id);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($this->wp->restore($site, WpRestorePoint::query()->where('wp_site_id', $site->id)->findOrFail($point), $request->user()->id));
+    }
+
     private function present(WpSite $s, ?Application $app, ?string $server): array
     {
         return [
             'id' => $s->id, 'url' => $s->url, 'app' => $app?->name, 'application_id' => $s->application_id, 'server' => $server,
             'version' => $s->version, 'php_version' => $s->php_version, 'core_update' => $s->core_update,
             'updates' => $s->updates_count, 'security' => $s->security_count, 'score' => $s->score, 'staging' => $s->staging,
-            'settings' => array_replace(array_fill_keys(WordPressService::SETTINGS, false), $s->settings ?? []),
+            'settings' => array_replace(array_fill_keys(WordPressService::SETTINGS, false), array_diff_key($s->settings ?? [], ['hardening' => 1])),
+            'hardening' => array_replace(array_fill_keys(WordPressService::HARDENING, false), $s->settings['hardening'] ?? []),
             'error' => $s->inventory_error, 'inventoried_at' => $s->inventoried_at?->toIso8601ZuluString(),
         ];
     }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ const DefaultWPCLIImage = "wordpress:cli"
 var wpAllowed = map[string]bool{
 	"core": true, "plugin": true, "theme": true, "option": true, "config": true, "cache": true,
 	"search-replace": true, "user": true, "cron": true, "maintenance-mode": true, "cli": true,
-	"rewrite": true, "transient": true, "language": true, "redis": true,
+	"rewrite": true, "transient": true, "language": true, "redis": true, "db": true,
 }
 
 // wpRefused are global options that would load or execute code from elsewhere.
@@ -33,9 +34,18 @@ type wpPayload struct {
 	URL       string   `json:"url"`
 }
 
+// reWPDump is a restore-point dump inside the site's own content folder.
+var reWPDump = regexp.MustCompile(`^wp-content/ws-restore/[A-Za-z0-9-]{1,64}\.sql$`)
+
 func checkWPArgs(args []string) error {
 	if len(args) == 0 || !wpAllowed[args[0]] {
 		return fmt.Errorf("wp %q is not an allowed command", strings.Join(args[:min(1, len(args))], ""))
+	}
+	if args[0] == "db" {
+		// Only restore-point dumps: export/import of a file in the restore folder.
+		if len(args) != 3 || (args[1] != "export" && args[1] != "import") || !reWPDump.MatchString(args[2]) {
+			return errors.New("wp db is limited to restore-point export and import")
+		}
 	}
 	for _, a := range args {
 		if strings.ContainsRune(a, 0) {

@@ -17,6 +17,13 @@ const SETTINGS: [string, string, string][] = [
   ['platform_cron', 'Platform-run WP-Cron', 'Scheduled tasks run every 5 minutes instead of on page loads.'],
   ['redis', 'Redis object cache', 'Needs the platform Redis server.'],
 ]
+const HARDENING: [string, string, string][] = [
+  ['xmlrpc', 'Disable XML-RPC', 'Blocks xmlrpc.php, a common brute-force and pingback target.'],
+  ['file_edit', 'Disable the file editor', 'Admins can no longer edit theme and plugin code from the dashboard.'],
+  ['user_enum', 'Block user enumeration', 'Hides user names from ?author= and the public REST API.'],
+  ['security_headers', 'Security headers', 'nosniff, SAMEORIGIN framing, a strict referrer policy and permissions policy.'],
+  ['limit_logins', 'Limit login attempts', 'Five failed logins from one address lock it out for 15 minutes.'],
+]
 const scoreTone = (n: number) => (n >= 80 ? 'g' : n >= 50 ? 'y' : 'r') as 'g' | 'y' | 'r'
 
 /** Waits for a job and returns it, so results such as a dry run's report can be shown. */
@@ -39,7 +46,9 @@ export default function WordPress() {
   return (
     <>
       <PageHeader title="WordPress" subtitle="Every WordPress site on the platform, managed through WP-CLI on its server."
-        actions={<button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: '/wordpress/detect', label: 'Find WordPress sites', success: 'Refreshing every WordPress site' }).then(() => setTimeout(() => list.refetch(), 4000))}>Refresh all</button>} />
+        actions={<div className="flex gap-2">
+        <button type="button" className="btn" disabled={busy || !Number(s.updates)} onClick={() => { if (window.confirm('Update plugins, themes and core on every site with updates? Each site gets a restore point first and is rolled back if it stops working.')) run({ path: '/wordpress/update-all', body: { scope: 'all' }, label: 'Update all sites', success: 'Updates queued' }).then(() => setTimeout(() => list.refetch(), 4000)) }}>Update all sites</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: '/wordpress/detect', label: 'Find WordPress sites', success: 'Refreshing every WordPress site' }).then(() => setTimeout(() => list.refetch(), 4000))}>Refresh all</button></div>} />
 
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
         <StatTile label="Sites" value={String(s.sites ?? 0)} />
@@ -73,8 +82,9 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [sr, setSr] = useState({ search: '', replace: '' })
   const [report, setReport] = useState<string | null>(null)
   const [secret, setSecret] = useState<string | null>(null)
+  const points = useOne<R[]>(`/wordpress/${id}/restore-points`)
   const w = site.item ?? {}
-  const refetch = () => site.refetch()
+  const refetch = () => { site.refetch(); points.refetch() }
   const after = (r: unknown) => { const jid = (r as { data?: { job_id?: string } })?.data?.job_id; if (jid) waitJob(jid).then(refetch).catch(() => {}) }
 
   const toggle = (key: string, on: boolean) => run({ path: `/wordpress/${id}/settings`, method: 'PATCH', body: { setting: key, on }, label: SETTINGS.find(([k]) => k === key)?.[1] ?? key }).then(after)
@@ -86,6 +96,8 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       setReport(job.status === 'succeeded' ? String((job.result as R)?.output ?? 'No changes.') : String(job.error ?? 'Failed.'))
     } catch (e) { toast.error(e, 'Search and replace failed') }
   }
+  const update = (scope: string, items: string[] = []) => run({ path: `/wordpress/${id}/update`, body: { scope, items }, label: 'Update', success: 'Updating with a restore point first' }).then(after)
+  const harden = (key: string, on: boolean) => run({ path: `/wordpress/${id}/hardening`, method: 'PATCH', body: { [key]: on }, label: HARDENING.find(([k]) => k === key)?.[1] ?? key }).then(after)
   const loginLink = async () => {
     try {
       const r = await api.post<{ data: { job_id: string; url: string } }>(`/wordpress/${id}/login-link`)
@@ -129,6 +141,48 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             </ul>
           </section>
 
+          <section>
+            <h3 className="m-0 mb-2 text-sm font-semibold">Updates</h3>
+            {Number(w.updates) ? <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => update('all')}>Update everything</button>
+              {w.core_update ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => update('core')}>WordPress {String(w.core_update)}</button> : null}
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => update('plugins')}>All plugins</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => update('themes')}>All themes</button>
+            </div> : <p className="m-0 text-muted">Everything is up to date.</p>}
+            <p className="m-0 mt-1 text-xs text-muted">A restore point is taken first. If the site errors afterwards, the update is rolled back automatically.</p>
+          </section>
+
+          <section>
+            <h3 className="m-0 mb-2 text-sm font-semibold">Hardening</h3>
+            <ul className="m-0 p-0 list-none flex flex-col gap-2">
+              {HARDENING.map(([key, label, hint]) => (
+                <li key={key}><label className="flex items-start gap-2">
+                  <input type="checkbox" className="mt-1" disabled={busy} checked={!!(w.hardening as R)?.[key]} onChange={(e) => harden(key, e.target.checked)} />
+                  <span><span className="font-semibold">{label}</span><br /><span className="text-muted text-xs">{hint}</span></span>
+                </label></li>
+              ))}
+            </ul>
+            <button type="button" className="btn btn-sm mt-2" disabled={busy} onClick={() => { if (window.confirm('Rotate the security keys and salts? Everyone, including you, is logged out.')) tool('rotate_salts', {}, 'Rotate salts') }}>Rotate salts</button>
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="m-0 text-sm font-semibold">Restore points</h3>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/wordpress/${id}/restore-points`, label: 'Create restore point' }).then(after)}>Create</button>
+            </div>
+            {(points.item ?? []).length === 0 ? <p className="m-0 text-muted">None yet. The last five are kept.</p> : (
+              <ul className="m-0 p-0 list-none flex flex-col gap-1">
+                {(points.item ?? []).map((p) => (
+                  <li key={String(p.id)} className="flex flex-wrap items-center gap-2">
+                    <span className="flex-1 min-w-0">{ago(String(p.created_at))} · {p.reason === 'update' ? 'before an update' : 'manual'} · WordPress {String(p.version ?? '?')}</span>
+                    <Badge tone={p.status === 'ready' ? 'g' : p.status === 'restored' ? 'b' : p.status === 'failed' ? 'r' : 'n'}>{String(p.status)}</Badge>
+                    {['ready', 'restored'].includes(String(p.status)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { if (window.confirm('Restore the database and the plugin, theme and core versions from this point? Changes since then are lost.')) run({ path: `/wordpress/${id}/restore-points/${p.id}/restore`, label: 'Restore' }).then(after) }}>Restore</button>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           {((w.vulnerabilities as R[]) ?? []).length > 0 && <section>
             <h3 className="m-0 mb-2 text-sm font-semibold">Known vulnerabilities</h3>
             <ul className="m-0 pl-4">{(w.vulnerabilities as R[]).map((v, i) => <li key={i}><span className="font-mono text-xs">{String(v.slug)} {String(v.version)}</span>: {String(v.name)}{v.fixed_in ? <span className="text-muted"> (fixed in {String(v.fixed_in)})</span> : null}</li>)}</ul>
@@ -140,7 +194,7 @@ function SiteDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               {((w.plugins as R[]) ?? []).map((p) => (
                 <li key={String(p.name)} className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs flex-1 min-w-0">{String(p.name)} {String(p.version ?? '')}</span>
-                  {p.update === 'available' && <Badge tone="y">update {String(p.update_version)}</Badge>}
+                  {p.update === 'available' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => update('plugins', [String(p.name)])}>Update to {String(p.update_version)}</button>}
                   <Badge tone={p.status === 'active' ? 'g' : 'n'}>{String(p.status)}</Badge>
                   <button type="button" className="btn btn-sm" disabled={busy} onClick={() => tool(p.status === 'active' ? 'plugin_deactivate' : 'plugin_activate', { plugin: p.name }, `${p.status === 'active' ? 'Deactivate' : 'Activate'} ${p.name}`)}>{p.status === 'active' ? 'Deactivate' : 'Activate'}</button>
                 </li>

@@ -6,13 +6,14 @@ use App\Models\AgentCommand;
 use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\Job;
+use App\Models\WpRestorePoint;
 use App\Models\WpSite;
 use App\Services\WordPressService;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/** SRS WP-001..004, 007, 008, 012: the WordPress toolkit through WP-CLI on the agent. */
+/** SRS WP-001..009, 011, 012: the WordPress toolkit through WP-CLI on the agent. */
 class WordPressToolkitTest extends TestCase
 {
     private function setUpSite(): array
@@ -122,5 +123,99 @@ class WordPressToolkitTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->getJson("/api/v1/wordpress/{$site->id}")->assertNotFound();
         $this->api($other)->postJson("/api/v1/wordpress/{$site->id}/login-link")->assertNotFound();
+    }
+    /** Walks the restore-point steps of a job: folder, guards, dump. */
+    private function restorePointTaken(string $secret): string
+    {
+        $this->assertTrue($this->step($secret, 'fs.mkdir')['payload']['exist_ok']);
+        $this->step($secret, 'fs.write');
+        $this->step($secret, 'fs.write');
+        $dump = $this->step($secret, 'wp.cli')['payload']['args'];
+        $this->assertSame(['db', 'export'], array_slice($dump, 0, 2));
+
+        return $dump[2];
+    }
+
+    public function test_update_takes_a_restore_point_and_checks_the_site(): void
+    {
+        [, $token, $secret, $site] = $this->setUpSite();
+        Http::fake(['blog.example.com*' => Http::response('<html>ok</html>')]);
+        $job = $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/update", ['scope' => 'plugins'])->assertStatus(202)->json('data.job_id');
+        $point = WpRestorePoint::allTenants()->sole();
+        $this->assertSame('wp-content/ws-restore/'.$point->id.'.sql', $this->restorePointTaken($secret));
+        $this->assertSame('ready', $point->fresh()->status);
+        $this->assertSame(['plugin', 'update', 'contact-form-7'], $this->step($secret, 'wp.cli')['payload']['args'], 'only plugins with an update');
+        $this->step($secret, 'wp.inventory', ['version' => '6.8.3', 'siteurl' => 'https://blog.example.com']);
+        $this->assertSame('succeeded', Job::allTenants()->find($job)->status);
+        $this->api($token)->getJson("/api/v1/wordpress/{$site->id}/restore-points")->assertOk()->assertJsonPath('data.0.status', 'ready')->assertJsonPath('data.0.reason', 'update');
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/update", ['scope' => 'core'])->assertStatus(409);
+    }
+
+    public function test_a_failed_health_check_rolls_the_update_back(): void
+    {
+        [, $token, $secret, $site] = $this->setUpSite();
+        Http::fake(['blog.example.com*' => Http::response('There has been a critical error on this website.', 500)]);
+        $job = $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/update", ['scope' => 'all'])->assertStatus(202)->json('data.job_id');
+        $dump = $this->restorePointTaken($secret);
+        $this->step($secret, 'wp.cli');
+        $this->assertSame(['db', 'import', $dump], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->assertSame(['plugin', 'install', 'contact-form-7', '--version=5.9.3', '--force'], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->step($secret, 'wp.inventory', ['version' => '6.8.3', 'siteurl' => 'https://blog.example.com']);
+        $job = Job::allTenants()->find($job);
+        $this->assertSame('failed', $job->status);
+        $this->assertSame('restored', WpRestorePoint::allTenants()->sole()->status);
+    }
+
+    public function test_a_failed_update_command_also_rolls_back_and_manual_restore_works(): void
+    {
+        [, $token, $secret, $site] = $this->setUpSite();
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/update", ['scope' => 'plugins'])->assertStatus(202);
+        $this->restorePointTaken($secret);
+        $c = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'wp.cli');
+        $this->commandResult($secret, $c['id'], 'failed', ['message' => 'download failed'])->assertOk();
+        $this->assertSame('db', $this->step($secret, 'wp.cli')['payload']['args'][0]);
+
+        // A manual restore reinstalls only what differs from the point.
+        $point = WpRestorePoint::allTenants()->sole();
+        $site->update(['plugins' => [['name' => 'contact-form-7', 'version' => '5.9.8'], ['name' => 'akismet', 'version' => '5.3']]]);
+        foreach (collect($this->heartbeat($secret)['commands']) as $c) {
+            $this->commandResult($secret, $c['id'], 'succeeded', ['output' => ['output' => 'ok']]);
+        }
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/restore-points/{$point->id}/restore")->assertStatus(202);
+        $this->step($secret, 'wp.cli');
+        $this->assertSame(['plugin', 'install', 'contact-form-7', '--version=5.9.3', '--force'], $this->step($secret, 'wp.cli')['payload']['args']);
+    }
+
+    public function test_update_all_and_restore_point_retention(): void
+    {
+        [, $token, $secret, $site] = $this->setUpSite();
+        $this->api($token)->postJson('/api/v1/wordpress/update-all', ['scope' => 'plugins'])->assertStatus(202)->assertJsonPath('data.queued', 1);
+        for ($i = 0; $i < WordPressService::KEEP_RESTORE_POINTS; $i++) {
+            WpRestorePoint::allTenants()->create(['organization_id' => $site->organization_id, 'wp_site_id' => $site->id, 'reason' => 'manual', 'status' => 'ready', 'created_at' => now()->subDays(10 + $i)]);
+        }
+        $oldest = WpRestorePoint::allTenants()->orderBy('created_at')->first();
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/restore-points")->assertStatus(202);
+        $job = Job::allTenants()->where('payload->action', 'restore_point')->sole();
+        $deletes = collect($job->payload['steps'])->where(0, 'fs.delete')->pluck('1.path')->all();
+        $this->assertContains($oldest->dump(), $deletes);
+        $this->assertCount(2, $deletes, 'six earlier points: four are kept beside the new one');
+    }
+
+    public function test_hardening_writes_one_mu_plugin(): void
+    {
+        [, $token, $secret, $site] = $this->setUpSite();
+        $this->api($token)->patchJson("/api/v1/wordpress/{$site->id}/hardening", ['xmlrpc' => true, 'file_edit' => true])->assertStatus(202);
+        $this->step($secret, 'fs.mkdir');
+        $write = $this->step($secret, 'fs.write');
+        $this->assertSame('wp-content/mu-plugins/ws-hardening.php', $write['payload']['path']);
+        $this->assertStringContainsString("'xmlrpc' => true", $write['payload']['content']);
+        $this->assertStringContainsString("'user_enum' => false", $write['payload']['content']);
+        $this->assertSame(['config', 'set', 'DISALLOW_FILE_EDIT', 'true', '--raw'], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->api($token)->getJson('/api/v1/wordpress')->assertJsonPath('data.sites.0.hardening.xmlrpc', true)->assertJsonPath('data.sites.0.hardening.limit_logins', false);
+        $this->assertArrayNotHasKey('hardening', $this->api($token)->getJson('/api/v1/wordpress')->json('data.sites.0.settings'));
+
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/tools/rotate_salts")->assertStatus(202);
+        $this->assertSame(['config', 'shuffle-salts'], $this->step($secret, 'wp.cli')['payload']['args']);
+        $this->assertSame(0, (new \Symfony\Component\Process\Process(['php', '-l']))->setInput(WordPressService::hardeningPlugin(array_fill_keys(WordPressService::HARDENING, true)))->run());
     }
 }
