@@ -43,6 +43,8 @@ type Config struct {
 	// (mounted into the CrowdSec container); CrowdSecContainer is its name.
 	CrowdSecDir       string `json:"crowdsec_dir,omitempty"`
 	CrowdSecContainer string `json:"crowdsec_container,omitempty"`
+	// ClamAVContainer runs clamd for av.scan (docs/deploy/clamav).
+	ClamAVContainer string `json:"clamav_container,omitempty"`
 }
 
 // ResolvePath picks flag value, then env, then default.

@@ -41,3 +41,9 @@ func ownerOf(fi os.FileInfo) (int, int) {
 	}
 	return -1, -1
 }
+
+// chmodAt sets the mode of name in an already-opened folder without opening
+// the file itself, which a quarantined file (mode 0) would refuse.
+func chmodAt(dir *os.File, name string, mode os.FileMode) error {
+	return syscall.Fchmodat(int(dir.Fd()), name, uint32(mode.Perm()), 0)
+}

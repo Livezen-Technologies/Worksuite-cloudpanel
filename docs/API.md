@@ -106,6 +106,10 @@ The organisation is the token user's current organisation (`users.current_organi
 
 `GET /app/files` lists the customer's apps that keep files: `[{id, name, volume_path, ready}]` (`ready` once the server has reported the app's volume). Every admin file route also exists under `/app/apps/{app_id}/files…` with the same bodies and results, addressed by app instead of volume, except `chown` and `scan`. The app is found through the tenant scope, so only the customer's own apps resolve; jobs belong to the customer's organisation even on shared-pool servers.
 
+### Antivirus (SRS 4.25)
+
+`GET /antivirus` summary {open, quarantined, resolved, last_detected_at, auto_quarantine} · `GET /antivirus/threats` list {id, path, signature, sha256, size, status: infected|quarantined|restored|deleted|ignored, volume, server, detected_at} · `POST /antivirus/scan` {volume_id} → 202 job (no volume_id: fleet scan, platform staff only) · `POST /antivirus/threats/{id}/quarantine|restore|delete|ignore` (ignore = "not a threat": allow-lists the sha256 for the organisation, restores a quarantined copy; audited). Threats in an app volume belong to the app's owner. Agent commands: av.scan (clamdscan via the `clamav` container, allow-listed hashes skipped), av.quarantine, av.restore, av.delete.
+
 ## Agent protocol (`/agent/v1`, outside the user API)
 - `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.

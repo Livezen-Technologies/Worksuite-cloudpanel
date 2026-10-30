@@ -78,6 +78,7 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		AcmeJSON:          cfg.AcmeJSON,
 		CrowdSecDir:       cfg.CrowdSecDir,
 		CrowdSecContainer: cfg.CrowdSecContainer,
+		ClamAVContainer:   cfg.ClamAVContainer,
 		Log:               logger,
 	}
 	ex.Terminal = &executor.TerminalConfig{RelayURL: cfg.RelayURL, Secret: cfg.AgentSecret, Shells: cfg.TerminalShells,
