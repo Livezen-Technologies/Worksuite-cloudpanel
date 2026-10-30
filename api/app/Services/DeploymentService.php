@@ -47,6 +47,7 @@ class DeploymentService implements HandlesCommandResults
             $this->builds->assertWithinMinutes($app);
         }
         $needsApproval = ! $customer && $source !== 'rollback' && ($app->requires_approval
+            || ($app->environment_id && $app->environmentModel?->requires_approval)
             || ($app->environment === 'production' && $app->organization->setting('security.require_production_deploy_approval')));
 
         $stages = $customer ? self::CUSTOMER_STAGES : self::ADMIN_STAGES;
@@ -578,6 +579,8 @@ class DeploymentService implements HandlesCommandResults
     public function snapshot(Application $app): array
     {
         $env = EnvVar::where('application_id', $app->id)->get()->mapWithKeys(fn ($v) => [$v->key => (string) $v->value])->all();
+        // ENV-3: shared variables and ${{service.KEY}} references, resolved at release time.
+        [$env, $warnings] = app(EnvironmentService::class)->resolve($app, $env);
         $plan = $app->size ? Plan::where('code', $app->size)->first() : null;
 
         return [
@@ -590,6 +593,7 @@ class DeploymentService implements HandlesCommandResults
             'cpus' => $plan?->vcpu,
             'env_keys' => array_keys($env),
             'env_encrypted' => $env ? Crypt::encryptString(json_encode($env)) : null,
+            'env_warnings' => $warnings,
             'registry_auth' => $app->source['registry_auth'] ?? null,
         ];
     }

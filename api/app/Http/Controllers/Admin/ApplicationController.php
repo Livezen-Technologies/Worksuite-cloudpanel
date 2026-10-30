@@ -44,6 +44,8 @@ class ApplicationController extends Controller
             'environment' => ['sometimes', Rule::in(['production', 'staging', 'development', 'preview'])],
             'server_id' => 'nullable|uuid|exists:servers,id',
             'project_id' => 'nullable|uuid',
+            'environment_id' => 'nullable|uuid',
+            'service' => ['nullable', 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'region' => 'nullable|string|max:60',
             'size' => 'nullable|in:small,standard,pro',
             'port' => 'nullable|integer|between:1,65535',
@@ -71,6 +73,7 @@ class ApplicationController extends Controller
             throw ApiException::validation(['name' => ['An application with this name already exists.']]);
         }
         $data = $this->storeGitToken($data, $data['name']);
+        $data = $this->withEnvironment($data);
         $app = Application::create(collect($data)->except(['env', 'member_ids'])->all() + ['kind' => 'admin']);
         $this->syncEnv($app, $data['env'] ?? null);
         $this->syncMembers($app, $data['member_ids'] ?? null);
@@ -91,6 +94,7 @@ class ApplicationController extends Controller
         $app = Application::findOrFail($id);
         $this->authorizeFor($request, 'deploy', $app);
         $data = $this->storeGitToken($request->validate($this->rules(false)), $app->name, $app->source['git_secret_id'] ?? null);
+        $data = $this->withEnvironment($data);
         $app->update(collect($data)->except(['env', 'member_ids'])->all());
         $this->syncEnv($app, $data['env'] ?? null);
         $this->syncMembers($app, $data['member_ids'] ?? null);
@@ -181,5 +185,17 @@ class ApplicationController extends Controller
             'member_ids' => $app->members()->pluck('users.id'),
             'last_deployment' => Deployment::where('application_id', $app->id)->latest()->first(['id', 'status', 'job_id', 'created_at']),
         ]);
+    }
+
+    /** ENV-1: an app placed in an environment takes its project and kind. */
+    private function withEnvironment(array $data): array
+    {
+        if (! empty($data['environment_id'])) {
+            $env = \App\Models\Environment::findOrFail($data['environment_id']);
+            $data['project_id'] = $env->project_id;
+            $data['environment'] = $env->kind;
+        }
+
+        return $data;
     }
 }
