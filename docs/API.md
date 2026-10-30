@@ -287,6 +287,19 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
 
 
+## Migration wizard (SRS MIG)
+
+Moves cPanel accounts onto the platform. The agent fetches a cPanel full backup (`cpmove-<user>.tar.gz`) into its state directory (`migrations/<id>/`) and reads it without running anything from it. Each site becomes a new app on the target server. The app is deployed on a temporary platform hostname and then filled with the site's files and database. DNS is not changed. Reads need `resources.view|servers.view`; actions need `deploy`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/migrations` | `[{id, source, status, server, account, sites, migrated, created_at}]` |
+| POST | `/migrations` | MIG-001 `{server_id, archive_url, sha256?}` returns 202. `migrate.fetch` downloads the backup and checks the SHA-256 if one is given; a finished download is reused when the job is retried. Then `migrate.inspect` reads `userdata/main` (main, addon and sub domains), `userdata/<domain>` (document roots), `mysql/*.sql` and the file count and size, and flags document roots holding `wp-config.php`. Status: `fetching` → `ready`, or `failed` with `error`. The URL is stored encrypted and never returned. |
+| GET | `/migrations/{id}` | `{status, inventory{user, sites, databases, files, bytes}, sites[], preflight[], timeline[{at, event}], error}`. Each site has `{domain, kind, docroot, wordpress, enabled, app_name, database, target_database_id, status: pending\|deploying\|copying\|migrated\|failed, app_id?, temp_url?, error?}`. |
+| PATCH | `/migrations/{id}/sites` | MIG-003 `{sites[{domain, enabled?, app_name?, docroot?, database?, target_database_id?}]}`, allowed while the status is `ready`. `target_database_id` must be a MySQL or MariaDB database on the target server. Pre-flight (MIG-002) runs on each read: the domain or app name is already taken, there is no document root, the database is not in the backup, there is no target database, or WordPress has no database. |
+| POST | `/migrations/{id}/start` | MIG-004/005 returns 409 while a pre-flight check fails. For each enabled site it creates an app (`wordpress:6` for WordPress, otherwise `php:8.3-apache`) with `/var/www/html` as its volume, adds `<app>.<platform domain>` as the temporary hostname, and deploys it. A WordPress app gets `WORDPRESS_DB_*` pointing at the target database. When a deployment succeeds, the copy job runs: `migrate.extract` unpacks `homedir/<docroot>/` (regular files and folders only, owned by 33:33; files already present with the same size are skipped, so a copy resumes), `migrate.import_db` creates the database (named after the app) and streams `mysql/<db>.sql` into it, and for WordPress `wp config set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD`. The database password is added only when the agent command is sent; job payloads hold a placeholder. When every site is `migrated`, the migration is `migrated`. |
+| POST | `/migrations/{id}/sites/{index}/retry` | Re-runs one site's copy (failed or migrated); it resumes. |
+
 ## WordPress toolkit (SRS WP)
 
 Every action is WP-CLI, run by the agent in a short-lived `wordpress:cli` container. That container shares the site container's files (`--volumes-from`) and network (`--network container:`), so it uses the site's own `wp-config.php` and database. It runs as www-data (33) and never through a shell. Only these WP-CLI commands are allowed: `core plugin theme option config cache search-replace user cron maintenance-mode cli rewrite transient language redis db`, where `db` is only `db export|import wp-content/ws-restore/<id>.sql`. The options `--exec`, `--require`, `--ssh`, `--http`, `--path` and `--context` are refused. An action with several steps is one job; each step is dispatched after the one before it succeeds. Reads need `resources.view|servers.view`; actions need `deploy`.
