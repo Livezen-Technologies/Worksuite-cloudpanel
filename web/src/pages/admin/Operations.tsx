@@ -17,7 +17,7 @@ import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
 import Select from '../../components/Select'
 
-const REMOTE = ['s3', 'b2', 'r2', 'gdrive']
+const REMOTE = ['s3', 'b2', 'r2', 'gdrive', 'sftp']
 const S3_LIKE = ['s3', 'b2', 'r2']
 const isS3 = (v: Record<string, unknown>) => S3_LIKE.includes(String(v.destination))
 const POLICY_FIELDS: FieldDef[] = [
@@ -25,19 +25,29 @@ const POLICY_FIELDS: FieldDef[] = [
   { name: 'target_type', label: 'Target type', type: 'select', required: true, options: [{ value: 'volume', label: 'Volume (restic snapshot)' }, { value: 'database', label: 'Database (app-consistent dump + snapshot)' }, { value: 'application', label: 'Application data' }, { value: 'server', label: 'Server config' }] },
   { name: 'target_id', label: 'Target ID', mono: true, required: true },
   { name: 'schedule', label: 'Schedule (cron)', mono: true, required: true, placeholder: '0 3 * * *', hint: 'hourly 0 * * * * · daily 0 3 * * * · monthly 0 3 1 * *' },
-  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local (on the server)' }, { value: 's3', label: 'Amazon S3 / S3-compatible (MinIO)' }, { value: 'b2', label: 'Backblaze B2 (S3 API)' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive (rclone)' }] },
-  { name: 'dc_path', label: 'Repository root', mono: true, placeholder: '/var/lib/dockermgr/backups', show: (v) => v.destination === 'local' },
+  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local (on the server)' }, { value: 's3', label: 'Amazon S3 / S3-compatible (MinIO)' }, { value: 'b2', label: 'Backblaze B2 (S3 API)' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive (rclone)' }, { value: 'sftp', label: 'SFTP server' }] },
+  { name: 'dc_path', label: 'Repository root', mono: true, placeholder: '/var/lib/dockermgr/backups', show: (v) => v.destination === 'local' || v.destination === 'sftp' },
+  { name: 'dc_host', label: 'SFTP host', mono: true, placeholder: 'backup.example.com', show: (v) => v.destination === 'sftp', required: true },
+  { name: 'dc_port', label: 'SFTP port', type: 'number', placeholder: '22', show: (v) => v.destination === 'sftp' },
+  { name: 'dc_user', label: 'SFTP user', mono: true, show: (v) => v.destination === 'sftp', required: true },
+  { name: 'dc_private_key', label: 'Private key (PEM)', type: 'textarea', mono: true, show: (v) => v.destination === 'sftp', hint: 'write-only; leave blank to keep the stored key' },
   { name: 'dc_endpoint', label: 'Endpoint URL', mono: true, placeholder: 'https://s3.eu-central-1.amazonaws.com', show: isS3 },
   { name: 'dc_bucket', label: 'Bucket', mono: true, show: isS3, required: true },
   { name: 'dc_region', label: 'Region', mono: true, placeholder: 'us-east-1 (R2: auto)', show: isS3 },
   { name: 'dc_account_id', label: 'Account ID', mono: true, show: (v) => v.destination === 'r2' },
   { name: 'dc_access_key', label: 'Access key ID', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
   { name: 'dc_secret_key', label: 'Secret access key', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
-  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true, hint: 'restic forget --prune after each run' },
+  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true, hint: 'used when no daily/weekly/monthly counts are set' },
+  { name: 'keep_daily', label: 'Keep daily', type: 'number', placeholder: 'e.g. 7' },
+  { name: 'keep_weekly', label: 'Keep weekly', type: 'number', placeholder: 'e.g. 4' },
+  { name: 'keep_monthly', label: 'Keep monthly', type: 'number', placeholder: 'e.g. 6' },
+  { name: 'capacity_gb', label: 'Destination capacity (GB)', type: 'number', hint: 'warns when the destination is over 85 % full' },
+  { name: 'object_lock_days', label: 'Object lock (days)', type: 'number', show: isS3, hint: 'the bucket must have object lock turned on; at most the retention window' },
   { name: 'check_subset', label: 'Integrity check data subset', mono: true, placeholder: '5%', hint: 'restic check --read-data-subset after each run' },
   { name: 'restore_test_schedule', label: 'Restore test schedule (cron)', mono: true, placeholder: '0 4 * * 0', hint: 'restores the latest snapshot into a scratch directory and validates it' },
 ]
-const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'access_key', 'secret_key'] as const
+const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'host', 'port', 'user', 'access_key', 'secret_key', 'private_key'] as const
+const WRITE_ONLY = ['access_key', 'secret_key', 'private_key']
 
 /** Flat form values -> API body; credentials are only sent when typed (write-only). */
 export function policyBody(v: Record<string, unknown>): Record<string, unknown> {
@@ -46,7 +56,9 @@ export function policyBody(v: Record<string, unknown>): Record<string, unknown> 
   for (const [k, val] of Object.entries(v)) {
     if (k.startsWith('dc_')) { if (val !== '' && val != null) dc[k.slice(3)] = String(val) } else body[k] = val
   }
-  for (const k of ['destination_summary', 'success_14d', 'next_run_at', 'id', 'organization_id', 'created_at', 'updated_at', 'last_run_at', 'last_status', 'last_restore_test_at', 'last_restore_test_status']) delete body[k]
+  for (const k of ['destination_summary', 'success_14d', 'next_run_at', 'id', 'organization_id', 'created_at', 'updated_at', 'last_run_at', 'last_status', 'last_restore_test_at', 'last_restore_test_status', 'usage', 'last_probe', 'probed_at']) delete body[k]
+  // Cleared number fields clear the setting; untouched ones are not sent.
+  for (const k of ['keep_daily', 'keep_weekly', 'keep_monthly', 'capacity_gb', 'object_lock_days']) if (k in body) body[k] = body[k] === '' || body[k] == null ? null : Number(body[k])
   if (body.restore_test_schedule === '') body.restore_test_schedule = null
   if (body.check_subset === '' || body.check_subset == null) delete body.check_subset
   return { ...body, destination_config: dc, encrypted: true }
@@ -54,7 +66,7 @@ export function policyBody(v: Record<string, unknown>): Record<string, unknown> 
 function policyInitial(r: R): R {
   const sum = (r.destination_summary ?? {}) as R
   const out: R = { ...r }
-  for (const k of DC_KEYS) if (k !== 'access_key' && k !== 'secret_key' && sum[k] != null) out[`dc_${k}`] = sum[k]
+  for (const k of DC_KEYS) if (!WRITE_ONLY.includes(k) && sum[k] != null) out[`dc_${k}`] = sum[k]
   return out
 }
 
@@ -69,10 +81,16 @@ function last14(jobs: R[]) {
   return days
 }
 
+const RESTORE_BLANK: R = { scope: 'everything', mode: 'replace', fresh_backup: true, stop_app: false, health_check: true }
+
+/** BKM-001..009: the Backup manager — Policies, Snapshots, Restore, Destinations, Restore tests. */
 export function Backups() {
+  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'tests'>('policies')
+  const [target, setTarget] = useState('')
   const policies = useList<R>('/backup-policies')
+  const summary = useOne<R>('/backups/summary', undefined, { refetchInterval: 30000 })
   const jobs = useList<R>('/backup-jobs', { per_page: 500 }, { refetchInterval: 20000 })
-  const artifacts = useList<R>('/backup-artifacts', { per_page: 50, sort: '-created_at' }, { refetchInterval: 20000 })
+  const artifacts = useList<R>('/backup-artifacts', { per_page: 50, sort: '-created_at', ...(target ? { target_id: target } : {}) }, { refetchInterval: 20000 })
   const toast = useToast()
   const [preparing, setPreparing] = useState<string | null>(null)
   const download = async (a: R) => {
@@ -84,75 +102,146 @@ export function Backups() {
   const policyName = (id?: string) => policies.rows.find((p) => p.id === id)?.name ?? (id ? id.slice(0, 8) : 'app backup')
   const { run, busy } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
-  const [restoreOpen, setRestoreOpen] = useState(false)
   const [artifact, setArtifact] = useState<R | null>(null)
+  const [opts, setOpts] = useState<R>(RESTORE_BLANK)
   const [del, setDel] = useState<R | null>(null)
   const days = useMemo(() => last14(jobs.rows), [jobs.rows])
-  const day = jobs.rows.filter((j) => Date.now() - new Date(j.created_at).getTime() < 86400e3)
+  const s = summary.item ?? {}
   const restorable = artifacts.rows.filter((a) => a.snapshot_id)
+  const targets = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const p of policies.rows) seen.set(String(p.target_id), `${p.name} (${p.target_type})`)
+    return [...seen.entries()]
+  }, [policies.rows])
+  const openRestore = (a: R) => { setArtifact(a); setOpts({ ...RESTORE_BLANK, scope: a.dump_engine ? 'database' : 'everything' }) }
+  const isDump = !!artifact?.dump_engine
+  const wizardOk = !(opts.mode === 'side_by_side' && isDump)
+
   return (
     <>
-      <PageHeader title="Backups" subtitle="Encrypted, integrity-checked and restore-tested"
-        actions={<><button type="button" className="btn" onClick={() => setRestoreOpen(true)}>Restore…</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })}>New backup policy</button></>} />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        <StatTile label="Policies" value={policies.rows.length} />
-        <StatTile label="Succeeded (24 h)" value={day.filter((j) => j.status === 'succeeded' || j.status === 'success').length} />
-        <StatTile label="Failed (24 h)" value={day.filter((j) => j.status === 'failed').length} deltaTone="r" delta={day.some((j) => j.status === 'failed') ? 'needs attention' : undefined} />
-        <StatTile label="Verified" value={artifacts.rows.filter((a) => a.verified).length} delta="restic check passed" />
+      <PageHeader title="Backup manager" subtitle="Encrypted, integrity-checked and restore-tested"
+        actions={<>
+          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'due' }, label: 'Run all due', success: 'Started the due backups' }).catch(() => {})}>Run all due</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'failed' }, label: 'Rerun failed', success: 'Started the failed backups again' }).catch(() => {})}>Rerun failed</button>
+          <button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })}>New backup policy</button>
+        </>} />
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+        <StatTile label="Protected targets" value={num(s.protected_targets)} delta={s.paused ? `${s.paused} paused` : undefined} />
+        <StatTile label="Success (30 days)" value={s.success_rate_30d == null ? '—' : `${s.success_rate_30d}%`} delta={`${num(s.runs_30d)} runs`} deltaTone={num(s.success_rate_30d) < 95 && s.success_rate_30d != null ? 'r' : undefined} />
+        <StatTile label="Stored" value={`${num(s.stored_mb) >= 1024 ? (num(s.stored_mb) / 1024).toFixed(1) + ' GB' : num(s.stored_mb) + ' MB'}`} />
+        <StatTile label="Last restore test" value={s.last_restore_test ? String((s.last_restore_test as R).status) : 'never'} delta={s.last_restore_test ? ago((s.last_restore_test as R).at) : undefined} deltaTone={(s.last_restore_test as R)?.status === 'failed' ? 'r' : undefined} />
+        <StatTile label="Next run" value={s.next_run_at ? ago(String(s.next_run_at)) : '—'} />
       </div>
       <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
         <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
       </Card>
-      <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
+      <Tabs value={tab} onChange={setTab} label="Backup manager sections" tabs={[
+        { id: 'policies', label: 'Policies' }, { id: 'snapshots', label: 'Snapshots' }, { id: 'restore', label: 'Restore' },
+        { id: 'destinations', label: 'Destinations' }, { id: 'tests', label: 'Restore tests' },
+      ]} />
+
+      {tab === 'policies' && <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
         columns={[
           { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'target_type', header: 'Target' },
           { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
-          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}{r.destination_summary?.bucket ? <span className="block text-xs text-muted font-mono">{r.destination_summary.bucket}</span> : null}{S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? <Badge tone="y">no keys</Badge> : null}</span> },
-          { key: 'last_restore_test_status', header: 'Restore test', render: (r) => r.last_restore_test_status ? <span title={r.last_restore_test_at ?? undefined}><StatusBadge status={r.last_restore_test_status} /></span> : <span className="text-muted text-xs">not yet</span> },
-          { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? r.last_run?.status ?? 'never run'} /> },
-          { key: 'retention_days', header: 'Retention', value: (r) => (r.retention_days != null ? `${r.retention_days} days` : '—') },
-          { key: 'encrypted', header: 'Encryption', render: (r) => <Badge tone={r.encrypted !== false ? 'g' : 'y'}>{r.encrypted !== false ? 'encrypted' : 'not encrypted'}</Badge> },
-          { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at ?? r.last_run?.created_at) },
+          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}{r.object_lock_days ? <Badge tone="b">locked {r.object_lock_days} d</Badge> : null}</span> },
+          { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily} daily`, r.keep_weekly && `${r.keep_weekly} weekly`, r.keep_monthly && `${r.keep_monthly} monthly`].filter(Boolean).join(', ') : `${r.retention_days} days` },
+          { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? 'never run'} /> },
+          { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at) },
+          { key: 'enabled', header: 'Active', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
               <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
               <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
             </span>) },
-        ]} />
-      <DataTable label="Snapshots" rows={artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
+        ]} />}
+
+      {(tab === 'snapshots' || tab === 'restore') && <>
+        <div className="flex flex-wrap gap-2 items-center">
+          <Select className="input !w-auto" aria-label="Filter snapshots by target" value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">All targets</option>
+            {targets.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </Select>
+          {tab === 'restore' && <span className="text-sm text-muted">Pick a snapshot to start the restore wizard.</span>}
+        </div>
+        <DataTable label="Snapshots" rows={tab === 'restore' ? restorable : artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
+          columns={[
+            { key: 'created_at', header: 'Taken', render: (r) => ago(r.created_at) },
+            { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
+            { key: 'target_type', header: 'Target', value: (r) => String(r.target_type ?? '—') },
+            { key: 'snapshot_id', header: 'Snapshot', render: (r) => <span className="font-mono text-xs">{String(r.snapshot_id ?? '—').slice(0, 10)}</span> },
+            { key: 'destination', header: 'Destination', value: (r) => String(policies.rows.find((p) => p.id === r.backup_policy_id)?.destination ?? 'local') },
+            { key: 'size_mb', header: 'Size', value: (r) => `${r.size_mb ?? 0} MB` },
+            { key: 'verified', header: 'Integrity', render: (r) => <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span> },
+            { key: 'act', header: '', sortable: false, render: (r) => (
+              <span className="flex gap-2">
+                <button type="button" className="btn btn-sm btn-ghost" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
+                {r.snapshot_id ? <button type="button" className="btn btn-sm" onClick={() => openRestore(r)}>Restore…</button> : null}
+              </span>) },
+          ]} />
+      </>}
+
+      {tab === 'destinations' && <DataTable label="Destinations" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={800}
+        empty={<Empty>No policies yet.</Empty>}
         columns={[
-          { key: 'created_at', header: 'Taken', render: (r) => ago(r.created_at) },
+          { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
+          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}<span className="block text-xs text-muted font-mono">{r.destination_summary?.bucket ?? r.destination_summary?.host ?? r.destination_summary?.path ?? ''}</span>{S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? <Badge tone="y">no keys</Badge> : null}</span> },
+          { key: 'probe', header: 'Connection', render: (r) => r.last_probe ? <span title={r.last_probe.message ?? undefined}><Badge tone={r.last_probe.reachable ? 'g' : 'r'}>{r.last_probe.reachable ? `ok · ${r.last_probe.snapshots} snapshots` : 'unreachable'}</Badge> <span className="text-xs text-muted">{ago(r.probed_at)}</span></span> : <span className="text-xs text-muted">not tested</span> },
+          { key: 'usage', header: 'Usage', render: (r) => {
+            const u = (r.usage ?? {}) as R
+            const gb = (num(u.stored_bytes) / 1073741824).toFixed(2)
+            return <span>{gb} GB{u.capacity_gb ? ` of ${u.capacity_gb} GB` : ''}{u.percent != null ? <> · <Badge tone={u.warning ? 'r' : 'g'}>{String(u.percent)}%</Badge></> : null}{u.warning ? <span className="block text-xs text-[var(--r-fg)]">Over 85 % full</span> : null}</span>
+          } },
+          { key: 'lock', header: 'Immutability', render: (r) => r.object_lock_days ? <Badge tone="b">object lock {r.object_lock_days} d</Badge> : <span className="text-xs text-muted">off</span> },
+          { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/backup-policies/${r.id}/probe`, label: `Test ${r.name}` }).catch(() => {})}>Test connection</button> },
+        ]} />}
+
+      {tab === 'tests' && <DataTable label="Restore tests" rows={artifacts.rows.filter((a) => a.restore_test_status || a.snapshot_id)} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={800}
+        columns={[
           { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
-          { key: 'snapshot_id', header: 'Snapshot', render: (r) => <span className="font-mono text-xs">{String(r.snapshot_id ?? '—').slice(0, 10)}</span> },
-          { key: 'size_mb', header: 'Size', value: (r) => `${r.size_mb ?? 0} MB` },
-          { key: 'verified', header: 'Integrity', render: (r) => <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span> },
-          { key: 'restore_test_status', header: 'Restore test', render: (r) => r.restore_test_status ? <span title={r.restore_test_message ?? undefined}><StatusBadge status={r.restore_test_status} /></span> : <span className="text-muted text-xs">—</span> },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test restore</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setArtifact(r)}>Restore</button>
-            </span>) },
-        ]} />
+          { key: 'created_at', header: 'Snapshot taken', render: (r) => ago(r.created_at) },
+          { key: 'restore_test_status', header: 'Result', render: (r) => r.restore_test_status ? <StatusBadge status={r.restore_test_status} /> : <span className="text-muted text-xs">not tested</span> },
+          { key: 'restore_tested_at', header: 'Tested', render: (r) => r.restore_tested_at ? ago(r.restore_tested_at) : '—' },
+          { key: 'restore_test_message', header: 'Detail', render: (r) => <span className="text-xs">{String(r.restore_test_message ?? '')}</span> },
+          { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test now</button> },
+        ]} />}
+
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"
-        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}
+        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key || edit?.destination_summary?.has_private_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}
         onSubmit={(v) => run({ method: edit?.id ? 'PATCH' : 'POST', path: edit?.id ? `/backup-policies/${edit.id}` : '/backup-policies', body: policyBody(v), label: 'Save policy', success: 'Policy saved' })} />
-      <Modal open={restoreOpen} onClose={() => setRestoreOpen(false)} title="Restore from backup" width={640}>
-        {restorable.length === 0 ? <Empty>No restorable backups yet.</Empty> : (
-          <ul className="list-none m-0 p-0">{restorable.slice(0, 30).map((j) => (
-            <li key={j.id} className="flex items-center gap-3 py-2.5 border-t border-line">
-              <span className="font-semibold flex-1">{policyName(j.backup_policy_id)}{j.dump_engine ? ` · ${j.dump_engine} dump` : ''}</span><span className="text-xs text-muted">{ago(j.created_at)}</span>
-              <button type="button" className="btn btn-sm" onClick={() => setArtifact(j)}>Restore</button>
-            </li>))}
-          </ul>
-        )}
+
+      <Modal open={!!artifact} onClose={() => setArtifact(null)} title="Restore wizard" width={640}>
+        <div className="flex flex-col gap-4 text-sm">
+          <p className="m-0">Snapshot <span className="font-mono">{String(artifact?.snapshot_id ?? '').slice(0, 10)}</span> of {policyName(artifact?.backup_policy_id)}, taken {ago(artifact?.created_at)}.</p>
+          <fieldset className="flex flex-col gap-1 border-0 p-0 m-0"><legend className="font-semibold mb-1">What to restore</legend>
+            {(isDump ? [['database', 'The database'], ['everything', 'Everything in the snapshot']] : [['everything', 'Everything in the snapshot'], ['files', 'Files only']]).map(([v, l]) =>
+              <label key={v} className="flex gap-2 items-center"><input type="radio" name="scope" checked={opts.scope === v} onChange={() => setOpts({ ...opts, scope: v })} />{l}</label>)}
+          </fieldset>
+          <fieldset className="flex flex-col gap-1 border-0 p-0 m-0"><legend className="font-semibold mb-1">Where</legend>
+            <label className="flex gap-2 items-center"><input type="radio" name="mode" checked={opts.mode === 'replace'} onChange={() => setOpts({ ...opts, mode: 'replace' })} />Replace the current data</label>
+            <label className="flex gap-2 items-center"><input type="radio" name="mode" disabled={isDump} checked={opts.mode === 'side_by_side'} onChange={() => setOpts({ ...opts, mode: 'side_by_side', stop_app: false })} />Side by side, in a separate directory{isDump ? ' (files only)' : ''}</label>
+            <label className="flex gap-2 items-center"><input type="radio" name="mode" checked={opts.mode === 'download'} onChange={() => setOpts({ ...opts, mode: 'download' })} />Download it instead</label>
+          </fieldset>
+          {opts.mode !== 'download' && <div className="flex flex-col gap-2">
+            <label className="flex gap-2 items-center"><input type="checkbox" checked={!!opts.fresh_backup} onChange={(e) => setOpts({ ...opts, fresh_backup: e.target.checked })} />Take a safety backup first</label>
+            {artifact?.application_id && <>
+              <label className="flex gap-2 items-center"><input type="checkbox" disabled={opts.mode !== 'replace'} checked={!!opts.stop_app} onChange={(e) => setOpts({ ...opts, stop_app: e.target.checked })} />Stop the app while restoring</label>
+              <label className="flex gap-2 items-center"><input type="checkbox" checked={!!opts.health_check} onChange={(e) => setOpts({ ...opts, health_check: e.target.checked })} />Health-check the app afterwards</label>
+            </>}
+          </div>}
+          <p className="m-0 text-xs text-muted">Progress shows in the Activity dock.</p>
+          <div className="flex gap-2 justify-end">
+            <button type="button" className="btn" onClick={() => setArtifact(null)}>Cancel</button>
+            {opts.mode === 'download'
+              ? <button type="button" className="btn btn-primary" onClick={() => { const a = artifact!; setArtifact(null); download(a) }}>Download</button>
+              : <button type="button" className={`btn ${opts.mode === 'replace' ? 'btn-danger' : 'btn-primary'}`} disabled={busy || !wizardOk}
+                onClick={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.id, scope: opts.scope, mode: opts.mode, fresh_backup: !!opts.fresh_backup, stop_app: !!opts.stop_app, health_check: !!opts.health_check }, label: 'Restore backup' }).then(() => setArtifact(null)).catch(() => {})}>
+                {opts.mode === 'replace' ? 'Replace and restore' : 'Restore side by side'}</button>}
+          </div>
+        </div>
       </Modal>
-      <ConfirmDialog open={!!artifact} onClose={() => setArtifact(null)} danger confirmText="RESTORE" title="Restore this backup?" confirmLabel="Restore" busy={busy}
-        onConfirm={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.id }, label: 'Restore backup' }).then(() => { setArtifact(null); setRestoreOpen(false) }).catch(() => {})}>
-        <p className="m-0">Current data for the target is replaced with the backup from {ago(artifact?.created_at)}.</p>
-      </ConfirmDialog>
       <ConfirmDialog open={!!del} onClose={() => setDel(null)} danger confirmText={del?.name} title={`Delete policy ${del?.name}?`} confirmLabel="Delete policy" busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/backup-policies/${del!.id}`, label: 'Delete policy', success: 'Policy deleted' }).then(() => setDel(null)).catch(() => {})}>
         <p className="m-0">Existing backups are kept until their retention ends.</p>

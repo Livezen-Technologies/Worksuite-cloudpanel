@@ -245,6 +245,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.restoreRun(ctx, c.ID, c.Payload, progress)
 	case "backup.test":
 		return e.backupTest(ctx, c.ID, c.Payload, progress)
+	case "backup.probe":
+		return e.backupProbe(ctx, c.Payload)
 	case "backup.export":
 		return e.backupExport(ctx, c.ID, c.Payload, progress)
 	case "proxy.config":

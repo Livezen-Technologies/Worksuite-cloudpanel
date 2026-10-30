@@ -51,6 +51,8 @@ class BackupDestination
         return match ($this->type()) {
             's3', 'r2', 'b2' => 's3:'.rtrim($this->endpoint(), '/').'/'.($c['bucket'] ?? 'backups').'/'.$this->prefix(),
             'gdrive' => 'rclone:gdrive:'.$this->prefix(),
+            // BKM-007: SFTP through rclone, configured entirely by environment (see env()).
+            'sftp' => 'rclone:dmpsftp:'.rtrim($c['path'] ?? 'backups', '/').'/'.$this->prefix(),
             default => rtrim($c['path'] ?? config('backups.local_root'), '/').'/'.$this->organizationId.'/'.$this->scope(),
         };
     }
@@ -85,6 +87,19 @@ class BackupDestination
                 'AWS_SECRET_ACCESS_KEY' => (string) ($c['secret_key'] ?? ''),
                 'AWS_DEFAULT_REGION' => $this->region(),
             ];
+        }
+
+        if ($this->type() === 'sftp') {
+            $c = $this->config();
+            $env += array_filter([
+                'RCLONE_CONFIG_DMPSFTP_TYPE' => 'sftp',
+                'RCLONE_CONFIG_DMPSFTP_HOST' => (string) ($c['host'] ?? ''),
+                'RCLONE_CONFIG_DMPSFTP_PORT' => (string) ($c['port'] ?? 22),
+                'RCLONE_CONFIG_DMPSFTP_USER' => (string) ($c['user'] ?? ''),
+                // rclone reads "\n" in key_pem as a line break; env values cannot hold real ones.
+                'RCLONE_CONFIG_DMPSFTP_KEY_PEM' => str_replace(["\r\n", "\n"], '\n', trim((string) ($c['private_key'] ?? ''))),
+                'RCLONE_CONFIG_DMPSFTP_KNOWN_HOSTS_FILE' => (string) ($c['known_hosts_file'] ?? ''),
+            ], fn ($v) => $v !== '');
         }
 
         return $env;
@@ -179,9 +194,10 @@ class BackupDestination
     public static function present(?array $config): array
     {
         $config ??= [];
-        $out = array_intersect_key($config, array_flip(['endpoint', 'bucket', 'region', 'prefix', 'path', 'account_id', 'path_style']));
+        $out = array_intersect_key($config, array_flip(['endpoint', 'bucket', 'region', 'prefix', 'path', 'account_id', 'path_style', 'host', 'port', 'user']));
         $out['has_access_key'] = ! empty($config['access_key']);
         $out['has_secret_key'] = ! empty($config['secret_key']);
+        $out['has_private_key'] = ! empty($config['private_key']);
 
         return $out;
     }

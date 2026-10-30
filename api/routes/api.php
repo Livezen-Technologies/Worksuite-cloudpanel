@@ -199,6 +199,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     $crud('backup-policies', Admin\BackupPolicyController::class, 'resources.view', 'deploy|network_storage.manage');
     Route::get('backup-jobs', [Admin\BackupJobController::class, 'index'])->middleware('perm:resources.view')->name('backup-jobs.index');
     Route::get('backup-artifacts', [Admin\BackupJobController::class, 'artifacts'])->middleware('perm:resources.view')->name('backup-artifacts.index');
+    Route::get('backups/summary', [Admin\BackupJobController::class, 'summary'])->middleware('perm:resources.view')->name('backups.summary');
+    Route::post('backups/run-all', [Admin\BackupJobController::class, 'runAll'])->middleware('perm:deploy|network_storage.manage')->name('backups.run-all');
+    Route::post('backup-policies/{id}/probe', [Admin\BackupJobController::class, 'probe'])->middleware('perm:deploy|network_storage.manage')->name('backup-policies.probe');
     Route::get('backup-artifacts/{id}/download', [Admin\BackupJobController::class, 'download'])->middleware('perm:deploy|network_storage.manage')->name('backup-artifacts.download');
     Route::post('backup-artifacts/{id}/restore-test', [Admin\BackupJobController::class, 'restoreTest'])->middleware('perm:deploy|network_storage.manage')->name('backup-artifacts.restore-test');
     Route::post('backup-jobs', [Admin\BackupJobController::class, 'store'])->middleware('perm:deploy|network_storage.manage')->name('backup-jobs.store');
