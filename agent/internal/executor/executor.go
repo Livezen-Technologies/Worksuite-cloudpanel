@@ -46,6 +46,7 @@ var Types = map[string]bool{
 	"fs.copy": true, "fs.move": true, "fs.compress": true, "fs.extract": true,
 	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
+	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
 }
 
 // Reporter sends a command result to the panel.

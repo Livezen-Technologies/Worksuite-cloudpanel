@@ -101,6 +101,9 @@ func (e *Executor) fsUpload(ctx context.Context, root *os.Root, p transferPayloa
 		if err := mkdirAll(root, path.Dir(rel)); err != nil {
 			return nil, err
 		}
+		if p.Overwrite {
+			e.snapshot(p.Volume, root, rel, "upload")
+		}
 		n, err := e.fetchInto(ctx, root, rel, f.URL, p.Overwrite)
 		if err != nil {
 			return map[string]any{"written": total}, fmt.Errorf("%s: %w", rel, err)

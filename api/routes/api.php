@@ -172,6 +172,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('volumes/{id}/files/search', [Admin\FileController::class, 'search'])->middleware('perm:resources.view')->name('files.search');
     Route::post('volumes/{id}/files/preview', [Admin\FileController::class, 'preview'])->middleware('perm:deploy|network_storage.manage')->name('files.preview');
     Route::post('volumes/{id}/files/scan', [Admin\FileController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('files.scan');
+    Route::get('volumes/{id}/files/history', [Admin\FileController::class, 'history'])->middleware('perm:deploy|network_storage.manage')->name('files.history');
+    Route::get('volumes/{id}/files/history/version', [Admin\FileController::class, 'historyShow'])->middleware('perm:deploy|network_storage.manage')->name('files.history-show');
+    Route::post('volumes/{id}/files/history/restore', [Admin\FileController::class, 'historyRestore'])->middleware('perm:deploy|network_storage.manage')->name('files.history-restore');
     Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 
