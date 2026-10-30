@@ -17,13 +17,14 @@ Monitoring         ~85%   websites + containers + servers every 5 min,
 File manager       ~80%   15 of 19 features + customer page (#7-#13); left:
                           sharing, transfer manager, highlighting, bulk
                           extract, cross-volume copy
-DNS zones          ~60%   8 of 13 (DNS-001..007, 012), Cloudflare (#16); left:
-                          PowerDNS, DNSSEC, settings, BIND, DNS-01
+DNS zones          ~70%   9 of 13 (DNS-001..008, 012), Cloudflare and
+                          PowerDNS, DNSSEC (#16, #18); left: settings, BIND
+                          import/export, DNS-01
 Other new features   0%   WordPress toolkit, migration wizard, mail hosting,
                           email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~44%   up from ~40%: file manager, firewall enforcement,
-                          antivirus and DNS zones
+Overall            ~45%   up from ~40%: file manager, firewall enforcement,
+                          antivirus and DNS zones (incl. PowerDNS, DNSSEC)
 ```
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
