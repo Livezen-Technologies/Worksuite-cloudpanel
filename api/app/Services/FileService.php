@@ -87,26 +87,33 @@ class FileService implements HandlesCommandResults
     }
 
     /** FM-003: the agent sends one file as is, or a ZIP of the selection, to the panel. */
-    public function download(Volume $volume, array $paths, bool $inline = false): Job
+    public function download(Volume $volume, array $paths, bool $inline = false, bool $share = false): Job
     {
         $this->reachable($volume);
-        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths, 'inline' => $inline], organizationId: $this->owner($volume));
+        $job = $this->jobs->create('files', ['execute'], $volume, array_filter(['operation' => 'download', 'paths' => $paths, 'inline' => $inline, 'share' => $share ?: null], fn ($v) => $v !== null), organizationId: $this->owner($volume));
         $this->bus->dispatch($this->serverOf($volume), 'fs.download', [
             'volume' => $volume->name, 'paths' => $paths,
             'upload' => ['url' => $this->agentUrl('agent.file-transfer-put', ['id' => $job->id]), 'method' => 'PUT'],
         ], $job);
-        $this->audit->log($inline ? 'files.preview' : 'files.download', 'volumes', $volume->id, ['paths' => $paths, 'job_id' => $job->id]);
+        if (! $share) {
+            $this->audit->log($inline ? 'files.preview' : 'files.download', 'volumes', $volume->id, ['paths' => $paths, 'job_id' => $job->id]);
+        }
 
         return $job;
     }
 
     public function onCommandFinished(AgentCommand $command, Job $job): void
     {
-        if ($command->type === 'fs.upload') {
-            Storage::disk('local')->deleteDirectory(self::TRANSFER_DIR.'/'.$job->id);
+        // The uploaded files stay on the panel after a failure so the transfer can be retried;
+        // the hourly prune removes them if it never is.
+        if ($command->type === 'fs.upload' && $command->status === 'succeeded') {
+            Storage::disk('local')->deleteDirectory(self::TRANSFER_DIR.'/'.($job->payload['source_job'] ?? $job->id));
         }
         if ($command->status !== 'succeeded') {
             $this->jobs->fail($job, $this->friendly((string) $command->message), 'execute');
+            if (! empty($job->payload['share'])) {
+                app(FileShareService::class)->snapshotFinished($job, false);
+            }
 
             return;
         }
@@ -119,6 +126,91 @@ class FileService implements HandlesCommandResults
             ];
         }
         $this->jobs->succeed($job, $result);
+        if ($command->type === 'fs.download' && ! empty($job->payload['share'])) {
+            app(FileShareService::class)->snapshotFinished($job, true);
+        }
+    }
+
+    /** Transfer Manager: the operations that move bytes or many files, and so can take a while. */
+    public const TRANSFERS = ['upload', 'download', 'copy', 'move', 'compress', 'extract'];
+
+    /** Recent transfers on a volume, newest first, with what can be done about each. */
+    public function transfers(Volume $volume, int $limit = 50): array
+    {
+        return Job::where('type', 'files')->where('resource_type', 'Volume')->where('resource_id', $volume->id)
+            ->orderByDesc('created_at')->orderByDesc('id')->limit(300)->get()
+            ->filter(fn (Job $j) => in_array($j->payload['operation'] ?? null, self::TRANSFERS, true) && empty($j->payload['inline']) && empty($j->payload['share']))
+            ->take($limit)
+            ->map(function (Job $j) {
+                $command = AgentCommand::allTenants()->where('job_id', $j->id)->first();
+
+                return [
+                    'id' => $j->id, 'operation' => $j->payload['operation'], 'status' => $j->status, 'progress' => $j->progress,
+                    'paths' => $j->payload['paths'] ?? array_values(array_filter([$j->payload['path'] ?? null])),
+                    'error' => $j->error ?? null, 'result' => $j->result, 'retry_of' => $j->payload['retry_of'] ?? null,
+                    'can_retry' => $j->status === 'failed' && $command !== null && $this->retryable($j, $command),
+                    'can_cancel' => $command?->status === 'queued',
+                    'created_at' => $j->created_at?->toIso8601ZuluString(), 'finished_at' => $j->finished_at?->toIso8601ZuluString(),
+                ];
+            })->values()->all();
+    }
+
+    /** Runs a failed transfer again with the same input, as a new job. */
+    public function retry(Volume $volume, Job $failed): Job
+    {
+        $command = AgentCommand::allTenants()->where('job_id', $failed->id)->first();
+        if ($failed->status !== 'failed' || ! $command || ! $this->retryable($failed, $command)) {
+            throw ApiException::conflict('Only a failed transfer can be retried, and an upload only while its files are still on the panel.');
+        }
+        $this->reachable($volume);
+        $op = $failed->payload['operation'];
+        if ($op === 'download') {
+            $job = $this->download($volume, $failed->payload['paths'] ?? []);
+        } else {
+            $payload = $command->payload;
+            $source = $failed->payload['source_job'] ?? $failed->id;
+            if ($op === 'upload') {
+                // Fresh signatures for the files still waiting on the panel from the first attempt.
+                foreach ($payload['files'] as $n => $item) {
+                    $payload['files'][$n]['url'] = $this->agentUrl('agent.file-transfer-get', ['id' => $source, 'n' => $n]);
+                }
+            }
+            $job = $this->jobs->create('files', ['execute'], $volume, array_filter([
+                'operation' => $op, 'path' => $failed->payload['path'] ?? null, 'paths' => $failed->payload['paths'] ?? null,
+                'source_job' => $op === 'upload' ? $source : null,
+            ], fn ($v) => $v !== null), organizationId: $this->owner($volume));
+            $this->bus->dispatch($this->serverOf($volume), self::OPERATIONS[$op], $payload, $job);
+        }
+        $job->update(['payload' => $job->payload + ['retry_of' => $failed->id]]);
+        $this->audit->log('files.transfer_retried', 'volumes', $volume->id, ['operation' => $op, 'job_id' => $job->id, 'retry_of' => $failed->id]);
+
+        return $job;
+    }
+
+    /** Stops a transfer the server has not picked up yet. Once it runs, it finishes on the server. */
+    public function cancel(Volume $volume, Job $job): void
+    {
+        $updated = AgentCommand::allTenants()->where('job_id', $job->id)->where('status', 'queued')->update(['status' => 'cancelled']);
+        if (! $updated) {
+            throw ApiException::conflict('The server has already started this transfer, so it can no longer be cancelled.');
+        }
+        $this->jobs->fail($job, 'Cancelled before the server started it.', 'execute');
+        if (($job->payload['operation'] ?? null) === 'upload') {
+            Storage::disk('local')->deleteDirectory(self::TRANSFER_DIR.'/'.($job->payload['source_job'] ?? $job->id));
+        }
+        $this->audit->log('files.transfer_cancelled', 'volumes', $volume->id, ['operation' => $job->payload['operation'] ?? null, 'job_id' => $job->id]);
+    }
+
+    private function retryable(Job $job, AgentCommand $command): bool
+    {
+        if ($command->status === 'cancelled') {
+            return false;
+        }
+        if (($job->payload['operation'] ?? null) === 'upload') {
+            return Storage::disk('local')->exists(self::TRANSFER_DIR.'/'.($job->payload['source_job'] ?? $job->id).'/0');
+        }
+
+        return true;
     }
 
     /**

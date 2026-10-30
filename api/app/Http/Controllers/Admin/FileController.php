@@ -189,6 +189,71 @@ class FileController extends Controller
         return $this->run($request, $id, 'history_restore', $request->validate(['path' => 'required|string|max:4096', 'id' => ['required', 'string', 'regex:/^[0-9]{1,20}-[a-z-]{1,20}$/']]));
     }
 
+    /** File Sharing: the volume's links, newest first. */
+    public function shares(string $id)
+    {
+        $volume = $this->volume($id);
+
+        return $this->data(\App\Models\FileShare::where('volume_id', $volume->id)->orderByDesc('created_at')->orderByDesc('id')->limit(200)->get()
+            ->map(fn ($s) => \App\Services\FileShareService::present($s))->values());
+    }
+
+    /** Makes an expiring link. The URL is returned once; only a hash of its token is kept. */
+    public function share(Request $request, string $id)
+    {
+        $data = $this->selection($request) + $request->validate([
+            'expires_in_hours' => 'required|integer|min:1|max:'.\App\Services\FileShareService::MAX_HOURS,
+            'max_downloads' => 'nullable|integer|min:1|max:10000', 'password' => 'nullable|string|min:6|max:200',
+        ]);
+        [$share, $token] = app(\App\Services\FileShareService::class)->create($this->volume($id), array_values($data['paths']),
+            (int) $data['expires_in_hours'], $data['max_downloads'] ?? null, $data['password'] ?? null);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(\App\Services\FileShareService::present($share) + [
+            'url' => url('/api/v1/shares/'.$token), 'job_id' => $share->job_id,
+        ], 201);
+    }
+
+    public function revokeShare(Request $request, string $id, string $shareId)
+    {
+        $share = \App\Models\FileShare::where('volume_id', $this->volume($id)->id)->findOrFail($shareId);
+        app(\App\Services\FileShareService::class)->revoke($share);
+        $request->attributes->set('audit_skip', true);
+
+        return response()->noContent();
+    }
+
+    /** Transfer Manager: recent uploads, downloads, copies, moves and archive jobs. */
+    public function transfers(string $id)
+    {
+        return $this->data($this->files->transfers($this->volume($id)));
+    }
+
+    public function retryTransfer(Request $request, string $id, string $jobId)
+    {
+        $volume = $this->volume($id);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($this->files->retry($volume, $this->transferJob($volume, $jobId)));
+    }
+
+    public function cancelTransfer(Request $request, string $id, string $jobId)
+    {
+        $volume = $this->volume($id);
+        $this->files->cancel($volume, $this->transferJob($volume, $jobId));
+        $request->attributes->set('audit_skip', true);
+
+        return response()->noContent();
+    }
+
+    private function transferJob(Volume $volume, string $jobId): \App\Models\Job
+    {
+        $job = \App\Models\Job::where('type', 'files')->where('resource_type', 'Volume')->where('resource_id', $volume->id)->findOrFail($jobId);
+        abort_unless(in_array($job->payload['operation'] ?? null, \App\Services\FileService::TRANSFERS, true), 404);
+
+        return $job;
+    }
+
     /** The volume a request addresses; the customer panel resolves it through an app instead. */
     protected function volume(string $id): Volume
     {

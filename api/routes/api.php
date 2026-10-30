@@ -24,6 +24,7 @@ Route::middleware('throttle:auth')->group(function () {
 });
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
+Route::match(['get', 'post'], 'shares/{token}', [\App\Http\Controllers\ShareController::class, 'show'])->middleware('throttle:api')->where('token', '[A-Za-z0-9]{40}')->name('files.share-public');
 Route::get('file-downloads/{id}', [\App\Http\Controllers\SignedFileController::class, 'fileDownload'])->middleware('signed')->name('files.transfer');
 Route::get('invoices/{id}/pdf', [\App\Http\Controllers\SignedFileController::class, 'invoicePdf'])->middleware('signed')->name('invoice.pdf');
 Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
@@ -175,6 +176,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('volumes/{id}/files/history', [Admin\FileController::class, 'history'])->middleware('perm:deploy|network_storage.manage')->name('files.history');
     Route::get('volumes/{id}/files/history/version', [Admin\FileController::class, 'historyShow'])->middleware('perm:deploy|network_storage.manage')->name('files.history-show');
     Route::post('volumes/{id}/files/history/restore', [Admin\FileController::class, 'historyRestore'])->middleware('perm:deploy|network_storage.manage')->name('files.history-restore');
+    Route::get('volumes/{id}/files/shares', [Admin\FileController::class, 'shares'])->middleware('perm:deploy|network_storage.manage')->name('files.shares');
+    Route::post('volumes/{id}/files/shares', [Admin\FileController::class, 'share'])->middleware('perm:deploy|network_storage.manage')->name('files.share');
+    Route::delete('volumes/{id}/files/shares/{shareId}', [Admin\FileController::class, 'revokeShare'])->middleware('perm:deploy|network_storage.manage')->name('files.share-revoke');
+    Route::get('volumes/{id}/files/transfers', [Admin\FileController::class, 'transfers'])->middleware('perm:deploy|network_storage.manage')->name('files.transfers');
+    Route::post('volumes/{id}/files/transfers/{jobId}/retry', [Admin\FileController::class, 'retryTransfer'])->middleware('perm:deploy|network_storage.manage')->name('files.transfer-retry');
+    Route::post('volumes/{id}/files/transfers/{jobId}/cancel', [Admin\FileController::class, 'cancelTransfer'])->middleware('perm:deploy|network_storage.manage')->name('files.transfer-cancel');
     Route::delete('volumes/{id}/files', [Admin\FileController::class, 'destroy'])->middleware('perm:deploy|network_storage.manage')->name('files.destroy');
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 
@@ -313,6 +320,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('apps/{id}/files/history', [Customer\FileController::class, 'history'])->name('files.history');
             Route::get('apps/{id}/files/history/version', [Customer\FileController::class, 'historyShow'])->name('files.history-show');
             Route::post('apps/{id}/files/history/restore', [Customer\FileController::class, 'historyRestore'])->name('files.history-restore');
+            Route::get('apps/{id}/files/shares', [Customer\FileController::class, 'shares'])->name('files.shares');
+            Route::post('apps/{id}/files/shares', [Customer\FileController::class, 'share'])->name('files.share');
+            Route::delete('apps/{id}/files/shares/{shareId}', [Customer\FileController::class, 'revokeShare'])->name('files.share-revoke');
+            Route::get('apps/{id}/files/transfers', [Customer\FileController::class, 'transfers'])->name('files.transfers');
+            Route::post('apps/{id}/files/transfers/{jobId}/retry', [Customer\FileController::class, 'retryTransfer'])->name('files.transfer-retry');
+            Route::post('apps/{id}/files/transfers/{jobId}/cancel', [Customer\FileController::class, 'cancelTransfer'])->name('files.transfer-cancel');
 
             Route::get('domains', [Customer\DomainController::class, 'index'])->name('domains.index');
             Route::post('domains', [Customer\DomainController::class, 'store'])->name('domains.store');
