@@ -7,6 +7,7 @@ import { num, type R } from '../../lib/util'
 export const PANEL_NAV: NavItem[] = [
   { label: 'My apps', to: '/app', end: true },
   { label: 'Host an app', to: '/app/host' },
+  { label: 'Files', to: '/app/files' },
   { label: 'Domains', to: '/app/domains' },
   { label: 'Backups', to: '/app/backups' },
   { label: 'Billing', to: '/app/billing' },

@@ -265,6 +265,31 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('apps/{id}/releases', [Customer\AppController::class, 'releases'])->name('apps.releases');
             Route::get('apps/{id}/metrics', [Customer\AppController::class, 'metrics'])->name('apps.metrics');
 
+            // File manager for the customer's own apps (FM, User · Files); no chown, no security scan yet (USEC).
+            Route::get('files', [Customer\FileController::class, 'apps'])->name('files.apps');
+            Route::get('apps/{id}/files', [Customer\FileController::class, 'index'])->name('files.index');
+            Route::get('apps/{id}/files/content', [Customer\FileController::class, 'show'])->name('files.show');
+            Route::put('apps/{id}/files/content', [Customer\FileController::class, 'write'])->name('files.write');
+            Route::post('apps/{id}/files/folders', [Customer\FileController::class, 'mkdir'])->name('files.mkdir');
+            Route::post('apps/{id}/files/rename', [Customer\FileController::class, 'rename'])->name('files.rename');
+            Route::delete('apps/{id}/files', [Customer\FileController::class, 'destroy'])->name('files.destroy');
+            Route::post('apps/{id}/files/upload', [Customer\FileController::class, 'upload'])->name('files.upload');
+            Route::post('apps/{id}/files/download', [Customer\FileController::class, 'download'])->name('files.download');
+            Route::post('apps/{id}/files/copy', [Customer\FileController::class, 'copy'])->name('files.copy');
+            Route::post('apps/{id}/files/move', [Customer\FileController::class, 'move'])->name('files.move');
+            Route::post('apps/{id}/files/compress', [Customer\FileController::class, 'compress'])->name('files.compress');
+            Route::post('apps/{id}/files/extract', [Customer\FileController::class, 'extract'])->name('files.extract');
+            Route::post('apps/{id}/files/trash', [Customer\FileController::class, 'trash'])->name('files.trash');
+            Route::get('apps/{id}/files/trash', [Customer\FileController::class, 'trashIndex'])->name('files.trash-index');
+            Route::post('apps/{id}/files/trash/restore', [Customer\FileController::class, 'restore'])->name('files.restore');
+            Route::delete('apps/{id}/files/trash', [Customer\FileController::class, 'purge'])->name('files.purge');
+            Route::post('apps/{id}/files/chmod', [Customer\FileController::class, 'chmod'])->name('files.chmod');
+            Route::get('apps/{id}/files/search', [Customer\FileController::class, 'search'])->name('files.search');
+            Route::post('apps/{id}/files/preview', [Customer\FileController::class, 'preview'])->name('files.preview');
+            Route::get('apps/{id}/files/history', [Customer\FileController::class, 'history'])->name('files.history');
+            Route::get('apps/{id}/files/history/version', [Customer\FileController::class, 'historyShow'])->name('files.history-show');
+            Route::post('apps/{id}/files/history/restore', [Customer\FileController::class, 'historyRestore'])->name('files.history-restore');
+
             Route::get('domains', [Customer\DomainController::class, 'index'])->name('domains.index');
             Route::post('domains', [Customer\DomainController::class, 'store'])->name('domains.store');
             Route::get('domains/{id}', [Customer\DomainController::class, 'show'])->name('domains.show');

@@ -40,9 +40,9 @@ class FileService implements HandlesCommandResults
     public function run(Volume $volume, string $operation, array $payload): Job
     {
         $this->reachable($volume);
-        $server = $volume->server;
+        $server = $this->serverOf($volume);
         $payload = ['volume' => $volume->name, 'path' => (string) ($payload['path'] ?? '')] + $payload;
-        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => $operation, 'path' => $payload['path']]);
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => $operation, 'path' => $payload['path']], organizationId: $this->owner($volume));
         $this->bus->dispatch($server, self::OPERATIONS[$operation], $payload, $job);
         if (in_array($operation, self::WRITES, true)) {
             $this->audit->log('files.'.$operation, 'volumes', $volume->id, array_filter([
@@ -67,7 +67,7 @@ class FileService implements HandlesCommandResults
     public function upload(Volume $volume, string $folder, array $files, array $relativePaths, bool $overwrite): Job
     {
         $this->reachable($volume);
-        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'upload', 'path' => $folder]);
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'upload', 'path' => $folder], organizationId: $this->owner($volume));
         $disk = Storage::disk('local');
         $items = [];
         $bytes = 0;
@@ -80,7 +80,7 @@ class FileService implements HandlesCommandResults
             ];
             $bytes += $file->getSize();
         }
-        $this->bus->dispatch($volume->server, 'fs.upload', ['volume' => $volume->name, 'files' => $items, 'overwrite' => $overwrite], $job);
+        $this->bus->dispatch($this->serverOf($volume), 'fs.upload', ['volume' => $volume->name, 'files' => $items, 'overwrite' => $overwrite], $job);
         $this->audit->log('files.upload', 'volumes', $volume->id, ['paths' => array_column($items, 'path'), 'files' => count($items), 'bytes' => $bytes, 'overwrite' => $overwrite, 'job_id' => $job->id]);
 
         return $job;
@@ -90,8 +90,8 @@ class FileService implements HandlesCommandResults
     public function download(Volume $volume, array $paths, bool $inline = false): Job
     {
         $this->reachable($volume);
-        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths, 'inline' => $inline]);
-        $this->bus->dispatch($volume->server, 'fs.download', [
+        $job = $this->jobs->create('files', ['execute'], $volume, ['operation' => 'download', 'paths' => $paths, 'inline' => $inline], organizationId: $this->owner($volume));
+        $this->bus->dispatch($this->serverOf($volume), 'fs.download', [
             'volume' => $volume->name, 'paths' => $paths,
             'upload' => ['url' => $this->agentUrl('agent.file-transfer-put', ['id' => $job->id]), 'method' => 'PUT'],
         ], $job);
@@ -160,9 +160,25 @@ class FileService implements HandlesCommandResults
         return self::TRANSFER_DIR.'/'.$jobId.'/download';
     }
 
+    /**
+     * Jobs belong to the organisation making the request, so a customer can follow
+     * a job on a shared-pool server whose volume rows belong to the platform.
+     */
+    private function owner(Volume $volume): ?string
+    {
+        return app(\App\Support\Tenant::class)->id() ?? $volume->organization_id;
+    }
+
+    /** The volume's server, which on a shared pool belongs to the platform rather than the requester. */
+    private function serverOf(Volume $volume): ?\App\Models\Server
+    {
+        return \App\Models\Server::allTenants()->find($volume->server_id);
+    }
+
     private function reachable(Volume $volume): void
     {
-        if (! $volume->server || ! $volume->server->isOnline()) {
+        $server = $this->serverOf($volume);
+        if (! $server || ! $server->isOnline()) {
             throw ApiException::conflict('The volume\'s server is offline, so its files cannot be reached.');
         }
         if ($volume->type === 'nfs') {

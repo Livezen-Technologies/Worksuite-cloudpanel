@@ -87,6 +87,7 @@ export function AppRoutes() {
         <Route path="host" element={<HostApp />} />
         <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />
+        <Route path="files" element={<FileManager customer />} />
         <Route path="domains" element={<UserDomains />} />
         <Route path="backups" element={<UserBackups />} />
         <Route path="billing" element={<Billing />} />
