@@ -264,6 +264,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::delete('mail/domains/{id}/mailboxes/{box}', [Admin\MailController::class, 'destroyMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.destroy');
     Route::post('mail/domains/{id}/aliases', [Admin\MailController::class, 'storeAlias'])->middleware('perm:deploy')->name('mail.aliases.store');
     Route::delete('mail/domains/{id}/aliases/{alias}', [Admin\MailController::class, 'destroyAlias'])->middleware('perm:deploy')->name('mail.aliases.destroy');
+    // Public pages (PUB-1..4).
+    Route::get('public-pages', [Admin\PublicPagesController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('public-pages.show');
+    Route::patch('public-pages', [Admin\PublicPagesController::class, 'update'])->middleware('perm:settings.manage')->name('public-pages.update');
+    Route::post('public-pages/install', [Admin\PublicPagesController::class, 'install'])->middleware('perm:servers.manage')->name('public-pages.install');
+    Route::get('public-pages/preview/{key}', [Admin\PublicPagesController::class, 'preview'])->middleware('perm:resources.view|servers.view')->name('public-pages.preview');
+    Route::patch('public-pages/sites/{id}', [Admin\PublicPagesController::class, 'site'])->middleware('perm:deploy')->name('public-pages.site');
     Route::get('migrations', [Admin\MigrationController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('migrations.index');
     Route::post('migrations', [Admin\MigrationController::class, 'store'])->middleware('perm:deploy')->name('migrations.store');
     Route::post('migrations/bulk', [Admin\MigrationController::class, 'bulk'])->middleware('perm:deploy')->name('migrations.bulk');

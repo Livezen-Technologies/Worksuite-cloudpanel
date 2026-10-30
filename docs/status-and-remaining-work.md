@@ -42,6 +42,9 @@ Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           left: IMAP import, auto-hold of spamming mailboxes,
                           per-domain limits, per-mailbox spam settings,
                           searchable logs per organisation, webmail
+Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
+                          busy (502-504), suspended, expired, welcome pages
+                          from an edge container; left: bot-check page
 Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
                           in plain words), Security (score, threats, scan
                           now), Scheduled jobs (app command or URL, run log,
