@@ -18,6 +18,7 @@ import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
 import { Users, Settings } from './pages/admin/Admin'
 import { AdminAccount } from './pages/admin/Account'
 import Firewall from './pages/admin/Firewall'
+import Antivirus from './pages/admin/Antivirus'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
@@ -62,6 +63,7 @@ export function AppRoutes() {
         <Route path="servers/:id" element={<ServerDetail />} />
         <Route path="containers" element={<Containers />} />
         <Route path="firewall" element={<Firewall />} />
+        <Route path="antivirus" element={<Antivirus />} />
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="applications/:id" element={<AppManage />} />

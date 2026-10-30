@@ -48,6 +48,11 @@ return [
         'file_name' => 'dmp-domains.yml',
     ],
 
+    // SRS 4.25 antivirus: ClamAV on each server (docs/deploy/clamav).
+    'antivirus' => [
+        'auto_quarantine' => (bool) env('ANTIVIRUS_AUTO_QUARANTINE', true),
+    ],
+
     // FW-001 enforcement through CrowdSec (docs/deploy/crowdsec). Off until the
     // ingress runs the CrowdSec container and the Traefik bouncer plugin.
     'crowdsec' => [

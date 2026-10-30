@@ -30,7 +30,7 @@ class CommandBus
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
         'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete', 'fs.upload', 'fs.download',
         'fs.copy', 'fs.move', 'fs.compress', 'fs.extract', 'fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.chmod', 'fs.chown', 'fs.search', 'fs.scan', 'fs.history_list', 'fs.history_read', 'fs.history_restore',
-        'crowdsec.apply', 'crowdsec.alerts',
+        'crowdsec.apply', 'crowdsec.alerts', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */
@@ -46,6 +46,8 @@ class CommandBus
         'image.scan' => ScanService::class,
         'files' => FileService::class,
         'crowdsec.alerts' => FirewallEventService::class,
+        'av.scan' => AntivirusService::class,
+        'av.action' => AntivirusService::class,
     ];
 
     public function __construct(private JobService $jobs) {}

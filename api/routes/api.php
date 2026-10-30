@@ -209,6 +209,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
 
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
+    // Antivirus (SRS 4.25)
+    Route::get('antivirus', [Admin\AntivirusController::class, 'summary'])->middleware('perm:resources.view|servers.view')->name('antivirus.summary');
+    Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
+    Route::post('antivirus/scan', [Admin\AntivirusController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.scan');
+    Route::post('antivirus/threats/{id}/{action}', [Admin\AntivirusController::class, 'action'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.action');
     Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('firewall.show');
     Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:resources.view|servers.view')->name('firewall.events');
     Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:deploy|settings.manage')->name('firewall.countries');

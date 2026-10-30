@@ -95,6 +95,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.search(ctx, c.Payload)
 	case "fs.scan":
 		return e.scanFiles(ctx, c.Payload)
+	case "av.scan", "av.quarantine", "av.restore", "av.delete":
+		return e.antivirus(ctx, c.Type, c.Payload)
 	case "crowdsec.apply":
 		return e.crowdsecApply(ctx, c.Payload)
 	case "crowdsec.alerts":

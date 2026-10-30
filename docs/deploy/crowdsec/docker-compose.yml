@@ -10,8 +10,9 @@ services:
     networks: [proxy]
     environment:
       # traefik: the access-log parser the panel's scenarios read fields from;
-      # http-cve / base-http-scenarios: CrowdSec's own web attack scenarios.
-      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/base-http-scenarios"
+      # http-cve / base-http-scenarios: CrowdSec's own web attack scenarios;
+      # sshd / wordpress: SSH and wp-login brute force (AV-8).
+      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/base-http-scenarios crowdsecurity/sshd crowdsecurity/wordpress"
       # Same value as CROWDSEC_BOUNCER_KEY in the panel's .env.
       BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_KEY:?set CROWDSEC_BOUNCER_KEY}
       GID: "1000"
@@ -19,6 +20,7 @@ services:
       - /etc/dockermgr/crowdsec:/etc/crowdsec          # config, hub, scenarios/dmp-*.yaml, profiles.yaml
       - crowdsec-data:/var/lib/crowdsec/data
       - /var/log/traefik:/var/log/traefik:ro
+      - /var/log/auth.log:/var/log/auth.log:ro          # AV-8: SSH brute force
       - ./acquis.yaml:/etc/crowdsec/acquis.yaml:ro
 volumes:
   crowdsec-data:

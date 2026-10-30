@@ -18,6 +18,10 @@ Artisan::command('deployments:resume {--stale=10}', function (DeploymentService 
     $this->info('Re-driven deployments: '.$deployments->resumeInterrupted((int) $this->option('stale')));
 })->purpose('Resume or roll back interrupted deployments (SRS 8.3)');
 
+Artisan::command('antivirus:scan-all', function (\App\Services\AntivirusService $antivirus) {
+    $this->info('Queued '.$antivirus->scanAll().' scan(s).');
+})->purpose('AV-3: scan every local volume on every online server');
+
 Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
     $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
 })->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
@@ -162,6 +166,8 @@ Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
+// AV-3: weekly full scan, Sunday 02:00.
+Schedule::command('antivirus:scan-all')->weeklyOn(0, '02:00')->withoutOverlapping();
 // FM-002/003: transfer folders left by finished or abandoned uploads and downloads.
 Schedule::call(function () {
     $disk = \Illuminate\Support\Facades\Storage::disk('local');

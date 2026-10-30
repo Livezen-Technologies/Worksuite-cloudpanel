@@ -48,6 +48,7 @@ var Types = map[string]bool{
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
 	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
 	"crowdsec.apply": true, "crowdsec.alerts": true,
+	"av.scan": true, "av.quarantine": true, "av.restore": true, "av.delete": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -81,9 +82,11 @@ type Executor struct {
 	// CrowdSecDir holds the panel's CrowdSec scenarios and profiles; CrowdSecContainer is the container to check and reload.
 	CrowdSecDir       string
 	CrowdSecContainer string
-	AcmeJSON          string
-	LookPath          func(string) (string, error)
-	StateDir          string
+	// ClamAVContainer runs clamd with the Docker volumes mounted read-only (default "clamav").
+	ClamAVContainer string
+	AcmeJSON        string
+	LookPath        func(string) (string, error)
+	StateDir        string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
 	// AllowLocalGit permits file:// and absolute-path repositories in image.build.
