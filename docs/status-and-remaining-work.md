@@ -30,14 +30,14 @@ WordPress toolkit  100%   all 12 (WP-001..012, #29, #30): inventory, settings,
                           with restore points and automatic rollback, update
                           all, hardening, restore points, staging (clone,
                           refresh, push to live, password + noindex)
-Migration wizard   ~40%   cPanel backup fetch and inspect, pre-flight, site
-                          mapping, resumable copy of files and databases,
-                          temporary hostnames, timeline; left: DNS cutover
-                          and rollback, delta sync, live-source guard, Plesk
-                          and Hestia, bulk migrations, customer requests
+Migration wizard   ~80%   cPanel: fetch and inspect, pre-flight, mapping,
+                          resumable copy, temporary hostnames, timeline, DNS
+                          cutover with a health gate and rollback, delta
+                          sync, bulk, customer requests with approval; left:
+                          Plesk and Hestia sources, customer page in the web
 Other new features   0%   mail hosting, email templates (specified only)
 WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~58%   up from ~40%: file manager, firewall enforcement,
+Overall            ~60%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
 

@@ -87,6 +87,7 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /users ; POST /users/invite ; PATCH /users/{id} {role} ; DELETE /users/{id} | |
 | GET | /roles ; GET /roles/{name} → permission matrix | |
 | GET/PATCH | /settings | general + security policies |
+| POST | /settings/smtp/test | `{to?}` (defaults to your own email; 6 per minute). Sends a test email with the saved SMTP settings. Returns 409 without a host, or 502 with the SMTP server's error. Audited. |
 | CRUD | /notification-channels ; CRUD /integrations | |
 | GET/POST/DELETE | /api-tokens | {name, abilities[], expires_at} → token shown once |
 | GET | /audit-logs | |
@@ -299,6 +300,12 @@ Moves cPanel accounts onto the platform. The agent fetches a cPanel full backup 
 | PATCH | `/migrations/{id}/sites` | MIG-003 `{sites[{domain, enabled?, app_name?, docroot?, database?, target_database_id?}]}`, allowed while the status is `ready`. `target_database_id` must be a MySQL or MariaDB database on the target server. Pre-flight (MIG-002) runs on each read: the domain or app name is already taken, there is no document root, the database is not in the backup, there is no target database, or WordPress has no database. |
 | POST | `/migrations/{id}/start` | MIG-004/005 returns 409 while a pre-flight check fails. For each enabled site it creates an app (`wordpress:6` for WordPress, otherwise `php:8.3-apache`) with `/var/www/html` as its volume, adds `<app>.<platform domain>` as the temporary hostname, and deploys it. A WordPress app gets `WORDPRESS_DB_*` pointing at the target database. When a deployment succeeds, the copy job runs: `migrate.extract` unpacks `homedir/<docroot>/` (regular files and folders only, owned by 33:33; files already present with the same size are skipped, so a copy resumes), `migrate.import_db` creates the database (named after the app) and streams `mysql/<db>.sql` into it, and for WordPress `wp config set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD`. The database password is added only when the agent command is sent; job payloads hold a placeholder. When every site is `migrated`, the migration is `migrated`. |
 | POST | `/migrations/{id}/sites/{index}/retry` | Re-runs one site's copy (failed or migrated); it resumes. |
+| POST | `/migrations/{id}/sites/{index}/cutover` | MIG-007/010: the site must be `migrated` and its temporary address must answer without a 5xx (409 otherwise). If the domain is in a DNS zone the panel manages, its A, AAAA and CNAME records are saved in `previous_records` and deleted, then the domain is added to the app, which writes the new records (DNS-013). Otherwise the domain is added and `dns_records` lists what to set at the DNS host. The site becomes `live`. |
+| POST | `/migrations/{id}/sites/{index}/rollback` | MIG-008: deletes the domain from the app and puts the saved records back in the zone. The site returns to `migrated`; the new app is kept for another try. |
+| POST | `/migrations/{id}/resync` | MIG-009 `{archive_url, sha256?}`: a newer backup of the same account. `migrate.cleanup` and `migrate.fetch` run, then every `migrated`, `live` or `failed` site is copied again (files of the same size are skipped, databases re-imported). A live site stays live. |
+| POST | `/migrations/bulk` | MIG-011 `{server_id, archives[{url, sha256?}]}`, up to 50: one migration each, returns `{queued, ids}`. |
+| POST | `/migrations/{id}/approve` \| `/reject` | UMIG-002: `approve {server_id}` starts the fetch of a customer's request; `reject {reason?}` stores the reason, which the customer sees. Only `requested` migrations. Platform administrators see every organisation's requests. |
+| GET \| POST | `/app/migrations` | UMIG-001/003 (customer, `app.manage`): `POST {archive_url, sha256?, notes?}` returns 201 with `status: requested`, and nothing runs until approval. At most five may be waiting at once. `GET` lists the customer's requests with their sites, temporary addresses, timeline and decision. |
 
 ## WordPress toolkit (SRS WP)
 

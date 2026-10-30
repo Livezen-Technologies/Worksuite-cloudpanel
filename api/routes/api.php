@@ -244,6 +244,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     // WordPress toolkit (SRS WP)
     Route::get('migrations', [Admin\MigrationController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('migrations.index');
     Route::post('migrations', [Admin\MigrationController::class, 'store'])->middleware('perm:deploy')->name('migrations.store');
+    Route::post('migrations/bulk', [Admin\MigrationController::class, 'bulk'])->middleware('perm:deploy')->name('migrations.bulk');
+    Route::post('migrations/{id}/{decision}', [Admin\MigrationController::class, 'decide'])->middleware('perm:deploy')->whereIn('decision', ['approve', 'reject'])->name('migrations.decide');
+    Route::post('migrations/{id}/resync', [Admin\MigrationController::class, 'resync'])->middleware('perm:deploy')->name('migrations.resync');
+    Route::post('migrations/{id}/sites/{site}/{action}', [Admin\MigrationController::class, 'dns'])->middleware('perm:deploy')->whereNumber('site')->whereIn('action', ['cutover', 'rollback'])->name('migrations.dns');
     Route::get('migrations/{id}', [Admin\MigrationController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('migrations.show');
     Route::patch('migrations/{id}/sites', [Admin\MigrationController::class, 'map'])->middleware('perm:deploy')->name('migrations.map');
     Route::post('migrations/{id}/start', [Admin\MigrationController::class, 'start'])->middleware('perm:deploy')->name('migrations.start');
@@ -298,6 +302,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::get('roles/{name}', [Admin\RoleController::class, 'show'])->middleware('perm:users.manage|audit.view')->where('name', '[a-z_]+')->name('roles.show');
     Route::get('settings', [Admin\SettingsController::class, 'show'])->middleware('perm:settings.manage')->name('settings.show');
     Route::patch('settings', [Admin\SettingsController::class, 'update'])->middleware('perm:settings.manage')->name('settings.update');
+    Route::post('settings/smtp/test', [Admin\SettingsController::class, 'testSmtp'])->middleware(['perm:settings.manage', 'throttle:6,1'])->name('settings.smtp-test');
     $crud('notification-channels', Admin\NotificationChannelController::class, 'settings.manage', 'settings.manage');
     Route::post('notification-channels/{id}/test', [Admin\NotificationChannelController::class, 'test'])->middleware('perm:settings.manage')->name('notification-channels.test');
     $crud('integrations', Admin\IntegrationController::class, 'settings.manage', 'settings.manage');
@@ -312,6 +317,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // UMIG: migration requests; an administrator approves and runs them.
+            Route::get('migrations', [Customer\MigrationController::class, 'index'])->name('migrations.index');
+            Route::post('migrations', [Customer\MigrationController::class, 'store'])->name('migrations.store');
             Route::post('apps', [Customer\AppController::class, 'store'])->name('apps.store');
             Route::post('apps/validate-source', [Customer\AppController::class, 'validateSource'])->name('apps.validate-source');
             Route::get('apps/{id}', [Customer\AppController::class, 'show'])->name('apps.show');

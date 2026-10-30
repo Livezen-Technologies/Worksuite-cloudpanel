@@ -18,9 +18,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Migration wizard (SRS MIG-001..006): a cPanel full backup is fetched onto the target
- * server and inspected (pre-flight); each site is mapped to a new app, which is deployed
- * on a temporary platform hostname and then filled with the site's files and database.
+ * Migration wizard (SRS MIG-001..011, UMIG): a cPanel full backup is fetched onto the
+ * target server and inspected (pre-flight); each site is mapped to a new app, which is
+ * deployed on a temporary platform hostname and then filled with the site's files and
+ * database. A checked site is cut over by DNS, can be rolled back, and can be re-synced.
  */
 class MigrationService implements HandlesCommandResults
 {
@@ -44,12 +45,152 @@ class MigrationService implements HandlesCommandResults
         ]);
         $m->event('Migration created; fetching the backup');
         $this->audit->log('migration.create', 'site_migrations', $m->id, ['server' => $server->name, 'source' => 'cpanel']);
-        $this->run($m, 'inspect', [
-            ['migrate.fetch', ['url' => $data['archive_url'], 'sha256' => $data['sha256'] ?? '']],
-            ['migrate.inspect', []],
-        ], $userId);
+        $this->fetch($m, $userId);
 
         return $m;
+    }
+
+    /** MIG-011: several accounts at once, one migration each. */
+    public function bulk(string $serverId, array $archives, ?string $userId): array
+    {
+        return array_map(fn ($a) => $this->create(['server_id' => $serverId, 'archive_url' => $a['url'], 'sha256' => $a['sha256'] ?? null], $userId), $archives);
+    }
+
+    /** UMIG-001: a customer asks for a migration; nothing runs until an administrator approves. */
+    public function request(array $data, string $userId): SiteMigration
+    {
+        $m = SiteMigration::create([
+            'source' => 'cpanel', 'archive_url' => $data['archive_url'], 'archive_sha256' => $data['sha256'] ?? null,
+            'status' => 'requested', 'notes' => $data['notes'] ?? null, 'requested_by' => $userId, 'created_by' => $userId,
+        ]);
+        $m->event('Migration requested');
+        $this->audit->log('migration.request', 'site_migrations', $m->id, []);
+
+        return $m;
+    }
+
+    /** UMIG-002: approve onto a server (the fetch starts) or reject with a reason. */
+    public function decide(SiteMigration $m, bool $approve, ?string $serverId, ?string $reason, ?string $userId): SiteMigration
+    {
+        if ($m->status !== 'requested') {
+            throw ApiException::conflict('Only a pending request can be approved or rejected.');
+        }
+        if (! $approve) {
+            $m->update(['status' => 'rejected', 'decision' => $reason]);
+            $m->event('Request rejected'.($reason ? ': '.$reason : ''));
+            $this->audit->log('migration.reject', 'site_migrations', $m->id, ['reason' => $reason]);
+
+            return $m;
+        }
+        $server = Server::allTenants()->find($serverId) ?? throw ApiException::validation(['server_id' => ['Choose the server to migrate onto.']]);
+        if (! $server->isOnline()) {
+            throw ApiException::conflict('The target server is offline.');
+        }
+        $m->update(['status' => 'fetching', 'server_id' => $server->id, 'decision' => $reason]);
+        $m->event('Request approved; fetching the backup');
+        $this->audit->log('migration.approve', 'site_migrations', $m->id, ['server' => $server->name]);
+        $this->fetch($m, $userId);
+
+        return $m;
+    }
+
+    private function fetch(SiteMigration $m, ?string $userId, string $action = 'inspect'): Job
+    {
+        $steps = [['migrate.fetch', ['url' => $m->archive_url, 'sha256' => $m->archive_sha256 ?? '']]];
+        if ($action === 'inspect') {
+            $steps[] = ['migrate.inspect', []];
+        } else {
+            array_unshift($steps, ['migrate.cleanup', []]);
+        }
+
+        return $this->run($m, $action, $steps, $userId);
+    }
+
+    /**
+     * MIG-009: delta sync. A newer backup of the same account is fetched and every copied site
+     * is copied again: files of the same size are skipped, the databases are re-imported.
+     */
+    public function resync(SiteMigration $m, string $url, ?string $sha256, ?string $userId): Job
+    {
+        if (! in_array($m->status, ['migrated', 'migrating'], true) || ! collect($m->sites)->contains(fn ($s) => in_array($s['status'], ['migrated', 'live', 'failed'], true))) {
+            throw ApiException::conflict('Nothing has been copied yet.');
+        }
+        $m->update(['archive_url' => $url, 'archive_sha256' => $sha256]);
+        $m->event('Fetching a newer backup for a delta sync');
+        $this->audit->log('migration.resync', 'site_migrations', $m->id, []);
+
+        return $this->fetch($m, $userId, 'resync');
+    }
+
+    /**
+     * MIG-007 / MIG-010: point the domain at the new app. The site must answer on its temporary
+     * address first. In a DNS zone the panel manages, the old records are kept for a rollback
+     * and replaced; otherwise the domain is added and the records to set are returned.
+     */
+    public function cutover(SiteMigration $m, int $i, ?string $userId): SiteMigration
+    {
+        $s = $m->sites[$i] ?? throw ApiException::validation(['site' => ['No such site.']]);
+        if ($s['status'] !== 'migrated') {
+            throw ApiException::conflict('Only a copied site can be cut over.');
+        }
+        if ($error = $this->check($s['temp_url'] ?? '')) {
+            throw ApiException::conflict("The new site does not answer on {$s['temp_url']} ({$error}); fix it before moving DNS.");
+        }
+        $zone = \App\Models\DnsZone::forDomain($s['domain'], $m->organization_id);
+        $previous = [];
+        if ($zone) {
+            foreach ($zone->records()->withoutGlobalScope('organization')->where('name', $s['domain'])->whereIn('type', ['A', 'AAAA', 'CNAME'])->get() as $r) {
+                $previous[] = ['type' => $r->type, 'content' => $r->content, 'ttl' => $r->ttl, 'proxied' => $r->proxied];
+                app(DnsZoneService::class)->deleteRecord($zone, $r);
+            }
+        }
+        $domain = app(DomainService::class)->create(['name' => $s['domain'], 'application_id' => $s['app_id'], 'target_port' => 80]);
+        $sites = $m->sites;
+        $sites[$i] = array_merge($s, ['status' => 'live', 'domain_id' => $domain->id, 'zone_id' => $zone?->id, 'previous_records' => $previous,
+            'dns_records' => $zone ? [] : app(DomainService::class)->expectedRecords($domain), 'cutover_at' => now()->toIso8601ZuluString()]);
+        $m->update(['sites' => $sites]);
+        $m->event($zone ? "{$s['domain']} now points at the new app (DNS updated in the {$zone->name} zone)" : "{$s['domain']} added; change its DNS records to finish the cutover");
+        $this->audit->log('migration.cutover', 'site_migrations', $m->id, ['domain' => $s['domain'], 'zone' => $zone?->name, 'previous' => $previous]);
+
+        return $m->fresh();
+    }
+
+    /** MIG-008: undo a cutover. The old DNS records come back; the new app stays for another try. */
+    public function rollback(SiteMigration $m, int $i, ?string $userId): SiteMigration
+    {
+        $s = $m->sites[$i] ?? throw ApiException::validation(['site' => ['No such site.']]);
+        if ($s['status'] !== 'live') {
+            throw ApiException::conflict('Only a cut-over site can be rolled back.');
+        }
+        $zone = $s['zone_id'] ? \App\Models\DnsZone::allTenants()->with(['provider' => fn ($q) => $q->withoutGlobalScope('organization')])->find($s['zone_id']) : null;
+        if ($zone) {
+            foreach ($zone->records()->withoutGlobalScope('organization')->where('name', $s['domain'])->whereIn('type', ['A', 'AAAA', 'CNAME'])->get() as $r) {
+                app(DnsZoneService::class)->deleteRecord($zone, $r);
+            }
+            foreach ($s['previous_records'] as $r) {
+                app(DnsZoneService::class)->createRecord($zone, ['type' => $r['type'], 'name' => $s['domain'], 'content' => $r['content'], 'ttl' => $r['ttl'], 'proxied' => (bool) $r['proxied']]);
+            }
+        }
+        Domain::allTenants()->find($s['domain_id'])?->delete();
+        $sites = $m->sites;
+        $sites[$i] = array_merge(array_diff_key($s, array_flip(['domain_id', 'zone_id', 'previous_records', 'dns_records', 'cutover_at'])), ['status' => 'migrated']);
+        $m->update(['sites' => $sites]);
+        $m->event("Rolled back {$s['domain']}".($zone ? '; the old DNS records are restored' : '; point its DNS back at the old server'));
+        $this->audit->log('migration.rollback', 'site_migrations', $m->id, ['domain' => $s['domain']]);
+
+        return $m->fresh();
+    }
+
+    /** Null when the URL answers without a server error. */
+    private function check(string $url): ?string
+    {
+        try {
+            $res = \Illuminate\Support\Facades\Http::timeout(20)->get($url);
+        } catch (\Throwable) {
+            return 'no answer';
+        }
+
+        return $res->serverError() ? 'HTTP '.$res->status() : null;
     }
 
     /** MIG-002: what would block or change the migration, per site. */
@@ -203,6 +344,7 @@ class MigrationService implements HandlesCommandResults
             }
         }
         $sites = $m->sites;
+        $sites[$i]['was_live'] = $sites[$i]['status'] === 'live' || ($sites[$i]['was_live'] ?? false);
         $sites[$i]['status'] = 'copying';
         $m->update(['sites' => $sites]);
         $m->event("Copying {$s['domain']} into {$app->name}");
@@ -250,11 +392,22 @@ class MigrationService implements HandlesCommandResults
 
             return;
         }
+        if (($job->payload['action'] ?? null) === 'resync') {
+            $this->jobs->succeed($job, ['migration_id' => $m->id]);
+            foreach ($m->fresh()->sites as $i => $s) {
+                if (in_array($s['status'], ['migrated', 'live', 'failed'], true) && isset($s['app_id'])) {
+                    $this->copySite($m->fresh(), $i, $job->user_id);
+                }
+            }
+
+            return;
+        }
         if ($site !== null) {
             $sites = $m->fresh()->sites;
-            $sites[$site]['status'] = 'migrated';
+            $sites[$site]['status'] = ($sites[$site]['was_live'] ?? false) ? 'live' : 'migrated';
+            unset($sites[$site]['was_live']);
             unset($sites[$site]['error']);
-            $done = collect($sites)->where('enabled', true)->every(fn ($s) => $s['status'] === 'migrated');
+            $done = collect($sites)->where('enabled', true)->every(fn ($s) => in_array($s['status'], ['migrated', 'live'], true));
             $m->update(['sites' => $sites, 'status' => $done ? 'migrated' : $m->status]);
             $m->event("{$sites[$site]['domain']} is migrated; check it at {$sites[$site]['temp_url']}");
         }
