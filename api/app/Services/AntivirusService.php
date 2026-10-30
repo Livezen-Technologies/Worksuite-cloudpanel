@@ -97,6 +97,11 @@ class AntivirusService implements HandlesCommandResults
 
             return;
         }
+        if ($command->type === 'av.events') {
+            $this->realtimeEvents($command, $job);
+
+            return;
+        }
         if ($command->type !== 'av.scan') {
             $this->resolveCommand($command, $job);
 
@@ -108,16 +113,51 @@ class AntivirusService implements HandlesCommandResults
             return;
         }
         $volume = Volume::allTenants()->find($job->payload['volume_id'] ?? null);
+        $new = $this->recordThreats($command->server_id, $volume, (array) ($command->output['threats'] ?? []), $job->organization_id);
+        $this->jobs->succeed($job, ['threats' => count((array) ($command->output['threats'] ?? [])), 'new' => $new]);
+        if ($new > 0 && $volume) {
+            $this->notifyDetections($this->owner($volume), $volume, $new);
+        }
+    }
+
+    /** AV-2: detections clamonacc logged as files were written, grouped by volume. */
+    private function realtimeEvents(AgentCommand $command, Job $job): void
+    {
+        if ($command->status !== 'succeeded') {
+            $this->jobs->fail($job, (string) ($command->message ?: 'Reading real-time detections failed.'), 'execute');
+
+            return;
+        }
+        $total = 0;
+        foreach (collect((array) ($command->output['threats'] ?? []))->groupBy('volume') as $name => $threats) {
+            $volume = Volume::allTenants()->where('server_id', $command->server_id)->where('name', $name)->first();
+            if (! $volume) {
+                continue;
+            }
+            $owner = $this->owner($volume);
+            $allowed = AntivirusAllow::allTenants()->where('organization_id', $owner)->pluck('sha256')->all();
+            $new = $this->recordThreats($command->server_id, $volume, $threats->reject(fn ($t) => in_array($t['sha256'], $allowed, true))->all(), $owner);
+            if ($new) {
+                $this->notifyDetections($owner, $volume, $new);
+            }
+            $total += $new;
+        }
+        $this->jobs->succeed($job, ['new' => $total]);
+    }
+
+    /** Turns reported infected files into threats, skipping ones already open. Returns how many are new. */
+    private function recordThreats(string $serverId, ?Volume $volume, array $threats, ?string $fallbackOrg): int
+    {
         $new = 0;
-        foreach ((array) ($command->output['threats'] ?? []) as $t) {
-            $owner = $volume ? $this->owner($volume) : $job->organization_id;
-            $open = Threat::allTenants()->where('server_id', $command->server_id)->where('volume_name', $volume?->name)
+        foreach ($threats as $t) {
+            $owner = $volume ? $this->owner($volume) : $fallbackOrg;
+            $open = Threat::allTenants()->where('server_id', $serverId)->where('volume_name', $volume?->name)
                 ->where('path', $t['path'])->where('sha256', $t['sha256'])->whereIn('status', ['infected', 'quarantined'])->exists();
             if ($open) {
                 continue; // already known; a weekly scan must not duplicate it
             }
             $threat = Threat::allTenants()->create([
-                'organization_id' => $owner, 'server_id' => $command->server_id, 'volume_id' => $volume?->id, 'volume_name' => $volume?->name ?? '',
+                'organization_id' => $owner, 'server_id' => $serverId, 'volume_id' => $volume?->id, 'volume_name' => $volume?->name ?? '',
                 'path' => $t['path'], 'signature' => $t['signature'], 'sha256' => $t['sha256'], 'size' => (int) ($t['size'] ?? 0),
                 'status' => 'infected', 'detected_at' => now(),
             ]);
@@ -126,10 +166,8 @@ class AntivirusService implements HandlesCommandResults
                 $this->dispatchAction($threat, 'quarantine');
             }
         }
-        $this->jobs->succeed($job, ['threats' => count((array) ($command->output['threats'] ?? [])), 'new' => $new]);
-        if ($new > 0 && $volume) {
-            $this->notifyDetections($this->owner($volume), $volume, $new);
-        }
+
+        return $new;
     }
 
     /** AV-14: one message per scan with new detections, to the owning organisation's channels. */
@@ -168,6 +206,12 @@ class AntivirusService implements HandlesCommandResults
         }
         if (! config('platform.crowdsec.enabled')) {
             $orgFixes[] = ['points' => 5, 'fix' => 'Enable the CrowdSec firewall so brute-force sources are banned.'];
+        }
+        if (config('platform.waf.enabled')) {
+            $open = \App\Models\Domain::query()->whereNotNull('application_id')->get()->filter(fn ($d) => ($d->options['waf']['mode'] ?? 'off') !== 'block')->count();
+            if ($open) {
+                $orgFixes[] = ['points' => 5, 'fix' => "Set the web application firewall to Block on {$open} domain".($open === 1 ? '' : 's').'.'];
+            }
         }
         $critical = \App\Models\Image::query()->get()->filter(fn ($i) => ($i->scan_result['critical'] ?? 0) > 0)->count();
         if ($critical) {

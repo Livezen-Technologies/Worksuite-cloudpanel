@@ -51,10 +51,19 @@ return [
     // SRS 4.25 antivirus: ClamAV on each server (docs/deploy/clamav).
     'antivirus' => [
         'auto_quarantine' => (bool) env('ANTIVIRUS_AUTO_QUARANTINE', true),
+        // AV-12: addresses of known mining pools to drop, comma separated (IPs or CIDRs).
+        'pool_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ANTIVIRUS_POOL_ADDRESSES', ''))))),
     ],
 
     // FW-001 enforcement through CrowdSec (docs/deploy/crowdsec). Off until the
     // ingress runs the CrowdSec container and the Traefik bouncer plugin.
+    // AV-9: OWASP Core Rule Set through the Coraza Traefik plugin (docs/deploy/traefik). Off until
+    // the ingress Traefik loads the plugin; then each domain chooses Off, Detect only or Block.
+    'waf' => [
+        'enabled' => (bool) env('WAF_ENABLED', false),
+        'plugin' => env('WAF_TRAEFIK_PLUGIN', 'coraza'),   // name under experimental.plugins in traefik.yml
+    ],
+
     'crowdsec' => [
         'enabled' => (bool) env('CROWDSEC_ENABLED', false),
         'lapi_host' => env('CROWDSEC_LAPI_HOST', 'crowdsec:8080'),

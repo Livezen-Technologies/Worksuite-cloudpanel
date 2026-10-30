@@ -18,6 +18,11 @@ export default function Antivirus() {
   const summary = useOne<R>('/antivirus')
   const score = useOne<R>('/antivirus/score')
   const integrity = useOne<R>('/antivirus/integrity')
+  const servers = useList<R>('/servers')
+  const [serverId, setServerId] = useState('')
+  const security = useOne<R>(serverId ? `/antivirus/servers/${serverId}` : null, undefined, { retry: false })
+  const sec = security.item
+  const setSecurity = (body: R, label: string) => run({ path: `/antivirus/servers/${serverId}`, method: 'PATCH', body, label }).then(() => security.refetch())
   const fim = (volumeId: string, action: 'baseline' | 'check' | 'accept', name: string) => run({
     path: `/antivirus/integrity/${volumeId}/${action}`, label: `${{ baseline: 'Baseline', check: 'Integrity check', accept: 'Accept changes' }[action]} for ${name}`,
   }).then(() => { integrity.refetch(); score.refetch() })
@@ -74,6 +79,31 @@ export default function Antivirus() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card title="Server protection" actions={
+        <select className="input h-9" aria-label="Server" value={serverId} onChange={(e) => setServerId(e.target.value)}>
+          <option value="">Choose a server…</option>
+          {servers.rows.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
+        </select>}>
+        {!serverId ? <p className="m-0 text-sm text-muted">Real-time scanning and outbound abuse limits are set per server by platform administrators.</p>
+        : security.error ? <p className="m-0 text-sm text-danger">{(security.error as Error).message}</p>
+        : !sec ? <p className="m-0 text-sm text-muted">Loading…</p>
+        : (
+          <div className="flex flex-col gap-3 text-sm">
+            <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={!!sec.realtime} disabled={busy} onChange={(e) => setSecurity({ realtime: e.target.checked }, 'Real-time scanning')} />
+              <span><span className="font-semibold">Real-time scanning</span><br /><span className="text-muted">Files written to this server's volumes are scanned as they are written. Detections appear as threats within 5 minutes.</span></span></label>
+            <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={!!(sec.egress as R)?.enabled} disabled={busy} onChange={(e) => setSecurity({ egress: { enabled: e.target.checked } }, 'Outbound limits')} />
+              <span><span className="font-semibold">Outbound abuse limits</span><br /><span className="text-muted">Stops sites on this server from reaching crypto-mining pools and from flooding mail servers.</span></span></label>
+            {!!(sec.egress as R)?.enabled && <div className="flex flex-wrap gap-4 pl-6">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!(sec.egress as R).block_mining} disabled={busy} onChange={(e) => setSecurity({ egress: { block_mining: e.target.checked } }, 'Mining block')} />Block mining pools</label>
+              <label className="flex items-center gap-2">New SMTP connections per minute, per site
+                <input className="input h-9 w-24" type="number" min={0} max={10000} defaultValue={Number((sec.egress as R).smtp_per_minute)} key={String((sec.egress as R).smtp_per_minute)}
+                  onBlur={(e) => { const n = Number(e.target.value); if (n !== Number((sec.egress as R).smtp_per_minute)) setSecurity({ egress: { smtp_per_minute: n } }, 'SMTP limit') }} />
+                <span className="text-xs text-muted">0 = no limit</span></label>
+            </div>}
+          </div>
         )}
       </Card>
 

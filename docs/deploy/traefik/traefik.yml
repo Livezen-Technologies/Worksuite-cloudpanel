@@ -82,3 +82,8 @@ experimental:
     bouncer:
       moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
       version: v1.8.1
+    # AV-9 web application firewall: OWASP Core Rule Set through Coraza (WASM). Set WAF_ENABLED=true on
+    # the panel once this is loaded; each domain then chooses Off, Detect only or Block.
+    coraza:
+      moduleName: github.com/jcchavezs/coraza-http-wasm-traefik
+      version: v0.3.0

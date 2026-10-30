@@ -29,9 +29,41 @@ printf 'X5O!P%%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' 
 then scan that volume from the Antivirus page: `eicar.txt` should appear as
 `Eicar-Signature` and move to quarantine.
 
+## Real-time scanning (AV-2)
+
+Platform staff switch it on per server under Antivirus → Server protection. The panel then starts
+`clamonacc` in this container with the server's volumes as its watch list, and every 5 minutes reads its
+detections from `/var/log/clamav/clamonacc.log`, which turn into threats like those from a full scan.
+clamonacc needs fanotify, so the container needs two changes:
+
+1. In `docker-compose.yml`, under `clamav:`, add:
+
+   ```yaml
+       cap_add: [SYS_ADMIN]          # fanotify
+       security_opt: [apparmor:unconfined]
+   ```
+
+2. Copy the image's `clamd.conf` out once
+   (`docker cp clamav:/etc/clamav/clamd.conf ./clamd.conf`). Add these lines and mount it at
+   `/etc/clamav/clamd.conf:ro`:
+
+   ```
+   OnAccessPrevention no          # report, never block writes; the panel quarantines
+   OnAccessExcludeUname clamav    # never scan clamd's own reads
+   OnAccessMaxFileSize 25M
+   ```
+
+The settings are applied again every hour, so a rebooted server watches its volumes again without anyone
+logging in.
+
+## Quarantine encryption (AV-5)
+
+The agent encrypts quarantined files itself, so there is nothing to set up. The key is
+`<agent state>/quarantine.key`. Back it up with the agent's state if quarantined files must survive a
+rebuild of the server.
+
 ## Not covered yet
 
-- Real-time scanning on write (AV-2) and encrypting the quarantine store.
 - Files readable only by their owner may be skipped if clamd cannot open them; check
   `docker logs clamav` for "Access denied" after the first scan.
 

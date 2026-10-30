@@ -247,6 +247,12 @@ export function Domains() {
           { key: 'port', header: 'Port', value: (r) => r.target_port ?? r.port ?? '—' },
           { key: 'cert', header: 'Certificate', value: (r) => certState(r), render: (r) => <Badge tone={toneFor(certState(r).split(' ')[0])}>{certState(r)}</Badge> },
           { key: 'expires', header: 'Expires', value: (r) => certDays(r) ?? 9999, render: (r) => { const d = certDays(r); return d === null ? (r.https_status === 'active' ? 'n/a' : 'no certificate') : `${d} days` } },
+          { key: 'waf', header: 'WAF', render: (r) => (
+            <select className="input h-8 text-sm" aria-label={`Web application firewall for ${domainName(r)}`} value={String(r.options?.waf?.mode ?? 'off')}
+              onChange={(e) => run({ path: `/domains/${r.id}/waf`, method: 'PATCH', body: { mode: e.target.value }, label: `WAF for ${domainName(r)}` }).catch(() => {})}>
+              <option value="off">Off</option><option value="detect">Detect only</option><option value="block">Block</option>
+            </select>
+          ) },
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ? `${r.challenge}${r.dns_zone ? ` via ${r.dns_zone.name}` : ''}` : '—' },
           { key: 'act', header: '', sortable: false, render: (r) => (
             <span className="flex gap-2">
