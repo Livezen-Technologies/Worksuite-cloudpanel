@@ -131,7 +131,7 @@ class AppServiceProvider extends ServiceProvider
                 'mail.mailers.smtp.port' => (int) ($smtp['port'] ?? 587),
                 'mail.mailers.smtp.username' => $smtp['username'] ?? null,
                 'mail.mailers.smtp.password' => $password,
-                'mail.mailers.smtp.scheme' => \App\Support\Smtp::scheme($smtp['encryption'] ?? 'tls'),
+                'mail.mailers.smtp.scheme' => \App\Support\Smtp::scheme($smtp['encryption'] ?? 'tls', (int) ($smtp['port'] ?? 587)),
                 'mail.from.address' => $smtp['from_address'] ?: config('mail.from.address'),
                 'mail.from.name' => $smtp['from_name'] ?: config('mail.from.name'),
             ]);
