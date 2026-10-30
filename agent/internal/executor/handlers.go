@@ -91,6 +91,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.fileOps(ctx, c.Type, c.Payload)
 	case "fs.chmod", "fs.chown":
 		return e.perms(ctx, c.Type, c.Payload)
+	case "fs.search":
+		return e.search(ctx, c.Payload)
 	case "firewall.apply":
 		return e.applyFirewall(ctx, c.Payload, progress)
 	case "firewall.confirm":

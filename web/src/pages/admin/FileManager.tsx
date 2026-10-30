@@ -13,6 +13,12 @@ const OWNER_ROLES = ['super_admin', 'infra_admin', 'devops']
 
 interface TrashItem { id: string; path: string; type: string; size: number; deleted_at: string; expires_at: string }
 const ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i
+/** Shown inline from a signed link (the API serves only these inline). */
+const MEDIA = /\.(png|jpe?g|gif|webp|avif|bmp|ico|pdf|mp4|webm|ogv|mov|mp3|ogg|oga|wav|m4a)$/i
+/** Shown as text: code, config, logs, and HTML/SVG, which never render on the panel's origin. */
+const TEXT = /\.(txt|md|log|csv|json|ya?ml|xml|ini|conf|env|htaccess|php|js|mjs|ts|tsx|jsx|css|scss|html?|svg|sql|sh|py|rb|go|vue|twig|blade\.php)$|^\.[a-z]+$/i
+const previewKind = (name: string) => (MEDIA.test(name) ? 'media' : TEXT.test(name) ? 'text' : null)
+interface Hit extends Entry { path: string }
 interface Entry { name: string; type: 'dir' | 'file' | 'symlink' | 'other'; size: number; mode: string; modified: string; uid?: number; gid?: number }
 
 /** File operations run on the agent: start one, then wait for its job to finish and return the result. */
@@ -141,7 +147,11 @@ export function FileManager() {
   const [naming, setNaming] = useState<{ kind: 'folder' | 'file' | 'rename'; target?: Entry; value: string } | null>(null)
   const [deleting, setDeleting] = useState<Entry[] | null>(null)
   const [permanent, setPermanent] = useState(false)
-  const [view, setView] = useState<'files' | 'trash'>('files')
+  const [view, setView] = useState<'files' | 'trash' | 'search'>('files')
+  const [advanced, setAdvanced] = useState(false)
+  const [query, setQuery] = useState({ name: '', extensions: '', min: '', max: '', after: '', before: '' })
+  const [hits, setHits] = useState<{ items: Hit[]; truncated: boolean } | null>(null)
+  const [preview, setPreview] = useState<{ name: string; path: string; url?: string; text?: string } | null>(null)
   const [trash, setTrash] = useState<TrashItem[] | null>(null)
   const [trashSel, setTrashSel] = useState<Set<string>>(new Set())
   const { me } = useAuth()
@@ -309,6 +319,45 @@ export function FileManager() {
     }, () => { setPerm(null); setSelected(new Set()) })
   }
 
+  async function runSearch() {
+    const q: Record<string, string | number | undefined> = { path: dir }
+    if (query.name.trim()) q.name = query.name.trim()
+    const exts = query.extensions.split(/[\s,]+/).map((x) => x.replace(/^\./, '')).filter(Boolean)
+    if (query.min) q.min_size = Math.round(Number(query.min) * 1048576)
+    if (query.max) q.max_size = Math.round(Number(query.max) * 1048576)
+    if (query.after) q.modified_after = query.after
+    if (query.before) q.modified_before = query.before
+    exts.forEach((x, i) => { q[`extensions[${i}]`] = x })
+    setView('search'); setLoading(true); setError(null); setHits(null)
+    try {
+      const r = await fsCall<{ hits: Hit[]; truncated: boolean }>(() => api.get(`${base}/search`, q))
+      setHits({ items: r.hits, truncated: r.truncated })
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function openPreview(name: string, path: string) {
+    const kind = previewKind(name)
+    if (!kind) return
+    setBusy(true)
+    try {
+      if (kind === 'media') {
+        const r = await fsCall<{ download_url: string }>(() => api.post(`${base}/preview`, { path }))
+        setPreview({ name, path, url: r.download_url })
+      } else {
+        const r = await fsCall<{ content: string }>(() => api.get(`${base}/content`, { path }))
+        setPreview({ name, path, text: r.content })
+      }
+    } catch (e) {
+      toast.push({ kind: 'error', title: `Could not preview ${name}`, detail: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function toggle(name: string) {
     const next = new Set(selected)
     if (next.has(name)) next.delete(name); else next.add(name)
@@ -399,11 +448,53 @@ export function FileManager() {
                 <div className="h-1.5 rounded bg-[var(--track)] overflow-hidden"><div className={`h-full bg-[var(--accent)] ${transfer.pct === null ? 'w-1/3 animate-pulse' : ''}`} style={transfer.pct !== null ? { width: `${transfer.pct}%` } : undefined} /></div>
               </div>
             )}
-            {view === 'files' && <div className="flex items-center gap-3 px-4 py-2 border-b border-line">
+            {view !== 'trash' && <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line">
               <label className="sr-only" htmlFor="fm-filter">Filter this folder</label>
-              <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <input id="fm-filter" className="input h-9 flex-1 min-w-0" placeholder="Filter by name…" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filter.trim()) { setQuery({ ...query, name: filter.trim() }); setAdvanced(true) } }} />
+              <button type="button" className="btn btn-sm" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!query.name && filter) setQuery({ ...query, name: filter }) }}>Search all folders</button>
+              {advanced && (
+                <form className="w-full grid gap-3 py-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
+                  <label className="label">Name contains<input className="input h-9" value={query.name} onChange={(e) => setQuery({ ...query, name: e.target.value })} /></label>
+                  <label className="label">Extensions<input className="input h-9 font-mono" placeholder="php, js" value={query.extensions} onChange={(e) => setQuery({ ...query, extensions: e.target.value })} /></label>
+                  <label className="label">Min size (MB)<input className="input h-9" inputMode="decimal" value={query.min} onChange={(e) => setQuery({ ...query, min: e.target.value })} /></label>
+                  <label className="label">Max size (MB)<input className="input h-9" inputMode="decimal" value={query.max} onChange={(e) => setQuery({ ...query, max: e.target.value })} /></label>
+                  <label className="label">Modified after<input type="date" className="input h-9" value={query.after} onChange={(e) => setQuery({ ...query, after: e.target.value })} /></label>
+                  <label className="label">Modified before<input type="date" className="input h-9" value={query.before} onChange={(e) => setQuery({ ...query, before: e.target.value })} /></label>
+                  <div className="flex items-end gap-2">
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !Object.values(query).some((v) => v.trim())}>Search</button>
+                    {view === 'search' && <button type="button" className="btn btn-sm" onClick={() => load(dir)}>Clear</button>}
+                  </div>
+                </form>
+              )}
             </div>}
-            {view === 'trash' ? (
+            {view === 'search' ? (
+              error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
+              : loading || !hits ? <Empty>Searching {dir || 'the whole site'}…</Empty>
+              : !hits.items.length ? <Empty>Nothing matches. Searched {dir || 'the whole site'} and everything below it.</Empty>
+              : (
+                <table className="w-full border-collapse text-[15px]">
+                  <thead><tr className="bg-[var(--head)] text-left">
+                    <th className="px-4 py-3 font-semibold">Found in {dir || volume?.name}</th>
+                    <th className="px-4 py-3 font-medium text-muted">Modified</th>
+                    <th className="px-4 py-3 font-medium text-muted text-right">Size</th>
+                  </tr></thead>
+                  <tbody>{hits.items.map((h) => (
+                    <tr key={h.path} className="group border-t border-line hover:bg-[var(--head)]">
+                      <td className="px-4 py-2"><div className="flex items-center gap-3 min-h-9">
+                        <IconSvg d={iconFor(h)} size={20} className="text-muted shrink-0" />
+                        <button type="button" className="bg-transparent border-0 p-0 cursor-pointer text-[var(--text)] font-mono text-sm text-left truncate" onClick={() => load(h.type === 'dir' ? h.path : parentOf(h.path))}>{h.path}</button>
+                        <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                          {h.type === 'file' && previewKind(h.name) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => openPreview(h.name, h.path)}>Preview</button>}
+                          <button type="button" className="btn btn-sm" onClick={() => load(h.type === 'dir' ? h.path : parentOf(h.path))}>Open folder</button>
+                        </span>
+                      </div></td>
+                      <td className="px-4 py-2 text-muted whitespace-nowrap text-sm">{new Date(h.modified).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-right text-muted whitespace-nowrap">{h.type === 'dir' ? 'Folder' : size(h.size)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )
+            ) : view === 'trash' ? (
               error ? <div role="alert" className="p-6 text-sm text-danger">{error}</div>
               : loading && !trash ? <Empty>Loading…</Empty>
               : !trash?.length ? <Empty>Trash is empty. Deleted items stay here for 7 days.</Empty>
@@ -457,6 +548,7 @@ export function FileManager() {
                           <span className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                             {r.type === 'file' && ARCHIVE.test(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Extract ${r.name}`} onClick={() => opFor('extract', [r.name])}>Extract</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Download ${r.name}`} onClick={() => download([r.name])}>Download</button>}
+                            {r.type === 'file' && previewKind(r.name) && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Preview ${r.name}`} onClick={() => openPreview(r.name, join(dir, r.name))}>Preview</button>}
                             {(r.type === 'file' || r.type === 'dir') && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Permissions of ${r.name}`} onClick={() => openPerms([r])}>Permissions</button>}
                             <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Rename ${r.name}`} onClick={() => setNaming({ kind: 'rename', target: r, value: r.name })}>Rename</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} aria-label={`Delete ${r.name}`} onClick={() => { setPermanent(false); setDeleting([r]) }}>Delete</button>
@@ -473,7 +565,9 @@ export function FileManager() {
         </div>
 
         <div className="flex flex-wrap justify-between gap-2 px-6 pb-5 text-[15px] text-muted">
-          {view === 'trash' ? (
+          {view === 'search' ? (
+            <span>{hits ? `${hits.items.length} found${hits.truncated ? ' (showing the first 500; narrow the search for more)' : ''}` : ''}</span>
+          ) : view === 'trash' ? (
             <span className="flex flex-wrap items-center gap-3">{trash?.length ?? 0} items in Trash · kept 7 days
               {trashSel.size > 0 && <><span className="font-semibold text-[var(--text)]">{trashSel.size} selected</span>
                 <button type="button" className="btn btn-sm" disabled={busy} onClick={() => trashAct(`Restored ${trashSel.size} items`, () => api.post(`${base}/trash/restore`, { ids: [...trashSel] }))}>Restore</button>
@@ -520,6 +614,22 @@ export function FileManager() {
         <label className="flex items-center gap-2 text-sm mt-3"><input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />Delete permanently instead</label>
         {permanent && deleting?.some((d) => d.type === 'dir') && <p className="text-sm mt-2 mb-0">This includes folders and everything in them. Type DELETE to confirm.</p>}
       </ConfirmDialog>
+
+      <Modal open={!!preview} width={960} onClose={() => setPreview(null)} title={preview ? `Preview · ${preview.path}` : ''}
+        footer={<>
+          {preview?.text !== undefined && <button type="button" className="btn mr-auto" onClick={() => { const p = preview; setPreview(null); setEditing({ path: p.path, content: p.text!, original: p.text! }) }}>Edit</button>}
+          {preview?.url && <a className="btn mr-auto" href={preview.url} target="_blank" rel="noopener noreferrer">Open in new tab</a>}
+          <button type="button" className="btn btn-primary" onClick={() => setPreview(null)}>Close</button>
+        </>}>
+        {preview?.text !== undefined ? (
+          <pre className="m-0 max-h-[65vh] overflow-auto rounded-lg bg-[var(--code-bg)] text-[var(--code-fg)] p-4 text-xs leading-relaxed whitespace-pre">{preview.text}</pre>
+        ) : preview?.url && (
+          /\.pdf$/i.test(preview.name) ? <iframe title={preview.name} src={preview.url} className="w-full h-[65vh] rounded-lg border border-line bg-white" />
+          : /\.(mp4|webm|ogv|mov)$/i.test(preview.name) ? <video src={preview.url} controls className="w-full max-h-[65vh] rounded-lg bg-black" />
+          : /\.(mp3|ogg|oga|wav|m4a)$/i.test(preview.name) ? <audio src={preview.url} controls className="w-full" />
+          : <div className="grid place-items-center max-h-[65vh] overflow-auto rounded-lg bg-[var(--head)] p-4"><img src={preview.url} alt={preview.name} className="max-w-full max-h-[60vh] object-contain" /></div>
+        )}
+      </Modal>
 
       <Modal open={!!perm} onClose={() => setPerm(null)} title={perm ? `Permissions · ${perm.items.length === 1 ? perm.items[0].name : `${perm.items.length} items`}` : ''}
         footer={<>

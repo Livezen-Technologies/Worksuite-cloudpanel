@@ -134,6 +134,35 @@ class FileController extends Controller
         return $this->run($request, $id, 'chown', $this->selection($request) + array_filter($data, fn ($v) => $v !== null));
     }
 
+    /** FM-011: by name, extension, size and modified date, from a folder down. */
+    public function search(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'path' => self::PATH, 'name' => 'nullable|string|max:255', 'extensions' => 'sometimes|array|max:20', 'extensions.*' => 'string|max:20|regex:/^\.?[A-Za-z0-9]+$/',
+            'min_size' => 'nullable|integer|min:0', 'max_size' => 'nullable|integer|min:0',
+            'modified_after' => 'nullable|date_format:Y-m-d', 'modified_before' => 'nullable|date_format:Y-m-d', 'type' => 'nullable|in:file,dir',
+        ]);
+        $data = array_filter($data, fn ($v) => $v !== null && $v !== '' && $v !== []);
+        if (count(array_diff_key($data, ['path' => 1])) === 0) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['name' => 'Give at least one search condition.']);
+        }
+
+        return $this->run($request, $id, 'search', $data);
+    }
+
+    /** FM-012: prepares a signed, inline link for images, PDFs, audio and video. */
+    public function preview(Request $request, string $id)
+    {
+        $data = $request->validate(['path' => 'required|string|max:4096']);
+        if (! \App\Services\FileService::previewType($data['path'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['path' => 'This type is previewed as text, or not at all.']);
+        }
+        $job = $this->files->download(Volume::findOrFail($id), [$data['path']], inline: true);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->accepted($job);
+    }
+
     private function selection(Request $request): array
     {
         return $request->validate(['paths' => 'required|array|min:1|max:500', 'paths.*' => 'string|max:4096']);
