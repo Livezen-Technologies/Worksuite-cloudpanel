@@ -12,6 +12,7 @@ export const PANEL_NAV: NavItem[] = [
   { label: 'Backups', to: '/app/backups' },
   { label: 'Email', to: '/app/email' },
   { label: 'Security', to: '/app/security' },
+  { label: 'Firewall', to: '/app/firewall' },
   { label: 'Scheduled jobs', to: '/app/cron' },
   { label: 'Move a site here', to: '/app/move' },
   { label: 'Billing', to: '/app/billing' },

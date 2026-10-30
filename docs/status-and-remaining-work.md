@@ -89,7 +89,7 @@ through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues 
 alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL + USCL, 13),
-private network (PNET, 9), firewall (FW, 1: FW-015 customer controls), environments (ENV, 7), templates (TPL, 6),
+private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
 Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
 (PUB, done in #41).
 
@@ -214,8 +214,9 @@ wizard (MIG-001).
 > `parsers/s02-enrich/` with the scenarios and rolls back with them; expired entries are
 > skipped and `firewall:expire-ips` (every minute) removes them. The Events tab exports
 > CSV (formula-safe) and has Allow IP / Block IP on each row. Blocking a range that
-> holds your own address is refused with 409 until confirmed. Left: FW-015 (customer
-> controls), and a ban already issued for a removed block entry lasts until it times out.
+> holds your own address is refused with 409 until confirmed. FW-015: customers manage
+> protected pages and country rules for their own domains at /app/firewall, within the
+> plan's `firewall_paths` / `firewall_countries` limits. Left: a ban already issued for a removed block entry lasts until it times out.
 
 > Update: rate limits, country blocks and challenges now reach traffic through
 > CrowdSec and its Traefik bouncer, and `firewall_events` is filled from
