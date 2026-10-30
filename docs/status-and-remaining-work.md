@@ -56,9 +56,9 @@ Email templates    ~97%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
                           ok/failed incl. rollback, domain connected, cert
                           expiring, backup failed, restore done, server
                           unreachable, malware, invoice, payment failed, plan
-                          limit, alert, invite). Not wired: verify_email and
-                          password_reset (the panel has no such flows yet),
-                          preview_ready and wordpress_updates (no event yet)
+                          limit, alert, invite, verify_email, password_reset).
+                          Not wired: preview_ready and wordpress_updates
+                          (no event yet)
 WorkSuite Server     0%   blocked: no readable source for the image
 Overall            ~70%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
