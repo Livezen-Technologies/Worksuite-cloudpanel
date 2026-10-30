@@ -242,6 +242,20 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('antivirus/integrity/{id}/{action}', [Admin\AntivirusController::class, 'integrityAction'])->middleware('perm:deploy|network_storage.manage')->whereIn('action', ['baseline', 'check', 'accept'])->name('antivirus.integrity-action');
     Route::match(['get', 'patch'], 'antivirus/servers/{id}', [Admin\AntivirusController::class, 'serverSecurity'])->middleware('perm:settings.manage')->name('antivirus.server');
     // WordPress toolkit (SRS WP)
+    // Mail hosting (MAIL-001..005).
+    Route::get('mail', [Admin\MailController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('mail.index');
+    Route::post('mail/servers', [Admin\MailController::class, 'install'])->middleware('perm:servers.manage')->name('mail.install');
+    Route::post('mail/domains', [Admin\MailController::class, 'storeDomain'])->middleware('perm:deploy')->name('mail.domains.store');
+    Route::get('mail/domains/{id}', [Admin\MailController::class, 'showDomain'])->middleware('perm:resources.view|servers.view')->name('mail.domains.show');
+    Route::patch('mail/domains/{id}', [Admin\MailController::class, 'updateDomain'])->middleware('perm:deploy')->name('mail.domains.update');
+    Route::delete('mail/domains/{id}', [Admin\MailController::class, 'destroyDomain'])->middleware('perm:deploy')->name('mail.domains.destroy');
+    Route::post('mail/domains/{id}/dns/check', [Admin\MailController::class, 'checkDns'])->middleware('perm:resources.view|servers.view')->name('mail.dns.check');
+    Route::post('mail/domains/{id}/dns/publish', [Admin\MailController::class, 'publishDns'])->middleware('perm:deploy')->name('mail.dns.publish');
+    Route::post('mail/domains/{id}/mailboxes', [Admin\MailController::class, 'storeMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.store');
+    Route::patch('mail/domains/{id}/mailboxes/{box}', [Admin\MailController::class, 'updateMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.update');
+    Route::delete('mail/domains/{id}/mailboxes/{box}', [Admin\MailController::class, 'destroyMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.destroy');
+    Route::post('mail/domains/{id}/aliases', [Admin\MailController::class, 'storeAlias'])->middleware('perm:deploy')->name('mail.aliases.store');
+    Route::delete('mail/domains/{id}/aliases/{alias}', [Admin\MailController::class, 'destroyAlias'])->middleware('perm:deploy')->name('mail.aliases.destroy');
     Route::get('migrations', [Admin\MigrationController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('migrations.index');
     Route::post('migrations', [Admin\MigrationController::class, 'store'])->middleware('perm:deploy')->name('migrations.store');
     Route::post('migrations/bulk', [Admin\MigrationController::class, 'bulk'])->middleware('perm:deploy')->name('migrations.bulk');

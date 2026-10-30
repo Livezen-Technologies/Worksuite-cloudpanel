@@ -35,6 +35,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'DNS zones', to: '/admin/dns', icon: 'globe' },
     { label: 'WordPress', to: '/admin/wordpress', icon: 'rocket' },
     { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
+    { label: 'Mail', to: '/admin/mail', icon: 'bell' },
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
     { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
     { label: 'Packages', to: '/admin/packages', icon: 'tag' },

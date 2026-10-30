@@ -53,6 +53,7 @@ class CommandBus
         'av.events' => AntivirusService::class,
         'wordpress' => WordPressService::class,
         'migration' => MigrationService::class,
+        'mail' => MailService::class,
     ];
 
     public function __construct(private JobService $jobs) {}
