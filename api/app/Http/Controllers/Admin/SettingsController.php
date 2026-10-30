@@ -99,6 +99,32 @@ class SettingsController extends Controller
         return $this->data($this->present());
     }
 
+    /** SET-002: send a test email with the saved SMTP settings and report what the server said. */
+    public function testSmtp(Request $request)
+    {
+        $data = $request->validate(['to' => 'nullable|email|max:190']);
+        $settings = array_replace_recursive(config('platform.default_settings'), Tenant::current()->settings ?? []);
+        $smtp = $settings['smtp'] ?? [];
+        $mailer = \App\Support\Smtp::config($smtp) ?? throw \App\Exceptions\ApiException::conflict('Save an SMTP host first.');
+        $to = $data['to'] ?? $request->user()->email;
+        $from = $smtp['from_address'] ?: config('mail.from.address');
+        config(['mail.mailers.smtp_test' => $mailer]);
+        app('mail.manager')->purge('smtp_test');
+        try {
+            \Illuminate\Support\Facades\Mail::mailer('smtp_test')->raw(
+                "This is a test email from WorkSuite CloudPanel.\n\nYour SMTP settings work: {$smtp['host']}:{$mailer['port']} ({$mailer['scheme']}).",
+                fn ($m) => $m->to($to)->from($from, $smtp['from_name'] ?: config('mail.from.name'))->subject('WorkSuite CloudPanel SMTP test'),
+            );
+        } catch (\Throwable $e) {
+            app(\App\Services\AuditLogger::class)->log('settings.smtp_test', 'organizations', Tenant::current()->id, ['to' => $to, 'ok' => false]);
+            throw \App\Exceptions\ApiException::upstream('The SMTP server refused the test email: '.\Illuminate\Support\Str::limit(preg_replace('/\s+/', ' ', $e->getMessage()), 300));
+        }
+        app(\App\Services\AuditLogger::class)->log('settings.smtp_test', 'organizations', Tenant::current()->id, ['to' => $to, 'ok' => true]);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(['sent' => true, 'to' => $to]);
+    }
+
     private function present(): array
     {
         $org = Tenant::current()->fresh();

@@ -85,6 +85,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
   const { item, isLoading } = useOne<R>('/settings')
   const { run, busy } = useAction()
   const [g, setG] = useState<R>({})
+  const [testTo, setTestTo] = useState('')
   useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}), ...(item.smtp ?? {}) }) }, [item])
   if (isLoading) return <Card>Loading…</Card>
   const nested = !!item?.general || !!item?.security || !!item?.smtp
@@ -137,6 +138,13 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
               <button className="btn btn-primary" disabled={busy}>Save changes</button>
             </div>
           </form>
+          <div className="mt-4 pt-4 border-t border-[var(--line)] flex flex-wrap items-end gap-2">
+            <Field label="Send a test email to" hint="Uses the saved settings, so save your changes first. Empty sends it to you.">
+              <input className="input" type="email" placeholder="you@example.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+            </Field>
+            <button type="button" className="btn" disabled={busy || !g.host}
+                    onClick={() => run({ path: '/settings/smtp/test', body: testTo ? { to: testTo } : {}, label: 'Send test email', success: `Test email sent to ${testTo || 'you'}` }).catch(() => {})}>Send test email</button>
+          </div>
         </Card>
       )}
       {tab === 'security' && (
