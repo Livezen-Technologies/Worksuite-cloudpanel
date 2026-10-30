@@ -48,6 +48,19 @@ return [
         'file_name' => 'dmp-domains.yml',
     ],
 
+    // FW-001 enforcement through CrowdSec (docs/deploy/crowdsec). Off until the
+    // ingress runs the CrowdSec container and the Traefik bouncer plugin.
+    'crowdsec' => [
+        'enabled' => (bool) env('CROWDSEC_ENABLED', false),
+        'lapi_host' => env('CROWDSEC_LAPI_HOST', 'crowdsec:8080'),
+        'lapi_scheme' => env('CROWDSEC_LAPI_SCHEME', 'http'),
+        'bouncer_key' => env('CROWDSEC_BOUNCER_KEY'),
+        'plugin' => env('CROWDSEC_TRAEFIK_PLUGIN', 'bouncer'),   // name under experimental.plugins in traefik.yml
+        'ban_minutes' => (int) env('CROWDSEC_BAN_MINUTES', 240),
+        'update_seconds' => (int) env('CROWDSEC_UPDATE_SECONDS', 15),
+        'trusted_proxies' => array_filter(explode(',', (string) env('CROWDSEC_TRUSTED_PROXIES', ''))),
+    ],
+
     // METRICS_DRIVER=prometheus (MON-001): /metrics reads query_range from Prometheus.
     'prometheus' => [
         'url' => env('PROMETHEUS_URL', 'http://127.0.0.1:9090'),

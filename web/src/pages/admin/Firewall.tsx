@@ -65,7 +65,15 @@ const toList = (v: unknown): string[] =>
  * Says plainly that a part of the screen is configurable but not yet enforced,
  * rather than letting the page imply the proxy is acting on it.
  */
-function NotEnforced({ what, needs }: { what: string; needs: string }) {
+function NotEnforced({ what, needs, crowdsec }: { what: string; needs: string; crowdsec?: boolean }) {
+  if (crowdsec) {
+    return (
+      <div className="flex gap-3 items-start p-3 rounded-[10px] bg-head border border-line">
+        <Badge tone="g">enforced</Badge>
+        <p className="m-0 text-sm text-muted">{what} is applied to traffic by CrowdSec on the ingress servers.</p>
+      </div>
+    )
+  }
   return (
     <div className="flex gap-3 items-start p-3 rounded-[10px] bg-head border border-line">
       <Badge tone="y">not enforced</Badge>
@@ -80,6 +88,7 @@ function NotEnforced({ what, needs }: { what: string; needs: string }) {
 export default function Firewall() {
   const [tab, setTab] = useState('rules')
   const { item, isLoading, refetch } = useOne<R>('/firewall')
+  const crowdsec = item?.challenge_enforcement === 'crowdsec'
   const rules = useList<R>('/firewall-rules')
   const events = useList<R>('/firewall/events', undefined, { enabled: tab === 'events' })
   const domains = useList<R>('/domains')
@@ -235,7 +244,7 @@ export default function Firewall() {
             { key: 'action', header: 'Action', render: (r) => (
               <span className="flex items-center gap-2">
                 <Badge tone={ACTION_TONE[String(r.action)] ?? 'n'}>{String(r.action)}</Badge>
-                {!ENFORCED.includes(String(r.action)) && <Badge tone="y">not enforced</Badge>}
+                {!crowdsec && !ENFORCED.includes(String(r.action)) && <Badge tone="y">not enforced</Badge>}
               </span>
             ) },
             { key: 'hits', header: 'Hits', sortable: true, value: (r) => num(r.hits) },
@@ -260,7 +269,7 @@ export default function Firewall() {
       {tab === 'challenges' && (
         <div className="flex flex-wrap gap-4 items-start">
           <Card className="flex-[1_1_340px]" title="Challenge type">
-            <NotEnforced what="The challenge configuration" needs="CrowdSec or Cloudflare Turnstile at the edge" />
+            <NotEnforced what="The challenge configuration" needs="CrowdSec or Cloudflare Turnstile at the edge" crowdsec={crowdsec} />
             <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label="Challenge type">
               {CHALLENGE_TYPES.map(([id, name, sub]) => (
                 <label key={id} className="flex gap-3 items-start py-2 min-h-[44px] cursor-pointer">
@@ -309,7 +318,7 @@ export default function Firewall() {
             <option value="allow">Allow only listed</option>
           </Select>
         }>
-          <NotEnforced what="The country policy" needs="a GeoIP plugin such as traefik-geoip2, or CrowdSec" />
+          <NotEnforced what="The country policy" needs="a GeoIP plugin such as traefik-geoip2, or CrowdSec" crowdsec={item?.country_enforcement === 'crowdsec'} />
           <p className="mt-3 text-sm text-muted">
             {mode === 'block'
               ? 'Every country is allowed except the ones you mark. Click a country to cycle allowed → challenge → blocked.'

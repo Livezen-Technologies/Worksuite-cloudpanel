@@ -47,6 +47,7 @@ var Types = map[string]bool{
 	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
 	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
+	"crowdsec.apply": true, "crowdsec.alerts": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -77,9 +78,12 @@ type Executor struct {
 	HTTP *http.Client
 	// ProxyDir is the Traefik file-provider directory; AcmeJSON Traefik's ACME store.
 	ProxyDir string
-	AcmeJSON string
-	LookPath func(string) (string, error)
-	StateDir string
+	// CrowdSecDir holds the panel's CrowdSec scenarios and profiles; CrowdSecContainer is the container to check and reload.
+	CrowdSecDir       string
+	CrowdSecContainer string
+	AcmeJSON          string
+	LookPath          func(string) (string, error)
+	StateDir          string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
 	// AllowLocalGit permits file:// and absolute-path repositories in image.build.

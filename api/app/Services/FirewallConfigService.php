@@ -76,7 +76,9 @@ class FirewallConfigService
 
         foreach ($this->rulesFor($domain) as $fw) {
             if (! in_array($fw->action, self::NATIVE_ACTIONS, true)) {
-                $unsupported[] = ['id' => $fw->id, 'name' => $fw->name, 'action' => $fw->action];
+                // Challenge and reCAPTCHA have no Traefik middleware; CrowdSec enforces them
+                // when it is enabled (CrowdSecConfigService), otherwise they are unsupported.
+                CrowdSecConfigService::enabled() || $unsupported[] = ['id' => $fw->id, 'name' => $fw->name, 'action' => $fw->action];
 
                 continue;
             }
@@ -124,6 +126,10 @@ class FirewallConfigService
     /** Rules across the organisation whose action Traefik cannot honour as configured. */
     public function unsupported(): array
     {
+        if (CrowdSecConfigService::enabled()) {
+            return [];
+        }
+
         return FirewallRule::where('enabled', true)
             ->whereNotIn('action', self::NATIVE_ACTIONS)
             ->get()

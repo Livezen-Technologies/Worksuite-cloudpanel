@@ -33,7 +33,7 @@ class TraefikConfigService implements HandlesCommandResults
         'gandiv5' => ['GANDIV5_PERSONAL_ACCESS_TOKEN'],
     ];
 
-    public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall) {}
+    public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall, private CrowdSecConfigService $crowdsec) {}
 
     public static function enabled(): bool
     {
@@ -116,6 +116,15 @@ class TraefikConfigService implements HandlesCommandResults
             if ($fw['site']) {
                 $routers[$name]['middlewares'] = array_merge($routers[$name]['middlewares'] ?? [], $fw['site']);
             }
+            // FW-001 via CrowdSec: the bouncer runs first on the domain's router and on
+            // every path router, so a banned IP never reaches a rate limit or the app.
+            if (CrowdSecConfigService::enabled() && ($org = \App\Models\Organization::find($domain->organization_id))) {
+                $bouncer = CrowdSecConfigService::middlewareName($org->id);
+                $middlewares[$bouncer] ??= $this->crowdsec->middleware($org);
+                foreach (array_merge([$name], array_keys($fw['routers'])) as $r) {
+                    $routers[$r]['middlewares'] = array_values(array_unique(array_merge([$bouncer], $routers[$r]['middlewares'] ?? [])));
+                }
+            }
         }
         // Traefik rejects an empty routers map ("routers cannot be a standalone
         // element") and drops the whole file-provider configuration when it sees
@@ -173,12 +182,16 @@ class TraefikConfigService implements HandlesCommandResults
         $count = 0;
         foreach ($this->ingressServers() as $server) {
             $files = [config('platform.traefik.file_name') => $this->yaml($server, $dedicated)];
-            $hash = hash('sha256', json_encode([$files, $secrets]));
+            $cs = CrowdSecConfigService::enabled() ? $this->crowdsec->render($this->domainsFor($server, $dedicated)) : null;
+            $hash = hash('sha256', json_encode([$files, $secrets, $cs]));
             $key = 'traefik-config:'.$server->id;
             if (! $force && Cache::get($key) === $hash) {
                 continue;
             }
             $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null]));
+            if ($cs !== null) {
+                $this->bus->dispatch($server, 'crowdsec.apply', ['scenarios' => (object) $cs['scenarios'], 'profiles' => $cs['profiles']]);
+            }
             Cache::put($key, $hash, now()->addDays(30));
             Cache::forever('traefik-config:servers', array_values(array_unique(array_merge(Cache::get('traefik-config:servers', []), [$server->id]))));
             $count++;

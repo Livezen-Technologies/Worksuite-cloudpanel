@@ -16,6 +16,8 @@ services:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - /etc/dockermgr/traefik:/etc/dockermgr/traefik   # dynamic/, secrets/, acme.json (0600)
       - /var/log/traefik:/var/log/traefik
+      # CrowdSec bouncer captcha page (FW-001, ../crowdsec/README.md step 3).
+      - ./captcha.html:/captcha.html:ro
 networks:
   proxy:
     external: true

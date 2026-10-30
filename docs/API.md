@@ -115,7 +115,7 @@ The organisation is the token user's current organisation (`users.current_organi
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete|upload|download|copy|move|compress|extract|trash|trash_list|trash_restore|trash_purge|chmod|chown|search|scan|history_list|history_read|history_restore (confined to one volume), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete|upload|download|copy|move|compress|extract|trash|trash_list|trash_restore|trash_purge|chmod|chown|search|scan|history_list|history_read|history_restore (confined to one volume), crowdsec.apply (scenarios/dmp-*.yaml + profiles.yaml, checked with crowdsec -t, rolled back on failure, then SIGHUP), crowdsec.alerts (recent alerts for the firewall event log), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
   image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
   lines in the command output and exposes them as the deployment job's `build_log`.

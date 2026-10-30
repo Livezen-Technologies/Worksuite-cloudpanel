@@ -1,0 +1,27 @@
+# CrowdSec for FW-001 enforcement. Run next to Traefik on each ingress server.
+# Reads Traefik's JSON access log, applies the panel's scenarios (written by the
+# agent's crowdsec.apply into /etc/dockermgr/crowdsec, which is CrowdSec's /etc/crowdsec)
+# and answers the Traefik bouncer plugin over the proxy network.
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.8.2
+    container_name: crowdsec          # the agent's crowdsec_container (default "crowdsec")
+    restart: unless-stopped
+    networks: [proxy]
+    environment:
+      # traefik: the access-log parser the panel's scenarios read fields from;
+      # http-cve / base-http-scenarios: CrowdSec's own web attack scenarios.
+      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/base-http-scenarios"
+      # Same value as CROWDSEC_BOUNCER_KEY in the panel's .env.
+      BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_KEY:?set CROWDSEC_BOUNCER_KEY}
+      GID: "1000"
+    volumes:
+      - /etc/dockermgr/crowdsec:/etc/crowdsec          # config, hub, scenarios/dmp-*.yaml, profiles.yaml
+      - crowdsec-data:/var/lib/crowdsec/data
+      - /var/log/traefik:/var/log/traefik:ro
+      - ./acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+volumes:
+  crowdsec-data:
+networks:
+  proxy:
+    external: true

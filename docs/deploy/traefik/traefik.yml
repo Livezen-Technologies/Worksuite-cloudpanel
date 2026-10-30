@@ -68,3 +68,11 @@ accessLog:
 
 api:
   dashboard: false
+
+# FW-001: CrowdSec bouncer, used by the dmp-crowdsec-* middlewares the panel renders when
+# CROWDSEC_ENABLED=true (see ../crowdsec/README.md). Static config: restart Traefik after changing.
+experimental:
+  plugins:
+    bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      version: v1.8.1

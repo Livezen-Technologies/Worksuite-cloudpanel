@@ -65,18 +65,20 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		up.PublicKey = k
 	}
 	ex := &executor.Executor{
-		Docker:           dc,
-		Policy:           &policy.Store{Path: cfg.PolicyPath},
-		HMACKey:          []byte(cfg.HMACKey),
-		Journal:          &executor.Journal{Path: filepath.Join(cfg.StateDir, "journal.json")},
-		Report:           client.ReportResult,
-		StateDir:         cfg.StateDir,
-		AllowedBindRoots: []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
-		AllowLocalGit:    os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
-		Updater:          up,
-		ProxyDir:         cfg.ProxyConfigDir,
-		AcmeJSON:         cfg.AcmeJSON,
-		Log:              logger,
+		Docker:            dc,
+		Policy:            &policy.Store{Path: cfg.PolicyPath},
+		HMACKey:           []byte(cfg.HMACKey),
+		Journal:           &executor.Journal{Path: filepath.Join(cfg.StateDir, "journal.json")},
+		Report:            client.ReportResult,
+		StateDir:          cfg.StateDir,
+		AllowedBindRoots:  []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
+		AllowLocalGit:     os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
+		Updater:           up,
+		ProxyDir:          cfg.ProxyConfigDir,
+		AcmeJSON:          cfg.AcmeJSON,
+		CrowdSecDir:       cfg.CrowdSecDir,
+		CrowdSecContainer: cfg.CrowdSecContainer,
+		Log:               logger,
 	}
 	ex.Terminal = &executor.TerminalConfig{RelayURL: cfg.RelayURL, Secret: cfg.AgentSecret, Shells: cfg.TerminalShells,
 		TLS: func() *tls.Config { return tlsCfg }}
