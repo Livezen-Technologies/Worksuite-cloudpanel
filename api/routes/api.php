@@ -221,6 +221,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('dns/zones/{id}/sync', [Admin\DnsController::class, 'sync'])->middleware('perm:deploy|settings.manage')->name('dns.zones.sync');
     Route::get('dns/zones/{id}/dnssec', [Admin\DnsController::class, 'dnssec'])->middleware('perm:resources.view|servers.view')->name('dns.zones.dnssec');
     Route::match(['put', 'patch'], 'dns/zones/{id}/dnssec', [Admin\DnsController::class, 'setDnssec'])->middleware('perm:deploy|settings.manage')->name('dns.zones.dnssec.update');
+    Route::get('dns/zones/{id}/settings', [Admin\DnsController::class, 'settings'])->middleware('perm:resources.view|servers.view')->name('dns.zones.settings');
+    Route::match(['put', 'patch'], 'dns/zones/{id}/settings', [Admin\DnsController::class, 'updateSettings'])->middleware('perm:deploy|settings.manage')->name('dns.zones.settings.update');
+    Route::get('dns/zones/{id}/export', [Admin\DnsController::class, 'export'])->middleware('perm:resources.view|servers.view')->name('dns.zones.export');
+    Route::post('dns/zones/{id}/import', [Admin\DnsController::class, 'import'])->middleware('perm:deploy|settings.manage')->name('dns.zones.import');
     Route::post('dns/zones/{id}/records', [Admin\DnsController::class, 'storeRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.store');
     Route::match(['put', 'patch'], 'dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'updateRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.update');
     Route::delete('dns/zones/{id}/records/{recordId}', [Admin\DnsController::class, 'destroyRecord'])->middleware('perm:deploy|settings.manage')->name('dns.records.destroy');

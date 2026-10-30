@@ -234,7 +234,7 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
 - **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
   (`password`, `password+totp`, `password+passkey`, `passkey`).
 
-## DNS zones (SRS 4.18, DNS-001..008, 012)
+## DNS zones (SRS 4.18, DNS-001..012)
 
 Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and the panel's mirror is updated only once the provider accepts it. Reads need `resources.view|servers.view`; changes need `deploy|settings.manage`.
 
@@ -249,8 +249,12 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | DELETE | `/dns/zones/{id}` | Removes the zone from the panel only; it stays at the provider. |
 | POST | `/dns/zones/{id}/check-nameservers` | Returns `{status, expected[], found[], delegated}` and sets the zone active once its nameservers are delegated. |
 | POST | `/dns/zones/{id}/sync` | Returns `{added[], removed[], changed[], in_sync}` comparing the panel with the provider, then adopts the provider's records. |
-| GET | `/dns/zones/{id}/dnssec` | DNS-008. Returns `{status disabled\|pending\|active, ds[]}` and stores it on the zone. `pending` (Cloudflare) means the DS record is not yet at the registrar. |
+| GET | `/dns/zones/{id}/dnssec` | DNS-009. Returns `{status disabled\|pending\|active, ds[]}` and stores it on the zone. `pending` (Cloudflare) means the DS record is not yet at the registrar. |
 | PUT/PATCH | `/dns/zones/{id}/dnssec` | Body `{enabled}`. Cloudflare turns DNSSEC on through its API. PowerDNS creates one active ECDSA P-256 CSK, rectifies the zone and signs it straight away; turning it off deletes the zone's keys. |
-| POST | `/dns/zones/{id}/records` | Body `{type, name, content, ttl?, priority?, proxied?}`. The name is relative to the zone (`@` = apex). Types: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS. TTL is 1, 300, 3600 or 86400. Only A, AAAA and CNAME can be proxied, only on Cloudflare, and proxied records always use Auto TTL. PowerDNS has no Auto TTL, so Auto is stored as 3600; its record ids are derived from name, type and content, and each change rewrites the whole record set. A CNAME at the apex is refused. |
+| GET | `/dns/zones/{id}/settings` | DNS-010, Cloudflare only (409 on PowerDNS). Returns `{ssl off\|flexible\|full\|strict, always_use_https, min_tls_version 1.0..1.3, cache_level basic\|simplified\|aggressive}`. |
+| PUT/PATCH | `/dns/zones/{id}/settings` | Any subset of the settings above. The change is audited with old and new values. |
+| GET | `/dns/zones/{id}/export` | DNS-011. The provider's current records as a BIND file (`text/dns` attachment), or `{filename, content}` with `Accept: application/json`. SOA is left out. Auto TTL is written as 300. |
+| POST | `/dns/zones/{id}/import` | DNS-011. Body `{zone_file, dry_run?}`. Understands `$ORIGIN`, `$TTL`, relative and `@` names, blank names (same name as the line above), parenthesised continuations, comments and multi-string TXT. Records already in the zone are left as they are, and TTLs snap to the nearest panel value. Returns `{dry_run, created[], unchanged, skipped[{line, reason}]}`; every skipped line says why (SOA is skipped silently). |
+| POST | `/dns/zones/{id}/records` | Body `{type, name, content, ttl?, priority?, proxied?}`. The name is relative to the zone (`@` = apex). Types: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS. TTL is 1, 300, 3600 or 86400. Only A, AAAA and CNAME can be proxied, only on Cloudflare, and proxied records always use Auto TTL. PowerDNS has no Auto TTL, so Auto is stored as 3600. New PowerDNS zones use `SOA-EDIT-API: INCREASE`, so the serial goes up on every change (DNS-008); its record ids are derived from name, type and content, and each change rewrites the whole record set. A CNAME at the apex is refused. |
 | PUT/PATCH | `/dns/zones/{id}/records/{recordId}` | Same body; the type cannot change. |
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |

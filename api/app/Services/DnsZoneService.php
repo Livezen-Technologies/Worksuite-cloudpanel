@@ -7,6 +7,7 @@ use App\Exceptions\ApiException;
 use App\Models\DnsProviderAccount;
 use App\Models\DnsRecord;
 use App\Models\DnsZone;
+use App\Support\BindZone;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -158,7 +159,7 @@ class DnsZoneService
         $this->audit->log('dns.record_deleted', 'dns_zones', $zone->id, ['record' => ['type' => $row->type, 'name' => $row->name, 'content' => $row->content]]);
     }
 
-    /** DNS-008: reads the provider's DNSSEC state and keeps the DS records to hand to the registrar. */
+    /** DNS-009: reads the provider's DNSSEC state and keeps the DS records to hand to the registrar. */
     public function dnssec(DnsZone $zone): array
     {
         return $this->keepDnssec($zone, $zone->provider->driver()->dnssec($zone->remote_id));
@@ -177,6 +178,77 @@ class DnsZoneService
         $zone->update(['dnssec_status' => $state['status'], 'ds_records' => $state['ds']]);
 
         return $state;
+    }
+
+    /** DNS-010: Cloudflare edge settings for the zone. */
+    public const SETTINGS = [
+        'ssl' => ['off', 'flexible', 'full', 'strict'],
+        'min_tls_version' => ['1.0', '1.1', '1.2', '1.3'],
+        'cache_level' => ['basic', 'simplified', 'aggressive'],
+    ];
+
+    public function settings(DnsZone $zone): array
+    {
+        return $zone->provider->driver()->settings($zone->remote_id);
+    }
+
+    public function updateSettings(DnsZone $zone, array $settings): array
+    {
+        $before = $this->settings($zone);
+        $after = $zone->provider->driver()->updateSettings($zone->remote_id, $settings);
+        $changed = array_filter($after, fn ($v, $k) => ($before[$k] ?? null) !== $v, ARRAY_FILTER_USE_BOTH);
+        $this->audit->log('dns.settings_updated', 'dns_zones', $zone->id, ['name' => $zone->name, 'from' => array_intersect_key($before, $changed), 'to' => $changed]);
+
+        return $after;
+    }
+
+    /** DNS-011: the zone as a BIND file, from the provider's current records. */
+    public function exportBind(DnsZone $zone): string
+    {
+        return BindZone::render($zone->name, $zone->provider->driver()->records($zone->remote_id),
+            "{$zone->name} exported by WorkSuite CloudPanel on ".now()->toIso8601ZuluString().'. SOA is managed by the provider.');
+    }
+
+    /**
+     * DNS-011: adds the records of a BIND file. Records already in the zone are left
+     * alone, TTLs snap to the nearest one the panel offers, and every line that is not
+     * imported is reported with its reason. A dry run only reports.
+     */
+    public function importBind(DnsZone $zone, string $text, bool $dryRun): array
+    {
+        $this->sync($zone);
+        $parsed = BindZone::parse($text, $zone->name);
+        $existing = $zone->records()->get()->map(fn ($r) => $this->key($r->toArray()))->flip();
+        $created = $unchanged = [];
+        $skipped = $parsed['skipped'];
+        foreach ($parsed['records'] as $r) {
+            $r['ttl'] = collect(self::TTLS)->sortBy(fn ($t) => abs($t - $r['ttl']))->first();
+            if (isset($existing[$this->key($r)])) {
+                $unchanged[] = $r;
+                continue;
+            }
+            try {
+                $record = $this->validateRecord($zone, $r);
+                if (! $dryRun) {
+                    $this->createRecord($zone, $record);
+                }
+                $existing[$this->key($record)] = true;
+                $created[] = ['line' => $r['line']] + $record;
+            } catch (ApiException $e) {
+                $skipped[] = ['line' => $r['line'], 'reason' => $e->fields ? collect($e->fields)->flatten()->implode(' ') : $e->getMessage()];
+            }
+        }
+        if (! $dryRun) {
+            $this->audit->log('dns.zone_imported', 'dns_zones', $zone->id, ['name' => $zone->name, 'created' => count($created), 'skipped' => count($skipped)]);
+        }
+        usort($skipped, fn ($a, $b) => $a['line'] <=> $b['line']);
+
+        return ['dry_run' => $dryRun, 'created' => $created, 'unchanged' => count($unchanged), 'skipped' => $skipped];
+    }
+
+    private function key(array $r): string
+    {
+        return strtoupper($r['type'])."\0".strtolower($r['name'])."\0".($r['priority'] ?? '')."\0".$r['content'];
     }
 
     /** DNS-012: compares the mirror with the provider, reports drift, then adopts the provider's state. */

@@ -18,6 +18,8 @@ class DnsZoneTest extends TestCase
 
     private int $next = 1;
 
+    private array $settings = ['ssl' => 'flexible', 'always_use_https' => 'off', 'min_tls_version' => '1.0', 'cache_level' => 'aggressive'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -33,6 +35,14 @@ class DnsZoneTest extends TestCase
                 $path === '/zones' && $request->method() === 'GET' => $ok([]),
                 $path === '/zones' => $ok(['id' => 'z1', 'status' => 'pending', 'name_servers' => ['ada.ns.cloudflare.com', 'bob.ns.cloudflare.com']]),
                 $path === '/zones/z1' => $ok(['id' => 'z1', 'status' => 'pending', 'name_servers' => ['ada.ns.cloudflare.com', 'bob.ns.cloudflare.com']]),
+                $path === '/zones/z1/settings' && $request->method() === 'PATCH' => (function () use ($request, $ok) {
+                    foreach ($request->data()['items'] as $item) {
+                        $this->settings[$item['id']] = $item['value'];
+                    }
+
+                    return $ok([]);
+                })(),
+                $path === '/zones/z1/settings' => $ok(collect($this->settings)->map(fn ($v, $k) => ['id' => $k, 'value' => $v])->values()->all()),
                 $path === '/zones/z1/dns_records' && $request->method() === 'GET' => $ok(array_values($this->remote), ['result_info' => ['total_pages' => 1]]),
                 $path === '/zones/z1/dns_records' => $ok($this->remote[$id = 'r'.$this->next++] = ['id' => $id] + $request->data()),
                 str_starts_with($path, '/zones/z1/dns_records/') && $request->method() === 'PUT' => $ok($this->remote[basename($path)] = ['id' => basename($path)] + $request->data()),
@@ -159,5 +169,92 @@ class DnsZoneTest extends TestCase
         $this->api($token)->deleteJson("/api/v1/dns/providers/{$provider['id']}")->assertStatus(409);
         $this->api($token)->deleteJson("/api/v1/dns/zones/{$zone['id']}")->assertNoContent();
         $this->api($token)->deleteJson("/api/v1/dns/providers/{$provider['id']}")->assertNoContent();
+    }
+
+    public function test_zone_settings_read_and_update_at_cloudflare(): void
+    {
+        [$token, $provider] = $this->connected();
+        $zone = $this->zone($token, $provider['id']);
+        $this->assertTrue($zone['supports_settings']);
+        $url = "/api/v1/dns/zones/{$zone['id']}/settings";
+        $this->api($token)->getJson($url)->assertOk()->assertJsonPath('data', ['ssl' => 'flexible', 'always_use_https' => false, 'min_tls_version' => '1.0', 'cache_level' => 'aggressive']);
+
+        $this->api($token)->patchJson($url, ['ssl' => 'strict', 'always_use_https' => true, 'min_tls_version' => '1.2'])->assertOk()
+            ->assertJsonPath('data.ssl', 'strict')->assertJsonPath('data.always_use_https', true)->assertJsonPath('data.cache_level', 'aggressive');
+        $this->assertSame('on', $this->settings['always_use_https']);
+        $log = AuditLog::where('action', 'dns.settings_updated')->firstOrFail();
+        $this->assertSame(['ssl' => 'flexible', 'always_use_https' => false, 'min_tls_version' => '1.0'], $log->meta['from']);
+
+        $this->api($token)->patchJson($url, ['ssl' => 'none', 'min_tls_version' => '1.4'])->assertStatus(422);
+    }
+
+    public function test_export_writes_a_bind_file_and_import_reads_it_back(): void
+    {
+        [$token, $provider] = $this->connected();
+        $zone = $this->zone($token, $provider['id'], ['defaults_to' => '203.0.113.10']);
+        $url = "/api/v1/dns/zones/{$zone['id']}/records";
+        $this->api($token)->postJson($url, ['type' => 'MX', 'name' => '@', 'content' => 'mail.example.com', 'priority' => 10, 'ttl' => 3600])->assertCreated();
+        $this->api($token)->postJson($url, ['type' => 'TXT', 'name' => '@', 'content' => 'v=spf1 include:"x" -all'])->assertCreated();
+
+        $export = $this->api($token)->withHeaders(['Accept' => 'text/dns'])->get("/api/v1/dns/zones/{$zone['id']}/export")->assertOk()
+            ->assertHeader('Content-Disposition', 'attachment; filename="example.com.zone"')->getContent();
+        $this->assertSame($export, $this->api($token)->getJson("/api/v1/dns/zones/{$zone['id']}/export")->assertOk()->json('data.content'));
+        $this->assertStringContainsString('$ORIGIN example.com.', $export);
+        $this->assertMatchesRegularExpression('/^@\s+3600 IN MX\s+10 mail\.example\.com\.$/m', $export);
+        $this->assertMatchesRegularExpression('/^www\s+300 IN CNAME example\.com\.$/m', $export);
+        $this->assertStringContainsString('"v=spf1 include:\"x\" -all"', $export);
+
+        // Re-importing the export changes nothing.
+        $again = $this->api($token)->postJson("/api/v1/dns/zones/{$zone['id']}/import", ['zone_file' => $export])->assertOk()->json('data');
+        $this->assertSame([], $again['created']);
+        $this->assertSame(4, $again['unchanged']);
+    }
+
+    public function test_import_adds_new_records_and_reports_every_skipped_line(): void
+    {
+        [$token, $provider] = $this->connected();
+        $zone = $this->zone($token, $provider['id']);
+        $file = <<<'ZONE'
+        $ORIGIN example.com.
+        $TTL 1h
+        @   IN SOA ns1.other.net. admin.example.com. (
+                2024010101 ; serial
+                7200 3600 1209600 300 )
+        @        IN A     192.0.2.1
+                 IN AAAA  2001:db8::1   ; same name as the line above
+        www  300 IN CNAME @
+        mail     IN MX    5 mx1.example.net.
+        _sip._tcp 86400 IN SRV 10 60 5060 sip
+        @        IN TXT   "part one " "part two"
+        @        IN CAA   0 issue "letsencrypt.org"
+        @        IN CNAME other.net.
+        ftp      IN HINFO "x" "y"
+        other.org. IN A 192.0.2.9
+        bad      IN A     999.1.1.1
+        ZONE;
+        $url = "/api/v1/dns/zones/{$zone['id']}/import";
+
+        $dry = $this->api($token)->postJson($url, ['zone_file' => $file, 'dry_run' => true])->assertOk()->json('data');
+        $this->assertTrue($dry['dry_run']);
+        $this->assertCount(7, $dry['created']);
+        $this->assertSame([], $this->remote);
+
+        $result = $this->api($token)->postJson($url, ['zone_file' => $file])->assertOk()->json('data');
+        $this->assertCount(7, $result['created']);
+        $this->assertSame([13, 14, 15, 16], array_column($result['skipped'], 'line'));
+        $this->assertStringContainsString('apex', $result['skipped'][0]['reason']);
+        $this->assertStringContainsString('HINFO', $result['skipped'][1]['reason']);
+        $this->assertStringContainsString('outside', $result['skipped'][2]['reason']);
+        $this->assertStringContainsString('IPv4', $result['skipped'][3]['reason']);
+
+        $by = collect($this->remote)->keyBy(fn ($r) => $r['type']);
+        $this->assertSame('example.com', $by['AAAA']['name']);
+        $this->assertSame(3600, $by['A']['ttl']);
+        $this->assertSame(['mail.example.com', 'mx1.example.net', 5], [$by['MX']['name'], $by['MX']['content'], $by['MX']['priority']]);
+        $this->assertSame(['_sip._tcp.example.com', '60 5060 sip.example.com', 10, 86400], [$by['SRV']['name'], $by['SRV']['content'], $by['SRV']['priority'], $by['SRV']['ttl']]);
+        $this->assertSame('part one part two', $by['TXT']['content']);
+        $this->assertSame('0 issue "letsencrypt.org"', $by['CAA']['content']);
+        $this->assertSame('example.com', $by['CNAME']['content']);
+        $this->assertTrue(AuditLog::where('action', 'dns.zone_imported')->exists());
     }
 }
