@@ -345,6 +345,27 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // UCRON: scheduled jobs in the customer's apps or calling a URL.
+            Route::get('cron', [Customer\CronController::class, 'index'])->name('cron.index');
+            Route::post('cron', [Customer\CronController::class, 'store'])->name('cron.store');
+            Route::patch('cron/{id}', [Customer\CronController::class, 'update'])->name('cron.update');
+            Route::delete('cron/{id}', [Customer\CronController::class, 'destroy'])->name('cron.destroy');
+            Route::post('cron/{id}/run', [Customer\CronController::class, 'run'])->middleware('throttle:20,1')->name('cron.run');
+            Route::get('cron/{id}/runs', [Customer\CronController::class, 'runs'])->name('cron.runs');
+            // USEC: the customer's own security page.
+            Route::get('security', [Customer\SecurityController::class, 'index'])->name('security.index');
+            Route::post('security/scan', [Customer\SecurityController::class, 'scan'])->middleware('throttle:6,1')->name('security.scan');
+            Route::post('security/threats/{id}/{action}', [Customer\SecurityController::class, 'act'])->whereIn('action', ['quarantine', 'ignore'])->name('security.act');
+            // UMAIL: email on the customer's domains.
+            Route::get('mail', [Customer\MailController::class, 'index'])->name('mail.index');
+            Route::post('mail/domains', [Customer\MailController::class, 'storeDomain'])->name('mail.domains.store');
+            Route::post('mail/domains/{id}/dns/check', [Customer\MailController::class, 'checkDns'])->name('mail.dns.check');
+            Route::post('mail/domains/{id}/mailboxes', [Customer\MailController::class, 'storeMailbox'])->name('mail.mailboxes.store');
+            Route::patch('mail/domains/{id}/mailboxes/{box}', [Customer\MailController::class, 'updateMailbox'])->name('mail.mailboxes.update');
+            Route::delete('mail/domains/{id}/mailboxes/{box}', [Customer\MailController::class, 'destroyMailbox'])->name('mail.mailboxes.destroy');
+            Route::patch('mail/domains/{id}/mailboxes/{box}/autoresponder', [Customer\MailController::class, 'autoresponder'])->name('mail.autoresponder');
+            Route::post('mail/domains/{id}/aliases', [Customer\MailController::class, 'storeAlias'])->name('mail.aliases.store');
+            Route::delete('mail/domains/{id}/aliases/{alias}', [Customer\MailController::class, 'destroyAlias'])->name('mail.aliases.destroy');
             // UMIG: migration requests; an administrator approves and runs them.
             Route::get('migrations', [Customer\MigrationController::class, 'index'])->name('migrations.index');
             Route::post('migrations', [Customer\MigrationController::class, 'store'])->name('migrations.store');

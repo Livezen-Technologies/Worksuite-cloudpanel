@@ -105,6 +105,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.wpCopyTables(ctx, c.Payload)
 	case "migrate.fetch", "migrate.inspect", "migrate.extract", "migrate.import_db", "migrate.cleanup":
 		return e.migrate(ctx, c.Type, c.Payload)
+	case "cron.exec":
+		return e.cronExec(ctx, c.Payload)
 	case "wp.drop_tables":
 		return e.wpDropTables(ctx, c.Payload)
 	case "egress.apply":

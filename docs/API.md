@@ -293,6 +293,26 @@ Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and th
 | DELETE | `/dns/zones/{id}/records/{recordId}` | |
 
 
+## Customer panel: email, security, scheduled jobs (SRS UMAIL, USEC, UCRON)
+
+These need `app.manage` and only ever see the customer's own organisation.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/app/cron` | UCRON-1 `{jobs[{id, name, action: app_command\|url, app, command, url, cron, enabled, timeout, last_run_at, last_status, last_result, next_run_at}], limit, used, min_interval_minutes, apps[]}`. Limits come from the package (`limits.cron_jobs`, default 10; `limits.cron_min_minutes`, default 1). |
+| POST \| PATCH \| DELETE | `/app/cron[/{id}]` | UCRON-2 `{name, action, application_id + command \| url, cron (5 fields), timeout? (10–3600 s), enabled?}`. An invalid expression returns 422; a schedule tighter than the plan allows returns 422; going over the job count returns 402. `app_command` runs `cron.exec` in the app's container as a numeric non-root user (33:33 for PHP/WordPress images, otherwise 1000:1000) with `sh -c`. `url` makes a GET request (at most 60 s). |
+| POST | `/app/cron/{id}/run` | UCRON-3: run now (20 per minute). |
+| GET | `/app/cron/{id}/runs` | CRON-3: the last 50 runs `{status, exit_code, duration_ms, source: schedule\|manual, output (last 64 KB), started_at}`, kept 30 days. |
+| GET | `/app/security` | USEC-1/5 `{score, sites[{site, score, fixes, last_scan_at}], open_threats, quarantined, scans_30d, scanning, threats[{id, site, path, signature, status, detected_at}]}`, limited to the data volumes of the customer's own apps. |
+| POST | `/app/security/scan` | USEC-3: scans every one of the customer's sites; 409 while a scan is running. |
+| POST | `/app/security/threats/{id}/quarantine` \| `/ignore` | USEC-2: other actions return 404. |
+| GET | `/app/mail` | UMAIL-001/004/005 `{available, limit, used, settings{imap, smtp, username}, domains[{id, name, records[{type, name, value, purpose, status: set\|missing\|wrong\|not checked}], mailboxes[], aliases[]}]}`. Mailboxes live on the platform's first running mail server; the limit is `limits.mailboxes` (default 5). |
+| POST | `/app/mail/domains` | `{name}`. The domain must already be one of the customer's domains (422 otherwise); DKIM and DNS work as in Mail hosting. |
+| POST \| PATCH \| DELETE | `/app/mail/domains/{id}/mailboxes[/{box}]` | UMAIL-002: `{local_part, password (10+), quota_mb?}`; 402 at the plan limit. `PATCH {password}` resets the password. |
+| PATCH | `/app/mail/domains/{id}/mailboxes/{box}/autoresponder` | UMAIL-006 `{enabled, subject, body, until?}` |
+| POST \| DELETE | `/app/mail/domains/{id}/aliases[/{alias}]` | UMAIL-006: forwarding. |
+| POST | `/app/mail/domains/{id}/dns/check` | UMAIL-005: each record in plain words. |
+
 ## Email templates (SRS EML)
 
 Every email has an HTML part and a plain-text part (EML-4). The HTML is a 600 px table layout with inline styles, fluid down to 360 px, with a `prefers-color-scheme: dark` stylesheet and hidden preview text. Values are HTML-escaped; only `http(s)` links become buttons, and the link is repeated as a fallback under the button. `EmailTemplateService::send($key, $userOrAddress, $vars)` skips a template that is off, or one the user opted out of; security and billing emails are always sent. Today the email notification channel sends the `alert` template, and user invitations send `invite`.

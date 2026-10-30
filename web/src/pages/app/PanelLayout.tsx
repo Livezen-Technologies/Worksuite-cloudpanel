@@ -10,6 +10,10 @@ export const PANEL_NAV: NavItem[] = [
   { label: 'Files', to: '/app/files' },
   { label: 'Domains', to: '/app/domains' },
   { label: 'Backups', to: '/app/backups' },
+  { label: 'Email', to: '/app/email' },
+  { label: 'Security', to: '/app/security' },
+  { label: 'Scheduled jobs', to: '/app/cron' },
+  { label: 'Move a site here', to: '/app/move' },
   { label: 'Billing', to: '/app/billing' },
   { label: 'Account', to: '/app/account' },
 ]
