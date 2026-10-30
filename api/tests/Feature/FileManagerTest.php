@@ -217,4 +217,31 @@ class FileManagerTest extends TestCase
         $this->assertSame(['files.trash', 'files.trash_restore', 'files.trash_purge', 'files.copy', 'files.move', 'files.compress', 'files.extract'], $actions);
         $this->assertSame(['wp-content/old-theme'], AuditLog::where('organization_id', $org->id)->where('action', 'files.trash')->sole()->meta['paths']);
     }
+
+    public function test_chmod_is_validated_and_chown_is_for_platform_staff_only(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $staff] = $this->member($org, 'infra_admin');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        foreach (['4755', '0777x', '888', ''] as $bad) {
+            $this->api($token)->postJson("{$base}/chmod", ['paths' => ['run.sh'], 'mode' => $bad])->assertStatus(422);
+        }
+        $this->api($token)->postJson("{$base}/chmod", ['paths' => ['wp-content'], 'mode' => '755', 'recursive' => true])->assertStatus(202);
+
+        // An organisation owner is not platform staff.
+        $this->api($token)->postJson("{$base}/chown", ['paths' => ['index.php'], 'uid' => 33, 'gid' => 33])->assertForbidden();
+        $this->api($staff)->postJson("{$base}/chown", ['paths' => ['index.php']])->assertStatus(422);
+        $this->api($staff)->postJson("{$base}/chown", ['paths' => ['index.php'], 'uid' => 33, 'gid' => 33])->assertStatus(202);
+
+        $commands = collect($this->heartbeat($secret)['commands']);
+        $this->assertSame(['fs.chmod', 'fs.chown'], $commands->pluck('type')->all());
+        $this->assertSame(['volume' => 'acme_blog_html', 'path' => '', 'paths' => ['index.php'], 'uid' => 33, 'gid' => 33], $commands[1]['payload']);
+        $log = AuditLog::where('organization_id', $org->id)->where('action', 'files.chmod')->sole();
+        $this->assertSame('755', $log->meta['mode']);
+    }
 }

@@ -34,3 +34,10 @@ func inheritOwner(root *os.Root, parent string, f *os.File) {
 		_ = f.Chown(int(st.Uid), int(st.Gid))
 	}
 }
+
+func ownerOf(fi os.FileInfo) (int, int) {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return int(st.Uid), int(st.Gid)
+	}
+	return -1, -1
+}

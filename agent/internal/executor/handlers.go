@@ -89,6 +89,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.transfer(ctx, c.Type, c.Payload)
 	case "fs.copy", "fs.move", "fs.compress", "fs.extract", "fs.trash", "fs.trash_list", "fs.trash_restore", "fs.trash_purge":
 		return e.fileOps(ctx, c.Type, c.Payload)
+	case "fs.chmod", "fs.chown":
+		return e.perms(ctx, c.Type, c.Payload)
 	case "firewall.apply":
 		return e.applyFirewall(ctx, c.Payload, progress)
 	case "firewall.confirm":

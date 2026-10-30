@@ -43,6 +43,8 @@ type FileEntry struct {
 	Size     int64  `json:"size"`
 	Mode     string `json:"mode"` // octal permission bits, e.g. "0644"
 	Modified string `json:"modified"`
+	UID      int    `json:"uid"`
+	GID      int    `json:"gid"`
 }
 
 // volumeRoot returns the host directory of a local Docker volume.
@@ -134,7 +136,8 @@ func entryOf(name string, fi fs.FileInfo) FileEntry {
 	case fi.Mode().IsRegular():
 		t = "file"
 	}
-	return FileEntry{Name: name, Type: t, Size: fi.Size(), Mode: fmt.Sprintf("%04o", fi.Mode().Perm()), Modified: fi.ModTime().UTC().Format(time.RFC3339)}
+	uid, gid := ownerOf(fi)
+	return FileEntry{Name: name, Type: t, Size: fi.Size(), Mode: fmt.Sprintf("%04o", fi.Mode().Perm()), Modified: fi.ModTime().UTC().Format(time.RFC3339), UID: uid, GID: gid}
 }
 
 func fsList(root *os.Root, rel string) (any, error) {
