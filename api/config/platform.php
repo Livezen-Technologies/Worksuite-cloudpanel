@@ -57,6 +57,11 @@ return [
 
     // FW-001 enforcement through CrowdSec (docs/deploy/crowdsec). Off until the
     // ingress runs the CrowdSec container and the Traefik bouncer plugin.
+    // WordPress toolkit: the Redis server sites use for the object cache (WP-003), as host[:port].
+    'wordpress' => [
+        'redis_host' => env('WORDPRESS_REDIS_HOST'),
+    ],
+
     // AV-9: OWASP Core Rule Set through the Coraza Traefik plugin (docs/deploy/traefik). Off until
     // the ingress Traefik loads the plugin; then each domain chooses Off, Detect only or Block.
     'waf' => [

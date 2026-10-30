@@ -33,6 +33,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, firewall, antivirus, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
     { label: 'DNS zones', to: '/admin/dns', icon: 'globe' },
+    { label: 'WordPress', to: '/admin/wordpress', icon: 'rocket' },
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
     { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
     { label: 'Packages', to: '/admin/packages', icon: 'tag' },
