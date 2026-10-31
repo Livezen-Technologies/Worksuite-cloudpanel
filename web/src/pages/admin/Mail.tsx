@@ -7,6 +7,7 @@ import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
 import Select from '../../components/Select'
 import { ImportDialog, ImportList } from '../../components/MailImport'
+import { MailHolds, MailLog } from '../../components/MailGuard'
 
 const size = (q: unknown) => (Number(q) >= 1024 ? `${Number(q) / 1024} GB` : `${q} MB`)
 
@@ -63,6 +64,9 @@ export default function Mail() {
             { key: 'dns_ok', header: 'DNS', render: (r) => r.dns_ok == null ? <Badge>not checked</Badge> : <Badge tone={r.dns_ok ? 'g' : 'y'}>{r.dns_ok ? 'ok' : 'incomplete'}</Badge> },
           ]} />
       </Card>
+
+      <MailHolds base="" canRelease />
+      <MailLog base="" />
 
       <Card title="Mail servers">
         {mailServers.length > 0 && <ul className="m-0 mb-3 p-0 list-none flex flex-col gap-3 text-sm">

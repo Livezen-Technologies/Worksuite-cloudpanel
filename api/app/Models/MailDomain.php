@@ -19,6 +19,6 @@ class MailDomain extends Model
 
     protected function casts(): array
     {
-        return ['dkim_private' => 'encrypted', 'dns' => 'array', 'dns_checked_at' => 'datetime', 'dkim_next_private' => 'encrypted', 'dkim_rotated_at' => 'datetime'];
+        return ['dkim_private' => 'encrypted', 'dns' => 'array', 'dns_checked_at' => 'datetime', 'dkim_next_private' => 'encrypted', 'dkim_rotated_at' => 'datetime', 'limits' => 'array', 'held_at' => 'datetime'];
     }
 }

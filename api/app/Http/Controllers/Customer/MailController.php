@@ -35,7 +35,7 @@ class MailController extends Controller
                 'records' => $this->plainRecords($d),
                 'mailboxes' => Mailbox::where('mail_domain_id', $d->id)->orderBy('local_part')->get()->map(fn (Mailbox $b) => [
                     'id' => $b->id, 'address' => $b->local_part.'@'.$d->name, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled,
-                    'autoresponder' => $b->autoresponder,
+                    'autoresponder' => $b->autoresponder, 'spam' => $b->spam, 'held_reason' => $b->held_at ? $b->held_reason : null,
                     // UMAIL: one-click webmail and the mail-app settings for this address.
                     'client' => ($s = $this->server()) ? MailService::clientSettings($s, $b->local_part.'@'.$d->name) : null,
                 ]),

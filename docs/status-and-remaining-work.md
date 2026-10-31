@@ -39,9 +39,16 @@ Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           aliases, DNS + autoconfig, TLS from Traefik, limits,
                           relay, rDNS/blocklists with alerts, backups,
                           auto-replies, logs, customer page, package quotas;
-                          left: auto-hold of spamming mailboxes,
-                          per-domain limits, per-mailbox spam settings,
-                          searchable logs per organisation, webmail
+                          now also (MCL): sending holds for mailboxes or
+                          domains over their hourly limit or bouncing most
+                          mail (postfix-send-access.cf, alert, release),
+                          per-domain caps (mailboxes, aliases, total quota,
+                          sends/hour), per-mailbox spam levels and
+                          allow/block lists (Sieve on X-Rspamd-Score), and
+                          a delivery log parsed from Postfix every 5 min
+                          that each organisation searches for its domains;
+                          left: one-click webmail sign-in, live import
+                          progress, a second mail server for failover
 Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
                           busy (502-504), suspended, expired, welcome pages
                           from an edge container; left: bot-check page
@@ -88,7 +95,7 @@ CoreDNS. The platform currently uses Laravel queues and a Laravel job runner, Pr
 through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues as the MVP
 alternative.
 
-Largest open groups, by requirements left: mail cluster (MCL, 14), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
+Largest open groups, by requirements left: mail cluster (MCL, ~4 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
 private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
 Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
 (PUB, done in #41).
