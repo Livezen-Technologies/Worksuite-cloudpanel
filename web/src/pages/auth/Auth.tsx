@@ -5,6 +5,7 @@ import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
 import { Field } from '../../components/Card'
 import { OtpInput } from '../../components/TwoFactorSetup'
+import { Captcha, type CaptchaConfig, type CaptchaHandle } from '../../components/Captcha'
 
 type Side = 'login' | 'signup' | 'forgot' | 'reset' | 'invite' | 'verify'
 const SIDES: Record<Side, [string, string, string, [string, string][]]> = {
@@ -59,6 +60,80 @@ function AuthCard({ title, subtitle, children, footer, side = 'login' }: { title
   )
 }
 
+type AuthConfig = { captcha: CaptchaConfig; sso: { key: string; label: string }[] }
+function useAuthConfig(): AuthConfig {
+  const [c, setC] = useState<AuthConfig>({ captcha: null, sso: [] })
+  useEffect(() => { api.get<{ data: AuthConfig }>('/auth/config').then((r) => r?.data && setC({ captcha: r.data.captcha ?? null, sso: Array.isArray(r.data.sso) ? r.data.sso : [] })).catch(() => {}) }, [])
+  return c
+}
+
+const SSO_LOGO: Record<string, [string, string]> = { google_login: ['google', '4285F4'], github_login: ['github', '181717'], microsoft_login: ['', ''], oidc: ['openid', 'F78C40'] }
+
+/** SVC-7: "Continue with …" buttons for the sign-in apps staff set up. */
+function SsoButtons({ sso, busy }: { sso: AuthConfig['sso']; busy: boolean }) {
+  const [err, setErr] = useState<string | null>(null)
+  if (!sso.length) return null
+  const go = async (key: string) => {
+    setErr(null)
+    try { const r = await api.get<{ data: { url: string } }>(`/auth/sso/${key}`); window.location.assign(r.data.url) } catch (e) { setErr(isApiError(e) ? e.message : 'That sign-in option is not available.') }
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={`grid gap-2.5 ${sso.length > 1 ? 'grid-cols-2' : ''}`}>
+        {sso.map((s) => {
+          const l = SSO_LOGO[s.key]
+          return (
+            <button key={s.key} type="button" className="btn min-h-11 gap-2" disabled={busy} onClick={() => go(s.key)}>
+              {l?.[0] ? <span aria-hidden="true" className="w-4 h-4" style={{ background: `#${l[1]}`, WebkitMask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat`, mask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat` }} />
+                : <span aria-hidden="true" className="grid grid-cols-2 gap-px w-4 h-4"><i className="bg-[#F25022]" /><i className="bg-[#7FBA00]" /><i className="bg-[#00A4EF]" /><i className="bg-[#FFB900]" /></span>}
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+      {err && <p role="alert" className="m-0 text-xs text-danger">{err}</p>}
+    </div>
+  )
+}
+
+/** SVC-7: the provider sends the browser back here with ?code&state. */
+export function SsoCallback() {
+  const { acceptToken } = useAuth()
+  const nav = useNavigate()
+  const [params] = useSearchParams()
+  const [err, setErr] = useState<string | null>(null)
+  const [ticket, setTicket] = useState<string | null>(null)
+  const [otp, setOtp] = useState('')
+  const once = useRef(false)
+  const finish = async (body: Record<string, string>) => {
+    setErr(null)
+    try { const m = await acceptToken(await api.post('/auth/sso/callback', body, { retries: 0 })); nav(homeFor(m), { replace: true }) }
+    catch (e) {
+      if (isApiError(e) && e.extra.ticket) { setTicket(String(e.extra.ticket)); if (body.otp) setErr(e.message) }
+      else setErr(isApiError(e) ? e.message : 'The sign-in did not complete.')
+    }
+  }
+  useEffect(() => {
+    if (once.current) return
+    once.current = true
+    const code = params.get('code'), state = params.get('state'), denied = params.get('error')
+    if (denied || !code || !state) { setErr(denied === 'access_denied' ? 'Sign-in was cancelled.' : 'The sign-in link is incomplete.'); return }
+    finish({ code, state })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <AuthCard title={ticket ? 'Two-step verification' : err ? 'Sign-in did not complete' : 'Signing you in…'} subtitle={ticket ? 'Enter the 6-digit code from your authenticator app.' : ''} footer={<Link to="/login" className="font-semibold no-underline">Back to sign in</Link>}>
+      {err && <div role="alert" className="px-3 py-2.5 rounded-lg bg-r-bg text-r-fg text-[13px]">{err}</div>}
+      {ticket && (
+        <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); finish({ ticket, otp }) }}>
+          <OtpInput value={otp} onChange={setOtp} onComplete={(v) => finish({ ticket, otp: v })} />
+          <button className="btn btn-primary min-h-11" disabled={otp.length !== 6}>Verify and sign in</button>
+        </form>
+      )}
+      {!err && !ticket && <p className="m-0 text-sm text-muted">One moment while we finish signing you in.</p>}
+    </AuthCard>
+  )
+}
+
 export function Login() {
   const { login, loginPasskey, me } = useAuth()
   const nav = useNavigate()
@@ -70,11 +145,13 @@ export function Login() {
   const [err, setErr] = useState<string | null>(null)
   const [fields, setFields] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const cfg = useAuthConfig()
+  const captcha = useRef<CaptchaHandle>(null)
   if (me) return <Navigate to={loc.state?.from ?? homeFor(me)} replace />
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null); setFields({})
     try {
-      const m = await login(email, password, otp || undefined)
+      const m = await login(email, password, otp || undefined, otp ? null : await captcha.current?.token())
       nav(loc.state?.from ?? homeFor(m), { replace: true })
     } catch (ex) {
       if (isApiError(ex)) {
@@ -82,6 +159,7 @@ export function Login() {
         setFields(Object.fromEntries(Object.entries(ex.fields).map(([k, v]) => [k, v[0]])))
         setErr(ex.status === 401 || ex.status === 422 ? (ex.fields.otp ? 'Enter the 6-digit code from your authenticator app.' : ex.message) : ex.message)
       } else setErr('Could not sign in. Try again.')
+      captcha.current?.reset()
     } finally { setBusy(false) }
   }
   const withPasskey = async (secondFactor: boolean) => {
@@ -111,10 +189,13 @@ export function Login() {
             <OtpInput value={otp} onChange={setOtp} invalid={!!fields.otp} />
           </div>
         )}
+        {!needOtp && <Captcha ref={captcha} config={cfg.captcha} action="login" />}
+        {fields.captcha && <span className="text-xs text-danger -mt-2">{fields.captcha}</span>}
         <button className="btn btn-primary min-h-11" disabled={busy || (needOtp && otp.length !== 6)}>{busy ? 'Signing in…' : needOtp ? 'Verify and sign in' : 'Sign in'}</button>
         {needOtp && <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(true)}>Use a passkey instead of a code</button>}
       </form>
       <div className="flex items-center gap-3 text-xs text-muted" aria-hidden="true"><span className="flex-1 border-t border-line" />or<span className="flex-1 border-t border-line" /></div>
+      <SsoButtons sso={cfg.sso} busy={busy} />
       <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(false)}>Sign in with a passkey</button>
       <p className="m-0 text-xs text-muted text-center">Protected by rate limiting. Sign-ins are logged.</p>
     </AuthCard>
@@ -128,6 +209,8 @@ export function Register() {
   const [fields, setFields] = useState<Record<string, string>>({})
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const regCfg = useAuthConfig()
+  const regCaptcha = useRef<CaptchaHandle>(null)
   if (me) return <Navigate to={homeFor(me)} replace />
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value })
   const submit = async (e: FormEvent) => {
@@ -140,7 +223,7 @@ export function Register() {
     setFields(local)
     if (Object.keys(local).length) { setBusy(false); return }
     try {
-      const m = await register(f)
+      const m = await register({ ...f, captcha: await regCaptcha.current?.token() })
       nav(homeFor(m), { replace: true })
     } catch (ex) {
       if (isApiError(ex)) { setFields(Object.fromEntries(Object.entries(ex.fields).map(([k, v]) => [k, v[0]]))); setErr(ex.message) } else setErr('Could not create the account.')
@@ -154,6 +237,8 @@ export function Register() {
         <Field label="Password" error={fields.password} hint="At least 8 characters"><input className="input" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} /></Field>
         <Field label="Organisation" error={fields.organization}><input className="input" autoComplete="organization" value={f.organization} onChange={set('organization')} /></Field>
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
+        <Captcha ref={regCaptcha} config={regCfg.captcha} action="signup" />
+        {fields.captcha && <span className="text-xs text-danger -mt-2">{fields.captcha}</span>}
         <button className="btn btn-primary min-h-11" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
       </form>
     </AuthCard>
@@ -165,9 +250,11 @@ export function ForgotPassword() {
   const [sent, setSent] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const fgCfg = useAuthConfig()
+  const fgCaptcha = useRef<CaptchaHandle>(null)
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null)
-    try { await api.post('/auth/forgot-password', { email: email.trim() }); setSent(true) } catch (ex) { setErr(isApiError(ex) ? ex.message : 'Could not send the link. Try again.') } finally { setBusy(false) }
+    try { await api.post('/auth/forgot-password', { email: email.trim(), captcha: await fgCaptcha.current?.token() }); setSent(true) } catch (ex) { setErr(isApiError(ex) ? ex.message : 'Could not send the link. Try again.') } finally { setBusy(false) }
   }
   return (
     <AuthCard side="forgot" title="Forgot your password?" subtitle="We'll email you a link to choose a new one." footer={<>Remembered it? <Link to="/login" className="font-medium">Sign in</Link></>}>
@@ -175,6 +262,7 @@ export function ForgotPassword() {
         ? <p role="status" className="m-0 text-sm">If an account uses <strong>{email}</strong>, a reset link is on its way. It works for an hour.</p>
         : <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <Field label="Email"><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <Captcha ref={fgCaptcha} config={fgCfg.captcha} action="forgot" />
           {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
           <button className="btn btn-primary min-h-11" disabled={busy || !/^\S+@\S+\.\S+$/.test(email)}>{busy ? 'Sending…' : 'Send reset link'}</button>
         </form>}

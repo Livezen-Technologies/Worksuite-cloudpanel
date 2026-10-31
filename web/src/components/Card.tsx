@@ -62,12 +62,19 @@ export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barCo
 }
 
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  // Exact px sizes: the theme remaps Tailwind's spacing steps (h-6 is 32px here).
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex flex-none items-center w-[44px] h-[24px] p-[3px] rounded-full border-0 cursor-pointer appearance-none transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="group relative inline-flex flex-none items-center w-[44px] h-[24px] p-[2px] rounded-full border-0 cursor-pointer appearance-none
+                 transition-[background-color,box-shadow] duration-200 ease-out
+                 shadow-[inset_0_1px_2px_rgba(15,23,42,.15)] hover:brightness-[.97]
+                 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]
+                 disabled:opacity-50 disabled:cursor-not-allowed"
       style={{ background: checked ? 'var(--accent)' : 'var(--ctl-ring)', minHeight: 0, minWidth: 0 }}>
-      <span aria-hidden="true" className={`block size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(15,23,42,.25)] transition-transform duration-150 ${checked ? 'translate-x-[20px]' : 'translate-x-0'}`} />
+      <span aria-hidden="true" className={`grid place-items-center w-[20px] h-[20px] rounded-full bg-white shadow-[0_1px_3px_rgba(15,23,42,.25),0_1px_1px_rgba(15,23,42,.08)] transition-transform duration-200 ease-[cubic-bezier(.3,1.4,.6,1)] group-active:scale-95 ${checked ? 'translate-x-[20px]' : 'translate-x-0'}`}>
+        <svg viewBox="0 0 12 12" className={`w-[10px] h-[10px] transition-opacity duration-150 ${checked ? 'opacity-100' : 'opacity-0'}`} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2 5 8.5l4.5-5" /></svg>
+      </span>
     </button>
   )
 }
