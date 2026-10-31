@@ -65,6 +65,13 @@ class PublicPagesController extends Controller
     {
         abort_unless(isset(PublicPagesService::PAGES[$key]), 404);
 
-        return $this->data(['html' => $this->pages->render($key)]);
+        $html = $this->pages->render($key);
+        if ($key === 'captcha') {
+            // The preview has no bouncer: show where the widget goes instead of the template fields.
+            $html = str_replace(['<script src="{{ .FrontendJS }}" async defer></script>', '<div class="{{ .FrontendKey }}" data-sitekey="{{ .SiteKey }}" data-callback="captchaCallback"></div>'],
+                ['', '<div style="border:1px dashed #9ca3af;border-radius:6px;padding:18px;text-align:center;color:#6b7280">The Turnstile, reCAPTCHA or hCaptcha check appears here</div>'], $html);
+        }
+
+        return $this->data(['html' => $html]);
     }
 }

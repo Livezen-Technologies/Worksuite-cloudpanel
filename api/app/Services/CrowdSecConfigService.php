@@ -58,6 +58,8 @@ class CrowdSecConfigService
             'crowdsecLapiScheme' => config('platform.crowdsec.lapi_scheme'),
             'crowdsecLapiHost' => config('platform.crowdsec.lapi_host'),
             'crowdsecLapiKey' => config('platform.crowdsec.bouncer_key'),
+            // Branded pages from Public pages (bot check), pushed with proxy.config.
+            'banHTMLFilePath' => rtrim((string) config('platform.crowdsec.pages_dir'), '/').'/dmp-ban.html',
         ];
         if (config('platform.crowdsec.trusted_proxies')) {
             $bouncer['forwardedHeadersTrustedIPs'] = array_values(config('platform.crowdsec.trusted_proxies'));
@@ -69,6 +71,7 @@ class CrowdSecConfigService
                 'captchaSiteKey' => $fw['site_key'],
                 'captchaSecretKey' => $secret,
                 'captchaGracePeriodSeconds' => 60 * max(1, (int) ($fw['clearance_minutes'] ?? 30)),
+                'captchaHTMLFilePath' => rtrim((string) config('platform.crowdsec.pages_dir'), '/').'/dmp-captcha.html',
             ];
         }
 

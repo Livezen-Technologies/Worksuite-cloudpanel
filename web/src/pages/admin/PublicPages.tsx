@@ -14,6 +14,9 @@ const WHEN: Record<string, string> = {
   suspended: 'When a hosting customer is suspended',
   expired: 'When a package has expired; data kept for the grace period',
   welcome: 'When a domain points here but no site is set up yet',
+  sleeping: 'While a sleeping preview environment wakes up',
+  captcha: 'Bot check: when the firewall asks a visitor to prove they are human (challenge rules, protected paths, under attack mode)',
+  ban: 'When the firewall has blocked a visitor\'s address',
 }
 const tone = (c: string) => (c.startsWith('2') ? 'g' : c.startsWith('4') ? 'y' : 'r') as 'g' | 'y' | 'r'
 

@@ -36,7 +36,13 @@ class PublicPagesService
         'expired' => ['status' => 402, 'title' => 'This site is paused', 'message' => 'The plan for this site has ended. If it is yours, renew it in the panel.'],
         'sleeping' => ['status' => 503, 'title' => 'Waking this site up', 'message' => 'This preview was asleep to save resources. It is starting now and this page reloads by itself.'],
         'welcome' => ['status' => 200, 'title' => 'Your domain is connected', 'message' => 'This domain points at the platform. Connect it to an app in the panel to put your site here.'],
+        // Served by the CrowdSec bouncer in Traefik (FW-001), not by the edge container.
+        'captcha' => ['status' => 200, 'title' => 'Checking that you are human', 'message' => 'This site is protected against automated traffic. Complete the check below to continue.'],
+        'ban' => ['status' => 403, 'title' => 'Access blocked', 'message' => 'Your address was blocked by this site\'s firewall after unusual activity. Try again later.'],
     ];
+
+    /** Pages the bouncer serves: one for the whole platform, never per site. */
+    public const BOT_PAGES = ['captcha', 'ban'];
 
     public const DEFAULTS = ['maintenance' => false, 'retry_after' => 3600, 'grace_days' => 7, 'pages' => []];
 
@@ -84,7 +90,7 @@ class PublicPagesService
             $pages['maintenance'] = (bool) $input['maintenance'];
         }
         foreach ($input['pages'] ?? [] as $key => $page) {
-            if (isset(self::PAGES[$key])) {
+            if (isset(self::PAGES[$key]) && ! in_array($key, self::BOT_PAGES, true)) {
                 $pages['text'][$key] = array_filter(array_intersect_key((array) $page, array_flip(['title', 'message', 'link_label', 'link_url'])), fn ($v) => $v !== null && $v !== '');
             }
         }
@@ -230,7 +236,7 @@ class PublicPagesService
             ['fs.mkdir', ['volume' => self::HTML_VOLUME, 'path' => 'sites', 'exist_ok' => true]],
             ['fs.write', ['volume' => self::CONF_VOLUME, 'path' => 'default.conf', 'content' => $this->nginxConf()]],
         ];
-        foreach (array_keys(self::PAGES) as $key) {
+        foreach (array_diff(array_keys(self::PAGES), self::BOT_PAGES) as $key) {
             $cmds[] = ['fs.write', ['volume' => self::HTML_VOLUME, 'path' => "default/{$key}.html", 'content' => $this->render($key)]];
         }
         foreach (Domain::allTenants()->get()->filter(fn ($d) => ! empty($d->options['pages']['text'])) as $d) {
@@ -248,7 +254,8 @@ class PublicPagesService
     {
         $s = $this->settings();
         $text = array_replace(self::PAGES[$key], $s['pages'][$key] ?? [], $domain?->options['pages']['text'][$key] ?? []);
-        $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Bot pages are Go templates in the bouncer: text must never open a template action.
+        $e = fn ($v) => str_replace(['{{', '}}'], ['&#123;&#123;', '&#125;&#125;'], htmlspecialchars((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $brand = $this->emails->brand();
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : '#4F46E5';
         $name = $brand['sender_name'] ?: config('app.name', 'WorkSuite CloudPanel');
@@ -257,6 +264,15 @@ class PublicPagesService
         $link = ! empty($text['link_url']) && preg_match('#^https?://#i', $text['link_url'])
             ? '<p><a href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? $text['link_url']).'</a></p>' : '';
         $retryNote = $key === 'busy' ? '<p class="m">Trying again in 30 seconds…</p>' : '';
+        $head = '';
+        if ($key === 'captcha') {
+            // The bouncer fills these Go template fields with the provider's script, widget class and site key,
+            // and checks the token the widget posts back; the form submits itself once the check passes.
+            $head = '<script src="{{ .FrontendJS }}" async defer></script>';
+            $retryNote = '<form method="POST" action=""><div class="{{ .FrontendKey }}" data-sitekey="{{ .SiteKey }}" data-callback="captchaCallback"></div></form>'
+                .'<script>function captchaCallback(){setTimeout(function(){document.querySelector("form").submit()},300)}</script>'
+                .'<noscript><p class="m">Turn on JavaScript to complete the check.</p></noscript>';
+        }
         if ($key === 'sleeping') {
             // No scripts on these pages: an image request is what wakes the app.
             $retryNote = '<p class="m">This usually takes under a minute.</p><img src="/__wake" alt="" width="1" height="1">';
@@ -265,7 +281,7 @@ class PublicPagesService
         return <<<HTML
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex">{$refresh}<title>{$e($text['title'])}</title>
+<meta name="robots" content="noindex">{$refresh}<title>{$e($text['title'])}</title>{$head}
 <style>
 :root{color-scheme:light dark;--fg:#111827;--bg:#f4f5f7;--card:#fff;--m:#6b7280}
 @media (prefers-color-scheme:dark){:root{--fg:#e5e7eb;--bg:#0b0d12;--card:#151922;--m:#9ca3af}}
@@ -275,6 +291,12 @@ h1{margin:0 0 12px;font-size:24px;line-height:1.3}p{margin:0 0 12px}.m{color:var
 </style></head>
 <body><main><h1>{$e($text['title'])}</h1><p>{$e($text['message'])}</p>{$link}{$retryNote}<p class="m">{$e($name)}</p></main></body></html>
 HTML;
+    }
+
+    /** The CrowdSec bouncer's captcha and ban pages, written next to Traefik's dynamic config. */
+    public function bouncerPages(): array
+    {
+        return ['dmp-captcha.html' => $this->render('captcha'), 'dmp-ban.html' => $this->render('ban')];
     }
 
     /** PUB-1/4: status, Retry-After and per-site pages, all from files. */
