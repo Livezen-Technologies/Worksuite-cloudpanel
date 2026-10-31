@@ -453,6 +453,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::patch('customers/{id}', [Admin\CustomerController::class, 'update'])->middleware('perm:users.manage')->name('customers.update');
     Route::get('customers/{id}', [Admin\CustomerController::class, 'show'])->middleware('perm:users.manage|billing.manage')->name('customers.show');
     Route::post('customers/{id}/suspend', [Admin\CustomerController::class, 'suspend'])->middleware('perm:users.manage')->name('customers.suspend');
+    Route::post('customers/{id}/close', [Admin\CustomerController::class, 'close'])->middleware('perm:users.manage')->name('customers.close');
+    Route::post('customers/{id}/members/{userId}/password-reset', [Admin\CustomerController::class, 'sendPasswordReset'])->middleware('perm:users.manage')->name('customers.password-reset');
     Route::post('customers/{id}/impersonate', [Admin\CustomerController::class, 'impersonate'])->middleware('perm:users.manage')->name('customers.impersonate');
     Route::post('customers/{id}/reactivate', [Admin\CustomerController::class, 'reactivate'])->middleware('perm:users.manage')->name('customers.reactivate');
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
