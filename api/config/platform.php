@@ -35,6 +35,7 @@ return [
         'health_timeout' => (int) env('HEALTH_CHECK_TIMEOUT', 60),
         'health_path' => '/',
         'timeout_minutes' => (int) env('BUILD_TIMEOUT_MINUTES', 60),
+        'buildkit_cache' => (bool) env('BUILD_BUILDKIT_CACHE', true), // BLD-3: buildx with a <repo>:buildcache registry cache when pushing
         'registry_keep' => (int) env('BUILD_REGISTRY_KEEP', 5), // releases whose images registry:gc keeps per app
         'push_registry' => ['url' => env('BUILD_PUSH_REGISTRY'), 'username' => env('BUILD_PUSH_REGISTRY_USERNAME'), 'password' => env('BUILD_PUSH_REGISTRY_PASSWORD')],
     ],

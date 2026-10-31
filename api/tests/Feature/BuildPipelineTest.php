@@ -305,6 +305,9 @@ class BuildPipelineTest extends TestCase
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
         [$build] = $this->heartbeat($builderSecret)['commands'];
         $this->assertSame(['reg.example.com/acme/api@'.$digest(7), 'reg.example.com/acme/api@'.$digest(6)], $build['payload']['cache_from']);
+        $repo = substr($build['payload']['image_tag'], 0, strrpos($build['payload']['image_tag'], ':'));
+        $this->assertStringStartsWith('reg.example.com/', $repo);
+        $this->assertSame($repo.':buildcache', $build['payload']['cache_ref'], 'BuildKit keeps its own cache beside the images');
 
         // Clean-up keeps the last 5 releases; dry run first.
         $preview = $this->api($token)->postJson("/api/v1/registries/{$registry}/gc", ['dry_run' => true])->assertOk()->json('data.images');

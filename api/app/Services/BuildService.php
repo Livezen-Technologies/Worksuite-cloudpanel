@@ -154,6 +154,10 @@ class BuildService
             if ($cache) {
                 $payload['cache_from'] = $cache;
             }
+            // BLD-3: BuildKit's own registry cache beside the images (every stage, mode=max).
+            if (config('platform.builds.buildkit_cache')) {
+                $payload['cache_ref'] = preg_replace('/:[^:\/]+$/', '', $payload['image_tag']).':buildcache';
+            }
         }
 
         return $payload;
