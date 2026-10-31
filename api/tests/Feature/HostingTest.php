@@ -80,7 +80,7 @@ class HostingTest extends TestCase
         $this->host($token, 'bad', ['source' => ['type' => 'image', 'image' => 'acme/private-thing:1']])->assertStatus(422);
         $this->host($token, 'Bad_Name')->assertStatus(422)->assertJsonStructure(['error' => ['fields' => ['name']]]);
         $this->host($token, 'priv', ['privileged' => true])->assertStatus(422);
-        $this->host($token, 'wp', ['source' => ['type' => 'template', 'template' => 'wordpress'], 'size' => 'standard'])->assertStatus(202);
+        $this->host($token, 'wp', ['source' => ['type' => 'template', 'template' => 'wordpress', 'variables' => ['WORDPRESS_DB_HOST' => 'db:3306', 'WORDPRESS_DB_PASSWORD' => 'pw']], 'size' => 'standard'])->assertStatus(202);
         $this->host($token, 'wp')->assertStatus(422);
     }
 
@@ -107,5 +107,31 @@ class HostingTest extends TestCase
         $deleted = Application::allTenants()->withTrashed()->find($appId);
         $this->assertTrue($deleted->trashed());
         $this->assertTrue($deleted->purge_after->gt(now()->addDays(6)));
+    }
+
+    public function test_customers_host_catalogue_templates_with_generated_secrets(): void
+    {
+        [, $org, $token] = $this->org();
+        $this->server($org);
+        $this->host($token, 'pma', ['source' => ['type' => 'template', 'template' => 'phpmyadmin'], 'env' => []])->assertStatus(422)->assertSee('PMA_HOST');
+        $this->host($token, 'tool', ['source' => ['type' => 'template', 'template' => 'portainer'], 'env' => []])->assertStatus(422);
+
+        $this->host($token, 'stats', ['source' => ['type' => 'template', 'template' => 'grafana'], 'port' => null, 'env' => [['key' => 'GF_SECURITY_ADMIN_USER', 'value' => 'me']]])->assertStatus(202);
+        $app = Application::allTenants()->where('name', 'stats')->first();
+        $this->assertSame(['grafana/grafana:11.3.0', 3000, '/api/health', '/var/lib/grafana'], [$app->image, $app->port, $app->health_path, $app->volume_path]);
+        $this->assertArrayNotHasKey('variables', $app->source);
+        $env = \App\Models\EnvVar::allTenants()->where('application_id', $app->id)->get()->keyBy('key');
+        $this->assertSame('me', $env['GF_SECURITY_ADMIN_USER']->value, 'what the customer sets wins');
+        $this->assertSame(32, strlen($env['GF_SECURITY_ADMIN_PASSWORD']->value));
+        $this->assertTrue($env['GF_SECURITY_ADMIN_PASSWORD']->secret);
+        $this->assertSame('https://stats.'.config('platform.domain'), $env['GF_SERVER_ROOT_URL']->value);
+        $install = \App\Models\TemplateInstall::allTenants()->where('resource_id', $app->id)->first();
+        $this->assertSame(['grafana', 1], [$install->template_id, $install->version]);
+        $this->assertSame($env['GF_SECURITY_ADMIN_PASSWORD']->value, $install->values['SERVICE_PASSWORD_GRAFANA']);
+
+        $this->host($token, 'admin-db', ['source' => ['type' => 'template', 'template' => 'phpmyadmin', 'variables' => ['PMA_HOST' => 'db.internal']], 'env' => []])->assertStatus(202);
+        $this->assertSame('db.internal', \App\Models\EnvVar::allTenants()->where('key', 'PMA_HOST')->value('value'));
+        $list = collect($this->api($token)->getJson('/api/v1/app/templates')->json('data'))->keyBy('id');
+        $this->assertSame([3000, 1, 'Monitoring'], [$list['grafana']['port'], $list['grafana']['generates'], $list['grafana']['category']]);
     }
 }

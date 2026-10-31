@@ -47,6 +47,9 @@ export default function HostApp() {
   const [srcOk, setSrcOk] = useState(false)
   const [deploy, setDeploy] = useState<{ app: R; job_id: string } | null>(null)
   const templates = useList<R>('/app/templates')
+  const [tq, setTq] = useState('')
+  const [vars, setVars] = useState<Record<string, string>>({})
+  const picked = templates.rows.find((t) => t.id === s.template)
   const plans = useOne<R | R[]>('/app/billing/plans')
   const { job } = useJob(deploy?.job_id)
   const failed = job?.status === 'failed'
@@ -69,7 +72,7 @@ export default function HostApp() {
   const source = () => (src === 'image' ? { type: src, image: s.image.trim(), ...(s.private ? { registry_auth: { username: s.username, password: s.password } } : {}) }
     : src === 'git' ? { type: src, repo: s.repo.trim(), branch: s.branch || 'main' }
     : src === 'compose' ? { type: src, compose: s.compose }
-    : { type: src, template: s.template })
+    : { type: src, template: s.template, ...(Object.keys(vars).length ? { variables: vars } : {}) })
 
   const validateSource = async () => {
     const local = src === 'image' && !s.image.trim() ? 'Enter the image name, for example nginx:1.27-alpine.'
@@ -162,11 +165,27 @@ export default function HostApp() {
             </>
           )}
           <div className="text-sm font-semibold">{src === 'template' ? 'Pick a template:' : 'Or start from a template:'}</div>
+          {templates.rows.length > 8 && <input className="input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder={`Search ${templates.rows.length} templates…`} aria-label="Search templates" />}
           <div className="flex flex-wrap gap-2">
-            {(templates.rows.length ? templates.rows.map((t) => ({ id: String(t.id), name: String(t.name ?? t.id) })) : TEMPLATES.map((t) => ({ id: t.toLowerCase().replace(/\s+/g, '-'), name: t }))).map((t) => (
-              <button key={t.id} type="button" className="chip" aria-pressed={src === 'template' && s.template === t.id} onClick={() => { setSrc('template'); setS({ ...s, template: t.id }) }}>{t.name}</button>
+            {(templates.rows.length ? templates.rows.map((t) => ({ id: String(t.id), name: String(t.name ?? t.id), text: `${t.name} ${t.category ?? ''} ${t.description ?? ''}` })) : TEMPLATES.map((t) => ({ id: t.toLowerCase().replace(/\s+/g, '-'), name: t, text: t })))
+              .filter((t) => !tq || t.text.toLowerCase().includes(tq.toLowerCase()) || t.id === s.template).map((t) => (
+              <button key={t.id} type="button" className="chip" aria-pressed={src === 'template' && s.template === t.id} onClick={() => {
+                setSrc('template'); setS({ ...s, template: t.id })
+                const tpl = templates.rows.find((x) => x.id === t.id)
+                setVars(Object.fromEntries(((tpl?.variables as R[]) ?? []).map((v) => [String(v.key), String(v.default ?? '')])))
+              }}>{t.name}</button>
             ))}
           </div>
+          {src === 'template' && picked && (
+            <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
+              <p className="m-0 text-sm">{String(picked.description ?? '')}{Number(picked.generates) > 0 ? ` We create ${picked.generates === 1 ? 'a password' : `${picked.generates} passwords and keys`} for it and keep ${picked.generates === 1 ? 'it' : 'them'} secret.` : ''}</p>
+              {((picked.variables as R[]) ?? []).map((v) => (
+                <label key={String(v.key)} className="label">{String(v.label ?? v.key)}{v.required ? ' (required)' : ''}
+                  <input className="input font-mono" type={v.secret ? 'password' : 'text'} autoComplete="off" value={vars[String(v.key)] ?? ''} onChange={(e) => setVars({ ...vars, [String(v.key)]: e.target.value })} />
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       ),
     },

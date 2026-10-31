@@ -32,7 +32,8 @@ class AppController extends Controller
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.builder' => 'nullable|in:dockerfile,auto', 'source.no_cache' => 'nullable|boolean',
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',
-            'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(config('platform.app_templates')))],
+            'source.template' => ['required_if:source.type,template', 'nullable', 'string', 'max:80', fn ($attr, $v, $fail) => $v && ! HostingService::template((string) $v) ? $fail('Unknown template.') : null],
+            'source.variables' => 'nullable|array', 'source.variables.*' => 'nullable|string|max:4096',
         ];
     }
 
