@@ -79,6 +79,7 @@ export function ImportList({ base, domainId, boxes }: { base: string; domainId: 
             </div>
             <div className="text-xs text-muted">
               {ago(String(i.started_at))}
+              {i.status === 'running' && i.progress != null ? ` · ${i.progress_message ? String(i.progress_message) : 'starting'} (${Number(i.progress)}%)` : ''}
               {i.messages != null ? ` · ${i.messages} messages in ${i.folders ?? '?'} folders · ${bytes(i.bytes)}` : ''}
               {Number(i.errors) > 0 ? ` · ${i.errors} errors` : ''}
               {i.log ? <> · <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOpen(open === i.id ? null : String(i.id))}>{open === i.id ? 'Hide log' : 'Log'}</button></> : null}

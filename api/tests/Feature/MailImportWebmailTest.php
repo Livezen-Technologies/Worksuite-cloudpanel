@@ -78,6 +78,10 @@ class MailImportWebmailTest extends TestCase
 
         $import = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'mail.import');
         $master = MailServer::allTenants()->find($mail->id)->master_password;
+        // Live progress while imapsync runs.
+        $this->commandResult($secret, $import['id'], 'running', ['progress' => 25, 'message' => '250 of 1000 messages copied'])->assertOk();
+        $live = $this->api($token)->getJson("/api/v1/mail/domains/{$d['id']}/imports")->assertOk()->json('data.imports.0');
+        $this->assertSame([25, '250 of 1000 messages copied'], [$live['progress'], $live['progress_message']]);
         $this->assertNotEmpty($master);
         $this->assertStringStartsWith('dmpimport|{SHA512-CRYPT}$6$', $writes['dovecot-masters.cf'], 'the master user reaches Dovecot');
         $this->assertStringNotContainsString($master, $writes['dovecot-masters.cf']);
@@ -113,12 +117,10 @@ class MailImportWebmailTest extends TestCase
     {
         [$token, $secret, $mail] = $this->setUpMail();
         $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/webmail", ['hostname' => 'webmail.example.com'])->assertStatus(202)->assertJsonPath('data.webmail_status', 'installing');
-        $remove = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.remove');
-        $this->commandResult($secret, $remove['id'], 'failed', ['message' => 'No such container: webmail'])->assertOk();
-        $create = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
+        $create = $this->runWebmailSteps($secret);
         $this->assertSame([MailService::WEBMAIL_IMAGE, 'ssl://mail.example.com', 'tls://mail.example.com'], [$create['payload']['image'], $create['payload']['env']['ROUNDCUBEMAIL_DEFAULT_HOST'], $create['payload']['env']['ROUNDCUBEMAIL_SMTP_SERVER']]);
         $this->assertContains('Host(`webmail.example.com`)', $create['payload']['labels']);
-        $this->commandResult($secret, $create['id'], 'succeeded', ['output' => ['id' => 'w1']])->assertOk();
+        $this->assertStringContainsString('dmp_sso', $create['payload']['env']['ROUNDCUBEMAIL_PLUGINS']);
         $this->assertSame('running', MailServer::allTenants()->find($mail->id)->webmail_status);
         $this->api($token)->getJson('/api/v1/mail')->assertJsonPath('data.servers.0.webmail_hostname', 'webmail.example.com');
 
@@ -134,5 +136,51 @@ class MailImportWebmailTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->postJson("/api/v1/mail/domains/{$d['id']}/mailboxes/{$box['id']}/import", ['host' => 'imap.gmail.com', 'username' => 'x', 'password' => 'y'])->assertNotFound();
         $this->api($other)->getJson("/api/v1/mail/domains/{$d['id']}/imports")->assertNotFound();
+    }
+
+    /** Answer the webmail install steps in order; returns the container.create command. */
+    private function runWebmailSteps(string $secret, array &$writes = []): array
+    {
+        for ($i = 0; $i < 8; $i++) {
+            foreach ($this->heartbeat($secret)['commands'] as $cmd) {
+                if ($cmd['type'] === 'fs.write') {
+                    $writes[$cmd['payload']['volume'].'/'.$cmd['payload']['path']] = $cmd['payload']['content'];
+                }
+                $failed = $cmd['type'] === 'container.remove';
+                $this->commandResult($secret, $cmd['id'], $failed ? 'failed' : 'succeeded', $failed ? ['message' => 'No such container: webmail'] : ['output' => ['id' => 'w1']])->assertOk();
+                if ($cmd['type'] === 'container.create') {
+                    return $cmd;
+                }
+            }
+        }
+        $this->fail('webmail install never reached container.create');
+    }
+
+    public function test_one_click_webmail_sign_in_is_single_use_and_bearer_checked(): void
+    {
+        [$token, $secret, $mail] = $this->setUpMail();
+        [$d, $box] = $this->mailbox($token, $mail);
+        $this->api($token)->postJson("/api/v1/mail/domains/{$d['id']}/mailboxes/{$box['id']}/webmail")->assertStatus(409);
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/webmail", ['hostname' => 'webmail.example.com'])->assertStatus(202);
+        $writes = [];
+        $create = $this->runWebmailSteps($secret, $writes);
+        $plugin = collect($create['payload']['mounts'])->firstWhere('source', 'webmail-sso');
+        $this->assertSame(['/var/www/html/plugins/dmp_sso', true], [$plugin['target'], $plugin['read_only']]);
+        $this->assertStringContainsString('class dmp_sso extends rcube_plugin', $writes['webmail-sso/dmp_sso.php']);
+        $bearer = app(MailService::class)->webmailSecret($mail->fresh());
+        $this->assertStringContainsString($bearer, $writes['webmail-config/dmp_sso.inc.php']);
+        $this->assertStringContainsString('/api/v1/webmail-sso', $writes['webmail-config/dmp_sso.inc.php']);
+
+        $url = $this->api($token)->postJson("/api/v1/mail/domains/{$d['id']}/mailboxes/{$box['id']}/webmail")->assertOk()->json('data.url');
+        $this->assertMatchesRegularExpression('#^https://webmail\.example\.com/\?_task=login&_sso=[A-Za-z0-9]{64}$#', $url);
+        $sso = substr($url, strpos($url, '_sso=') + 5);
+
+        $this->getJson("/api/v1/webmail-sso/{$sso}", ['Authorization' => 'Bearer wrong'])->assertNotFound();
+        $login = $this->getJson("/api/v1/webmail-sso/{$sso}", ['Authorization' => 'Bearer '.$bearer])->assertOk()->json('data');
+        $this->assertSame(['ann@example.com*'.MailService::MASTER_USER, app(MailService::class)->masterPassword($mail->fresh())], [$login['user'], $login['password']]);
+        $this->getJson("/api/v1/webmail-sso/{$sso}", ['Authorization' => 'Bearer '.$bearer])->assertNotFound();
+
+        [, , $other] = $this->org();
+        $this->api($other)->postJson("/api/v1/mail/domains/{$d['id']}/mailboxes/{$box['id']}/webmail")->assertNotFound();
     }
 }

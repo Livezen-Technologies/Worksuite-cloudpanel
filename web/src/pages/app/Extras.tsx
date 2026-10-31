@@ -104,7 +104,13 @@ export function UserMail() {
                     {(b.autoresponder as R)?.enabled ? <Badge tone="b">auto-reply</Badge> : null}
                     {b.held_reason ? <Badge tone="r">sending on hold</Badge> : null}
                     <SpamLevel path={`/app/mail/domains/${d.id}/mailboxes/${b.id}`} spam={b.spam as R | null} onSaved={refetch} />
-                    {(b.client as R)?.webmail_url ? <a className="btn btn-sm" href={String((b.client as R).webmail_url)} target="_blank" rel="noopener noreferrer">Webmail</a> : null}
+                    {(b.client as R)?.webmail_url ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+                      // One-click sign-in: open the tab now (popup blockers), then point it at the single-use link.
+                      const tab = window.open('', '_blank')
+                      run<{ data: { url: string } }>({ path: `/app/mail/domains/${d.id}/mailboxes/${b.id}/webmail`, label: 'Open webmail', silent: true })
+                        .then((r) => { if (tab) { tab.opener = null; tab.location.href = r.data.url } })
+                        .catch(() => tab?.close())
+                    }}>Webmail</button> : null}
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setImporting({ domain: String(d.id), box: b })}>Import mail</button>
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { const p = window.prompt(`New password for ${b.address} (10+ characters):`); if (p) run({ path: `/app/mail/domains/${d.id}/mailboxes/${b.id}`, method: 'PATCH', body: { password: p }, label: 'Reset password', success: 'Password changed' }) }}>Reset password</button>
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {

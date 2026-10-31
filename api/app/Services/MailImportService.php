@@ -104,7 +104,13 @@ class MailImportService implements HandlesCommandResults
 
     public static function present(MailImport $i): array
     {
+        // MCL: while imapsync runs, the agent reports the share copied from its ETA line.
+        $live = $i->status === 'running' && $i->job_id
+            ? \App\Models\AgentCommand::allTenants()->where('job_id', $i->job_id)->where('type', 'mail.import')->latest()->first(['progress', 'message'])
+            : null;
+
         return [
+            'progress' => $i->status === 'running' ? (int) ($live?->progress ?? 0) : null, 'progress_message' => $live?->message,
             'id' => $i->id, 'mailbox_id' => $i->mailbox_id, 'source' => $i->source_user.' @ '.$i->source_host.':'.$i->source_port,
             'status' => $i->status, 'messages' => $i->messages, 'folders' => $i->folders, 'bytes' => $i->bytes, 'errors' => $i->errors,
             'log' => $i->log, 'job_id' => $i->job_id,

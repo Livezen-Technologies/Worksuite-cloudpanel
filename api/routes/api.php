@@ -25,6 +25,12 @@ Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/reset-password', [\App\Http\Controllers\AccountRecoveryController::class, 'reset'])->name('auth.reset-password');
     Route::post('auth/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'verify'])->name('auth.verify-email');
 });
+// MCL: the webmail container redeems a one-click sign-in token (bearer-checked, single use).
+Route::get('webmail-sso/{token}', function (\Illuminate\Http\Request $request, string $token) {
+    $login = app(\App\Services\MailService::class)->redeemWebmailToken($token, $request->bearerToken());
+
+    return $login ? response()->json(['data' => $login]) : response()->json(['error' => ['code' => 'not_found', 'message' => 'Expired or unknown token.']], 404);
+})->where('token', '[A-Za-z0-9]{40,80}')->middleware('throttle:api')->name('webmail.sso');
 Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('throttle:api')->name('hooks.git');
 Route::match(['get', 'post'], 'hooks/wake', [HookController::class, 'wake'])->middleware('throttle:20,1')->name('hooks.wake');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
@@ -317,6 +323,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('mail/servers/{id}/logs', [Admin\MailController::class, 'logs'])->middleware('perm:logs.view|servers.view')->name('mail.servers.logs');
     Route::post('mail/domains/{id}/dkim/{step}', [Admin\MailController::class, 'dkim'])->middleware('perm:deploy')->whereIn('step', ['rotate', 'complete'])->name('mail.dkim');
     Route::patch('mail/domains/{id}/mailboxes/{box}/autoresponder', [Admin\MailController::class, 'autoresponder'])->middleware('perm:deploy')->name('mail.autoresponder');
+    Route::post('mail/domains/{id}/mailboxes/{box}/webmail', [Admin\MailController::class, 'webmailLink'])->middleware('perm:deploy')->name('mail.webmail-link');
     Route::post('mail/domains/{id}/mailboxes/{box}/import', [Admin\MailController::class, 'startImport'])->middleware(['perm:deploy', 'throttle:10,1'])->name('mail.import');
     Route::get('mail/domains/{id}/imports', [Admin\MailController::class, 'imports'])->middleware('perm:resources.view|servers.view')->name('mail.imports');
     Route::post('mail/servers/{id}/webmail', [Admin\MailController::class, 'webmail'])->middleware('perm:servers.manage')->name('mail.webmail');
@@ -459,6 +466,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::patch('mail/domains/{id}/mailboxes/{box}', [Customer\MailController::class, 'updateMailbox'])->name('mail.mailboxes.update');
             Route::delete('mail/domains/{id}/mailboxes/{box}', [Customer\MailController::class, 'destroyMailbox'])->name('mail.mailboxes.destroy');
             Route::patch('mail/domains/{id}/mailboxes/{box}/autoresponder', [Customer\MailController::class, 'autoresponder'])->name('mail.autoresponder');
+            Route::post('mail/domains/{id}/mailboxes/{box}/webmail', [Customer\MailController::class, 'webmailLink'])->middleware('throttle:30,1')->name('mail.webmail-link');
             Route::post('mail/domains/{id}/mailboxes/{box}/import', [Customer\MailController::class, 'startImport'])->middleware('throttle:10,1')->name('mail.import');
             Route::get('mail/domains/{id}/imports', [Customer\MailController::class, 'imports'])->name('mail.imports');
             Route::post('mail/domains/{id}/aliases', [Customer\MailController::class, 'storeAlias'])->name('mail.aliases.store');
