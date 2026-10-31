@@ -440,6 +440,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
 
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');
     Route::get('roles/{name}', [Admin\RoleController::class, 'show'])->middleware('perm:users.manage|audit.view')->where('name', '[a-z_]+')->name('roles.show');
+    Route::post('roles', [Admin\RoleController::class, 'store'])->middleware('perm:users.manage')->name('roles.store');
+    Route::patch('roles/{name}', [Admin\RoleController::class, 'update'])->middleware('perm:users.manage')->where('name', '[a-z_]+')->name('roles.update');
+    Route::delete('roles/{name}', [Admin\RoleController::class, 'destroy'])->middleware('perm:users.manage')->where('name', '[a-z_]+')->name('roles.destroy');
     Route::get('settings', [Admin\SettingsController::class, 'show'])->middleware('perm:settings.manage')->name('settings.show');
     Route::patch('settings', [Admin\SettingsController::class, 'update'])->middleware('perm:settings.manage')->name('settings.update');
     // Email templates (EML-1..5).
