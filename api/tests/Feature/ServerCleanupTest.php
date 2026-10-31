@@ -28,7 +28,7 @@ class ServerCleanupTest extends TestCase
         $this->passHealthChecks($secret);
 
         $page = $this->api($token)->getJson("/api/v1/servers/{$server->id}/cleanup")->assertOk()->json('data');
-        $this->assertSame(['auto' => true, 'level' => 'safe', 'disk_threshold' => 85, 'keep_releases' => 2], $page['policy']);
+        $this->assertSame(['auto' => true, 'level' => 'safe', 'disk_threshold' => 85, 'keep_releases' => 2, 'log_max_mb' => 100], $page['policy']);
         $this->assertContains('ghcr.io/acme/shop:1.0', $page['protected']);
 
         $this->api($token)->postJson("/api/v1/servers/{$server->id}/cleanup", ['level' => 'nuke'])->assertStatus(422);
@@ -36,14 +36,15 @@ class ServerCleanupTest extends TestCase
         $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'server.cleanup');
         $this->assertSame('standard', $cmd['payload']['level']);
         $this->assertContains('ghcr.io/acme/shop:1.0', $cmd['payload']['protect']);
-        $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['freed_bytes' => 3 * 1024 * 1024 * 1024, 'images' => ['old:1', 'old:2'], 'dangling_images' => 1, 'containers' => 2, 'protected' => ['ghcr.io/acme/shop:1.0']]])->assertOk();
+        $this->assertSame(100, $cmd['payload']['log_max_mb'], 'oversized container logs are trimmed with every cleanup');
+        $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['freed_bytes' => 3 * 1024 * 1024 * 1024, 'images' => ['old:1', 'old:2'], 'dangling_images' => 1, 'containers' => 2, 'protected' => ['ghcr.io/acme/shop:1.0'], 'logs_trimmed' => 2, 'log_bytes' => 512 * 1024 * 1024]])->assertOk();
 
         $run = $this->api($token)->getJson("/api/v1/servers/{$server->id}/cleanup")->json('data.runs.0');
         $this->assertSame(['succeeded', 'manual', 'standard'], [$run['status'], $run['trigger'], $run['level']]);
-        $this->assertSame('Standard: 3 GB freed, 3 images, 2 containers removed, 1 protected', $run['message']);
+        $this->assertSame('Standard: 3 GB freed, 3 images, 2 containers removed, 1 protected, 2 container logs emptied (512 MB)', $run['message']);
 
-        $this->api($token)->patchJson("/api/v1/servers/{$server->id}/cleanup", ['level' => 'aggressive', 'disk_threshold' => 90, 'keep_releases' => 3])
-            ->assertOk()->assertJsonPath('data.policy.level', 'aggressive')->assertJsonPath('data.policy.disk_threshold', 90);
+        $this->api($token)->patchJson("/api/v1/servers/{$server->id}/cleanup", ['level' => 'aggressive', 'disk_threshold' => 90, 'keep_releases' => 3, 'log_max_mb' => 0])
+            ->assertOk()->assertJsonPath('data.policy.level', 'aggressive')->assertJsonPath('data.policy.log_max_mb', 0)->assertJsonPath('data.policy.disk_threshold', 90);
         [, , $other] = $this->org();
         $this->api($other)->getJson("/api/v1/servers/{$server->id}/cleanup")->assertNotFound();
     }

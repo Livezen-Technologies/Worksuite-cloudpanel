@@ -38,6 +38,7 @@ class CleanupController extends Controller
             'level' => ['sometimes', Rule::in(CleanupService::LEVELS)],
             'disk_threshold' => 'sometimes|integer|between:50,99',
             'keep_releases' => 'sometimes|integer|between:1,10',
+            'log_max_mb' => 'sometimes|integer|between:0,10240',
         ]);
         $server->update(['cleanup' => array_merge($this->cleanup->policy($server), $v)]);
 

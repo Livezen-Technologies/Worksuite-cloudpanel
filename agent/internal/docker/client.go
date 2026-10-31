@@ -149,9 +149,10 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerSummary, error)
 }
 
 type ContainerInspect struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	State struct {
+	ID      string `json:"Id"`
+	Name    string `json:"Name"`
+	LogPath string `json:"LogPath"`
+	State   struct {
 		Status   string `json:"Status"`
 		Running  bool   `json:"Running"`
 		ExitCode int    `json:"ExitCode"`

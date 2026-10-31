@@ -3,8 +3,11 @@ package executor
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/livezen-technologies/cloudpanel/agent/internal/docker"
 )
 
 // CleanupSpec is the server.cleanup payload (CLN-1..3).
@@ -19,6 +22,10 @@ type CleanupSpec struct {
 	Level   string   `json:"level"`
 	Protect []string `json:"protect"`
 	DryRun  bool     `json:"dry_run"`
+	// LogMaxMB (CLN) empties json-file container logs larger than this. New
+	// containers rotate their own logs; this catches the ones that do not
+	// (Compose stacks, containers made outside the panel). 0 leaves logs alone.
+	LogMaxMB int `json:"log_max_mb"`
 }
 
 var cleanupAge = map[string]time.Duration{"standard": 7 * 24 * time.Hour, "aggressive": 0}
@@ -130,8 +137,38 @@ func (e *Executor) cleanup(ctx context.Context, raw []byte, progress func(int, s
 			progress(85, "build cache: "+err.Error())
 		}
 	}
+	if s.LogMaxMB > 0 {
+		progress(90, "trimming container logs")
+		n, b := e.trimLogs(ctx, ctrs, int64(s.LogMaxMB)<<20, s.DryRun)
+		out["logs_trimmed"], out["log_bytes"] = n, b
+		freed += b
+	}
 	out["freed_bytes"] = freed
 	return out, nil
+}
+
+// trimLogs empties each container's json-file log above max bytes. Docker keeps
+// writing to the same file, so truncating in place is safe.
+func (e *Executor) trimLogs(ctx context.Context, ctrs []docker.ContainerSummary, max int64, dry bool) (int, int64) {
+	n, freed := 0, int64(0)
+	for _, c := range ctrs {
+		insp, err := e.Docker.InspectContainer(ctx, c.ID)
+		if err != nil || insp.LogPath == "" || !strings.HasSuffix(insp.LogPath, "-json.log") {
+			continue
+		}
+		st, err := os.Stat(insp.LogPath)
+		if err != nil || st.Size() <= max {
+			continue
+		}
+		if !dry {
+			if err := os.Truncate(insp.LogPath, 0); err != nil {
+				continue
+			}
+		}
+		n++
+		freed += st.Size()
+	}
+	return n, freed
 }
 
 func isProtected(protect map[string]bool, id string, tags, digests []string) bool {

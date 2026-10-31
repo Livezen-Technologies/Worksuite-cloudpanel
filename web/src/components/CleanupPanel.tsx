@@ -8,7 +8,7 @@ import Select from './Select'
 import { ago } from '../lib/format'
 import { type R } from '../lib/util'
 
-type Policy = { auto: boolean; level: string; disk_threshold: number; keep_releases: number }
+type Policy = { auto: boolean; level: string; disk_threshold: number; keep_releases: number; log_max_mb: number }
 type Page = { policy: Policy; levels: string[]; disk_pct: number | null; protected: string[]; runs: R[] }
 
 const LEVEL_HELP: Record<string, string> = {
@@ -44,6 +44,12 @@ export function CleanupPanel({ serverId }: { serverId: string }) {
           <Field label="Releases kept per app" hint="Their images are never removed">
             <Select className="input" value={String(p.policy.keep_releases)} onChange={(e) => save({ keep_releases: Number(e.target.value) })}>
               {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+            </Select>
+          </Field>
+          <Field label="Container logs" hint="Panel-made containers rotate at 10 MB × 3; this empties any other log above the size on each cleanup">
+            <Select className="input" value={String(p.policy.log_max_mb ?? 100)} onChange={(e) => save({ log_max_mb: Number(e.target.value) })}>
+              <option value={0}>Leave logs alone</option>
+              {[50, 100, 250, 500, 1024].map((n) => <option key={n} value={n}>Empty above {n >= 1024 ? '1 GB' : `${n} MB`}</option>)}
             </Select>
           </Field>
         </div>

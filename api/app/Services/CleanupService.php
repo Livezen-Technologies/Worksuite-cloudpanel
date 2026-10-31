@@ -22,7 +22,7 @@ class CleanupService
 {
     public const LEVELS = ['safe', 'standard', 'aggressive'];
 
-    public const DEFAULTS = ['auto' => true, 'level' => 'safe', 'disk_threshold' => 85, 'keep_releases' => 2];
+    public const DEFAULTS = ['auto' => true, 'level' => 'safe', 'disk_threshold' => 85, 'keep_releases' => 2, 'log_max_mb' => 100];
 
     /** Minutes between automatic runs on one server. */
     public const COOLDOWN = 60;
@@ -65,7 +65,9 @@ class CleanupService
             'organization_id' => $server->organization_id, 'server_id' => $server->id, 'job_id' => $job->id,
             'level' => $level, 'trigger' => $dryRun ? 'preview' : $trigger, 'disk_pct' => $server->disk_pct, 'user_id' => $user?->id,
         ]);
-        $this->bus->dispatch($server, 'server.cleanup', ['level' => $level, 'protect' => $this->protectedImages($server), 'dry_run' => $dryRun], $job);
+        $this->bus->dispatch($server, 'server.cleanup', ['level' => $level, 'protect' => $this->protectedImages($server), 'dry_run' => $dryRun,
+            // CLN: container logs above this are emptied (0 = leave logs alone).
+            'log_max_mb' => (int) $this->policy($server)['log_max_mb']], $job);
 
         return $run;
     }
@@ -87,6 +89,9 @@ class CleanupService
         $summary = sprintf('%s: %s freed, %d images, %d containers removed, %d protected',
             ucfirst((string) $run?->level), self::bytes($freed), count((array) ($out['images'] ?? [])) + (int) ($out['dangling_images'] ?? 0),
             (int) ($out['containers'] ?? 0), count((array) ($out['protected'] ?? [])));
+        if ($logs = (int) ($out['logs_trimmed'] ?? 0)) {
+            $summary .= sprintf(', %d container log%s emptied (%s)', $logs, $logs === 1 ? '' : 's', self::bytes((int) ($out['log_bytes'] ?? 0)));
+        }
         $run?->update(['status' => 'succeeded', 'freed_bytes' => $freed, 'result' => $out, 'message' => $summary]);
         $this->jobs->succeed($job, $out + ['message' => $summary]);
     }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,6 +17,9 @@ import (
 	"github.com/livezen-technologies/cloudpanel/agent/internal/docker"
 	"github.com/livezen-technologies/cloudpanel/agent/internal/protocol"
 )
+
+// cleanupLogPath is what the fake Docker reports as container c1's log file.
+var cleanupLogPath string
 
 func cleanupSetup(t *testing.T) (*Executor, *[]string) {
 	t.Helper()
@@ -35,6 +39,8 @@ func cleanupSetup(t *testing.T) (*Executor, *[]string) {
 				{"Id":"sha256:last","RepoTags":["reg/app:v2"],"RepoDigests":["reg/app@sha256:good"],"Size":100,"Created":%d},
 				{"Id":"sha256:old","RepoTags":["reg/app:v1"],"Size":200,"Created":%d},
 				{"Id":"sha256:new","RepoTags":["reg/app:v3"],"Size":300,"Created":%d}]`, old, old, old, recent)
+		case r.URL.Path == "/containers/c1/json":
+			fmt.Fprintf(w, `{"Id":"c1","LogPath":%q}`, cleanupLogPath)
 		case r.URL.Path == "/containers/prune":
 			fmt.Fprint(w, `{"ContainersDeleted":["x"],"SpaceReclaimed":5}`)
 		case r.URL.Path == "/images/prune":
@@ -96,5 +102,29 @@ func TestServerCleanupLevelsAndProtection(t *testing.T) {
 	}
 	if _, err := e.Handle(context.Background(), cmd("s4", "server.cleanup", `{"level":"nuke"}`, now)); err == nil {
 		t.Fatal("bad level accepted")
+	}
+}
+
+func TestServerCleanupTrimsOversizedLogs(t *testing.T) {
+	e, _ := cleanupSetup(t)
+	cleanupLogPath = filepath.Join(t.TempDir(), "c1-json.log")
+	defer func() { cleanupLogPath = "" }()
+	if err := os.WriteFile(cleanupLogPath, make([]byte, 3<<20), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Handle(context.Background(), cmd("l1", "server.cleanup", `{"level":"safe","log_max_mb":5,"dry_run":true}`, now))
+	if err != nil || r.Output.(map[string]any)["logs_trimmed"] != 0 {
+		t.Fatalf("under the limit: %v %+v", err, r.Output)
+	}
+	r, _ = e.Handle(context.Background(), cmd("l2", "server.cleanup", `{"level":"safe","log_max_mb":2,"dry_run":true}`, now))
+	if out := r.Output.(map[string]any); out["logs_trimmed"] != 1 || out["log_bytes"] != int64(3<<20) {
+		t.Fatalf("dry run %+v", out)
+	}
+	if st, _ := os.Stat(cleanupLogPath); st.Size() != 3<<20 {
+		t.Fatal("a dry run must not touch the log")
+	}
+	r, _ = e.Handle(context.Background(), cmd("l3", "server.cleanup", `{"level":"safe","log_max_mb":2}`, now))
+	if st, _ := os.Stat(cleanupLogPath); st.Size() != 0 || r.Output.(map[string]any)["logs_trimmed"] != 1 {
+		t.Fatalf("log not emptied: %d %+v", st.Size(), r.Output)
 	}
 }
