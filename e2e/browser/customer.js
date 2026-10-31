@@ -96,7 +96,7 @@ test('customer: Domains add + Check DNS now shows records', async ({ page }) => 
   await page.goto(WEB + '/app/domains'); await settle(page)
   const domain = `${APP}.example.com`
   await page.getByLabel('Domain').fill(domain)
-  await choose(page.getByLabel('App', { exact: true }), { label: APP })
+  await choose(page.locator('main').getByLabel('App'), { label: APP })
   await page.getByRole('button', { name: 'Add domain' }).click()
   await page.getByText(`Add these records at your DNS provider for`).waitFor()
   await page.getByRole('button', { name: 'Check DNS now' }).click()
