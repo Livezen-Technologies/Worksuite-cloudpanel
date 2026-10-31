@@ -27,6 +27,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   ] },
   { id: 'resources', label: 'Resources', icon: 'server', desc: 'Servers, files, databases, storage and networks', items: [
     { label: 'Servers', to: '/admin/servers', icon: 'server' },
+    { label: 'System services', to: '/admin/system-services', icon: 'gear' },
     { label: 'Databases', to: '/admin/databases', icon: 'db' },
     { label: 'File manager', to: '/admin/files', icon: 'file' },
     { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },

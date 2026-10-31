@@ -86,6 +86,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('servers/{id}/verification', [Admin\ServerController::class, 'verification'])->name('servers.verification');
         Route::get('servers/{id}/containers', [Admin\ServerController::class, 'containers'])->name('servers.containers');
         Route::get('servers/{id}/cleanup', [Admin\CleanupController::class, 'show'])->name('servers.cleanup');
+        Route::get('servers/{id}/system-services', [Admin\SystemServiceController::class, 'show'])->name('servers.services');
         Route::get('servers/{id}/tunnel', [Admin\TunnelController::class, 'show'])->name('servers.tunnel');
         Route::get('servers/{id}/proxy/adoptable', [Admin\ProxyAdoptionController::class, 'show'])->name('servers.proxy.adoptable');
         Route::get('mesh', [Admin\MeshController::class, 'show'])->name('mesh.show');
@@ -96,6 +97,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('servers/enrollment', [Admin\ServerController::class, 'enrollment'])->name('servers.enrollment');
         Route::patch('servers/{id}/cleanup', [Admin\CleanupController::class, 'update'])->name('servers.cleanup.update');
         Route::post('servers/{id}/cleanup', [Admin\CleanupController::class, 'run'])->name('servers.cleanup.run');
+        Route::post('servers/{id}/system-services/refresh', [Admin\SystemServiceController::class, 'refresh'])->name('servers.services.refresh');
+        Route::post('servers/{id}/system-services/action', [Admin\SystemServiceController::class, 'action'])->name('servers.services.action');
+        Route::post('servers/{id}/system-services/install', [Admin\SystemServiceController::class, 'install'])->name('servers.services.install');
+        Route::post('servers/{id}/system-services', [Admin\SystemServiceController::class, 'store'])->name('servers.services.store');
+        Route::delete('servers/{id}/system-services', [Admin\SystemServiceController::class, 'destroy'])->name('servers.services.destroy');
+        Route::post('servers/{id}/system-services/logs', [Admin\SystemServiceController::class, 'logs'])->name('servers.services.logs');
+        Route::patch('servers/{id}/system-services/watch', [Admin\SystemServiceController::class, 'watch'])->name('servers.services.watch');
         Route::post('servers/{id}/tunnel', [Admin\TunnelController::class, 'enable'])->name('servers.tunnel.enable');
         Route::post('mesh/servers/{id}', [Admin\MeshController::class, 'join'])->name('mesh.join');
         Route::delete('mesh/servers/{id}', [Admin\MeshController::class, 'leave'])->name('mesh.leave');

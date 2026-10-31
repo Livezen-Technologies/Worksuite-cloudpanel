@@ -74,19 +74,20 @@ export default function Select({
       <ListboxOptions
         anchor="bottom start"
         transition
-        className="z-80 max-h-72 w-(--button-width) overflow-auto rounded-xl border border-line bg-card p-1 shadow-2xl
-                   [--anchor-gap:4px] origin-top transition duration-120 ease-out data-closed:scale-95 data-closed:opacity-0"
+        className="z-80 max-h-72 min-w-(--button-width) w-max max-w-[min(92vw,28rem)] overflow-auto rounded-xl border border-line bg-card p-1.5
+                   shadow-[0_12px_32px_-8px_rgba(15,23,42,.22),0_2px_6px_rgba(15,23,42,.06)] outline-none
+                   [--anchor-gap:6px] origin-top transition duration-120 ease-out data-closed:-translate-y-1 data-closed:opacity-0"
       >
         {opts.length === 0 && <div className="px-3 py-2 text-sm text-muted">No options</div>}
         {opts.map((o, i) => (
           <ListboxOption
             key={`${o.value}-${i}`} value={o.value} disabled={o.disabled} data-value={String(o.value)}
-            className="group flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm
-                       data-focus:bg-accent data-focus:text-white
+            className="group flex min-h-9 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-fg
+                       data-focus:bg-head data-selected:bg-sel data-selected:text-accent
                        data-disabled:cursor-not-allowed data-disabled:opacity-40"
           >
-            <CheckIcon aria-hidden="true" className="size-3.5 flex-none invisible group-data-selected:visible" />
-            <span className="truncate group-data-selected:font-medium">{o.label}</span>
+            <span className="flex-1 whitespace-nowrap group-data-selected:font-semibold">{o.label}</span>
+            <CheckIcon aria-hidden="true" className="size-4 flex-none text-accent invisible group-data-selected:visible" />
           </ListboxOption>
         ))}
       </ListboxOptions>

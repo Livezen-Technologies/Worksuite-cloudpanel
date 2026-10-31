@@ -32,6 +32,7 @@ class CommandBus
         'fs.copy', 'fs.move', 'fs.compress', 'fs.extract', 'fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.chmod', 'fs.chown', 'fs.search', 'fs.scan', 'fs.history_list', 'fs.history_read', 'fs.history_restore',
         'crowdsec.apply', 'crowdsec.alerts', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
         'fim.baseline', 'fim.check', 'egress.apply', 'av.realtime', 'av.events', 'wp.cli', 'wp.inventory', 'wp.copy_tables', 'wp.drop_tables', 'migrate.fetch', 'migrate.inspect', 'migrate.extract', 'migrate.import_db', 'migrate.cleanup', 'cron.exec', 'cron.stop', 'mail.import', 'mail.certs',
+        'svc.list', 'svc.action', 'svc.install', 'svc.create', 'svc.delete', 'svc.logs',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */
@@ -60,6 +61,7 @@ class CommandBus
         'scheduled.app_command' => ScheduledJobService::class,
         'cleanup' => CleanupService::class,
         'mesh' => MeshService::class,
+        'system.services' => SystemServiceService::class,
     ];
 
     public function __construct(private JobService $jobs) {}
