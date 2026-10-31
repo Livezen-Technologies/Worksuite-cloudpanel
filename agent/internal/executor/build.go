@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +47,11 @@ type BuildSpec struct {
 	// They are pulled and offered to the builder as layer cache, so a build on
 	// any builder can reuse layers another builder made.
 	CacheFrom []string `json:"cache_from"`
+	// CacheRef (BLD-3) is a BuildKit cache image in the push registry
+	// (registry/app:buildcache). When set, the build runs through docker buildx
+	// with --cache-from/--cache-to type=registry (mode=max, every stage cached)
+	// and pushes itself; without buildx it falls back to the Engine API build.
+	CacheRef string `json:"cache_ref"`
 }
 
 var (
@@ -125,6 +132,9 @@ func (s *BuildSpec) validate(e *Executor) error {
 		if checkImage(ref) != nil || s.Push == nil || !strings.HasPrefix(ref, s.Push.Registry+"/") {
 			return fmt.Errorf("invalid cache_from %q (must be in the push registry)", ref)
 		}
+	}
+	if s.CacheRef != "" && (checkImage(s.CacheRef) != nil || s.Push == nil || !strings.HasPrefix(s.CacheRef, s.Push.Registry+"/") || strings.ContainsAny(s.CacheRef, ",=")) {
+		return fmt.Errorf("invalid cache_ref %q (must be in the push registry)", s.CacheRef)
 	}
 	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > 6*3600 {
 		return fmt.Errorf("invalid timeout_seconds %d", s.TimeoutSeconds)
@@ -312,6 +322,25 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if c, ok := out["commit"].(string); ok {
 		labels["io.dockermgr.commit"] = c
 	}
+	// BLD-3: BuildKit with a registry cache, when asked for and available.
+	if s.CacheRef != "" {
+		digest, used, err := e.buildx(ctx, s, ctxDir, dfRel, labels, sink)
+		if used {
+			pr.Close()
+			if err != nil {
+				return fail(err)
+			}
+			name, _ := splitImageTag(s.ImageTag)
+			out["builder_engine"], out["cache_ref"] = "buildkit", s.CacheRef
+			out["image_id"], out["digest"], out["repo_digest"] = digest, digest, name+"@"+digest
+			sink.line("built and pushed " + name + "@" + digest + " with BuildKit (cache " + s.CacheRef + ")")
+			sink.flush()
+			out["log"] = sink.lines()
+			out["duration_seconds"] = int(time.Since(started).Seconds())
+			return out, nil
+		}
+		sink.line("docker buildx is not available; building with the Engine API")
+	}
 	// BLD-3: earlier images as layer cache; a missing one is not an error.
 	var cacheFrom []string
 	for _, ref := range s.CacheFrom {
@@ -360,6 +389,65 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	out["log"] = sink.lines()
 	out["duration_seconds"] = int(time.Since(started).Seconds())
 	return out, nil
+}
+
+// buildx runs `docker buildx build` with a registry cache and --push. used is
+// false when buildx itself is missing, so the caller can fall back.
+func (e *Executor) buildx(ctx context.Context, s BuildSpec, ctxDir, dfRel string, labels map[string]string, sink *logSink) (digest string, used bool, err error) {
+	if _, err := e.run(ctx, "", baseEnv(), "docker", "buildx", "version"); err != nil {
+		return "", false, nil
+	}
+	cfg, err := os.MkdirTemp(firstNonEmpty(e.StateDir, os.TempDir()), "buildx-")
+	if err != nil {
+		return "", true, err
+	}
+	defer os.RemoveAll(cfg)
+	auth := base64.StdEncoding.EncodeToString([]byte(s.Push.Username + ":" + s.Push.Password))
+	conf, _ := json.Marshal(map[string]any{"auths": map[string]any{s.Push.Registry: map[string]string{"auth": auth}}})
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), conf, 0o600); err != nil {
+		return "", true, err
+	}
+	meta := filepath.Join(cfg, "meta.json")
+	args := []string{"buildx", "build", "--progress", "plain", "--file", filepath.Join(ctxDir, dfRel), "--tag", s.ImageTag,
+		"--cache-from", "type=registry,ref=" + s.CacheRef, "--cache-to", "type=registry,ref=" + s.CacheRef + ",mode=max",
+		"--push", "--metadata-file", meta}
+	if s.NoCache {
+		args = append(args, "--no-cache")
+	}
+	for _, k := range sortedKeys(s.BuildArgs) {
+		args = append(args, "--build-arg", k+"="+s.BuildArgs[k])
+	}
+	for _, k := range sortedKeys(labels) {
+		args = append(args, "--label", k+"="+labels[k])
+	}
+	args = append(args, ctxDir)
+	o, err := e.run(ctx, "", append(baseEnv(), "DOCKER_CONFIG="+cfg), "docker", args...)
+	for _, l := range strings.Split(strings.TrimSpace(string(o)), "\n") {
+		if l != "" {
+			sink.line(l)
+		}
+	}
+	if err != nil {
+		return "", true, fmt.Errorf("docker buildx build: %v", err)
+	}
+	var m map[string]any
+	if b, rerr := os.ReadFile(meta); rerr == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	digest, _ = m["containerimage.digest"].(string)
+	if !strings.HasPrefix(digest, "sha256:") {
+		return "", true, errors.New("docker buildx build did not report the pushed digest")
+	}
+	return digest, true, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func within(root, p string) bool {
