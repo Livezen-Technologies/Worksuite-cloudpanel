@@ -27,8 +27,8 @@ class CustomerController extends Controller
         $plans = Plan::all()->keyBy('id');
 
         // CUS-6: counts in grouped queries rather than one per customer.
-        $users = DB::table('memberships')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->pluck(DB::raw('count(*)'), 'organization_id');
-        $apps = DB::table('applications')->whereNull('deleted_at')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->pluck(DB::raw('count(*)'), 'organization_id');
+        $users = DB::table('memberships')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->selectRaw('organization_id, count(*) as total')->pluck('total', 'organization_id');
+        $apps = DB::table('applications')->whereNull('deleted_at')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->selectRaw('organization_id, count(*) as total')->pluck('total', 'organization_id');
 
         return $this->data($orgs->map(function ($o) use ($subs, $plans, $users, $apps) {
             $sub = $subs[$o->id] ?? null;
