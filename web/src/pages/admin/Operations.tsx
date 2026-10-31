@@ -277,14 +277,14 @@ export function Backups() {
       <Modal open={!!artifact} onClose={() => setArtifact(null)} title="Restore wizard" width={640}>
         <div className="flex flex-col gap-4 text-sm">
           <p className="m-0">Snapshot <span className="font-mono">{String(artifact?.snapshot_id ?? '').slice(0, 10)}</span> of {policyName(artifact?.backup_policy_id)}, taken {ago(artifact?.created_at)}.</p>
-          <fieldset className="flex flex-col gap-1 border-0 p-0 m-0"><legend className="font-semibold mb-1">What to restore</legend>
+          <fieldset className="flex flex-col gap-2 border-0 p-0 m-0"><legend className="font-semibold mb-2">What to restore</legend>
             {(isDump ? [['database', 'The database'], ['everything', 'Everything in the snapshot']] : [['everything', 'Everything in the snapshot'], ['files', 'Files only']]).map(([v, l]) =>
-              <label key={v} className="flex gap-2 items-center"><input type="radio" name="scope" checked={opts.scope === v} onChange={() => setOpts({ ...opts, scope: v })} />{l}</label>)}
+              <label key={v} className="choice !items-center"><input type="radio" name="scope" checked={opts.scope === v} onChange={() => setOpts({ ...opts, scope: v })} />{l}</label>)}
           </fieldset>
-          <fieldset className="flex flex-col gap-1 border-0 p-0 m-0"><legend className="font-semibold mb-1">Where</legend>
-            <label className="flex gap-2 items-center"><input type="radio" name="mode" checked={opts.mode === 'replace'} onChange={() => setOpts({ ...opts, mode: 'replace' })} />Replace the current data</label>
-            <label className="flex gap-2 items-center"><input type="radio" name="mode" disabled={isDump} checked={opts.mode === 'side_by_side'} onChange={() => setOpts({ ...opts, mode: 'side_by_side', stop_app: false })} />Side by side, in a separate directory{isDump ? ' (files only)' : ''}</label>
-            <label className="flex gap-2 items-center"><input type="radio" name="mode" checked={opts.mode === 'download'} onChange={() => setOpts({ ...opts, mode: 'download' })} />Download it instead</label>
+          <fieldset className="flex flex-col gap-2 border-0 p-0 m-0"><legend className="font-semibold mb-2">Where</legend>
+            <label className="choice !items-center"><input type="radio" name="mode" checked={opts.mode === 'replace'} onChange={() => setOpts({ ...opts, mode: 'replace' })} />Replace the current data</label>
+            <label className="choice !items-center"><input type="radio" name="mode" disabled={isDump} checked={opts.mode === 'side_by_side'} onChange={() => setOpts({ ...opts, mode: 'side_by_side', stop_app: false })} />Side by side, in a separate directory{isDump ? ' (files only)' : ''}</label>
+            <label className="choice !items-center"><input type="radio" name="mode" checked={opts.mode === 'download'} onChange={() => setOpts({ ...opts, mode: 'download' })} />Download it instead</label>
           </fieldset>
           {opts.mode !== 'download' && <div className="flex flex-col gap-2">
             <label className="flex gap-2 items-center"><input type="checkbox" checked={!!opts.fresh_backup} onChange={(e) => setOpts({ ...opts, fresh_backup: e.target.checked })} />Take a safety backup first</label>
