@@ -13,3 +13,11 @@
 16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:29
 16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:33
 16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:33
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:22
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:22
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:25
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:25
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:29
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:29
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:33
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:33
