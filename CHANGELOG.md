@@ -67,6 +67,21 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- The agent segfaulted on the first command that shells out. `Executor.Run` is
+  a `Runner` func field, and `newAgent` never set it, so it was a nil func
+  value. `handlers.go` has an `e.run` wrapper that falls back to `ExecRunner`
+  when the field is nil, but 34 call sites across 12 files call the exported
+  `e.Run(...)` directly and bypass that fallback — `crowdsec`, `firewall` and
+  `egress` (nft), `cron`, `antivirus`, `realtime`, `wordpress`, `mailimport`
+  and `sysservices`. Enabling CrowdSec made the panel poll `crowdsec.alerts`
+  on a timer, which turned the panic into a restart loop: the agent on the
+  ingress host crashed 15 times in roughly 80 minutes, every few minutes,
+  taking the heartbeat and every queued command with it. `newAgent` now sets
+  `Run: executor.ExecRunner`, which fixes all 34 sites at once and leaves the
+  `e.run` fallback in place as a backstop. Customer traffic was unaffected
+  throughout, since Traefik and CrowdSec run as containers independent of the
+  agent.
+
 - `crowdsec.apply` refused its own payload on an installation with no firewall
   rules, so a fresh CrowdSec install never received its `profiles.yaml`. The
   panel dispatches `'scenarios' => (object) $cs['scenarios']` to force a JSON

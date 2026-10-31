@@ -137,3 +137,17 @@ func TestRunLoop(t *testing.T) {
 		t.Fatalf("restarts=%d calls=%v", restarts, dcalls)
 	}
 }
+
+// Executor.Run is a func field, and the exported e.Run(...) call sites in
+// crowdsec, firewall, egress, cron, antivirus, realtime, wordpress, mailimport
+// and sysservices call it directly instead of going through the e.run fallback.
+// Left nil it is a nil func value, so the first such command segfaults the agent.
+func TestNewAgentSetsTheCommandRunner(t *testing.T) {
+	a, err := newAgent(&config.Config{}, "/usr/local/bin/dockermgr-agent", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("newAgent: %v", err)
+	}
+	if a.exec.Run == nil {
+		t.Fatal("Executor.Run is nil; every direct e.Run(...) call site panics with a nil pointer dereference")
+	}
+}
