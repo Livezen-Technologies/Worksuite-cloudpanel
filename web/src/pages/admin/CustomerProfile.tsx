@@ -6,6 +6,7 @@ import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { Icon } from '../../components/Icon'
 import { Modal } from '../../components/Overlay'
+import { FormModal } from '../../components/FormModal'
 import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
@@ -27,6 +28,7 @@ export default function CustomerProfile() {
   const [suspend, setSuspend] = useState(false)
   const [asCustomer, setAsCustomer] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [adding, setAdding] = useState(false)
   const [closeForm, setCloseForm] = useState({ reason: '', confirm: '' })
   const [why, setWhy] = useState('')
   const [asErr, setAsErr] = useState<string | null>(null)
@@ -87,6 +89,7 @@ export default function CustomerProfile() {
           </Card>
         </>}
         {tab === 'members' && <DataTable label="Members" tableId="customer-members" rows={(c.members ?? []) as R[]} rowKey={(r) => String(r.id)}
+          toolbar={closed ? undefined : <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>Add member</button>}
           actions={(r) => closed ? [] : [{ label: 'Send password reset', icon: 'refresh', onClick: () => run({ path: `/customers/${id}/members/${r.id}/password-reset`, label: 'Send password reset', success: `Reset link sent to ${r.email}` }).catch(() => {}) }]}
           columns={[
             { key: 'name', header: 'Name', render: (r) => <div><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div> },
@@ -145,6 +148,16 @@ export default function CustomerProfile() {
           {asErr && <div role="alert" className="text-sm text-danger">{asErr}</div>}
         </div>
       </Modal>
+      <FormModal open={adding} onClose={() => setAdding(false)} title={`Add a member to ${c.name}`} submitLabel="Send invitation"
+        initial={{ role: 'developer' }}
+        fields={[
+          { name: 'email', label: 'Email', type: 'email', required: true },
+          { name: 'name', label: 'Name' },
+          { name: 'role', label: 'Role', type: 'select', required: true, options: [{ value: 'owner', label: 'Owner' }, { value: 'developer', label: 'Developer' }, { value: 'billing', label: 'Billing manager' }] },
+        ]}
+        onSubmit={(v) => run({ path: `/customers/${id}/members`, body: v, label: 'Add member', success: `Invitation sent to ${String(v.email)}` }).then(() => refetch())}>
+        <p className="m-0 text-sm text-muted">They get an email to set a password and join {String(c.name)}. Only customer roles can be given here.</p>
+      </FormModal>
       <Modal open={closing} onClose={() => setClosing(false)} title={`Close ${c.name}?`}
         footer={<><button type="button" className="btn" onClick={() => setClosing(false)}>Cancel</button>
           <button type="button" className="btn btn-danger" disabled={busy || closeForm.reason.trim().length < 3 || closeForm.confirm !== c.name} onClick={() => act('close', 'Close account', closeForm).then(() => setClosing(false))}>Close account</button></>}>

@@ -219,6 +219,23 @@ class CustomerController extends Controller
     }
 
     /** Customer profiles span tenants: platform staff only. */
+    /** CUS-7: invite someone into the customer's organisation. Only customer-level roles can be given. */
+    public function addMember(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        if (! empty(($org->settings ?? [])['closed'])) {
+            throw \App\Exceptions\ApiException::conflict('This account is closed.');
+        }
+        $platformRoles = array_merge(array_keys(array_filter(config('rbac.roles'), fn ($r) => ($r['scope'] ?? '') === 'platform')),
+            \App\Models\Role::where('scope', 'platform')->pluck('name')->all(), ['super_admin']);
+        $d = $request->validate(['email' => 'required|email|max:190', 'name' => 'nullable|string|max:120', 'role' => ['required', 'exists:roles,name', \Illuminate\Validation\Rule::notIn($platformRoles)]]);
+        $member = app(\App\Support\Tenant::class)->as($org->id, fn () => \App\Http\Controllers\Admin\UserController::invite($d['email'], $d['role'], $d['name'] ?? null));
+        app(\App\Services\AuditLogger::class)->log('customer.member_invited', 'organizations', $org->id, ['email' => strtolower($d['email']), 'role' => $d['role'], 'by' => $request->user()->email], $org->id);
+
+        return $this->data($member, 201);
+    }
+
     /** CUS-4: email a member of the customer a password-reset link (when they are locked out and ask support). */
     public function sendPasswordReset(Request $request, string $id, string $userId)
     {
