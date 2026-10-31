@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import { useList, useOne } from '../../api/hooks'
 import { StatusBadge } from '../../components/Badge'
+import { StatTile } from '../../components/Card'
 import { Icon } from '../../components/Icon'
 import { useAuth } from '../../lib/auth'
 import { num, type R } from '../../lib/util'
@@ -12,7 +13,7 @@ function Group({ title, tag, color, to, rows, empty, loading }: { title: string;
   return (
     <section className="card overflow-hidden" aria-label={title}>
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line">
-        <span aria-hidden="true" className="grid place-items-center w-[26px] h-[26px] rounded-md text-white text-[10px] font-bold" style={{ background: color }}>{tag}</span>
+        <span aria-hidden="true" className="grid place-items-center w-[28px] h-[28px] rounded-lg" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}><Icon name={tag} size={16} /></span>
         <b className="text-sm">{title}</b><span className="text-xs text-muted">({rows.length})</span>
         <Link to={to} className="ml-auto text-[13px] font-semibold no-underline">View all →</Link>
       </div>
@@ -51,10 +52,10 @@ export function Home() {
   const appsUse = usageOf(b, 'apps'), bw = usageOf(b, 'bandwidth_gb')
   const plan = typeof b?.plan === 'string' ? b.plan : b?.plan?.name
   const stats = [
-    { k: 'Resources', v: String(apps.rows.length + domains.rows.length + mailboxes), d: `${apps.rows.length} apps · ${domains.rows.length} domains · ${mailboxes} mailboxes` },
-    { k: 'Plan', v: plan ?? '—', d: appsUse.limit ? `${appsUse.used} of ${appsUse.limit} apps used` : 'no app limit' },
-    { k: 'Bandwidth', v: `${Math.round(bw.used)} GB`, d: bw.limit ? `of ${bw.limit} GB included` : 'this month' },
-    { k: 'Alerts', v: String(open.length + down.length), d: open[0]?.title ? String(open[0].title) : down[0] ? `${down[0].name} is ${appState(down[0].state ?? down[0].status)}` : 'all clear', tone: open.length + down.length ? 'r' : 'g' },
+    { icon: 'layers', k: 'Resources', v: String(apps.rows.length + domains.rows.length + mailboxes), d: `${apps.rows.length} apps · ${domains.rows.length} domains · ${mailboxes} mailboxes` },
+    { icon: 'tag', k: 'Plan', v: plan ?? '—', d: appsUse.limit ? `${appsUse.used} of ${appsUse.limit} apps used` : 'no app limit' },
+    { icon: 'pulse', k: 'Bandwidth', v: `${Math.round(bw.used)} GB`, d: bw.limit ? `of ${bw.limit} GB included` : 'this month' },
+    { icon: 'warn', k: 'Alerts', v: String(open.length + down.length), d: open[0]?.title ? String(open[0].title) : down[0] ? `${down[0].name} is ${appState(down[0].state ?? down[0].status)}` : 'all clear', tone: open.length + down.length ? 'r' : 'g' },
   ]
   return (
     <div className="flex flex-col gap-5">
@@ -65,21 +66,15 @@ export function Home() {
         <Link to="/app/host" className="btn btn-primary no-underline gap-1.5"><Icon name="plus" size={16} />Host an app</Link>
       </div>
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        {stats.map((s) => (
-          <div key={s.k} className="card px-4 py-3.5">
-            <div className="text-[12.5px] text-muted">{s.k}</div>
-            <div className={`text-[22px] font-bold mt-1 truncate ${s.tone === 'r' ? 'text-[var(--r-fg)]' : ''}`}>{s.v}</div>
-            <div className="text-xs text-muted mt-0.5 truncate">{s.d}</div>
-          </div>
-        ))}
+        {stats.map((s) => <StatTile key={s.k} label={s.k} value={s.v} delta={s.d} deltaTone="n" valueTone={s.tone as 'g' | 'r' | undefined} icon={<Icon name={s.icon} size={16} />} iconTone={s.tone === 'r' ? 'r' : s.tone === 'g' ? 'g' : 'b'} />)}
       </div>
-      <Group title="Apps" tag="AP" color="#2563EB" to="/app/apps" loading={apps.isLoading}
+      <Group title="Apps" tag="box" color="#2563EB" to="/app/apps" loading={apps.isLoading}
         empty={<>Nothing hosted yet. <Link to="/app/host" className="font-semibold">Host your first app</Link>.</>}
         rows={apps.rows.map((a) => ({ key: String(a.id), name: String(a.name), href: `/app/apps/${a.id}`, spec: String(a.image ?? a.source?.repo ?? a.kind ?? ''), addr: appDomain(a), status: appState(a.state ?? a.status) }))} />
-      <Group title="Domains" tag="DN" color="#7C3AED" to="/app/domains" loading={domains.isLoading}
+      <Group title="Domains" tag="globe" color="#7C3AED" to="/app/domains" loading={domains.isLoading}
         empty={<>No domains yet. <Link to="/app/domains" className="font-semibold">Connect a domain</Link>.</>}
         rows={domains.rows.map((d) => ({ key: String(d.id), name: String(d.name ?? d.domain), spec: d.ssl_status || d.certificate_status ? `HTTPS ${d.ssl_status ?? d.certificate_status}` : undefined, addr: d.app_name ? String(d.app_name) : undefined, status: String(d.status ?? d.verification_status ?? '') || undefined }))} />
-      <Group title="Email" tag="EM" color="#0D9488" to="/app/email" loading={mail.isLoading}
+      <Group title="Email" tag="inbox" color="#0D9488" to="/app/email" loading={mail.isLoading}
         empty={<>No email yet. <Link to="/app/email" className="font-semibold">Set up business email</Link>.</>}
         rows={mailDomains.map((d) => ({ key: String(d.id), name: String(d.domain ?? d.name), spec: `${(d.mailboxes as R[] | undefined)?.length ?? num(d.mailbox_count)} mailboxes`, status: String(d.status ?? '') || undefined }))} />
       <section className="card p-4 flex flex-wrap items-center gap-3 border-dashed">

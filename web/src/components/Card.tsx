@@ -102,8 +102,26 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
   )
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="p-6 text-center text-sm text-muted">{children}</div>
+/** Split "No servers yet. Add your first…" into a heading and its explanation. */
+export function splitEmpty(text: string): [string, string] {
+  const m = text.match(/^(.+?[.!?])\s+(.+)$/)
+  return m ? [m[1], m[2]] : [text, '']
+}
+
+/** Empty state: an icon, a short heading, an explanation and an optional call to action. */
+export function Empty({ children, icon = 'inbox', action, compact }: { children: ReactNode; icon?: string; action?: ReactNode; compact?: boolean }) {
+  // Progress text ("Loading…", "Scanning…") is not an empty state: keep it quiet.
+  if (typeof children === 'string' && children.endsWith('…')) return <div className="p-6 text-center text-sm text-muted" aria-live="polite">{children}</div>
+  const [title, body] = typeof children === 'string' ? splitEmpty(children) : [null, null]
+  return (
+    <div className={`flex flex-col items-center text-center gap-1 ${compact ? 'p-4' : 'px-6 py-10'}`}>
+      {!compact && <span className="grid place-items-center w-12 h-12 rounded-full bg-head text-muted mb-2" aria-hidden="true"><Icon name={icon} size={22} /></span>}
+      {title !== null
+        ? <><div className="text-sm font-semibold text-fg">{title}</div>{body && <div className="text-sm text-muted max-w-md">{body}</div>}</>
+        : <div className="text-sm text-muted max-w-md">{children}</div>}
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  )
 }
 
 export function Field({ label, error, hint, children }: { label: string; error?: string; hint?: ReactNode; children: ReactNode }) {
