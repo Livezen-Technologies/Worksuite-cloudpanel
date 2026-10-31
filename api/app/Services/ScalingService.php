@@ -385,6 +385,16 @@ class ScalingService
         return $rps === null ? null : $rps / max(1, $copies);
     }
 
+    /** USCL-1: requests per second across all of an app's copies (cached 30 s), or null without Prometheus. */
+    public function rps(Application $app): ?float
+    {
+        if (! \App\Support\PrometheusMetrics::enabled()) {
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\Cache::remember("app-rps:{$app->id}", 30, fn () => rescue(fn () => app(\App\Support\PrometheusMetrics::class)->requestsPerSecond($app->name), null, report: false));
+    }
+
     /** The replica count a schedule asks for now: the first matching window, else the minimum. */
     private function scheduled(array $s, Carbon $now): int
     {

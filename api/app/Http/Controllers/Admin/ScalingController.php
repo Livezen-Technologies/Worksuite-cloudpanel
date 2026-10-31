@@ -22,10 +22,10 @@ class ScalingController extends Controller
         return Application::findOrFail($id);
     }
 
-    /** @return array{max_replicas: int, autoscale: bool, schedule: bool} */
+    /** routing: health checks, sticky sessions and the spread strategy can be changed (read-only for customers, USCL-3). */
     protected function limits(): array
     {
-        return ['max_replicas' => ScalingService::MAX, 'autoscale' => true, 'schedule' => true, 'placement' => true, 'canary' => true];
+        return ['max_replicas' => ScalingService::MAX, 'autoscale' => true, 'schedule' => true, 'placement' => true, 'canary' => true, 'routing' => true];
     }
 
     public function show(string $id)
@@ -59,6 +59,9 @@ class ScalingController extends Controller
             'servers' => 'sometimes|array|max:10', 'servers.*' => 'uuid',
             'strategy' => 'sometimes|in:'.implode(',', ScalingService::STRATEGIES),
         ]);
+        if (empty($lim['routing']) && array_intersect_key($data, array_flip(['sticky', 'health', 'strategy']))) {
+            throw ApiException::validation(['health' => ['Health checks, sticky sessions and how requests are spread are managed by the platform.']]);
+        }
         if (isset($data['servers']) && empty($lim['placement'])) {
             throw ApiException::validation(['servers' => ['Choosing servers for copies is not available here.']]);
         }
@@ -112,6 +115,7 @@ class ScalingController extends Controller
     public function canaryWeight(Request $request, string $id)
     {
         $app = $this->app($id);
+        abort_unless($this->limits()['canary'] ?? false, 403);
         $v = $request->validate(['weight' => 'required|integer|min:0|max:100']);
         $this->scaling->setCanaryWeight($app, $v['weight'], $request->user()->id);
 
@@ -121,6 +125,7 @@ class ScalingController extends Controller
     public function promoteCanary(Request $request, string $id)
     {
         $app = $this->app($id);
+        abort_unless($this->limits()['canary'] ?? false, 403);
         $deployment = $this->scaling->promoteCanary($app, $request->user());
 
         return $this->data($this->present($app->fresh()) + ['deployment_id' => $deployment->id], 202);
@@ -143,6 +148,7 @@ class ScalingController extends Controller
 
         return [
             'replicas' => (int) ($app->replicas ?: 1),
+            'rps' => $this->scaling->rps($app),
             'settings' => ScalingService::settings($app),
             'limits' => $this->limits(),
             'copies' => $containers->map(fn ($c) => [

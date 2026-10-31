@@ -484,6 +484,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('apps/{id}/scaling', [Customer\ScalingController::class, 'show'])->name('apps.scaling');
             Route::get('builds/usage', Customer\BuildUsageController::class)->name('builds.usage');
             Route::patch('apps/{id}/scaling', [Customer\ScalingController::class, 'update'])->name('apps.scaling.update');
+            Route::post('apps/{id}/canary', [Customer\ScalingController::class, 'canary'])->name('apps.canary');
+            Route::patch('apps/{id}/canary', [Customer\ScalingController::class, 'canaryWeight'])->name('apps.canary.weight');
+            Route::post('apps/{id}/canary/promote', [Customer\ScalingController::class, 'promoteCanary'])->name('apps.canary.promote');
+            Route::delete('apps/{id}/canary', [Customer\ScalingController::class, 'abortCanary'])->name('apps.canary.abort');
             Route::patch('apps/{id}', [Customer\AppController::class, 'update'])->name('apps.update');
             Route::delete('apps/{id}', [Customer\AppController::class, 'destroy'])->name('apps.destroy');
             Route::post('apps/{id}/restart', [Customer\AppController::class, 'restart'])->name('apps.restart');
