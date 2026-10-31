@@ -1,6 +1,9 @@
 <?php
 
 return [
+    // PNET-7: CIDRs the admin API answers from (comma-separated); empty = anywhere.
+    'admin_allowed_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ADMIN_ALLOWED_CIDRS', ''))))),
+
     // Terminal relay (agent/cmd/relay). The relay calls /internal/relay/* with X-Relay-Secret.
     'relay' => [
         'secret' => env('RELAY_SECRET'),

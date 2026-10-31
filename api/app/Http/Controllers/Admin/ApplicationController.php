@@ -53,6 +53,7 @@ class ApplicationController extends Controller
             'requires_approval' => 'sometimes|boolean',
             'auto_deploy' => 'sometimes|boolean',
             'auto_restart' => 'sometimes|boolean',
+            'mesh_network' => 'sometimes|boolean',
             'env' => 'nullable|array', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string', 'env.*.secret' => 'nullable|boolean',
             'member_ids' => 'nullable|array', 'member_ids.*' => 'uuid',
         ];

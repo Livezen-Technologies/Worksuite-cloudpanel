@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'idempotent' => \App\Http\Middleware\Idempotency::class,
             'audit' => \App\Http\Middleware\AuditMutations::class,
             'agent' => \App\Http\Middleware\AuthenticateAgent::class,
+            'admin.network' => \App\Http\Middleware\AdminNetwork::class,
         ]);
         $middleware->redirectGuestsTo(fn () => null);
         $middleware->trimStrings(except: ['yaml', 'source.compose', 'compose_yaml', 'password', 'value']);

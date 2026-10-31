@@ -86,6 +86,42 @@ class MeshService
         return [ip2long($net), (int) $bits];
     }
 
+    /** PNET-4: the server's /24 of the container supernet (10.89.<n>.0/24 for mesh address x.x.0.<n>). */
+    public function containerSubnet(Server $server): ?string
+    {
+        if (! $server->mesh_ip) {
+            return null;
+        }
+        $n = ip2long($server->mesh_ip) - $this->base()[0];
+        [$net] = explode('/', config('platform.mesh.container_supernet'));
+
+        return $n >= 1 && $n <= 254 ? long2ip(ip2long($net) + ($n << 8)).'/24' : null;
+    }
+
+    /** PNET-4: a fixed address on dmp-mesh for an app that asks for one (.10 upwards). */
+    public function appAddress(\App\Models\Application $app, Server $server): ?string
+    {
+        $subnet = $this->containerSubnet($server);
+        if (! $app->mesh_network || ! $subnet) {
+            return null;
+        }
+        $base = ip2long(explode('/', $subnet)[0]);
+        if ($app->mesh_address && (ip2long($app->mesh_address) & 0xFFFFFF00) === $base) {
+            return $app->mesh_address;
+        }
+        $used = \App\Models\Application::allTenants()->where('server_id', $server->id)->whereNotNull('mesh_address')->pluck('mesh_address')->all();
+        for ($i = 10; $i < 255; $i++) {
+            $ip = long2ip($base + $i);
+            if (! in_array($ip, $used, true)) {
+                $app->forceFill(['mesh_address' => $ip])->save();
+
+                return $ip;
+            }
+        }
+
+        return null;
+    }
+
     public function members()
     {
         return Server::whereNotNull('mesh_ip')->orderBy('mesh_ip')->get();
@@ -141,8 +177,9 @@ class MeshService
             $out[] = ['name' => Str::slug($s->name).'.'.$zone, 'ip' => $s->mesh_ip];
         }
         $byServer = $members->keyBy('id');
-        foreach (Application::whereIn('server_id', $members->pluck('id'))->get(['name', 'server_id']) as $app) {
-            $out[] = ['name' => $app->name.'.'.$zone, 'ip' => $byServer[$app->server_id]->mesh_ip];
+        foreach (Application::whereIn('server_id', $members->pluck('id'))->get(['name', 'server_id', 'mesh_network', 'mesh_address']) as $app) {
+            // PNET-4: an app on dmp-mesh resolves to its own address, others to their server.
+            $out[] = ['name' => $app->name.'.'.$zone, 'ip' => $app->mesh_network && $app->mesh_address ? $app->mesh_address : $byServer[$app->server_id]->mesh_ip];
         }
 
         return collect($out)->unique('name')->values()->all();
@@ -165,7 +202,8 @@ class MeshService
                 continue;
             }
             $peers = $members->where('id', '!=', $server->id)->whereNotNull('mesh_public_key')->map(fn ($o) => [
-                'public_key' => $o->mesh_public_key, 'endpoint' => $o->ip.':'.$port, 'allowed_ips' => [$o->mesh_ip.'/32'], 'keepalive' => 25,
+                'public_key' => $o->mesh_public_key, 'endpoint' => $o->ip.':'.$port,
+                'allowed_ips' => array_values(array_filter([$o->mesh_ip.'/32', $this->containerSubnet($o)])), 'keepalive' => 25,
             ])->values()->all();
             foreach ($vpn as $p) {
                 $peers[] = ['public_key' => $p->public_key, 'allowed_ips' => [$p->address.'/32']];
@@ -173,6 +211,7 @@ class MeshService
             $lock = $server->mesh_ssh_lock;
             $this->bus->dispatch($server, 'mesh.apply', array_filter([
                 'address' => $server->mesh_ip.'/'.$bits, 'listen_port' => $port, 'peers' => $peers, 'open_port' => true,
+                'container_subnet' => $this->containerSubnet($server), 'container_supernet' => $this->containerSubnet($server) ? config('platform.mesh.container_supernet') : null,
                 'dns' => ['zone' => config('platform.mesh.zone'), 'image' => config('platform.mesh.dns_image'), 'records' => $records],
                 // PNET-7: until confirmed, the lock removes itself after the confirmation window.
                 'ssh_lock' => $lock ? ['port' => (int) ($lock['port'] ?? 22), 'allow' => array_values($lock['allow'] ?? []),
@@ -249,7 +288,8 @@ class MeshService
         $lines = ['[Interface]', "PrivateKey = {$privateKey}", "Address = {$peer->address}/32",
             'DNS = '.$members->first()->mesh_ip.', '.config('platform.mesh.zone'), ''];
         foreach ($members as $s) {
-            array_push($lines, "# {$s->name}", '[Peer]', "PublicKey = {$s->mesh_public_key}", "Endpoint = {$s->ip}:{$port}", "AllowedIPs = {$s->mesh_ip}/32", 'PersistentKeepalive = 25', '');
+            $allowed = implode(', ', array_filter([$s->mesh_ip.'/32', $this->containerSubnet($s)]));
+            array_push($lines, "# {$s->name}", '[Peer]', "PublicKey = {$s->mesh_public_key}", "Endpoint = {$s->ip}:{$port}", "AllowedIPs = {$allowed}", 'PersistentKeepalive = 25', '');
         }
 
         return implode("\n", $lines);
@@ -266,7 +306,7 @@ class MeshService
         return [
             'subnet' => config('platform.mesh.subnet'), 'port' => (int) config('platform.mesh.port'), 'zone' => config('platform.mesh.zone'),
             'members' => $this->members()->map(fn ($s) => [
-                'id' => $s->id, 'name' => $s->name, 'ip' => $s->ip, 'mesh_ip' => $s->mesh_ip, 'public_key' => $s->mesh_public_key,
+                'id' => $s->id, 'name' => $s->name, 'ip' => $s->ip, 'mesh_ip' => $s->mesh_ip, 'container_subnet' => $this->containerSubnet($s), 'public_key' => $s->mesh_public_key,
                 'joined_at' => $s->mesh_joined_at, 'status' => $s->mesh_status, 'online' => $s->isOnline(), 'ssh_lock' => $s->mesh_ssh_lock,
             ])->values(),
             'candidates' => Server::whereNull('mesh_ip')->orderBy('name')->get(['id', 'name', 'ip'])->values(),

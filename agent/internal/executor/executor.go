@@ -91,6 +91,8 @@ type Executor struct {
 	AcmeJSON   string
 	LookPath   func(string) (string, error)
 	StateDir   string
+	// ProcSysDir is /proc/sys (tests point it elsewhere).
+	ProcSysDir string
 	// WireGuardDir holds the mesh interface config (default /etc/wireguard).
 	WireGuardDir string
 	// AllowedBindRoots limits host bind mounts in container.create.

@@ -187,7 +187,7 @@ return [
     'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL')],
 
     // PNET: the WireGuard private network between an organisation's servers and its admins' devices.
-    'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
+    'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'container_supernet' => env('MESH_CONTAINER_SUPERNET', '10.89.0.0/16'), 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
 
     // SCL-8: keep domains' A records on the online ingress servers.
     'edge' => ['failover' => (bool) env('EDGE_FAILOVER', false)],

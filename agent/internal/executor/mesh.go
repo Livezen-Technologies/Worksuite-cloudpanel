@@ -26,6 +26,10 @@ type MeshSpec struct {
 	ListenPort int        `json:"listen_port"`
 	Peers      []MeshPeer `json:"peers"`
 	Down       bool       `json:"down"`
+	// ContainerSubnet (PNET-4) is this server's slice of ContainerSupernet for the
+	// dmp-mesh Docker network; peers route it over WireGuard.
+	ContainerSubnet   string `json:"container_subnet"`
+	ContainerSupernet string `json:"container_supernet"`
 	// OpenPort opens the WireGuard port in UFW or firewalld when either is active.
 	OpenPort bool `json:"open_port"`
 	// SSHLock (PNET-7) drops SSH from everywhere except the mesh and Allow.
@@ -121,6 +125,13 @@ func (s *MeshSpec) validate() error {
 		}
 		if p.Keepalive < 0 || p.Keepalive > 600 {
 			return fmt.Errorf("invalid keepalive %d", p.Keepalive)
+		}
+	}
+	if s.ContainerSubnet != "" {
+		_, sub, err1 := net.ParseCIDR(s.ContainerSubnet)
+		_, super, err2 := net.ParseCIDR(s.ContainerSupernet)
+		if err1 != nil || err2 != nil || sub.IP.To4() == nil || !super.Contains(sub.IP) {
+			return errors.New("invalid container_subnet / container_supernet")
 		}
 	}
 	if s.SSHLock != nil {
@@ -221,6 +232,13 @@ func (e *Executor) meshApply(ctx context.Context, raw []byte, progress func(int,
 	out := map[string]any{"interface": MeshInterface, "up": true, "public_key": pub, "peers": len(s.Peers)}
 	if s.OpenPort {
 		out["port_opened"] = e.meshOpenPort(ctx, s.ListenPort)
+	}
+	if s.ContainerSubnet != "" {
+		if err := e.meshContainerNetwork(ctx, s); err != nil {
+			out["container_network_error"] = err.Error()
+		} else {
+			out["container_network"] = MeshNetwork
+		}
 	}
 	if lock, err := e.meshSSHLock(ctx, s); err != nil {
 		return out, err
@@ -417,4 +435,49 @@ func (e *Executor) meshConfirm() (any, error) {
 		return nil, err
 	}
 	return map[string]any{"confirmed": true}, nil
+}
+
+// MeshNetwork is the Docker network whose subnet is routed over the mesh (PNET-4).
+const MeshNetwork = "dmp-mesh"
+
+// meshContainerNetwork creates dmp-mesh with this server's subnet, turns on IP
+// forwarding and lets traffic from the mesh reach it past Docker's own rules
+// (the DOCKER-USER chain is the place Docker leaves for this).
+func (e *Executor) meshContainerNetwork(ctx context.Context, s MeshSpec) error {
+	if e.Docker != nil {
+		nets, err := e.Docker.ListNetworks(ctx)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, n := range nets {
+			found = found || n.Name == MeshNetwork
+		}
+		if !found {
+			_, sub, _ := net.ParseCIDR(s.ContainerSubnet)
+			gw := make(net.IP, 4)
+			copy(gw, sub.IP.To4())
+			gw[3] = 1
+			if _, err := e.Docker.CreateNetwork(ctx, map[string]any{
+				"Name": MeshNetwork, "Driver": "bridge", "CheckDuplicate": true,
+				"IPAM":    map[string]any{"Config": []map[string]string{{"Subnet": sub.String(), "Gateway": gw.String()}}},
+				"Options": map[string]string{"com.docker.network.bridge.name": "dmp-mesh0"},
+				"Labels":  map[string]string{"io.dockermgr.managed": "true", "io.dockermgr.role": "mesh"},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	sysctl := filepath.Join(firstNonEmpty(e.ProcSysDir, "/proc/sys"), "net", "ipv4", "ip_forward")
+	if err := os.WriteFile(sysctl, []byte("1\n"), 0o644); err != nil {
+		return fmt.Errorf("enabling ip_forward: %v", err)
+	}
+	_, mesh, _ := net.ParseCIDR(s.Address)
+	rule := []string{"DOCKER-USER", "-s", mesh.String(), "-d", s.ContainerSupernet, "-j", "ACCEPT"}
+	if _, err := e.run(ctx, "", baseEnv(), "iptables", append([]string{"-C"}, rule...)...); err != nil {
+		if o, err := e.run(ctx, "", baseEnv(), "iptables", append([]string{"-I"}, rule...)...); err != nil {
+			return fmt.Errorf("iptables: %v: %s", err, strings.TrimSpace(string(o)))
+		}
+	}
+	return nil
 }
