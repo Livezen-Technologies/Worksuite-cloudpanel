@@ -33,10 +33,13 @@ class ScalingService
 {
     public const MODES = ['fixed', 'autoscale', 'scheduled'];
 
+    /** SCL-3: round robin, or Traefik's power-of-two-choices (least busy of two). */
+    public const STRATEGIES = ['round_robin', 'least_connections'];
+
     public const DEFAULTS = [
         'mode' => 'fixed', 'min' => 1, 'max' => 3, 'cpu_target' => 70, 'schedule' => [],
         'sticky' => false, 'health' => ['path' => '/', 'interval' => 10, 'timeout' => 5, 'threshold' => 3],
-        'servers' => [], 'canary' => null,
+        'servers' => [], 'canary' => null, 'strategy' => 'round_robin',
     ];
 
     /** Platform ceiling (SCL-1): 1–20. */

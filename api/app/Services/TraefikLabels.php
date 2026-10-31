@@ -74,6 +74,9 @@ class TraefikLabels
             "traefik.http.services.{$router}.loadbalancer.healthcheck.interval" => (int) $h['interval'].'s',
             "traefik.http.services.{$router}.loadbalancer.healthcheck.timeout" => (int) $h['timeout'].'s',
         ];
+        if (($s['strategy'] ?? 'round_robin') === 'least_connections') {
+            $out["traefik.http.services.{$router}.loadbalancer.strategy"] = 'p2c';
+        }
         if ($s['sticky']) {
             $out["traefik.http.services.{$router}.loadbalancer.sticky.cookie.name"] = 'ws_affinity';
             $out["traefik.http.services.{$router}.loadbalancer.sticky.cookie.secure"] = 'true';

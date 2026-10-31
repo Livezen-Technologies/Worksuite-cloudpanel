@@ -56,11 +56,12 @@ class ScalingController extends Controller
             'health.timeout' => 'sometimes|integer|min:1|max:60',
             'health.threshold' => 'sometimes|integer|min:1|max:10',
             'servers' => 'sometimes|array|max:10', 'servers.*' => 'uuid',
+            'strategy' => 'sometimes|in:'.implode(',', ScalingService::STRATEGIES),
         ]);
         if (isset($data['servers']) && empty($lim['placement'])) {
             throw ApiException::validation(['servers' => ['Choosing servers for copies is not available here.']]);
         }
-        $s = array_replace_recursive(ScalingService::settings($app), array_intersect_key($data, array_flip(['mode', 'min', 'max', 'cpu_target', 'schedule', 'sticky', 'health'])));
+        $s = array_replace_recursive(ScalingService::settings($app), array_intersect_key($data, array_flip(['mode', 'min', 'max', 'cpu_target', 'schedule', 'sticky', 'health', 'strategy'])));
         if (isset($data['schedule'])) {
             $s['schedule'] = $data['schedule'];
         }

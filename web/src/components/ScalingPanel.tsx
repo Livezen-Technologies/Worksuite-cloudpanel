@@ -96,8 +96,15 @@ export function ScalingPanel({ path }: { path: string }) {
           <Toggle checked={!!f.sticky} label="Sticky sessions" onChange={(v) => setF({ ...f, sticky: v })} />
           <span><span className="font-semibold">Sticky sessions</span> <span className="text-muted">— keep each visitor on one copy. Better: store sessions in Redis.</span></span>
         </div>
+        <div className="mt-4 max-w-xs">
+          <Field label="Spread requests" hint="Least busy picks the less loaded of two copies for each request">
+            <Select className="input" value={String(f.strategy ?? 'round_robin')} onChange={(e) => setF({ ...f, strategy: e.target.value })}>
+              <option value="round_robin">Evenly, in turn</option><option value="least_connections">To the least busy copy</option>
+            </Select>
+          </Field>
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, schedule: f.schedule ?? [], sticky: !!f.sticky, health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, schedule: f.schedule ?? [], sticky: !!f.sticky, strategy: f.strategy ?? 'round_robin', health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
           <span className="text-xs text-muted">{((w.notes as string[]) ?? []).join(' ')}</span>
         </div>
       </Card>
