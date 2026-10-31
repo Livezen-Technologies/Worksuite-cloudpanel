@@ -175,7 +175,7 @@ return [
         ['code' => 'standard', 'name' => 'Standard', 'vcpu' => 1, 'ram_mb' => 1024, 'storage_gb' => 10, 'price_cents' => 1200, 'sort' => 2,
             'limits' => ['apps' => 10, 'ram_mb' => 10240, 'storage_gb' => 100, 'bandwidth_gb' => 500, 'backups_per_day' => 5, 'backup_retention_days' => 14]],
         ['code' => 'pro', 'name' => 'Pro', 'vcpu' => 2, 'ram_mb' => 4096, 'storage_gb' => 40, 'price_cents' => 3500, 'sort' => 3,
-            'limits' => ['apps' => 30, 'ram_mb' => 65536, 'storage_gb' => 1000, 'bandwidth_gb' => 2000, 'backups_per_day' => 24, 'backup_retention_days' => 30]],
+            'limits' => ['apps' => 30, 'ram_mb' => 65536, 'storage_gb' => 1000, 'bandwidth_gb' => 2000, 'backups_per_day' => 24, 'backup_retention_days' => 30, 'traffic_splitting' => 1]],
     ],
 
     'database_templates' => [
