@@ -43,7 +43,7 @@ class UptimeService
      * resource. A window on a server covers the containers on it, because
      * taking a host down takes its containers with it.
      */
-    private function inMaintenance(?string $orgId, string $type, string $id): bool
+    public function inMaintenance(?string $orgId, string $type, string $id): bool
     {
         $windows = MaintenanceWindow::allTenants()
             ->where('organization_id', $orgId)

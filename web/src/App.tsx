@@ -22,6 +22,7 @@ import Antivirus from './pages/admin/Antivirus'
 import DnsZones from './pages/admin/DnsZones'
 import WordPress from './pages/admin/WordPress'
 import Migrations from './pages/admin/Migrations'
+import Status from './pages/public/Status'
 import Mail from './pages/admin/Mail'
 import PublicPages from './pages/admin/PublicPages'
 import { CronManager } from './components/CronManager'
@@ -65,6 +66,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/status" element={<Status />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />

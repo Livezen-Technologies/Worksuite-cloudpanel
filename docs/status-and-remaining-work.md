@@ -16,9 +16,12 @@ Antivirus          100%   all 14 (AV-1..14): ClamAV + YARA, real-time scan,
                           outbound limits, security score, notifications;
                           AV-6 cleans WordPress core only (other files are
                           restored from a backup by hand)
-Monitoring         ~85%   websites + containers + servers every 5 min,
+Monitoring         100%   websites + containers + servers every 5 min,
                           cooldowns, escalation, auto-restart, uptime
-                          reports, WhatsApp/SMS; no Grafana or status page
+                          reports, WhatsApp/SMS/Telegram; a public status
+                          page (/status: components, 90-day daily uptime,
+                          incidents, notice; no internals) and a provisioned
+                          Grafana (Prometheus + Loki, "WorkSuite fleet")
 File manager       100%   all 19 features + customer page (#7-#13, #24,
                           #25): sharing links, transfer manager, syntax
                           highlighting, bulk extract, copy between volumes
@@ -326,15 +329,16 @@ same service. Site-wide rules attach to the domain router.
 - [ ] `dazzlingtours` memory is at 2 GB on a wrong diagnosis; the other six are
       at 1 GB. Consider putting it back.
 
-## 4. Monitoring to 100%
+## 4. Monitoring — COMPLETE
 
 - [x] Auto-restart policies for failed containers
 - [x] Uptime reports and downtime history
 - [x] Per-customer scoped incident views
 - [x] Alert dedup, cooldowns, maintenance windows, escalation
 - [x] WhatsApp and SMS channels (`6d361b1`)
-- [ ] Telegram channel
-- [ ] Grafana dashboard and a public status page
+- [x] Telegram channel (the settings form now stores each channel's address and token in the keys its type uses; they were dropped before)
+- [x] Public status page: Monitoring → Public status page picks components (a name per verified domain), a title and a notice; `GET /api/v1/status` (public, cached 60 s) and `/status` show the overall state, each component's state (maintenance windows count), 90 days of daily uptime (a day without checks is unknown, not 100%) and the past 14 days' incidents with start and end only; domain names and alert text never leave the panel
+- [x] Grafana: `docs/deploy/observability/grafana` provisions the Prometheus and Loki data sources and a "WorkSuite fleet" dashboard (servers, CPU, memory, disk, network, requests/s, 5xx share, p95 per app, top containers, error logs) with a server filter; localhost-only, admin password from `GRAFANA_ADMIN_PASSWORD`
 
 ## 5. Housekeeping
 

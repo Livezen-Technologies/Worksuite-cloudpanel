@@ -1,6 +1,6 @@
 # Observability stack for METRICS_DRIVER=prometheus: Prometheus + Loki (+ Grafana) on the panel
 # side; node-exporter, cAdvisor and Fluent Bit on every managed server (profile "agent").
-#   panel host:    docker compose up -d prometheus loki grafana
+#   panel host:    GRAFANA_ADMIN_PASSWORD=… docker compose up -d prometheus loki grafana
 #   managed host:  SERVER_ID=<id> LOKI_HOST=<panel> docker compose --profile agent up -d
 # Panel .env: METRICS_DRIVER=prometheus PROMETHEUS_URL=http://127.0.0.1:9090
 services:
@@ -20,7 +20,17 @@ services:
   grafana:
     image: grafana/grafana:11.2.0
     ports: ["127.0.0.1:3000:3000"]
-    volumes: ["grafana:/var/lib/grafana"]
+    # Data sources (Prometheus, Loki) and the "WorkSuite fleet" dashboard are provisioned from files.
+    # Set GRAFANA_ADMIN_PASSWORD (without it Grafana starts as admin/admin and makes you change it at the
+    # first sign-in). Grafana listens on localhost only (reach it through an SSH tunnel or the VPN).
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   node-exporter:
     profiles: [agent]
