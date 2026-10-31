@@ -30,6 +30,9 @@ func (f *fakeWG) run(_ context.Context, _ string, _ []string, name string, args 
 	if name == "wg" && len(args) == 3 && args[2] == "dump" {
 		return []byte(f.dump), nil
 	}
+	if name == "ufw" && args[0] == "status" {
+		return []byte("Status: active\n"), nil
+	}
 	if name == "wg-quick" && args[0] == "up" {
 		f.live = true
 	}
@@ -111,5 +114,57 @@ func TestMeshApplyKeysConfigAndDNS(t *testing.T) {
 	r, _ = e.Handle(context.Background(), cmd("d1", "mesh.apply", `{"down":true}`, now))
 	if _, err := os.Stat(filepath.Join(dir, "wg", "dmp0.conf")); !os.IsNotExist(err) {
 		t.Fatal("config left after down")
+	}
+}
+
+func TestMeshOpensPortAndLocksSSH(t *testing.T) {
+	dir := t.TempDir()
+	g := &fakeWG{}
+	e := &Executor{HMACKey: key, Journal: &Journal{Path: filepath.Join(dir, "j.json")}, Report: (&fakePanel{results: map[string][]protocol.Result{}}).report,
+		StateDir: filepath.Join(dir, "state"), WireGuardDir: filepath.Join(dir, "wg"), Run: g.run, Now: func() time.Time { return now },
+		LookPath: func(string) (string, error) { return "/usr/bin/x", nil }}
+	r, err := e.Handle(context.Background(), cmd("p1", "mesh.apply", `{"address":"10.88.0.2/16","peers":[],"open_port":true,"ssh_lock":{"allow":["198.51.100.7"],"confirm_within_seconds":300}}`, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	out := r.Output.(map[string]any)
+	if out["port_opened"] != "ufw" {
+		t.Fatalf("%+v", out)
+	}
+	calls := []string{}
+	for _, c := range g.calls {
+		calls = append(calls, strings.Join(c, " "))
+	}
+	all := strings.Join(calls, "\n")
+	if !strings.Contains(all, "ufw allow 51820/udp comment dmp-mesh") || !strings.Contains(all, "nft --check -f") {
+		t.Fatalf("calls:\n%s", all)
+	}
+	rules, _ := os.ReadFile(filepath.Join(dir, "state", "mesh", "ssh-lock.nft"))
+	for _, want := range []string{"table inet dockermgr_mesh {", "tcp dport 22 ip saddr { 10.88.0.0/16, 198.51.100.7/32 } accept", "tcp dport 22 drop", "ct state established,related accept"} {
+		if !strings.Contains(string(rules), want) {
+			t.Errorf("rules lack %q:\n%s", want, rules)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state", "mesh", "ssh-pending")); err != nil {
+		t.Fatal("rollback not armed")
+	}
+	if _, err := e.Handle(context.Background(), cmd("c1", "mesh.confirm", `{}`, now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state", "mesh", "ssh-pending")); !os.IsNotExist(err) {
+		t.Fatal("confirm left the rollback armed")
+	}
+	// No lock in the next apply removes the table.
+	g.calls = nil
+	e.Handle(context.Background(), cmd("p2", "mesh.apply", `{"address":"10.88.0.2/16","peers":[]}`, now))
+	found := false
+	for _, c := range g.calls {
+		found = found || strings.Join(c, " ") == "nft delete table inet dockermgr_mesh"
+	}
+	if !found {
+		t.Fatalf("lock not removed: %v", g.calls)
+	}
+	if _, err := e.Handle(context.Background(), cmd("p3", "mesh.apply", `{"address":"10.88.0.2/16","peers":[],"ssh_lock":{"allow":["not-an-ip"]}}`, now)); err == nil {
+		t.Fatal("bad allow entry accepted")
 	}
 }

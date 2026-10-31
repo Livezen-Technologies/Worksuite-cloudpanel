@@ -84,6 +84,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::post('mesh/servers/{id}', [Admin\MeshController::class, 'join'])->name('mesh.join');
         Route::delete('mesh/servers/{id}', [Admin\MeshController::class, 'leave'])->name('mesh.leave');
         Route::post('mesh/apply', [Admin\MeshController::class, 'apply'])->name('mesh.apply');
+        Route::post('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'lockSsh'])->name('mesh.ssh-lock');
+        Route::post('mesh/servers/{id}/ssh-lock/confirm', [Admin\MeshController::class, 'confirmSsh'])->name('mesh.ssh-lock.confirm');
+        Route::delete('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'unlockSsh'])->name('mesh.ssh-lock.destroy');
         Route::post('mesh/vpn-peers', [Admin\MeshController::class, 'addPeer'])->name('mesh.vpn-peers.store');
         Route::delete('mesh/vpn-peers/{id}', [Admin\MeshController::class, 'revokePeer'])->name('mesh.vpn-peers.destroy');
         Route::post('servers/{id}/tunnel/sync', [Admin\TunnelController::class, 'sync'])->name('servers.tunnel.sync');

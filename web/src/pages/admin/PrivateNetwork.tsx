@@ -8,7 +8,8 @@ import Select from '../../components/Select'
 import { ago } from '../../lib/format'
 import { type R } from '../../lib/util'
 
-type Member = { id: string; name: string; ip: string; mesh_ip: string; public_key: string | null; joined_at: string; online: boolean; status: { up?: boolean; error?: string; dns_error?: string; peers?: R[]; checked_at?: string } | null }
+type Lock = { allow: string[]; port: number; pending_until: string | null; confirmed_at: string | null }
+type Member = { id: string; name: string; ip: string; mesh_ip: string; public_key: string | null; joined_at: string; online: boolean; ssh_lock: Lock | null; status: { up?: boolean; error?: string; dns_error?: string; peers?: R[]; checked_at?: string; port_opened?: string | null } | null }
 type Page = { subnet: string; port: number; zone: string; members: Member[]; candidates: { id: string; name: string; ip: string | null }[]; records: { name: string; ip: string }[]; vpn_peers: R[] }
 
 /** PNET-1..5: WireGuard mesh between servers, *.internal names and admin VPN devices. */
@@ -37,6 +38,8 @@ export default function PrivateNetwork() {
             { key: 'ip', header: 'Endpoint', render: (m) => <span className="font-mono text-xs">{m.ip}:{p.port}</span> },
             { key: 'state', header: 'State', render: (m) => state(m) },
             { key: 'peers', header: 'Handshakes', render: (m) => `${handshakes(m)} / ${(m.status?.peers ?? []).length}` },
+            { key: 'port', header: 'Firewall', render: (m) => <span className="text-xs">{m.status?.port_opened === 'ufw' ? 'opened in UFW' : m.status?.port_opened === 'firewalld' ? 'opened in firewalld' : m.status?.port_opened === 'none' ? 'no host firewall' : m.status?.port_opened ? <span className="text-danger">{m.status.port_opened}</span> : '—'}</span> },
+            { key: 'ssh', header: 'SSH', render: (m) => <SshLock m={m} /> },
             { key: 'checked', header: 'Checked', render: (m) => m.status?.checked_at ? ago(m.status.checked_at) : '—' },
             { key: 'actions', header: '', render: (m) => <button type="button" className="btn btn-sm" onClick={() => setLeave(m)}>Remove</button> },
           ]} />
@@ -88,4 +91,26 @@ export default function PrivateNetwork() {
       </ConfirmDialog>
     </>
   )
+}
+
+/** PNET-7: SSH only over the private network, with a confirmation window against lockouts. */
+function SshLock({ m }: { m: Member }) {
+  const { run, busy } = useAction()
+  const lock = m.ssh_lock
+  if (!m.public_key) return <span className="text-xs text-muted">—</span>
+  if (!lock) {
+    return <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+      const extra = window.prompt('SSH will be allowed only from the private network. Also allow these addresses (comma-separated, optional):', '')
+      if (extra === null) return
+      run({ path: `/mesh/servers/${m.id}/ssh-lock`, body: { allow: extra.split(',').map((x) => x.trim()).filter(Boolean) }, label: 'Lock SSH', success: 'SSH locked; confirm within 5 minutes' }).catch(() => {})
+    }}>VPN only</button>
+  }
+  if (!lock.confirmed_at) {
+    return <span className="flex flex-wrap items-center gap-2 text-xs">
+      <Badge tone="y">confirm by {lock.pending_until ? new Date(lock.pending_until).toLocaleTimeString() : 'soon'}</Badge>
+      <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => run({ path: `/mesh/servers/${m.id}/ssh-lock/confirm`, label: 'Keep SSH lock', success: 'SSH lock kept' }).catch(() => {})}>I can still connect</button>
+    </span>
+  }
+  return <span className="flex items-center gap-2 text-xs"><Badge tone="g">VPN only</Badge>
+    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mesh/servers/${m.id}/ssh-lock`, method: 'DELETE', label: 'Unlock SSH', success: 'SSH open again' }).catch(() => {})}>Unlock</button></span>
 }
