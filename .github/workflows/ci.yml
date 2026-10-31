@@ -111,7 +111,7 @@ jobs:
           cache-dependency-path: agent/go.sum
       - name: Go vulnerabilities (govulncheck)
         working-directory: agent
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: Static analysis (Semgrep, local rules; blocking)
         run: |
           pipx install semgrep==1.95.0
