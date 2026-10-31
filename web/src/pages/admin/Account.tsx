@@ -6,7 +6,7 @@ import { Badge } from '../../components/Badge'
 import { PasskeyManager } from '../../components/Passkeys'
 import { Tabs } from '../../components/Tabs'
 import { Icon } from '../../components/Icon'
-import { OtpInput, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
+import { OtpInput, RecoveryCodesDialog, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useToast } from '../../components/Toasts'
 import { useAuth } from '../../lib/auth'
 import { ago, unwrap } from '../../lib/format'
@@ -44,7 +44,7 @@ export function AdminAccount() {
         {tab === 'profile' && <Profile name={name} email={email} onSaved={refresh} />}
         {tab === 'security' && <>
           <ChangePassword />
-          <TwoFactor on={mfa} onChange={refresh} />
+          <TwoFactor on={mfa} onChange={refresh} codesLeft={(u?.mfa_recovery_codes_left as number | null | undefined) ?? null} />
           <PasskeyManager />
         </>}
         {tab === 'sessions' && <Sessions />}
@@ -108,14 +108,23 @@ function ChangePassword() {
   )
 }
 
-function TwoFactor({ on, onChange }: { on: boolean; onChange: () => unknown }) {
+function TwoFactor({ on, onChange, codesLeft }: { on: boolean; onChange: () => unknown; codesLeft?: number | null }) {
   const toast = useToast()
+  const [codes, setCodes] = useState<string[] | null>(null)
+  const [renew, setRenew] = useState(false)
   const [setup, setSetup] = useState<{ secret: string; otpauth_url: string } | null>(null)
   const [otp, setOtp] = useState('')
   const [off, setOff] = useState(false)
   const start = async () => { try { setSetup(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
   const confirm = async (code: string) => {
-    try { await api.post('/me/mfa/confirm', { otp: code }); toast.success('Two-factor is on'); setSetup(null); onChange(); return true } catch { return false }
+    try {
+      const r = unwrap<{ recovery_codes?: string[] }>(await api.post('/me/mfa/confirm', { otp: code }))
+      toast.success('Two-factor is on'); setSetup(null); setCodes(r.recovery_codes ?? null); onChange(); return true
+    } catch { return false }
+  }
+  const newCodes = async () => {
+    try { setCodes(unwrap<{ recovery_codes: string[] }>(await api.post('/me/mfa/recovery-codes', { otp })).recovery_codes); setRenew(false); setOtp(''); onChange() }
+    catch (e) { toast.error(e, 'That code did not work. Check your authenticator app and try again.') }
   }
   const turnOff = async () => {
     try { await api.post('/me/mfa/disable', { otp }); toast.success('Two-factor is off'); setOff(false); setOtp(''); onChange() }
@@ -127,7 +136,20 @@ function TwoFactor({ on, onChange }: { on: boolean; onChange: () => unknown }) {
         <span aria-hidden="true" className={`grid place-items-center w-10 h-10 rounded-xl flex-none ${on ? 'bg-g-bg text-g-fg' : 'bg-head text-muted'}`}><Icon name="shield" size={18} /></span>
         <p className="m-0 text-sm text-muted">{on ? 'Every sign-in asks for a code from your authenticator app.' : 'Protect your account with a code from an authenticator app on your phone, as well as your password.'}</p>
       </div>
-      {off ? (
+      {on && !off && !renew && codesLeft != null && (
+        <div className={`mb-4 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm ${codesLeft <= 3 ? 'border-[var(--danger-line)] bg-r-bg' : 'border-line'}`}>
+          <span className="flex-1"><b>{codesLeft}</b> recovery code{codesLeft === 1 ? '' : 's'} left{codesLeft <= 3 ? ' — make new ones so you can always get in.' : ' for when you lose your phone.'}</span>
+          <button type="button" className="btn btn-sm" onClick={() => setRenew(true)}>New recovery codes…</button>
+        </div>
+      )}
+      {renew ? (
+        <div className="flex flex-col gap-3">
+          <span className="text-sm">Enter a code from your app. Your old recovery codes stop working.</span>
+          <OtpInput value={otp} onChange={setOtp} />
+          <div className="flex gap-2"><button type="button" className="btn btn-primary" disabled={otp.length !== 6} onClick={newCodes}>Make new codes</button>
+            <button type="button" className="btn btn-ghost" onClick={() => { setRenew(false); setOtp('') }}>Cancel</button></div>
+        </div>
+      ) : off ? (
         <div className="flex flex-col gap-3">
           <span className="text-sm">Enter a code from your app to turn two-factor off.</span>
           <OtpInput value={otp} onChange={setOtp} />
@@ -136,6 +158,7 @@ function TwoFactor({ on, onChange }: { on: boolean; onChange: () => unknown }) {
         </div>
       ) : on ? <button type="button" className="btn" onClick={() => setOff(true)}>Turn off…</button> : <button type="button" className="btn btn-primary" onClick={start}>Set up two-factor</button>}
       <TwoFactorSetupModal setup={setup} onClose={() => setSetup(null)} onConfirm={confirm} />
+      <RecoveryCodesDialog codes={codes} onClose={() => setCodes(null)} />
     </Card>
   )
 }

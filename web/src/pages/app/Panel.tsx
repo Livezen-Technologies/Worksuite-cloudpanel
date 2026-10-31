@@ -1,4 +1,4 @@
-import { TwoFactorSetupModal } from '../../components/TwoFactorSetup'
+import { RecoveryCodesDialog, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
@@ -298,6 +298,7 @@ export function Account() {
   const toast = useToast()
   const [p, setP] = useState<R>({})
   const [mfa, setMfa] = useState<{ secret: string; otpauth_url: string } | null>(null)
+  const [codes, setCodes] = useState<string[] | null>(null)
   const [invite, setInvite] = useState(false)
   const [inv, setInv] = useState({ email: '', role: 'developer' })
   useEffect(() => { if (acct) setP({ name: acct.name ?? acct.user?.name, email: acct.email ?? acct.user?.email, organization: acct.organization?.name ?? acct.organization ?? '', photo_url: acct.photo_url }) }, [acct])
@@ -306,7 +307,7 @@ export function Account() {
   const team = (acct?.team ?? acct?.members ?? []) as R[]
   const startMfa = async () => { try { setMfa(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
   const confirmMfa = async (otp: string) => {
-    try { await api.post('/me/mfa/confirm', { otp }); toast.success('Two-factor authentication is on'); setMfa(null); refresh(); return true } catch { return false }
+    try { const r = unwrap<{ recovery_codes?: string[] }>(await api.post('/me/mfa/confirm', { otp })); toast.success('Two-factor authentication is on'); setMfa(null); setCodes(r.recovery_codes ?? null); refresh(); return true } catch { return false }
   }
   return (
     <>
@@ -348,6 +349,7 @@ export function Account() {
         </div>
       </div>
       <TwoFactorSetupModal setup={mfa} onClose={() => setMfa(null)} onConfirm={confirmMfa} />
+      <RecoveryCodesDialog codes={codes} onClose={() => setCodes(null)} />
       <Modal open={invite} onClose={() => setInvite(false)} title="Invite a team member"
         footer={<><button type="button" className="btn" onClick={() => setInvite(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={!/^\S+@\S+\.\S+$/.test(inv.email) || busy} onClick={() => run({ path: '/app/account/team', body: inv, label: 'Invite', success: `Invite sent to ${inv.email}` }).then(() => { setInvite(false); setInv({ email: '', role: 'developer' }) }).catch(() => {})}>Send invite</button></>}>
         <div className="flex flex-col gap-4">

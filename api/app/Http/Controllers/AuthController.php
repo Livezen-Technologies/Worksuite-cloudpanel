@@ -55,8 +55,13 @@ class AuthController extends Controller
         if (! empty($data['passkey'])) {
             app(\App\Services\WebAuthnService::class)->authenticate($data['passkey']['challenge_id'], $data['passkey']['credential'], $user);
         } elseif ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
-            throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app or use a passkey.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']],
-                ['mfa_required' => true, 'passkey_available' => \App\Models\Passkey::where('user_id', $user->id)->exists()]);
+            // MFA-REC: a one-time recovery code stands in for a lost authenticator.
+            if (! \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null)) {
+                throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app, a recovery code, or use a passkey.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']],
+                    ['mfa_required' => true, 'passkey_available' => \App\Models\Passkey::where('user_id', $user->id)->exists()]);
+            }
+
+            return $this->completeLogin($user, 'password+recovery_code');
         }
 
         return $this->completeLogin($user, ! empty($data['passkey']) ? 'password+passkey' : ($user->mfa_enabled ? 'password+totp' : 'password'));
@@ -80,7 +85,7 @@ class AuthController extends Controller
      */
     public function ssoFinish(Request $request)
     {
-        $data = $request->validate(['state' => 'required_without:ticket|string|max:100', 'code' => 'required_without:ticket|string|max:2000', 'ticket' => 'nullable|string|max:80', 'otp' => 'nullable|string|max:10']);
+        $data = $request->validate(['state' => 'required_without:ticket|string|max:100', 'code' => 'required_without:ticket|string|max:2000', 'ticket' => 'nullable|string|max:80', 'otp' => 'nullable|string|max:20']);
         if (! empty($data['ticket'])) {
             $user = User::find(\Illuminate\Support\Facades\Cache::get('sso:ticket:'.$data['ticket']));
             if (! $user) {
@@ -89,7 +94,9 @@ class AuthController extends Controller
         } else {
             $user = app(\App\Services\Auth\SsoService::class)->finish($data['state'], $data['code']);
         }
-        if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
+        $viaRecovery = false;
+        if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)
+            && ! ($viaRecovery = \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null))) {
             $ticket = $data['ticket'] ?? \Illuminate\Support\Str::random(40);
             \Illuminate\Support\Facades\Cache::put('sso:ticket:'.$ticket, $user->id, now()->addMinutes(5));
             throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']], ['mfa_required' => true, 'ticket' => $ticket]);
@@ -98,7 +105,7 @@ class AuthController extends Controller
             \Illuminate\Support\Facades\Cache::forget('sso:ticket:'.$data['ticket']);
         }
 
-        return $this->completeLogin($user, 'sso');
+        return $this->completeLogin($user, $viaRecovery ? 'sso+recovery_code' : 'sso');
     }
 
     /** Issues the session token after a successful sign-in (password(+2FA) or passkey). */
@@ -134,7 +141,7 @@ class AuthController extends Controller
         $role = $user->roleName();
 
         return $this->data([
-            'user' => $user,
+            'user' => $user->toArray() + ['mfa_recovery_codes_left' => $user->mfa_enabled ? \App\Support\RecoveryCodes::remaining($user) : null],
             'organization' => $user->currentOrganization,
             'role' => $role,
             'permissions' => $rbac->permissionsFor($role),
@@ -161,7 +168,21 @@ class AuthController extends Controller
         }
         $user->forceFill(['mfa_enabled' => true])->save();
 
-        return $this->data(['mfa_enabled' => true]);
+        // Shown once: the person saves them somewhere safe.
+        return $this->data(['mfa_enabled' => true, 'recovery_codes' => \App\Support\RecoveryCodes::generate($user)]);
+    }
+
+    /** MFA-REC: a fresh set of recovery codes; the old ones stop working. Needs a current code. */
+    public function mfaRecoveryCodes(Request $request)
+    {
+        $data = $request->validate(['otp' => 'required|string']);
+        $user = $request->user();
+        if (! $user->mfa_enabled || ! Totp::verify((string) $user->mfa_secret, $data['otp'])) {
+            throw ApiException::validation(['otp' => ['The code is incorrect.']]);
+        }
+        $this->audit->log('auth.recovery_codes_regenerated', 'users', $user->id, [], $user->current_organization_id, $user->id, $user->email);
+
+        return $this->data(['recovery_codes' => \App\Support\RecoveryCodes::generate($user)]);
     }
 
     public function mfaDisable(Request $request)
@@ -171,7 +192,7 @@ class AuthController extends Controller
         if (! $user->mfa_enabled || ! Totp::verify((string) $user->mfa_secret, $data['otp'])) {
             throw ApiException::validation(['otp' => ['The code is incorrect.']]);
         }
-        $user->forceFill(['mfa_enabled' => false, 'mfa_secret' => null])->save();
+        $user->forceFill(['mfa_enabled' => false, 'mfa_secret' => null, 'mfa_recovery_codes' => null])->save();
         app(\App\Services\EmailTemplateService::class)->notify('two_factor_disabled', $user, ['time' => now()->toDayDateTimeString().' UTC']);
 
         return $this->data(['mfa_enabled' => false]);

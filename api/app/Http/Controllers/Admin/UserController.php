@@ -105,7 +105,7 @@ class UserController extends Controller
     public function resetMfa(Request $request, string $id)
     {
         $membership = $this->member($request, $id);
-        $membership->user->forceFill(['mfa_enabled' => false, 'mfa_secret' => null])->save();
+        $membership->user->forceFill(['mfa_enabled' => false, 'mfa_secret' => null, 'mfa_recovery_codes' => null])->save();
         $membership->user->tokens()->where('name', 'session')->delete();
         rescue(fn () => app(\App\Services\EmailTemplateService::class)->notify('two_factor_disabled', $membership->user, ['time' => now()->toDayDateTimeString().' UTC']), report: true);
         $this->log('users.mfa_reset', $membership);
