@@ -93,7 +93,7 @@ export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barCo
   const chipTone = iconTone ?? (valueTone && valueTone !== 'n' ? valueTone : deltaTone && deltaTone !== 'n' && deltaTone !== 'g' ? deltaTone : 'b')
   const glyph = icon ?? <Icon name={autoIcon(label)} size={16} />
   return (
-    <div className="card px-4 py-4">
+    <div className="card stat-tile px-4 py-4 min-w-0">
       <div className="flex items-center gap-2.5 text-sm text-muted font-medium">
         <span aria-hidden="true" className={`w-7 h-7 rounded-md flex items-center justify-center flex-none ${TONE_CHIP[chipTone]}`}>{glyph}</span>
         <span className="min-w-0 leading-tight">{label}</span>

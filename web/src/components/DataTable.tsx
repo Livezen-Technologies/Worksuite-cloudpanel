@@ -150,7 +150,9 @@ export function DataTable<T>(p: DataTableProps<T>) {
   const [sort, setSort] = useState<SortKey[]>(base.sort ?? [])
   const [conds, setConds] = useState<Condition[]>(base.conditions ?? [])
   const [density, setDensity] = useState<Density>(base.density ?? 'comfortable')
-  const [layout, setLayout] = useState<Layout>(base.layout ?? 'table')
+  // Phones open in the list view (no sideways scrolling) unless the person picked a view.
+  const defaultLayout: Layout = p.layouts !== false && typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches ? 'list' : 'table'
+  const [layout, setLayout] = useState<Layout>(base.layout ?? defaultLayout)
   const [pageSize, setPageSize] = useState<number>(base.pageSize ?? p.pageSize ?? 10)
   const [order, setOrder] = useState<string[]>(base.columns ?? allKeys)
   const [hidden, setHidden] = useState<Set<string>>(new Set(base.hidden ?? p.columns.filter((c) => c.hidden).map((c) => c.key)))
@@ -170,7 +172,7 @@ export function DataTable<T>(p: DataTableProps<T>) {
   const apply = useCallback((c: ViewConfig) => {
     setOrder(c.columns?.length ? c.columns : allKeys); setHidden(new Set(c.hidden ?? [])); setWidths(c.widths ?? {})
     setSort(c.sort ?? []); setConds(c.conditions ?? []); setFilter(c.filter ?? 'all'); setQ(c.q ?? '')
-    setDensity(c.density ?? 'comfortable'); setPageSize(c.pageSize ?? p.pageSize ?? 10); setLayout(c.layout ?? 'table'); setPage(1)
+    setDensity(c.density ?? 'comfortable'); setPageSize(c.pageSize ?? p.pageSize ?? 10); setLayout(c.layout ?? defaultLayout); setPage(1)
   }, [allKeys.join('|'), p.pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadViews = useCallback(async (pickDefault = false) => {
@@ -460,7 +462,7 @@ export function DataTable<T>(p: DataTableProps<T>) {
                   <div className="flex-1 min-w-0 font-semibold text-sm truncate">{head ? (head.render ? head.render(r) : String(cellValue(head, r) ?? '')) : id}</div>
                   {renderActions(r)}
                 </div>
-                <dl className={`m-0 mt-2 grid gap-x-4 gap-y-1 text-xs ${layout === 'grid' ? 'grid-cols-[max-content_1fr]' : 'grid-cols-[repeat(auto-fill,minmax(160px,1fr))]'}`}>
+                <dl className={`m-0 mt-2 grid gap-x-4 gap-y-1 text-xs ${layout === 'grid' ? 'grid-cols-[max-content_1fr]' : 'grid-cols-[repeat(auto-fill,minmax(min(140px,45%),1fr))] gap-y-2'}`}>
                   {rest.map((c) => layout === 'grid'
                     ? <Fragment key={c.key}><dt className="text-muted">{c.header}</dt><dd className="m-0 min-w-0 truncate">{c.render ? c.render(r) : String(cellValue(c, r) ?? '—')}</dd></Fragment>
                     : <div key={c.key} className="min-w-0"><dt className="text-muted">{c.header}</dt><dd className="m-0 truncate">{c.render ? c.render(r) : String(cellValue(c, r) ?? '—')}</dd></div>)}
