@@ -133,6 +133,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::patch('applications/{id}', [Admin\ApplicationController::class, 'update'])->name('applications.update');
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
         Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
+        Route::post('applications/{id}/canary', [Admin\ScalingController::class, 'canary'])->name('applications.canary');
+        Route::patch('applications/{id}/canary', [Admin\ScalingController::class, 'canaryWeight'])->name('applications.canary.weight');
+        Route::post('applications/{id}/canary/promote', [Admin\ScalingController::class, 'promoteCanary'])->name('applications.canary.promote');
+        Route::delete('applications/{id}/canary', [Admin\ScalingController::class, 'abortCanary'])->name('applications.canary.abort');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
         Route::post('templates/{template}/install', [Admin\TemplateController::class, 'install'])->name('templates.install');
         Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');

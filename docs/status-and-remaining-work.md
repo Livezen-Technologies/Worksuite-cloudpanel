@@ -74,7 +74,7 @@ New in the SRS, and what exists for each:
 
 | Group | Reqs | Met | What exists / what is missing |
 |---|---|---|---|
-| SCL scaling and load balancing (4.30) | 10 | ~15% | Rolling and blue-green deploys and health checks exist (SCL-4/5 partly); scheduler placement exists (SCL-6 partly). No replicas, autoscaling, balancing strategies, sticky sessions, traffic splitting, edge failover or package limits. |
+| SCL scaling and load balancing (4.30) | 10 | ~85% | Copies, autoscaling, schedules, health checks, sticky sessions, shared-state warnings and plan limits (#51). Placement of copies over several servers through the private network with a Traefik pool service (SCL-6) and weighted canary releases with promote/abort (SCL-7). Missing: edge nodes and DNS failover between ingress servers (SCL-8), least-connections strategy, requests-per-second autoscaling, billing extra copies by usage. |
 | PNET private network and observability (4.31) | 9 | ~70% | **WireGuard full mesh** between an organisation's servers (Resources → Private network; PNET-1): each agent generates and keeps its own X25519 key, the panel pushes peers, addresses come from `MESH_SUBNET` (default 10.88.0.0/16) on UDP `MESH_PORT` 51820, and peers are swapped live with `wg syncconf`. **CoreDNS** (`dmp-coredns`, bound to the mesh address only) serves `<server>.internal` and `<app>.internal` (PNET-2). **Admin VPN configs** for laptops and phones, with the private key shown once and never stored, and revocation (PNET-3). Handshakes and traffic every 5 minutes (`mesh:status`), with each device's last-seen time (PNET-5). Still from before: Traefik edge with automatic HTTPS (PNET-8 partly), per-container metrics and logs (PNET-9 partly), outbound SMTP limits (PNET-6 partly). Missing: routing container networks across the mesh (names resolve to the server, so services need a published port), opening the mesh port in the firewall automatically, and requiring the VPN for SSH/admin access. |
 | BLD build pipeline (4.32) | 9 | ~75% | Signed push webhooks (BLD-1), isolated builders, the stage timeline, a registry, the Trivy gate (BLD-7) and rollback on a failed health check (BLD-8) exist. New: an **auto** builder that detects Node.js, Python, Go, PHP or static sites and generates the Dockerfile (Nixpacks/Railpack style, BLD-2), per-build layer cache stats with a monthly cache hit rate and a no-cache switch (BLD-3), per-build timeouts and monthly build-minute limits from the package (`build_minutes`, `build_timeout_minutes`; BLD-9), shown at `GET /builds/usage` and `GET /app/builds/usage`. Missing: a BullMQ queue (Laravel queues are the MVP alternative), a shared BuildKit cache across builders, registry garbage collection. |
 | CLN server cleanup (4.33) | 5 | ~90% | Prune with preview and a scheduled prune job, plus a per-server cleanup policy (Servers → server → Cleanup): **safe / standard / aggressive** levels (CLN-1), automatic runs when disk use crosses a threshold with a one-hour cooldown (CLN-2), the images of the last N releases of every app protected (CLN-3), a run history with freed space (CLN-4), and alerts when a cleanup fails or the disk stays above the threshold (CLN-5). Volumes are never touched. Missing: log rotation of container logs. |
@@ -219,8 +219,17 @@ is logged with reason and result. Shared-state warnings (SCL-9) and plan limits
 `max_replicas` / `autoscale` for customers (SCL-10, USCL-2/3). Screens: Scaling tab on
 the admin app page and the customer app page.
 
-Left: placement across servers or regions (SCL-6), traffic splitting between releases
-(SCL-7), edge nodes and failover (SCL-8), least-connections / weighted strategies,
+Placement (SCL-6): `servers` in the scaling settings lists more servers for copies; copies
+are dealt round-robin over the app's server and those that are on the private network and
+online. A copy elsewhere publishes its port on that server's mesh address only (port
+`30000 + …`), and the file provider gives the app's routers an `app-<name>-pool` service
+over every copy (health-checked, sticky when asked). Canaries (SCL-7): `POST
+/applications/{id}/canary {image, weight}` runs `app-<name>-canary` from the live release's
+settings with another image; `app-<name>-split` weighs it against the live app; `PATCH`
+changes the share, `…/promote` deploys the image as the next release, `DELETE` aborts. Both
+need the Traefik file provider (`CERT_DRIVER=traefik`) and are admin-only.
+
+Left: edge nodes and DNS failover between ingress servers (SCL-8), least-connections,
 requests-per-second autoscaling, and billing extra copies by usage.
 
 ## 2. Firewall — enforced through CrowdSec (#14)

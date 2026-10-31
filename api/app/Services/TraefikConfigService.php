@@ -175,6 +175,13 @@ class TraefikConfigService implements HandlesCommandResults
                 }
             }
         }
+        // SCL-6/7: copies on other servers and canaries need a file-provider service in front of the app.
+        [$services, $swap] = $this->scalingServices($this->domainsFor($server, $dedicated)->pluck('application')->unique('id'));
+        foreach ($routers as $r => $router) {
+            if (isset($router['service'], $swap[$router['service']])) {
+                $routers[$r]['service'] = $swap[$router['service']];
+            }
+        }
         // PUB-1..4: maintenance, suspended, expired and welcome pages take over a domain; down apps get the busy page.
         $pages = app(PublicPagesService::class);
         [$pageRouters, $pageMiddlewares] = $pages->traefik($this->domainsFor($server, $dedicated)->concat($pages->domains()), $routers);
@@ -189,11 +196,52 @@ class TraefikConfigService implements HandlesCommandResults
         }
 
         $http = ['routers' => (object) $routers];
+        if ($services) {
+            $http['services'] = $services;
+        }
         if ($middlewares) {
             $http['middlewares'] = $middlewares;
         }
 
         return ['http' => $http];
+    }
+
+    /**
+     * SCL-6: an app with copies on other servers gets `<app>-pool` (every copy's URL,
+     * health-checked, optionally sticky). SCL-7: a running canary gets `<app>-split`,
+     * a weighted service over the live app and `<app>-canary`.
+     *
+     * @return array{0: array, 1: array<string,string>} services, and router service → replacement
+     */
+    private function scalingServices(Collection $apps): array
+    {
+        $scaling = app(ScalingService::class);
+        $suffix = config('platform.traefik.docker_service_suffix');
+        $services = [];
+        $swap = [];
+        foreach ($apps as $app) {
+            $base = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name));
+            $s = ScalingService::settings($app);
+            $live = $base.$suffix;
+            if ($urls = $scaling->pool($app)) {
+                $lb = ['servers' => array_map(fn ($u) => ['url' => $u], $urls), 'healthCheck' => ['path' => (string) $s['health']['path'], 'interval' => (int) $s['health']['interval'].'s', 'timeout' => (int) $s['health']['timeout'].'s']];
+                if ($s['sticky']) {
+                    $lb['sticky'] = ['cookie' => ['name' => 'ws_affinity', 'secure' => true, 'httpOnly' => true]];
+                }
+                $services[$base.'-pool'] = ['loadBalancer' => $lb];
+                $live = $base.'-pool';
+            }
+            if (! empty($s['canary']['image'])) {
+                $w = max(0, min(100, (int) $s['canary']['weight']));
+                $services[$base.'-split'] = ['weighted' => ['services' => [['name' => $live, 'weight' => 100 - $w], ['name' => $base.'-canary'.$suffix, 'weight' => $w]]]];
+                $live = $base.'-split';
+            }
+            if ($live !== $base.$suffix) {
+                $swap[$base.$suffix] = $live;
+            }
+        }
+
+        return [$services, $swap];
     }
 
     public function yaml(Server $server, bool $dedicated = true): string
