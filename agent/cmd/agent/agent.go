@@ -69,6 +69,7 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 	}
 	ex := &executor.Executor{
 		Docker:            dc,
+		Run:               executor.ExecRunner,
 		Policy:            &policy.Store{Path: cfg.PolicyPath},
 		HMACKey:           []byte(cfg.HMACKey),
 		Journal:           &executor.Journal{Path: filepath.Join(cfg.StateDir, "journal.json")},
