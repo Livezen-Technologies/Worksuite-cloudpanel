@@ -61,9 +61,11 @@ Mail hosting       100%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           relay, MX 20, queues inbound mail up to 5 days
                           and forwards it when the primary answers; never
                           an open relay; follows the domain list)
-Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
+Public pages       100%   maintenance (platform/site, admin bypass), 404,
                           busy (502-504), suspended, expired, welcome pages
-                          from an edge container; left: bot-check page
+                          from an edge container; the bot check (captcha)
+                          and access-blocked pages served by the CrowdSec
+                          bouncer, branded and pushed with the proxy config
 Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
                           in plain words), Security (score, threats, scan
                           now), Scheduled jobs (app command or URL, run log,

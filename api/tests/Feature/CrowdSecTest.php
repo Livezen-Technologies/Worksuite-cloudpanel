@@ -98,11 +98,32 @@ class CrowdSecTest extends TestCase
         $this->assertSame('turnstile', $bouncer['captchaProvider']);
         $this->assertSame('captcha-secret', $bouncer['captchaSecretKey']);
         $this->assertSame(2700, $bouncer['captchaGracePeriodSeconds']);
+        $this->assertSame(['/etc/dockermgr/traefik/pages/dmp-captcha.html', '/etc/dockermgr/traefik/pages/dmp-ban.html'], [$bouncer['captchaHTMLFilePath'], $bouncer['banHTMLFilePath']]);
 
         // Challenge rules are enforced now, so the screen must not call them unsupported.
         app(Tenant::class)->as($org->id, fn () => FirewallRule::create(['name' => 'Bots', 'paths' => ['*'], 'limit' => 100, 'window_seconds' => 60, 'action' => 'recaptcha']));
         $this->api($token)->getJson('/api/v1/firewall')->assertOk()
             ->assertJsonPath('data.unsupported', [])->assertJsonPath('data.country_enforcement', 'crowdsec');
+    }
+
+    public function test_the_bot_check_and_ban_pages_are_branded_and_pushed_to_traefik(): void
+    {
+        [$org, $secret, , $token] = $this->verifiedDomain();
+        $this->api($token)->patchJson('/api/v1/public-pages', ['pages' => ['captcha' => ['title' => 'One quick check {{ .Evil }}', 'message' => 'Acme keeps bots out.']]])->assertOk();
+        $pages = $this->push($org->id, $secret)['proxy.config']['payload']['pages'];
+        $this->assertSame(['dmp-captcha.html', 'dmp-ban.html'], array_keys($pages));
+        $captcha = $pages['dmp-captcha.html'];
+        foreach (['<script src="{{ .FrontendJS }}"', 'class="{{ .FrontendKey }}"', 'data-sitekey="{{ .SiteKey }}"', 'One quick check &#123;&#123; .Evil &#125;&#125;', 'Acme keeps bots out.', 'method="POST"'] as $part) {
+            $this->assertStringContainsString($part, $captcha);
+        }
+        $this->assertStringNotContainsString('{{ .Evil', $captcha, 'page text cannot open a template action');
+        $this->assertStringContainsString('Access blocked', $pages['dmp-ban.html']);
+
+        // The preview shows a placeholder, never the raw template fields; bot pages are not per site.
+        $preview = $this->api($token)->getJson('/api/v1/public-pages/preview/captcha')->assertOk()->json('data.html');
+        $this->assertStringNotContainsString('{{', $preview);
+        $this->assertStringContainsString('check appears here', $preview);
+        $this->assertContains('captcha', array_column($this->api($token)->getJson('/api/v1/public-pages')->json('data.pages'), 'key'));
     }
 
     public function test_disabled_crowdsec_changes_nothing(): void

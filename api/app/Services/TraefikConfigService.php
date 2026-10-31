@@ -302,12 +302,13 @@ class TraefikConfigService implements HandlesCommandResults
         foreach ($this->ingressServers() as $server) {
             $files = [config('platform.traefik.file_name') => $this->yaml($server, $dedicated)];
             $cs = CrowdSecConfigService::enabled() ? $this->crowdsec->render($this->domainsFor($server, $dedicated)) : null;
-            $hash = hash('sha256', json_encode([$files, $secrets, $cs]));
+            $pages = $cs !== null ? app(PublicPagesService::class)->bouncerPages() : null;
+            $hash = hash('sha256', json_encode([$files, $secrets, $cs, $pages]));
             $key = 'traefik-config:'.$server->id;
             if (! $force && Cache::get($key) === $hash) {
                 continue;
             }
-            $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null]));
+            $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null, 'pages' => $pages]));
             if ($cs !== null) {
                 $this->bus->dispatch($server, 'crowdsec.apply', ['scenarios' => (object) $cs['scenarios'], 'profiles' => $cs['profiles'], 'whitelist' => $cs['whitelist']]);
             }

@@ -22,14 +22,10 @@ screen says so.
 2. `install -d -m 755 /etc/dockermgr/crowdsec` then, in this folder:
    `CROWDSEC_BOUNCER_KEY=<key> docker compose up -d`.
 3. Traefik needs the bouncer plugin in its **static** config; it is already declared in
-   `../traefik/traefik.yml` (`experimental.plugins.bouncer`, plugin v1.8.1). Put the plugin's captcha page
-   next to Traefik's compose file, where `../traefik/docker-compose.yml` mounts it as `/captcha.html`:
-
-   ```
-   curl -fsSLo captcha.html https://raw.githubusercontent.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/v1.8.1/captcha.html
-   ```
-
-   Then restart Traefik.
+   `../traefik/traefik.yml` (`experimental.plugins.bouncer`, plugin v1.8.1). The captcha ("bot check")
+   and ban pages come from the panel: Public pages → Bot check / Access blocked are pushed with every
+   `proxy:push` to `/etc/dockermgr/traefik/pages/` (`CROWDSEC_PAGES_DIR`), which Traefik already mounts.
+   Restart Traefik once after enabling the plugin.
 4. Panel `.env`:
 
    ```

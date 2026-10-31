@@ -81,6 +81,8 @@ return [
         'ban_minutes' => (int) env('CROWDSEC_BAN_MINUTES', 240),
         'update_seconds' => (int) env('CROWDSEC_UPDATE_SECONDS', 15),
         'trusted_proxies' => array_filter(explode(',', (string) env('CROWDSEC_TRUSTED_PROXIES', ''))),
+        // Where the agent writes the branded captcha and ban pages, as Traefik sees the path.
+        'pages_dir' => env('CROWDSEC_PAGES_DIR', '/etc/dockermgr/traefik/pages'),
     ],
 
     // METRICS_DRIVER=prometheus (MON-001): /metrics reads query_range from Prometheus.

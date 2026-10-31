@@ -42,7 +42,8 @@ class PublicPagesTest extends TestCase
         $writes = $cmds->where('type', 'fs.write')->keyBy(fn ($c) => $c['payload']['path']);
         $this->assertStringContainsString('error_page 503 = @maintenance', $writes['default.conf']['payload']['content']);
         $this->assertStringContainsString('add_header Retry-After 3600 always', $writes['default.conf']['payload']['content']);
-        foreach (array_keys(PublicPagesService::PAGES) as $key) {
+        $this->assertArrayNotHasKey('default/captcha.html', $writes->all(), 'the bouncer serves the bot pages, not the edge container');
+        foreach (array_diff(array_keys(PublicPagesService::PAGES), PublicPagesService::BOT_PAGES) as $key) {
             $html = $writes["default/{$key}.html"]['payload']['content'];
             $this->assertLessThan(50 * 1024, strlen($html), "{$key} is under 50 KB");
             $this->assertStringNotContainsString('<script', $html);

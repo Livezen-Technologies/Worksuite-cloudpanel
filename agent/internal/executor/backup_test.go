@@ -284,6 +284,18 @@ func TestProxyConfigWritesAndPrunes(t *testing.T) {
 	if _, err := e.Handle(context.Background(), cmd("pc2", "proxy.config", `{"files":{"../../etc/x.yml":"a"}}`, now)); err == nil {
 		t.Fatal("traversal accepted")
 	}
+	// Bouncer pages go next to dynamic/, never into it (Traefik would try to parse them).
+	if _, err := e.Handle(context.Background(), cmd("pc3", "proxy.config", `{"files":{},"pages":{"dmp-captcha.html":"<html>{{ .SiteKey }}</html>"}}`, now)); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "pages", "dmp-captcha.html")); !strings.Contains(string(b), ".SiteKey") {
+		t.Fatal("page not written")
+	}
+	for _, bad := range []string{`{"pages":{"../x.html":"a"}}`, `{"pages":{"captcha.html":"a"}}`, `{"pages":{"dmp-x.yml":"a"}}`} {
+		if _, err := e.Handle(context.Background(), cmd("pc4", "proxy.config", bad, now)); err == nil {
+			t.Fatalf("%s accepted", bad)
+		}
+	}
 }
 
 func TestProxyCertsReadsAcmeJSONWithoutKeys(t *testing.T) {

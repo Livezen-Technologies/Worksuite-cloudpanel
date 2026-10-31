@@ -64,6 +64,7 @@ var (
 	reDBIdent    = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,62}$`)
 	reSubset     = regexp.MustCompile(`^((100|[0-9]{1,2}(\.[0-9]+)?)%|[0-9]+/[0-9]+|[0-9]+[KMG])$`)
 	reYAMLName   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,120}\.ya?ml$`)
+	rePageName   = regexp.MustCompile(`^dmp-[a-z0-9-]{1,40}\.html$`)
 	reSecretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 )
 
@@ -837,11 +838,33 @@ func (e *Executor) proxyConfig(raw []byte) (any, error) {
 		// Secrets are DNS-01 provider credentials, written as <dir>/../secrets/<NAME> (0600)
 		// for Traefik's NAME_FILE environment variables.
 		Secrets map[string]string `json:"secrets"`
+		// Pages are the CrowdSec bouncer's captcha and ban pages (dmp-*.html), written to
+		// <dir>/../pages so Traefik's file provider never tries to parse them.
+		Pages map[string]string `json:"pages"`
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
 	}
 	dir := firstNonEmpty(e.ProxyDir, DefaultProxyDir)
+	pages := []string{}
+	if len(p.Pages) > 0 {
+		pdir := filepath.Join(filepath.Dir(dir), "pages")
+		if err := os.MkdirAll(pdir, 0o755); err != nil {
+			return nil, err
+		}
+		for n, content := range p.Pages {
+			if !rePageName.MatchString(n) || len(content) > 256<<10 {
+				return nil, fmt.Errorf("invalid page %q", n)
+			}
+		}
+		for n, content := range p.Pages {
+			if err := writeAtomic(filepath.Join(pdir, n), []byte(content), 0o644); err != nil {
+				return nil, err
+			}
+			pages = append(pages, n)
+		}
+		sort.Strings(pages)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -894,7 +917,7 @@ func (e *Executor) proxyConfig(raw []byte) (any, error) {
 		}
 		sort.Strings(secretNames)
 	}
-	return map[string]any{"dir": dir, "written": names, "removed": removed, "secrets": secretNames}, nil
+	return map[string]any{"dir": dir, "written": names, "removed": removed, "secrets": secretNames, "pages": pages}, nil
 }
 
 // ProxyCerts reads Traefik's acme.json and returns names and expiry only;
