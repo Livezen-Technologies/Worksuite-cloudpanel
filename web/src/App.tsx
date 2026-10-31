@@ -10,6 +10,7 @@ import { ForgotPassword, InviteAccept, Login, Register, ResetPassword, VerifyEma
 import { AdminLayout } from './pages/admin/AdminLayout'
 import Overview from './pages/admin/Overview'
 import Servers from './pages/admin/Servers'
+import ServicesPage from './pages/admin/ServiceSettings'
 import SystemServices from './pages/admin/SystemServices'
 import ServerDetail from './pages/admin/ServerDetail'
 import Containers from './pages/admin/Containers'
@@ -110,6 +111,7 @@ export function AppRoutes() {
         <Route path="automation" element={<Automation />} />
         <Route path="users" element={<Users />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="services" element={<ServicesPage />} />
         <Route path="account" element={<AdminAccount />} />
       </Route>
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>

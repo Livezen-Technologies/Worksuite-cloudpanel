@@ -18,7 +18,10 @@ use Illuminate\Support\Facades\Mail;
  */
 class EmailTemplateService
 {
-    public const FIELDS = ['subject', 'preview', 'heading', 'body', 'button_label', 'button_url', 'secondary_label', 'secondary_url'];
+    public const FIELDS = ['subject', 'preview', 'eyebrow', 'heading', 'body', 'code', 'button_label', 'button_url', 'secondary_label', 'secondary_url'];
+
+    /** Tag and bar colours per tone (design: Email design). */
+    public const TONES = ['blue' => ['#EFF6FF', '#1D4ED8', '#bfdbfe,#93c5fd,#b060ff'], 'slate' => ['#F3F4F6', '#374151', '#e5e7eb,#cbd5e1,#94a3b8'], 'red' => ['#FEF2F2', '#B91C1C', '#fecaca,#ee87cb,#b060ff'], 'green' => ['#F0FDF4', '#15803D', '#bbf7d0,#99f6e4,#b060ff'], 'amber' => ['#FFFBEB', '#B45309', '#fff1be,#fdba74,#ee87cb'], 'violet' => ['#F5F3FF', '#6D28D9', '#ddd6fe,#c4b5fd,#b060ff']];
 
     public const GLOBALS = ['platform_name', 'user_name', 'panel_url'];
 
@@ -43,7 +46,7 @@ class EmailTemplateService
         $row = EmailTemplate::where('key', $key)->first();
         $fields = array_replace(array_fill_keys(self::FIELDS, null), array_intersect_key($def, array_flip(self::FIELDS)), array_filter($row?->overrides ?? [], fn ($v) => $v !== null));
 
-        return $fields + ['key' => $key, 'group' => $def['group'], 'name' => $def['name'], 'details' => $def['details'] ?? [],
+        return $fields + ['key' => $key, 'group' => $def['group'], 'tone' => $def['tone'] ?? 'blue', 'name' => $def['name'], 'details' => $def['details'] ?? [],
             'variables' => array_merge(self::GLOBALS, $def['vars']), 'enabled' => $row?->enabled ?? true,
             'mandatory' => $this->mandatory($key), 'customised' => (bool) array_filter($row?->overrides ?? [])];
     }
@@ -119,6 +122,9 @@ class EmailTemplateService
             'security' => '2', 'path' => 'wp-content/uploads/x.php', 'signature' => 'YARA.PHP.WebShell', 'action' => 'quarantined',
             'number' => 'INV-2026-0042', 'amount' => 'LKR 12,500.00', 'period' => 'October 2026', 'invoice_url' => '{{panel_url}}/billing',
             'retry_date' => now()->addDays(3)->format('j M'), 'resource' => 'apps', 'used' => '5', 'limit' => '5', 'plan' => 'Standard',
+            'started' => now()->format('j M Y, H:i').' UTC', 'mode' => 'Browser check for every visitor (CrowdSec)', 'customer' => 'Acme Ltd', 'by' => 'ops@example.com',
+            'scenario' => 'crowdsecurity/http-bf-wordpress_bf', 'origins' => 'VN 41% · BR 18% · RU 12%', 'targets' => '38 sites · /wp-login.php', 'window' => '5 minutes',
+            'log' => "1284   crowdsecurity/http-bf-wordpress_bf\n212    crowdsecurity/http-probing",
         ];
 
         return array_intersect_key($samples, array_flip($this->definition($key)['vars']));
@@ -142,7 +148,7 @@ class EmailTemplateService
 
         return [
             'subject' => $f['subject'], 'preview' => (string) $f['preview'],
-            'html' => $this->html($f, $details, $brand, $platform, $footer),
+            'html' => $this->html($f, $details, $brand, $platform, $footer, $t['tone'], (string) config('email_templates.groups.'.$t['group'].'.name')),
             'text' => $this->text($f, $details, $footer),
         ];
     }
@@ -217,9 +223,27 @@ class EmailTemplateService
         return $users->filter(fn (User $u) => $this->notify($key, $u, $vars))->count();
     }
 
-    /** EML-4: a 600 px table layout with inline styles, fluid down to 360 px, with a dark-mode stylesheet. */
-    private function html(array $f, array $details, array $brand, string $platform, string $footer): string
+    /**
+     * Sends to platform staff (people holding a platform-scope role in any organisation),
+     * once per $dedupeKey within $dedupeMinutes. Returns how many were sent.
+     */
+    public function notifyStaff(string $key, array $vars = [], ?string $dedupeKey = null, int $dedupeMinutes = 0): int
     {
+        if ($dedupeKey && $dedupeMinutes > 0 && ! Cache::add("email:{$key}:staff:{$dedupeKey}", 1, now()->addMinutes($dedupeMinutes))) {
+            return 0;
+        }
+        $roles = array_keys(array_filter(config('rbac.roles'), fn ($r) => ($r['scope'] ?? '') === 'platform'));
+        $roles = array_merge($roles, \App\Models\Role::where('scope', 'platform')->pluck('name')->all());
+        $roles = array_values(array_diff(array_unique($roles), ['viewer', 'billing']));
+        $users = User::whereIn('id', Membership::allTenants()->where('status', 'active')->whereIn('role', $roles)->select('user_id'))->get();
+
+        return $users->filter(fn (User $u) => $this->notify($key, $u, $vars))->count();
+    }
+
+    /** EML-4: a 600 px table layout with inline styles, fluid down to 360 px, with a dark-mode stylesheet. */
+    private function html(array $f, array $details, array $brand, string $platform, string $footer, string $tone = 'blue', string $tag = ''): string
+    {
+        [$tagBg, $tagFg, $bar] = self::TONES[$tone] ?? self::TONES['blue'];
         $e = fn (?string $s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : self::BRAND_DEFAULTS['color'];
         $safeUrl = fn (?string $u) => $u && preg_match('#^https?://#i', $u) ? $u : null;
@@ -229,10 +253,14 @@ class EmailTemplateService
         $body = implode('', array_map(fn ($p) => '<p style="margin:0 0 16px">'.nl2br($e(trim($p)), false).'</p>', preg_split('/\n\s*\n/', trim((string) $f['body'])) ?: []));
         $rows = implode('', array_map(fn ($k, $v) => '<tr><td class="muted" style="padding:6px 0;color:#6b7280;width:40%">'.$e($k).'</td><td style="padding:6px 0;font-weight:600">'.$e($v).'</td></tr>', array_keys($details), $details));
         $button = ($url = $safeUrl($f['button_url'])) && $f['button_label']
-            ? '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td style="border-radius:8px;background:'.$color.'"><a href="'.$e($url).'" style="display:inline-block;padding:12px 22px;color:#ffffff;text-decoration:none;font-weight:600;border-radius:8px">'.$e($f['button_label']).'</a></td></tr></table>'
+            ? '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td style="border-radius:999px;background:'.$color.'"><a href="'.$e($url).'" style="display:inline-block;padding:13px 24px;color:#ffffff;text-decoration:none;font-weight:600;border-radius:999px">'.$e($f['button_label']).'</a></td></tr></table>'
             : '';
         $secondary = ($url2 = $safeUrl($f['secondary_url'])) && $f['secondary_label']
             ? '<p style="margin:0 0 16px"><a href="'.$e($url2).'" style="color:'.$color.'">'.$e($f['secondary_label']).'</a></p>' : '';
+        $code = trim((string) ($f['code'] ?? '')) !== ''
+            ? '<div style="margin:0 0 20px;padding:14px;border-radius:12px;background:#030712;color:#e5e7eb;font:500 12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word">'.$e(mb_substr(trim((string) $f['code']), 0, 2000)).'</div>' : '';
+        $eyebrow = trim((string) ($f['eyebrow'] ?? '')) !== '' ? '<div style="margin:0 0 10px;font:600 11.5px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:#6b7280">'.$e($f['eyebrow']).'</div>' : '';
+        $tagHtml = $tag !== '' ? '<span style="display:inline-block;padding:3px 9px;border-radius:999px;font:600 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;background:'.$tagBg.';color:'.$tagFg.'">'.$e(strtoupper($tag)).'</span>' : '';
         $fallback = $url ? '<p class="muted" style="margin:16px 0 0;font-size:12px;color:#6b7280">If the button does not work, copy this link into your browser:<br><a href="'.$e($url).'" style="color:'.$color.';word-break:break-all">'.$e($url).'</a></p>' : '';
 
         return <<<HTML
@@ -248,11 +276,13 @@ class EmailTemplateService
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{$e($f['preview'])}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg" style="background:#f4f5f7"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="container" style="width:600px;max-width:600px">
-<tr><td style="padding:0 4px 16px">{$logo}</td></tr>
-<tr><td class="card pad" style="background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827">
-<h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#111827">{$e($f['heading'])}</h1>
-{$body}{$button}{$secondary}
+<tr><td class="card" style="background:#ffffff;border-radius:20px 20px 0 0;height:8px;line-height:8px;font-size:0;background-image:linear-gradient(90deg,{$bar})">&nbsp;</td></tr>
+<tr><td class="card" style="background:#ffffff;padding:24px 32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{$logo}</td><td align="right">{$tagHtml}</td></tr></table></td></tr>
+<tr><td class="card pad" style="background:#ffffff;border-radius:0 0 20px 20px;padding:24px 32px 32px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827">
+{$eyebrow}<h1 style="margin:0 0 16px;font-size:26px;line-height:1.2;letter-spacing:-0.02em;color:#111827">{$e($f['heading'])}</h1>
+{$body}{$code}
 {$this->detailsTable($rows)}
+<div style="height:20px;line-height:20px;font-size:0">&nbsp;</div>{$button}{$secondary}
 {$fallback}
 </td></tr>
 <tr><td class="muted" style="padding:16px 4px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280">{$e($footer)}</td></tr>
@@ -263,12 +293,16 @@ HTML;
 
     private function detailsTable(string $rows): string
     {
-        return $rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 0;border-top:1px solid #e5e7eb;font-size:14px">'.$rows.'</table>' : '';
+        return $rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 0;padding:4px 16px;border-radius:14px;background:#f9fafb;font-size:14px">'.$rows.'</table>' : '';
     }
 
     private function text(array $f, array $details, string $footer): string
     {
         $lines = [$f['heading'], '', trim((string) $f['body'])];
+        if (trim((string) ($f['code'] ?? '')) !== '') {
+            $lines[] = '';
+            $lines[] = trim((string) $f['code']);
+        }
         if ($details) {
             $lines[] = '';
             foreach ($details as $k => $v) {

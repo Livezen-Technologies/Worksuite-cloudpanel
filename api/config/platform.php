@@ -74,6 +74,8 @@ return [
 
     'crowdsec' => [
         'enabled' => (bool) env('CROWDSEC_ENABLED', false),
+        // EML: blocked or challenged requests in one poll that trigger the staff "bot alert" email.
+        'alert_threshold' => (int) env('CROWDSEC_ALERT_THRESHOLD', 50),
         'lapi_host' => env('CROWDSEC_LAPI_HOST', 'crowdsec:8080'),
         'lapi_scheme' => env('CROWDSEC_LAPI_SCHEME', 'http'),
         'bouncer_key' => env('CROWDSEC_BOUNCER_KEY'),

@@ -57,6 +57,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: 'settings', label: 'Settings', icon: 'gear', desc: 'Users, permissions and configuration', items: [
     { label: 'Users & Teams', to: '/admin/users', icon: 'users' },
     { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+    { label: 'Third-party services', to: '/admin/services', icon: 'share' },
     { label: 'Account', to: '/admin/account', icon: 'user' },
   ] },
 ]

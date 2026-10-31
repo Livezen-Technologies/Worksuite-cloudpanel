@@ -9,7 +9,6 @@ import { useAuth } from '../../lib/auth'
 import { FormModal } from '../../components/FormModal'
 import { Tabs } from '../../components/Tabs'
 import { RoleEditor } from './RoleEditor'
-import { ServiceSettings } from './ServiceSettings'
 import { TokenReveal } from '../../components/TokenReveal'
 import { ago, daysUntil, unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
@@ -321,19 +320,18 @@ export function ApiTokens({ path, abilities }: { path: string; abilities: string
   )
 }
 
-type STab = 'general' | 'security' | 'smtp' | 'emails' | 'notifications' | 'providers' | 'tokens'
+type STab = 'general' | 'security' | 'smtp' | 'emails' | 'notifications' | 'tokens'
 export function Settings() {
   const [tab, setTab] = useState<STab>('general')
   return (
     <>
       <PageHeader title="Settings" subtitle="Organisation, security, notifications and provider integrations" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'smtp', label: 'SMTP' }, { id: 'emails', label: 'Email templates' }, { id: 'notifications', label: 'Notifications' }, { id: 'providers', label: 'Third-party services' }, { id: 'tokens', label: 'API tokens' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'security', label: 'Security' }, { id: 'smtp', label: 'SMTP' }, { id: 'emails', label: 'Email templates' }, { id: 'notifications', label: 'Notifications' }, { id: 'tokens', label: 'API tokens' }]} />
       {(tab === 'general' || tab === 'security' || tab === 'smtp') && <SettingsForm tab={tab} />}
       {tab === 'emails' && <EmailTemplates />}
       {tab === 'notifications' && <CrudCards path="/notification-channels" noun="channel"
         fields={[{ name: 'name', label: 'Name', required: true }, { name: 'type', label: 'Type', type: 'select', required: true, options: ['email', 'slack', 'teams', 'telegram', 'webhook'] }, { name: 'target', label: 'Address, channel or URL', mono: true, required: true }, { name: 'secret', label: 'Token / signing secret', type: 'password', hint: 'Write-only' }, { name: 'enabled', label: 'Enabled', type: 'checkbox' }]}
         describe={(r) => ({ name: r.name ?? r.type, sub: `${r.type} · ${r.target ?? r.config?.target ?? ''}`, state: r.enabled === false ? 'off' : 'connected' })} />}
-      {tab === 'providers' && <ServiceSettings />}
       {tab === 'tokens' && <ApiTokens path="/api-tokens" abilities={['deployments:write', 'servers:read', 'containers:write', 'metrics:read', 'billing:read', 'audit:read']} />}
     </>
   )

@@ -140,12 +140,22 @@ class FirewallController extends Controller
         ]);
         $org = Tenant::current();
         $settings = $org->settings ?? [];
+        $wasOn = ! empty($settings['firewall']['under_attack']);
         $settings['firewall'] = array_merge($settings['firewall'] ?? [], [
             'under_attack' => $data['enabled'],
             'under_attack_domain_id' => $data['domain_id'] ?? null,
         ]);
         $org->forceFill(['settings' => $settings])->save();
         $this->traefik->push();
+
+        // EML: tell the customer their site is protected, and staff that a site is under attack.
+        if ($data['enabled'] && ! $wasOn) {
+            $site = ! empty($data['domain_id']) ? (string) \App\Models\Domain::allTenants()->find($data['domain_id'])?->name : 'all your sites';
+            $vars = ['site' => $site, 'started' => now()->format('j M Y, H:i').' UTC', 'mode' => 'Browser check for every visitor (CrowdSec)'];
+            $mail = app(\App\Services\EmailTemplateService::class);
+            $mail->notifyOrganization($org->id, 'under_attack', $vars, 'on:'.($data['domain_id'] ?? 'all'), 30);
+            $mail->notifyStaff('under_attack_admin', $vars + ['customer' => (string) $org->name, 'by' => (string) ($request->user()?->email ?? 'automation')], $org->id.':'.($data['domain_id'] ?? 'all'), 30);
+        }
 
         return $this->show();
     }

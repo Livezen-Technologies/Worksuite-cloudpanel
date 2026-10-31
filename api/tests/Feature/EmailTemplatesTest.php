@@ -15,7 +15,7 @@ class EmailTemplatesTest extends TestCase
         [, , $token] = $this->org('super_admin');
         $groups = $this->api($token)->getJson('/api/v1/email-templates')->assertOk()->json('data.groups');
         $this->assertSame(['account', 'security', 'deployments', 'domains', 'backups', 'alerts', 'billing'], array_column($groups, 'id'));
-        $this->assertSame(20, collect($groups)->sum(fn ($g) => count($g['templates'])), '19 plus malware found');
+        $this->assertSame(23, collect($groups)->sum(fn ($g) => count($g['templates'])), '19, malware found, under attack (customer and staff), CrowdSec alert');
         $this->assertTrue(collect($groups)->firstWhere('id', 'billing')['mandatory']);
     }
 
