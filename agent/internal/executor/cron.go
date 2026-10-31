@@ -160,7 +160,7 @@ func (e *Executor) cronExec(ctx context.Context, raw json.RawMessage) (any, erro
 	var out []byte
 	var err error
 	if p.Mode == "host" {
-		out, err = e.Run(cctx, "", nil, "sh", "-c", p.Command)
+		out, err = e.Run(cctx, "", nil, "sh", "-c", p.Command) // nosemgrep: go-shell-with-variable -- host mode is admin-only by design (docs/security-audit.md)
 	} else {
 		out, err = e.Run(cctx, "", nil, "docker", args...)
 	}

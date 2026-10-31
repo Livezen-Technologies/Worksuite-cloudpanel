@@ -1,5 +1,5 @@
 // Customer panel flows (owner@example.com). Needs the stack from ../run.sh with the agent online.
-const { test, run, login, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB } = require('./lib')
+const { test, run, login, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB, choose } = require('./lib')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function waitFor(fn, ms = 60000, msg = 'condition') {
@@ -96,7 +96,7 @@ test('customer: Domains add + Check DNS now shows records', async ({ page }) => 
   await page.goto(WEB + '/app/domains'); await settle(page)
   const domain = `${APP}.example.com`
   await page.getByLabel('Domain').fill(domain)
-  await page.getByLabel('App').selectOption({ label: APP })
+  await choose(page.locator('main').getByLabel('App'), { label: APP })
   await page.getByRole('button', { name: 'Add domain' }).click()
   await page.getByText(`Add these records at your DNS provider for`).waitFor()
   await page.getByRole('button', { name: 'Check DNS now' }).click()

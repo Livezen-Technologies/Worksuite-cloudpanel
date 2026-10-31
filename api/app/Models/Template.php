@@ -13,7 +13,7 @@ class Template extends Model
 
     protected $keyType = 'string';
 
-    protected $guarded = [];
+    protected $fillable = ['id', 'name', 'category', 'type', 'version', 'manifest', 'source', 'synced_at'];
 
     protected function casts(): array
     {

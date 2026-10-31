@@ -1,0 +1,78 @@
+# Local SAST rules for this stack (run offline: semgrep scan --config .semgrep/rules.yml).
+rules:
+  - id: php-raw-sql-with-variable
+    languages: [php]
+    severity: ERROR
+    message: Raw SQL built from a variable; use bindings (?) instead of interpolation (SQL injection, CWE-89).
+    patterns:
+      - pattern-either:
+          - pattern: DB::raw("...$X...")
+          - pattern: $Q->whereRaw("...$X...")
+          - pattern: $Q->selectRaw("...$X...")
+          - pattern: $Q->orderByRaw("...$X...")
+          - pattern: $Q->havingRaw("...$X...")
+          - pattern: DB::statement("...$X...")
+          - pattern: DB::select("...$X...")
+          - pattern: $Q->whereRaw($A . $B)
+          - pattern: DB::raw($A . $B)
+  - id: php-shell-exec
+    languages: [php]
+    severity: ERROR
+    message: Shell command from PHP (command injection, CWE-78). The panel should send typed agent commands instead.
+    pattern-either:
+      - pattern: exec(...)
+      - pattern: shell_exec(...)
+      - pattern: system(...)
+      - pattern: passthru(...)
+      - pattern: proc_open(...)
+      - pattern: popen(...)
+      - pattern: Process::fromShellCommandline(...)
+  - id: php-unserialize-or-eval
+    languages: [php]
+    severity: ERROR
+    message: unserialize/eval on data (CWE-502 / CWE-95).
+    pattern-either:
+      - pattern: unserialize($X)
+      - pattern: eval($X)
+      - pattern: assert($X)
+  - id: blade-unescaped-output
+    languages: [generic]
+    paths: { include: ['*.blade.php'] }
+    severity: WARNING
+    message: Unescaped Blade output {!! !!} (XSS, CWE-79); confirm the value is trusted HTML.
+    pattern: '{!! ... !!}'
+  - id: php-mass-assignment-open
+    languages: [php]
+    severity: WARNING
+    message: Model with an empty $guarded accepts every attribute (mass assignment, CWE-915).
+    pattern-regex: 'protected\s+\$guarded\s*=\s*\[\s*\];'
+  - id: react-dangerously-set-inner-html
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: dangerouslySetInnerHTML (XSS, CWE-79); confirm the HTML is sanitised or trusted.
+    pattern: <$E dangerouslySetInnerHTML={...} />
+  - id: js-eval
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: eval / new Function (CWE-95).
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: go-shell-with-variable
+    languages: [go]
+    severity: WARNING
+    message: sh -c with a non-constant command (CWE-78); confirm the input is validated or intended (e.g. a user's own cron command).
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $X)
+          - pattern: exec.CommandContext($C, "sh", "-c", $X)
+          - pattern: $R($C, "", $E, "sh", "-c", $X)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+  - id: go-tls-insecure-skip-verify
+    languages: [go]
+    severity: ERROR
+    message: TLS verification disabled (CWE-295).
+    pattern: 'InsecureSkipVerify: true'

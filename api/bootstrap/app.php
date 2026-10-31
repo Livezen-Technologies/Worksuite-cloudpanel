@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
         $middleware->alias([
             'tenant' => \App\Http\Middleware\SetTenant::class,
             'perm' => \App\Http\Middleware\RequirePermission::class,

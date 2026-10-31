@@ -29,7 +29,7 @@
     </td>
     <td style="text-align:right">
       <strong>{{ $seller['name'] }}</strong><br>
-      @if($seller['address']){!! nl2br(e($seller['address'])) !!}<br>@endif
+      @if($seller['address']){!! nl2br(e($seller['address'])) !!}<br>@endif {{-- nosemgrep: blade-unescaped-output -- escaped by e() first --}}
       @if($seller['vat_id'])VAT ID {{ $seller['vat_id'] }}@endif
     </td>
   </tr>
