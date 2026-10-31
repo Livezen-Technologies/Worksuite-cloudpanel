@@ -22,7 +22,9 @@ const MeshInterface = "dmp0"
 
 // MeshSpec is the mesh.apply payload.
 type MeshSpec struct {
-	Address    string     `json:"address"` // this server, CIDR (10.88.0.3/16)
+	Address string `json:"address"` // this server, CIDR (10.88.0.3/16)
+	// Address6 is this server's IPv6 ULA on the mesh (fd88::3/64), optional.
+	Address6   string     `json:"address6"`
 	ListenPort int        `json:"listen_port"`
 	Peers      []MeshPeer `json:"peers"`
 	Down       bool       `json:"down"`
@@ -100,6 +102,12 @@ func (s *MeshSpec) validate() error {
 	if err != nil || ip.To4() == nil {
 		return fmt.Errorf("invalid address %q", s.Address)
 	}
+	if s.Address6 != "" {
+		ip6, _, err := net.ParseCIDR(s.Address6)
+		if err != nil || ip6.To4() != nil || !ip6.IsPrivate() {
+			return fmt.Errorf("invalid address6 %q (an IPv6 ULA, fd00::/8)", s.Address6)
+		}
+	}
 	if s.ListenPort == 0 {
 		s.ListenPort = 51820
 	}
@@ -147,7 +155,7 @@ func (s *MeshSpec) validate() error {
 	}
 	if s.DNS != nil {
 		for _, r := range s.DNS.Records {
-			if !reDNSName.MatchString(r.Name) || net.ParseIP(r.IP).To4() == nil {
+			if !reDNSName.MatchString(r.Name) || net.ParseIP(r.IP) == nil {
 				return fmt.Errorf("invalid dns record %q %q", r.Name, r.IP)
 			}
 		}
@@ -165,7 +173,7 @@ func wgConfig(s MeshSpec, priv string, withAddress bool) string {
 	b.WriteString("# Managed by the dockermgr agent; changes are overwritten.\n[Interface]\n")
 	b.WriteString("PrivateKey = " + priv + "\n")
 	if withAddress {
-		b.WriteString("Address = " + s.Address + "\n")
+		b.WriteString("Address = " + strings.Join(nonEmpty(s.Address, s.Address6), ", ") + "\n")
 	}
 	b.WriteString("ListenPort = " + strconv.Itoa(s.ListenPort) + "\n")
 	for _, p := range s.Peers {
@@ -226,10 +234,16 @@ func (e *Executor) meshApply(ctx context.Context, raw []byte, progress func(int,
 		if o, err := e.run(ctx, "", env, "wg", "syncconf", MeshInterface, sync); err != nil {
 			return nil, fmt.Errorf("wg syncconf: %v: %s", err, strings.TrimSpace(string(o)))
 		}
+		// syncconf leaves addresses alone: add the IPv6 one to a live interface.
+		if s.Address6 != "" {
+			if o, err := e.run(ctx, "", env, "ip", "-6", "address", "replace", s.Address6, "dev", MeshInterface); err != nil {
+				return nil, fmt.Errorf("ip -6 address: %v: %s", err, strings.TrimSpace(string(o)))
+			}
+		}
 	} else if o, err := e.run(ctx, "", env, "wg-quick", "up", MeshInterface); err != nil {
 		return nil, fmt.Errorf("wg-quick up (is wireguard-tools installed?): %v: %s", err, strings.TrimSpace(string(o)))
 	}
-	out := map[string]any{"interface": MeshInterface, "up": true, "public_key": pub, "peers": len(s.Peers)}
+	out := map[string]any{"interface": MeshInterface, "up": true, "public_key": pub, "peers": len(s.Peers), "ipv6": s.Address6 != ""}
 	if s.OpenPort {
 		out["port_opened"] = e.meshOpenPort(ctx, s.ListenPort)
 	}
@@ -392,6 +406,10 @@ func (e *Executor) meshSSHLock(ctx context.Context, s MeshSpec) (map[string]any,
 	b.WriteString("  chain input {\n    type filter hook input priority -5; policy accept;\n    iif lo accept\n")
 	b.WriteString("    ct state established,related accept\n")
 	b.WriteString(fmt.Sprintf("    tcp dport %d ip saddr { %s } accept\n", s.SSHLock.Port, strings.Join(v4, ", ")))
+	if s.Address6 != "" {
+		_, mesh6, _ := net.ParseCIDR(s.Address6)
+		v6 = append([]string{mesh6.String()}, v6...)
+	}
 	if len(v6) > 0 {
 		b.WriteString(fmt.Sprintf("    tcp dport %d ip6 saddr { %s } accept\n", s.SSHLock.Port, strings.Join(v6, ", ")))
 	}
@@ -480,4 +498,15 @@ func (e *Executor) meshContainerNetwork(ctx context.Context, s MeshSpec) error {
 		}
 	}
 	return nil
+}
+
+// nonEmpty drops empty strings.
+func nonEmpty(v ...string) []string {
+	out := v[:0:0]
+	for _, s := range v {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
