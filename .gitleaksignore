@@ -4,3 +4,12 @@
 005bbad0c47b45bf9d75e9598a42e1e9aba1c9ae:api/tests/Feature/BackupManagerTest.php:private-key:149
 11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:14
 11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:49
+# ServiceSettingsTest: a fake Stripe test key (sk_test_abcd1234) used to check secrets are never returned.
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:22
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:22
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:25
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:25
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:29
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:29
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:33
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:33
