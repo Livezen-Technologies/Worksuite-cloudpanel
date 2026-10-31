@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useAction, useList } from '../../api/hooks'
+import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Empty, Field, PageHeader, Toggle } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { Modal } from '../../components/Overlay'
+import { Icon } from '../../components/Icon'
 import Select from '../../components/Select'
 import { ago } from '../../lib/format'
 import { type R } from '../../lib/util'
@@ -86,6 +87,7 @@ export default function Projects() {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [secret, setSecret] = useState<string | null>(null)
+  const [hand, setHand] = useState<Project | null>(null)
   const create = () => run<R>({ path: '/projects', body: { name }, label: `Create ${name}`, success: 'Project created' })
     .then((r) => { setOpen(false); setName(''); setSecret((r as R)?.data?.webhook_secret ?? null) }).catch(() => {})
   return (
@@ -97,6 +99,7 @@ export default function Projects() {
         <section key={p.id} className="mb-6" aria-label={p.name}>
           <div className="flex flex-wrap items-baseline gap-3 mb-2">
             <h2 className="text-base font-semibold m-0">{p.name}</h2>
+            <button type="button" className="btn btn-sm btn-ghost gap-1.5" onClick={() => setHand(p)}><Icon name="users" size={15} />Hand over to customer</button>
             <span className="text-xs text-muted">Webhook (pushes and pull requests): <code className="font-mono">{p.webhook_url}</code></span>
             <label className="text-xs text-muted flex items-center gap-2 ml-auto">Pull request previews copy
               <Select className="input !w-auto !py-1 text-xs" value={p.preview_environment_id ?? ''} onChange={(e) => run({ path: `/projects/${p.id}`, method: 'PATCH', body: { preview_environment_id: e.target.value || null }, label: 'Preview source', success: 'Preview source saved' }).catch(() => {})}>
@@ -117,6 +120,40 @@ export default function Projects() {
         footer={<><button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={busy || !name} onClick={create}>Create</button></>}>
         <Field label="Name" hint="Starts with production (branch main) and staging environments"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
       </Modal>
+      {hand && <HandOver project={hand} onClose={() => setHand(null)} />}
     </>
+  )
+}
+
+/** PRJ-9: hand the project, its environments and apps over to a hosting customer. */
+function HandOver({ project, onClose }: { project: Project; onClose: () => void }) {
+  const customers = useList<R>('/customers')
+  const preview = useOne<R>(`/projects/${project.id}/transfer`)
+  const { run, busy } = useAction()
+  const [to, setTo] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const n = (preview.item ?? {}) as R
+  const target = customers.rows.find((c) => String(c.id) === to)
+  return (
+    <Modal open onClose={onClose} title={`Hand over ${project.name}`} width={560}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={busy || !to || confirm.trim() !== project.name}
+          onClick={() => run({ path: `/projects/${project.id}/transfer`, body: { organization_id: to, confirm: confirm.trim() }, label: `Hand over ${project.name}`, success: `${project.name} now belongs to ${target?.name ?? 'the customer'}` }).then(onClose).catch(() => {})}>Hand over</button></>}>
+      <div className="flex flex-col gap-4">
+        <p className="m-0">The customer gets the project in their panel and can deploy, change settings and manage domains. Staff still see and manage it. Servers stay with you.</p>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {[['environments', 'Environments'], ['applications', 'Apps'], ['domains', 'Domains'], ['containers', 'Containers']].map(([k, l]) => (
+            <div key={k} className="rounded-lg bg-head py-2"><div className="text-lg font-semibold tabular-nums">{preview.isLoading ? '…' : String(n[k] ?? 0)}</div><div className="text-xs text-muted">{l}</div></div>
+          ))}
+        </div>
+        <Field label="Customer">
+          <Select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
+            <option value="">Choose a customer…</option>
+            {customers.rows.map((c) => <option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
+          </Select>
+        </Field>
+        <Field label={`Type ${project.name} to confirm`}><input className="input font-mono" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></Field>
+      </div>
+    </Modal>
   )
 }

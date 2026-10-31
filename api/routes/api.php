@@ -180,6 +180,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::patch('projects/{id}', [Admin\ProjectController::class, 'update'])->name('projects.update');
+        Route::get('projects/{id}/transfer', [Admin\ProjectController::class, 'transferPreview'])->name('projects.transfer.preview');
+        Route::post('projects/{id}/transfer', [Admin\ProjectController::class, 'transfer'])->name('projects.transfer');
         Route::post('projects/{id}/webhook-secret', [Admin\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
         Route::post('projects/{id}/environments', [Admin\ProjectController::class, 'storeEnvironment'])->name('environments.store');
         Route::patch('environments/{id}', [Admin\ProjectController::class, 'updateEnvironment'])->name('environments.update');
@@ -463,6 +465,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     $crud('notification-channels', Admin\NotificationChannelController::class, 'settings.manage', 'settings.manage');
     Route::post('notification-channels/{id}/test', [Admin\NotificationChannelController::class, 'test'])->middleware('perm:settings.manage')->name('notification-channels.test');
     $crud('integrations', Admin\IntegrationController::class, 'settings.manage', 'settings.manage');
+    // SVC-1..4: third-party services (payments, DNS, sign-in, captcha, email, git, cloud, storage, notifications).
+    Route::middleware('perm:settings.manage')->group(function () {
+        Route::get('services', [Admin\ServiceSettingsController::class, 'index'])->name('services.index');
+        Route::patch('services/{key}', [Admin\ServiceSettingsController::class, 'update'])->where('key', '[a-z0-9_]+')->name('services.update');
+        Route::delete('services/{key}', [Admin\ServiceSettingsController::class, 'destroy'])->where('key', '[a-z0-9_]+')->name('services.destroy');
+        Route::post('services/{key}/test', [Admin\ServiceSettingsController::class, 'test'])->where('key', '[a-z0-9_]+')->middleware('throttle:20,1')->name('services.test');
+    });
     Route::get('audit-logs', [Admin\AuditLogController::class, 'index'])->middleware('perm:audit.view')->name('audit-logs.index');
     Route::get('audit-logs/verify', [Admin\AuditLogController::class, 'verify'])->middleware('perm:audit.view')->name('audit-logs.verify');
 

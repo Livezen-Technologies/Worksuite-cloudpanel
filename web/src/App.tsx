@@ -1,3 +1,4 @@
+import { Home as CustomerHome } from './pages/app/Home'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { ReactNode } from 'react'
@@ -112,7 +113,8 @@ export function AppRoutes() {
         <Route path="account" element={<AdminAccount />} />
       </Route>
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>
-        <Route index element={<MyApps />} />
+        <Route index element={<CustomerHome />} />
+        <Route path="apps" element={<MyApps />} />
         <Route path="host" element={<HostApp />} />
         <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />
