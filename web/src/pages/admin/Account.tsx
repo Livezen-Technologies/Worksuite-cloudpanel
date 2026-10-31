@@ -1,3 +1,4 @@
+import { SignInApps } from '../../components/SignInApps'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, isApiError } from '../../api/client'
 import { useAction, useOne } from '../../api/hooks'
@@ -46,6 +47,7 @@ export function AdminAccount() {
           <ChangePassword />
           <TwoFactor on={mfa} onChange={refresh} codesLeft={(u?.mfa_recovery_codes_left as number | null | undefined) ?? null} />
           <PasskeyManager />
+          <SignInApps />
         </>}
         {tab === 'sessions' && <Sessions />}
       </div>

@@ -1,3 +1,4 @@
+import { SignInApps } from '../../components/SignInApps'
 import { RecoveryCodesDialog, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
@@ -348,6 +349,7 @@ export function Account() {
           <ApiTokens path="/app/account/tokens" abilities={['deploy']} />
         </div>
       </div>
+      <SignInApps />
       <TwoFactorSetupModal setup={mfa} onClose={() => setMfa(null)} onConfirm={confirmMfa} />
       <RecoveryCodesDialog codes={codes} onClose={() => setCodes(null)} />
       <Modal open={invite} onClose={() => setInvite(false)} title="Invite a team member"

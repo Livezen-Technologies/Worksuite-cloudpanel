@@ -112,8 +112,34 @@ class SsoService
         if (! $user) {
             throw new ApiException('unauthenticated', "There is no account for {$email}. Sign in with your password or ask for an invitation.", 401);
         }
+        // SSO-ID: the person can turn a sign-in app off for their account; record every use otherwise.
+        $identity = \App\Models\SsoIdentity::firstOrNew(['user_id' => $user->id, 'provider' => $key]);
+        if ($identity->blocked_at) {
+            throw new ApiException('forbidden', 'Signing in with '.self::PROVIDERS[$key].' is turned off for this account. Sign in with your password and turn it back on under Account > Security.', 403);
+        }
+        $identity->fill(['email' => $email, 'last_used_at' => now()])->save();
 
         return $user;
+    }
+
+    /** SSO-ID: every sign-in app the platform offers, with this person's use of it. */
+    public function forUser(User $user): array
+    {
+        $mine = \App\Models\SsoIdentity::where('user_id', $user->id)->get()->keyBy('provider');
+
+        return array_map(function ($p) use ($mine) {
+            $i = $mine->get($p['key']);
+
+            return $p + ['email' => $i?->email, 'last_used_at' => $i?->last_used_at?->toIso8601ZuluString(), 'blocked' => (bool) $i?->blocked_at];
+        }, $this->enabled());
+    }
+
+    public function setBlocked(User $user, string $key, bool $blocked): void
+    {
+        if (! array_key_exists($key, self::PROVIDERS)) {
+            throw new ApiException('not_found', 'No such sign-in app.', 404);
+        }
+        \App\Models\SsoIdentity::updateOrCreate(['user_id' => $user->id, 'provider' => $key], ['blocked_at' => $blocked ? now() : null]);
     }
 
     private function verifiedEmail(string $key, string $access, string $infoUrl): ?string
