@@ -228,4 +228,36 @@ class MonitoringTest extends TestCase
         $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'mail', 'type' => 'email', 'target' => 'not-an-email'])->assertStatus(422);
         $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'hook', 'type' => 'webhook', 'target' => 'https://hooks.example.com/x'])->assertCreated()->assertJsonPath('data.target', 'hooks.example.com');
     }
+
+    public function test_an_incident_whose_container_was_replaced_is_closed_instead_of_re_notified_for_ever(): void
+    {
+        Http::fake();
+        [, $org] = $this->org();
+        $this->channel($org->id);
+
+        // A container that has since been recreated under a new id: the row the
+        // incident points at is gone, so checkInfrastructure's loop never visits
+        // it again and followUpOpenIncidents would re-notify it indefinitely.
+        $gone = $this->openAlert($org->id, [
+            'resource_type' => 'container', 'resource_id' => (string) \Illuminate\Support\Str::uuid(),
+            'title' => 'blog-wordpress-1 is running and unhealthy',
+        ]);
+        $server = $this->server($org);
+        $live = app(Tenant::class)->as($org->id, fn () => Container::create([
+            'server_id' => $server->id, 'name' => 'blog-wordpress-1', 'image' => 'wordpress:6',
+            'state' => 'running', 'health' => 'healthy',
+        ]));
+        $kept = $this->openAlert($org->id, [
+            'resource_type' => 'container', 'resource_id' => $live->id, 'title' => 'blog-wordpress-1 is running and unhealthy',
+        ]);
+
+        $r = app(UptimeService::class)->checkInfrastructure();
+
+        $this->assertSame('resolved', $gone->fresh()->status, 'the incident for the replaced container must be closed');
+        $this->assertNotNull($gone->fresh()->resolved_at);
+        $this->assertGreaterThanOrEqual(1, $r['closed']);
+        // The live container is healthy, so its own incident is closed by the
+        // normal recovery path - not by the orphan sweep.
+        $this->assertSame('resolved', $kept->fresh()->status);
+    }
 }
