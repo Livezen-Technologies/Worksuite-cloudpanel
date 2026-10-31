@@ -231,6 +231,9 @@ class TraefikConfigService implements HandlesCommandResults
                 if ($s['sticky']) {
                     $lb['sticky'] = ['cookie' => ['name' => 'ws_affinity', 'secure' => true, 'httpOnly' => true]];
                 }
+                if (($s['strategy'] ?? 'round_robin') === 'least_connections') {
+                    $lb['strategy'] = 'p2c';
+                }
                 $services[$base.'-pool'] = ['loadBalancer' => $lb];
                 $live = $base.'-pool';
             }

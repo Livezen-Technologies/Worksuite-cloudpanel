@@ -117,6 +117,11 @@ Artisan::command('registry:gc', function (\App\Services\RegistryGcService $gc) {
     $this->info('Old images deleted: '.$gc->collectAll());
 })->purpose('BLD: delete pushed images older than the last BUILD_REGISTRY_KEEP releases of each app');
 
+Artisan::command('edge:failover', function (\App\Services\EdgeFailoverService $edge) {
+    $r = $edge->check();
+    $this->info('Online edge servers: '.implode(', ', $r['online']).'; changes: '.(implode(', ', $r['changes']) ?: 'none'));
+})->purpose('SCL-8: DNS failover between ingress servers');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -269,6 +274,7 @@ Schedule::command('registry:gc')->dailyAt('03:30');
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('edge:failover')->everyMinute()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).
