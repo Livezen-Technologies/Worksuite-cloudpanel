@@ -140,12 +140,16 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
               <button className="btn btn-primary" disabled={busy}>Save changes</button>
             </div>
           </form>
-          <div className="mt-4 pt-4 border-t border-[var(--line)] flex flex-wrap items-end gap-2">
-            <Field label="Send a test email to" hint="Uses the saved settings, so save your changes first. Empty sends it to you.">
-              <input className="input" type="email" placeholder="you@example.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-            </Field>
-            <button type="button" className="btn" disabled={busy || !g.host}
-                    onClick={() => run({ path: '/settings/smtp/test', body: testTo ? { to: testTo } : {}, label: 'Send test email', success: `Test email sent to ${testTo || 'you'}` }).catch(() => {})}>Send test email</button>
+          <div className="mt-4 pt-4 border-t border-[var(--line)]">
+            <label htmlFor="smtp-test-to" className="block text-sm font-medium mb-1.5">Send a test email to</label>
+            <div className="flex flex-wrap items-center gap-2 max-w-2xl">
+              {/* A one-off recipient, not a login: keep password managers out of it. */}
+              <input id="smtp-test-to" className="input flex-1 min-w-[220px]" type="email" inputMode="email" autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore
+                     placeholder="you@example.com" aria-describedby="smtp-test-hint" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+              <button type="button" className="btn flex-none" disabled={busy || !g.host}
+                      onClick={() => run({ path: '/settings/smtp/test', body: testTo ? { to: testTo } : {}, label: 'Send test email', success: `Test email sent to ${testTo || 'you'}` }).catch(() => {})}>Send test email</button>
+            </div>
+            <p id="smtp-test-hint" className="m-0 mt-1.5 text-xs text-muted">{g.host ? 'Uses the saved settings, so save your changes first. Leave it empty to send it to yourself.' : 'Save an SMTP host first.'}</p>
           </div>
         </Card>
       )}
