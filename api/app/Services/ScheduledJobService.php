@@ -220,7 +220,7 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
                 if ($mode === 'oneoff') {
                     $payload += $this->oneOffSpec($app);
                 } else {
-                    $container = Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->first();
+                    $container = Container::allTenants()->where('application_id', $app->id)->where('state', 'running')->first();
                     $payload['container'] = $container?->name ?? $app->containerName();
                 }
             }

@@ -588,7 +588,7 @@ PHP;
 
     private function containerOf(Application $app): string
     {
-        return Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->value('name') ?? $app->containerName();
+        return Container::allTenants()->where('application_id', $app->id)->where('state', 'running')->value('name') ?? $app->containerName();
     }
 
     public function runCron(): int
@@ -776,7 +776,7 @@ PHP;
         }
         if (str_starts_with($type, 'wp.')) {
             $app = Application::allTenants()->find($site->application_id);
-            $container = Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->value('name') ?? $app->containerName();
+            $container = Container::allTenants()->where('application_id', $app->id)->where('state', 'running')->value('name') ?? $app->containerName();
             $payload += ['container' => $container, 'url' => $site->url ?? ''];
         }
         $this->bus->dispatch(Server::allTenants()->find($site->server_id), $type, $payload, $job);
