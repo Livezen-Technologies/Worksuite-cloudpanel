@@ -11,7 +11,7 @@ describe('Uptime page', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('lists sites worst first with their numbers, and shows a site\'s incidents on click', async () => {
-    const fetch = vi.fn(async () => json({ data: {
+    const fetch = vi.fn(async (_url: string) => json({ data: {
       range: '30d',
       summary: { measured: 2, unmeasured: 1, avg_uptime_pct: 99.5, open_incidents: 1 },
       domains: [
