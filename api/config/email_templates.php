@@ -60,6 +60,20 @@ return [
             'heading' => 'Your preview is ready', 'body' => 'A preview of {{app}} from {{branch}} is running.',
             'button_label' => 'Open the preview', 'button_url' => '{{url}}'],
 
+        // INST-8: sent once, after a catalogue install's first deployment passes its health check.
+        'app_installed' => ['tone' => 'green', 'group' => 'deployments', 'name' => 'Application installed', 'eyebrow' => 'Installation complete',
+            'vars' => ['customer', 'app', 'template', 'version', 'environment', 'server', 'resources', 'url', 'admin_url', 'installed_at', 'manage_url', 'support_email'],
+            'subject' => 'Your application is ready – {{app}}', 'preview' => '{{template}} is running at {{url}}.',
+            'heading' => '{{app}} is ready', 'body' => "Hi {{customer}}, {{app}} ({{template}}) finished installing and passed its health check.\n\nSign-in details and generated passwords are never sent by email. Open the app in the panel to view them or to set your own.\n\nNeed help? Write to {{support_email}}.",
+            'button_label' => 'Open {{app}}', 'button_url' => '{{url}}',
+            'details' => ['Application' => '{{app}}', 'Status' => 'Running', 'Address' => '{{url}}', 'Admin sign-in' => '{{admin_url}}', 'Version' => '{{version}}', 'Environment' => '{{environment}}', 'Server' => '{{server}}', 'Resources' => '{{resources}}', 'Installed' => '{{installed_at}}', 'Manage' => '{{manage_url}}']],
+        'app_installed_admin' => ['tone' => 'blue', 'group' => 'alerts', 'name' => 'New application deployed (staff)', 'eyebrow' => 'New deployment',
+            'vars' => ['customer', 'account_id', 'app', 'template', 'app_type', 'deployment_id', 'environment', 'server', 'url', 'resources', 'installed_at', 'status', 'logs_url', 'manage_url'],
+            'subject' => 'New application deployment – {{app}}', 'preview' => '{{customer}} · {{template}} on {{server}}',
+            'heading' => 'New application deployed', 'body' => '{{customer}} installed {{template}} as {{app}}. Its first deployment passed the health check.',
+            'button_label' => 'Open the deployment logs', 'button_url' => '{{logs_url}}',
+            'details' => ['Customer' => '{{customer}}', 'Account ID' => '{{account_id}}', 'Application' => '{{app}}', 'Type' => '{{app_type}}', 'Deployment' => '{{deployment_id}}', 'Environment' => '{{environment}}', 'Server' => '{{server}}', 'Address' => '{{url}}', 'Resources' => '{{resources}}', 'Installed' => '{{installed_at}}', 'Status' => '{{status}}', 'Manage' => '{{manage_url}}']],
+
         // Domains
         'domain_connected' => ['tone' => 'green', 'group' => 'domains', 'name' => 'Domain connected', 'vars' => ['domain', 'app'],
             'subject' => '{{domain}} is connected', 'preview' => 'HTTPS is on.',

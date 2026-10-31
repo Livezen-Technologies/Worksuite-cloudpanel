@@ -1,6 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
-import { useAction, useList } from '../../api/hooks'
+import { api } from '../../api/client'
+import { useAction, useJob, useList } from '../../api/hooks'
+import { CopyButton } from '../../components/CopyButton'
+import { Icon } from '../../components/Icon'
 import { Badge } from '../../components/Badge'
 import { Card, Field, PageHeader, Toggle } from '../../components/Card'
 import Select from '../../components/Select'
@@ -10,6 +13,29 @@ import { Logo } from './Catalog'
 type Server = { id: string; name: string; status?: string; cpu_count?: number | null; memory_mb?: number | null }
 type Db = { id: string; name: string; engine: string; server_id: string | null; status?: string }
 type EnvRow = { key: string; value: string; secret: boolean }
+type Check = { key: string; step: string; status: 'pass' | 'warn' | 'fail'; label: string; message: string }
+type Preflight = { ok: boolean; failed: number; warnings: number; platform_domain: string; checks: Check[] }
+type Result = { resource_type: string; resource_id: string; job_id?: string | null; url?: string | null }
+type DomainMode = 'auto' | 'subdomain' | 'custom' | 'none'
+const STEP_KEYS = ['details', 'server', 'database', 'advanced'] as const
+const LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
+
+/** Pass / warning / failure list for the install checks. */
+function Checks({ checks }: { checks: Check[] }) {
+  if (!checks.length) return null
+  const tone = { pass: 'text-g-fg', warn: 'text-y-fg', fail: 'text-r-fg' } as const
+  const glyph = { pass: 'check', warn: 'warn', fail: 'close' } as const
+  return (
+    <ul className="list-none m-0 p-0 flex flex-col gap-1.5" aria-label="Install checks">
+      {checks.map((c) => (
+        <li key={c.key} className="flex items-start gap-2 text-sm">
+          <span className={`mt-0.5 ${tone[c.status]}`} aria-label={c.status}><Icon name={glyph[c.status]} size={16} /></span>
+          <span><b className="font-semibold">{c.label}</b> <span className="text-muted">{c.message}</span></span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 const STEPS = ['Details', 'Server & resources', 'Database', 'Advanced', 'Review & deploy'] as const
 const SIZES = [
@@ -94,10 +120,14 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
   const [step, setStep] = useState(0)
   const [reach, setReach] = useState(0)
   const [err, setErr] = useState<string | null>(null)
-  const [d, setD] = useState({ name: t.id.slice(0, 40), domain: '', environment: 'production', placement: compose ? 'manual' : 'auto', server_id: '', size: 'standard', port: t.port ? String(t.port) : '', https: true })
+  const [d, setD] = useState({ name: t.id.slice(0, 40), domain: '', environment: 'production', placement: compose ? 'manual' : 'auto', server_id: '', size: 'standard', port: t.port ? String(t.port) : '', https: true,
+    domain_mode: (compose || t.port ? 'auto' : 'none') as DomainMode, subdomain: t.id.slice(0, 40) })
+  const [pre, setPre] = useState<Preflight | null>(null)
+  const [result, setResult] = useState<Result | null>(null)
   const [dbMode, setDbMode] = useState<'existing' | 'manual' | 'none'>(wantsDb ? 'existing' : 'none')
   const [dbId, setDbId] = useState('')
-  const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, v.default ?? ''])))
+  // Secrets with no default get a strong generated value; the person can still change it.
+  const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, v.default ?? (v.secret ? generatePassword() : '')])))
   const [shown, setShown] = useState<Record<string, boolean>>({})
   const [adv, setAdv] = useState({ volume_path: '', health_path: '', auto_restart: true })
   const [env, setEnv] = useState<EnvRow[]>([])
@@ -113,7 +143,8 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
   const validate = (i: number): string | null => {
     if (i === 0) {
       if (!NAME_RE.test(d.name) || d.name.length > 63) return 'Name: lowercase letters, numbers and dashes, up to 63 characters.'
-      if (d.domain.trim() && !DOMAIN_RE.test(d.domain.trim())) return 'Enter a valid domain such as app.example.com, or leave it empty.'
+      if (d.domain_mode === 'custom' && !DOMAIN_RE.test(d.domain.trim())) return 'Enter a valid domain such as app.example.com.'
+      if (d.domain_mode === 'subdomain' && !LABEL_RE.test(d.subdomain)) return 'Subdomain: lowercase letters, numbers and dashes.'
     }
     if (i === 1) {
       if ((compose || d.placement === 'manual') && !d.server_id && !linked) return 'Choose a server.'
@@ -147,12 +178,9 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [d, dbMode, dbId, vars, adv, env, databases])
 
-  const install = async () => {
-    if (issues.length) { setErr(issues[0]); return }
-    setPhase('installing')
-    setLog([`Creating ${compose ? 'stack' : 'application'} ${d.name} from ${t.name}…`])
-    const body = {
-      name: d.name, domain: d.domain.trim() || null, environment: d.environment,
+  const body = () => ({
+      name: d.name, environment: d.environment, domain_mode: d.domain_mode,
+      domain: d.domain_mode === 'custom' ? d.domain.trim() : null, subdomain: d.domain_mode === 'subdomain' ? d.subdomain : null,
       server_id: linked ? null : (d.placement === 'manual' || compose ? d.server_id || null : null),
       variables: Object.fromEntries(Object.entries(vars).filter(([k]) => !(linked && dbFilled(k, keys)))),
       ...(compose ? {} : {
@@ -160,20 +188,33 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         volume_path: adv.volume_path || null, health_path: adv.health_path || null,
         env: env.filter((e) => e.key), database_id: linked ? dbId : null,
       }),
-    }
-    const res = await run<{ data?: { resource_type: string; resource_id: string } }>({
-      path: `/templates/${t.id}/install`, label: `Install ${t.name}`, success: `${d.name} installed`, body,
+  })
+
+  // INST-7: the server re-checks everything (names, server health, Docker, domain, database) as the person moves through the steps.
+  const bodyKey = JSON.stringify(body())
+  useEffect(() => {
+    if (phase !== 'idle' && phase !== 'failed') return
+    const ctl = new AbortController()
+    const timer = setTimeout(() => {
+      api.post<{ data: Preflight }>(`/templates/${t.id}/preflight`, JSON.parse(bodyKey), { signal: ctl.signal }).then((r) => setPre(r.data)).catch(() => {})
+    }, 400)
+    return () => { clearTimeout(timer); ctl.abort() }
+  }, [bodyKey, t.id, phase])
+  const stepChecks = (i: number) => (pre?.checks ?? []).filter((c) => c.step === STEP_KEYS[i] && c.status !== 'pass')
+  const platform = pre?.platform_domain ?? 'your platform domain'
+
+  const install = async () => {
+    if (issues.length) { setErr(issues[0]); return }
+    if (pre && !pre.ok) { setErr('Fix the failed checks before installing.'); return }
+    setPhase('installing')
+    setLog([`Creating ${compose ? 'stack' : 'application'} ${d.name} from ${t.name}…`])
+    const res = await run<{ data?: Result }>({
+      path: `/templates/${t.id}/install`, label: `Install ${t.name}`, success: `${d.name} created`, body: body(),
     }).catch((e: Error) => { setLog((l) => [...l, `✗ ${e.message}`]); return null })
     const r = res?.data
     if (!r) { setPhase('failed'); return }
-    setLog((l) => [...l, `✓ ${compose ? 'Stack' : 'Application'} created, first deployment queued`])
-    if (r.resource_type === 'application' && d.domain.trim() && d.port) {
-      setLog((l) => [...l, `Attaching ${d.domain.trim()}…`])
-      const ok = await run({ path: '/domains', label: `Attach ${d.domain}`, success: `${d.domain} attached`, body: { name: d.domain.trim(), application_id: r.resource_id, target_port: Number(d.port) } }).then(() => true).catch(() => false)
-      setLog((l) => [...l, ok ? `✓ Domain attached${d.https ? ', certificate requested' : ''}` : '✗ Domain could not be attached; add it from the app page'])
-    }
+    setResult(r)
     setPhase('done')
-    setTimeout(() => nav(r.resource_type === 'application' ? `/admin/applications/${r.resource_id}` : '/admin/compose'), 900)
   }
 
   const content: ReactNode[] = [
@@ -187,12 +228,32 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
           <option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option>
         </Select>
       </Field>
-      <Field label="Domain" hint="Optional. Point its A record at the server.">
-        <input className="input" value={d.domain} placeholder="app.example.com" onChange={(e) => set('domain', e.target.value)} />
-      </Field>
       <Field label="Version / image">
         <input className="input font-mono text-xs" readOnly value={compose ? `${t.services?.length ?? 1} services · template v${t.version}` : `${t.image ?? ''} · template v${t.version}`} />
       </Field>
+      <div className="sm:col-span-2 flex flex-col gap-3">
+        <div className="text-sm font-semibold">Domain configuration</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Choice on={d.domain_mode === 'auto'} onClick={() => set('domain_mode', 'auto')} title="Auto-generated subdomain">A unique address under {platform}. DNS and HTTPS are set up for you.</Choice>
+          <Choice on={d.domain_mode === 'subdomain'} onClick={() => set('domain_mode', 'subdomain')} title="Custom subdomain">Pick the name before .{platform}.</Choice>
+          <Choice on={d.domain_mode === 'custom'} onClick={() => set('domain_mode', 'custom')} title="Your own domain">Connect a domain you own; DNS is checked before HTTPS.</Choice>
+          <Choice on={d.domain_mode === 'none'} onClick={() => set('domain_mode', 'none')} title="No public domain">Internal only, reachable inside its network.</Choice>
+        </div>
+        {d.domain_mode === 'auto' && <p className="m-0 text-sm text-muted">Your address will look like <code className="font-mono text-xs">{d.name || 'app'}-x7k2q9.{platform}</code>.</p>}
+        {d.domain_mode === 'subdomain' && (
+          <Field label="Subdomain">
+            <span className="flex items-center gap-2">
+              <input className="input grow" value={d.subdomain} onChange={(e) => set('subdomain', e.target.value.toLowerCase())} />
+              <span className="text-sm text-muted whitespace-nowrap">.{platform}</span>
+            </span>
+          </Field>
+        )}
+        {d.domain_mode === 'custom' && (
+          <Field label="Domain" hint="Point its A record at the server. Domains in a connected DNS zone get their record automatically.">
+            <input className="input" value={d.domain} placeholder="app.example.com" onChange={(e) => set('domain', e.target.value)} />
+          </Field>
+        )}
+      </div>
     </div>,
 
     // 2 · Server & resources
@@ -293,7 +354,7 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
             </Field>
           </div>
           <Toggle checked={adv.auto_restart} onChange={(v: boolean) => setAdv({ ...adv, auto_restart: v })} label="Restart automatically if the container stops" />
-          {d.domain.trim() && <Toggle checked={d.https} onChange={(v: boolean) => set('https', v)} label="Serve over HTTPS with a free certificate" />}
+          {d.domain_mode === 'custom' && <Toggle checked={d.https} onChange={(v: boolean) => set('https', v)} label="Serve over HTTPS with a free certificate" />}
           <div className="flex items-center justify-between"><span className="text-sm font-semibold">Environment variables</span>
             <button type="button" className="btn btn-sm" onClick={() => setEnv([...env, { key: '', value: '', secret: false }])}>Add variable</button></div>
           {env.length === 0 && <p className="m-0 text-xs text-muted">None added. Template variables are set for you.</p>}
@@ -316,25 +377,35 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         <Row k="Template" v={`${t.name} (v${t.version})`} />
         <Row k="Name" v={d.name} />
         <Row k="Environment" v={d.environment} />
-        <Row k="Domain" v={d.domain.trim() ? `${d.domain.trim()}${d.https ? ' · HTTPS' : ''}` : '—'} />
+        <Row k="Address" v={{ auto: `Auto-generated under ${platform} · HTTPS`, subdomain: `${d.subdomain}.${platform} · HTTPS`, custom: `${d.domain.trim()}${d.https ? ' · HTTPS' : ''}`, none: 'Internal only' }[d.domain_mode]} />
         <Row k="Server" v={server?.name ?? (compose ? '—' : 'Automatic')} />
         {!compose && <Row k="Resources" v={`${SIZES.find((s) => s.id === d.size)?.label} · ${SIZES.find((s) => s.id === d.size)?.spec} · port ${d.port || '—'}`} />}
         {!compose && <Row k="Database" v={linked ? `${db!.name} (${db!.engine})` : dbMode === 'manual' ? 'Manual connection details' : 'None'} />}
         {!compose && <Row k="Advanced" v={[adv.volume_path && `volume ${adv.volume_path}`, adv.health_path && `health ${adv.health_path}`, adv.auto_restart ? 'auto-restart' : 'no auto-restart', env.length ? `${env.length} extra variable${env.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')} />}
       </dl>
       {issues.length > 0 && <div role="alert" className="text-sm text-danger">{issues.map((x) => <div key={x}>• {x}</div>)}</div>}
-      {phase !== 'idle' && (
+      <div className="card p-4 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Pre-install checks</span>
+          {pre ? <Badge tone={pre.ok ? (pre.warnings ? 'y' : 'g') : 'r'}>{pre.ok ? (pre.warnings ? `Ready · ${pre.warnings} warning${pre.warnings > 1 ? 's' : ''}` : 'All checks passed') : `${pre.failed} must be fixed`}</Badge> : <span className="text-xs text-muted">Checking…</span>}
+        </div>
+        {pre && <Checks checks={pre.checks} />}
+      </div>
+      {phase === 'installing' && (
         <div className="card p-3 font-mono text-xs flex flex-col gap-1" aria-live="polite">
           {log.map((l, i) => <div key={i}>{l}</div>)}
-          {phase === 'installing' && <div className="text-muted">Working…</div>}
-          {phase === 'done' && <div className="text-muted">Opening the {compose ? 'stack list' : 'app'} to follow the deployment…</div>}
+          <div className="text-muted">Working…</div>
         </div>
       )}
+      {phase === 'failed' && <div className="card p-3 font-mono text-xs">{log.map((l, i) => <div key={i}>{l}</div>)}</div>}
       {phase === 'failed' && <p className="m-0 text-sm">Nothing was left half-created. Fix the problem above and try again, or go back to change a step.</p>}
     </div>,
   ]
 
   const last = step === STEPS.length - 1
+  if (phase === 'done' && result) {
+    return <Completion t={t} result={result} name={d.name} environment={d.environment} serverName={server?.name} size={compose ? null : d.size} onBack={onBack} onOpen={(to) => nav(to)} />
+  }
   return (
     <>
       <PageHeader title={`Install ${t.name}`} subtitle={t.description}
@@ -352,12 +423,91 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         </div>
         <Stepper step={step} reach={reach} onStep={go} />
         <div className="mt-5">{content[step]}</div>
+        {step < 4 && stepChecks(step).length > 0 && <div className="mt-4 rounded-lg border border-line p-3"><Checks checks={stepChecks(step)} /></div>}
         {err && phase === 'idle' && <div role="alert" className="mt-4 text-sm font-semibold text-danger">{err}</div>}
         <div className="flex justify-between gap-2 mt-6 pt-4 border-t border-line">
           <button type="button" className="btn" disabled={step === 0 || phase === 'installing' || phase === 'done'} onClick={() => go(step - 1)}>Back</button>
           {last
-            ? <button type="button" className="btn btn-primary min-h-11" disabled={busy || phase === 'installing' || phase === 'done'} onClick={install}>{phase === 'installing' ? 'Installing…' : phase === 'failed' ? 'Retry install' : `Install ${t.name}`}</button>
+            ? <button type="button" className="btn btn-primary min-h-11" disabled={busy || phase === 'installing' || (!!pre && !pre.ok)} onClick={install}>{phase === 'installing' ? 'Installing…' : phase === 'failed' ? 'Retry install' : `Install ${t.name}`}</button>
             : <button type="button" className="btn btn-primary" onClick={() => go(step + 1)}>Continue</button>}
+        </div>
+      </Card>
+    </>
+  )
+}
+
+const SIZE_LABEL: Record<string, string> = Object.fromEntries(SIZES.map((s) => [s.id, `${s.label} · ${s.spec}`]))
+
+/** INST-9: the deployment summary after install. "Running" only once the first deployment's health check passed. */
+function Completion({ t, result, name, environment, serverName, size, onBack, onOpen }: {
+  t: CatalogTemplate; result: Result; name: string; environment: string; serverName?: string; size: string | null; onBack: () => void; onOpen: (to: string) => void
+}) {
+  const { run, busy } = useAction()
+  const [jobId, setJobId] = useState(result.job_id ?? null)
+  const { job } = useJob(jobId)
+  const app = result.resource_type === 'application'
+  const state: 'deploying' | 'running' | 'failed' = !app ? 'running' : job?.status === 'succeeded' ? 'running' : job?.status === 'failed' || job?.status === 'cancelled' ? 'failed' : 'deploying'
+  const url = (job?.result as { url?: string } | undefined)?.url ?? result.url ?? null
+  const manage = app ? `/admin/applications/${result.resource_id}` : '/admin/compose'
+  const retry = async () => {
+    const r = await run<{ data?: { job_id?: string } }>({ path: '/deployments', label: `Redeploy ${name}`, success: 'Deployment restarted', body: { application_id: result.resource_id } }).catch(() => null)
+    if (r?.data?.job_id) setJobId(r.data.job_id)
+  }
+  const head = {
+    deploying: { tone: 'b' as const, badge: 'Deploying', title: `Installing ${t.name}…`, text: 'Pulling the image, starting the container and waiting for its health check.' },
+    running: { tone: 'g' as const, badge: 'Running', title: `${t.name} installed`, text: app ? 'Your application is running and ready to use.' : 'The stack was created and is starting.' },
+    failed: { tone: 'r' as const, badge: 'Failed', title: `${t.name} did not start`, text: 'The deployment failed before the app became healthy. The details are below; nothing else was changed.' },
+  }[state]
+  return (
+    <>
+      <PageHeader title={`Install ${t.name}`} subtitle="Deployment summary" actions={<button type="button" className="btn" onClick={onBack}>Back to catalogue</button>} />
+      <Card>
+        <div className="flex flex-col gap-5" aria-live="polite">
+          <div className="flex items-center gap-4">
+            <span className={`grid place-items-center w-14 h-14 rounded-xl ${{ g: 'bg-g-bg text-g-fg', b: 'bg-b-bg text-b-fg', r: 'bg-r-bg text-r-fg' }[head.tone]}`} aria-hidden="true">
+              <Icon name={state === 'running' ? 'check' : state === 'failed' ? 'warn' : 'refresh'} size={26} className={state === 'deploying' ? 'animate-spin' : ''} />
+            </span>
+            <div className="flex-1 min-w-0"><div className="text-lg font-semibold">{head.title}</div><div className="text-sm text-muted">{head.text}</div></div>
+            <Badge tone={head.tone}>{head.badge}</Badge>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold">Application URL</span>
+            <div className="flex items-center gap-2 rounded-lg border border-line p-3">
+              <span className="flex-1 min-w-0 truncate text-sm font-medium">{url ?? 'Internal only (no public address)'}</span>
+              {url && <CopyButton value={url} />}
+              {url && state === 'running' && <a className="btn btn-sm no-underline" href={url} target="_blank" rel="noreferrer">Open</a>}
+            </div>
+            {url && state === 'deploying' && <span className="text-xs text-muted">The address answers once DNS, HTTPS and the health check are ready.</span>}
+          </div>
+          <dl className="m-0 grid gap-x-6 sm:grid-cols-2">
+            <Row k="Application" v={name} />
+            <Row k="Template" v={`${t.name} · v${t.version}`} />
+            <Row k="Environment" v={environment} />
+            <Row k="Server" v={serverName ?? 'Placed automatically'} />
+            {size && <Row k="Resources" v={SIZE_LABEL[size] ?? size} />}
+            <Row k="Installed" v={new Date().toLocaleString()} />
+          </dl>
+          {app && job && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-semibold">Deployment progress</span>
+              <ol className="list-none m-0 p-0 flex flex-col gap-1">
+                {job.stages.map((s) => (
+                  <li key={s.name} className="flex items-start gap-2 text-sm">
+                    <span className={s.status === 'succeeded' ? 'text-g-fg' : s.status === 'failed' ? 'text-r-fg' : 'text-muted'} aria-label={s.status}>
+                      <Icon name={s.status === 'succeeded' ? 'check' : s.status === 'failed' ? 'close' : s.status === 'running' ? 'refresh' : 'clock'} size={16} />
+                    </span>
+                    <span><b className="font-semibold">{s.name.charAt(0).toUpperCase() + s.name.slice(1).replace(/_/g, ' ')}</b>{s.message && <span className="text-muted"> · {s.message}</span>}</span>
+                  </li>
+                ))}
+              </ol>
+              {state === 'failed' && !!job.error && <pre className="m-0 mt-2 p-3 rounded-lg bg-head text-xs whitespace-pre-wrap">{typeof job.error === 'string' ? job.error : JSON.stringify(job.error, null, 2)}</pre>}
+            </div>
+          )}
+          {state === 'running' && app && <p className="m-0 text-xs text-muted">We emailed the account owner and the platform team. Generated passwords are never emailed; find them on the app's Environment tab.</p>}
+          <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-line">
+            {state === 'failed' && <button type="button" className="btn" disabled={busy} onClick={retry}>Retry deployment</button>}
+            <button type="button" className="btn btn-primary" onClick={() => onOpen(manage)}>{app ? 'Manage application' : 'Open stacks'}</button>
+          </div>
         </div>
       </Card>
     </>

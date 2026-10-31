@@ -496,6 +496,8 @@ class DeploymentService implements HandlesCommandResults
             app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'preview_ready', [
                 'app' => $app->name, 'branch' => (string) ($app->source['branch'] ?? $app->environmentModel?->branch ?? ''), 'url' => (string) $this->primaryUrl($app),
             ]);
+        } elseif (! empty($app->source['template']) && (int) (Release::find($deployment->release_id)?->version ?? 0) === 1) {
+            $this->notifyInstalled($app, $deployment);
         } else {
             app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
                 'app' => $app->name, 'version' => (string) (Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
@@ -515,6 +517,30 @@ class DeploymentService implements HandlesCommandResults
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    /** INST-8: "your application is ready" to the customer and "new deployment" to staff. No secrets, ever. */
+    public function notifyInstalled(Application $app, Deployment $deployment): void
+    {
+        $org = \App\Models\Organization::find($app->organization_id);
+        $tpl = \App\Models\Template::find($app->source['template'] ?? null);
+        $size = collect(config('platform.plans', []))->firstWhere('code', $app->size ?? 'standard');
+        $resources = $size ? "{$size['vcpu']} vCPU · ".($size['ram_mb'] >= 1024 ? ($size['ram_mb'] / 1024).' GB' : $size['ram_mb'].' MB').' RAM · '.$size['storage_gb'].' GB storage' : ucfirst((string) ($app->size ?? 'standard'));
+        $url = (string) ($this->primaryUrl($app) ?? 'internal only');
+        $common = [
+            'customer' => $org?->name ?? 'there', 'app' => $app->name, 'template' => $tpl?->name ?? (string) ($app->source['template'] ?? ''),
+            'environment' => (string) $app->environment, 'server' => (string) ($app->server?->name ?? '—'), 'resources' => $resources, 'url' => $url,
+            'installed_at' => now()->toDayDateTimeString().' UTC', 'manage_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id,
+        ];
+        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'app_installed', $common + [
+            'version' => (string) ($tpl?->manifest['image'] ?? $app->image ?? ''),
+            'admin_url' => $url !== 'internal only' && preg_match('/wordpress/i', (string) $app->image) ? $url.'/wp-admin' : '—',
+            'support_email' => (string) config('mail.from.address'),
+        ]);
+        app(EmailTemplateService::class)->notifyStaff('app_installed_admin', $common + [
+            'account_id' => (string) $app->organization_id, 'app_type' => $tpl?->type === 'compose' ? 'Compose stack' : 'Single image',
+            'deployment_id' => $deployment->id, 'status' => 'Running', 'logs_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id.'?tab=deployments',
+        ], 'installed:'.$app->id, 60 * 24);
     }
 
     private function notifyFailed(Application $app, string $stage, string $error): void
