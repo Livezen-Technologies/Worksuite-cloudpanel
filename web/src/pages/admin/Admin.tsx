@@ -156,6 +156,7 @@ function MemberAction({ title, text, button, onClick, busy, danger }: { title: s
 
 const POLICIES = [
   ['require_mfa', 'Require MFA for every member', 'Passkeys or TOTP before any session starts'],
+  ['require_sso', 'Require single sign-on', 'Members sign in with Google, GitHub, Microsoft or OIDC instead of a password. Owners keep their password for emergencies'],
   ['require_approval_destructive', 'Approval for destructive production actions', 'Delete, restore and volume removal need a second approver'],
   ['require_production_deploy_approval', 'Approval for production deployments', 'Every production deployment waits for a second approver'],
   ['secure_container_defaults', 'Secure container defaults', 'Non-root user, dropped capabilities, no-new-privileges'],

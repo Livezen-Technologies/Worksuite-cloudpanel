@@ -53,6 +53,7 @@ class AuthController extends Controller
             \App\Support\SignInLock::fail($data['email'], $user);
             throw new ApiException('unauthenticated', 'The email or password is incorrect.', 401);
         }
+        $this->guardRequiredSso($user);
         // Second factor: TOTP code or a passkey assertion for this user (UACC-002).
         if (! empty($data['passkey'])) {
             app(\App\Services\WebAuthnService::class)->authenticate($data['passkey']['challenge_id'], $data['passkey']['credential'], $user);
@@ -70,6 +71,24 @@ class AuthController extends Controller
         }
 
         return $this->completeLogin($user, ! empty($data['passkey']) ? 'password+passkey' : ($user->mfa_enabled ? 'password+totp' : 'password'));
+    }
+
+    /**
+     * SSO-POL: an organisation can require its members to sign in with a sign-in app. Owners and super admins
+     * keep their password so a broken provider never locks everyone out; the rule waits until an app is set up.
+     */
+    private function guardRequiredSso(User $user): void
+    {
+        $org = $user->currentOrganization ?? $user->memberships()->where('status', 'active')->first()?->organization;
+        if (! $org?->setting('security.require_sso') || in_array($user->roleName(), ['owner', 'super_admin'], true)) {
+            return;
+        }
+        $apps = app(\App\Services\Auth\SsoService::class)->enabled();
+        if (! $apps) {
+            return;
+        }
+        $names = implode(' or ', array_column($apps, 'label'));
+        throw new ApiException('sso_required', "Your organisation signs in with {$names}. Use that button below instead of your password.", 403, [], ['sso_required' => true, 'sso' => $apps]);
     }
 
     /** SVC-6/7: what the sign-in page offers (captcha, sign-in apps). Public. */
