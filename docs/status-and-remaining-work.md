@@ -314,6 +314,8 @@ same service. Site-wide rules attach to the domain router.
 
 ## 3. Operations — the real remaining value
 
+Step-by-step, with checks and undo for each: [`docs/runbooks/infrastructure.md`](runbooks/infrastructure.md).
+
 - [ ] **Restore `shopexpress.lk` · `diygeek.cc` · `softkeymart.com` ·
       `livezenbiz.com`.** Check each for a live copy first (see warnings).
 - [ ] Retire old copies on `51.89.192.43` once restored sites are verified
