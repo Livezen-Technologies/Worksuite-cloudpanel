@@ -31,7 +31,11 @@ class SecurityHeaders
         if ($request->isSecure()) {
             $set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
+        // PHP adds X-Powered-By itself (expose_php), outside the response object.
         $h->remove('X-Powered-By');
+        if (! headers_sent()) {
+            header_remove('X-Powered-By');
+        }
 
         return $response;
     }

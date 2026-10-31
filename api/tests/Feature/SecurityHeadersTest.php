@@ -29,4 +29,12 @@ class SecurityHeadersTest extends TestCase
         [, , $token] = $this->org();
         $this->api($token)->getJson('https://localhost/api/v1/me')->assertHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
+
+    public function test_a_malformed_token_is_a_401_not_a_server_error(): void
+    {
+        foreach (['1|not-a-real-token', "' OR 1=1--|x", 'no-pipe-at-all', '01a190cc-0000-7000-8000-000000000000|wrong-secret'] as $forged) {
+            $this->app['auth']->forgetGuards();
+            $this->withHeaders(['Authorization' => 'Bearer '.$forged])->getJson('/api/v1/servers')->assertUnauthorized();
+        }
+    }
 }
