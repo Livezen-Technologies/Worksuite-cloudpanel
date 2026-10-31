@@ -65,9 +65,9 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex flex-none items-center w-11 h-6 p-[3px] rounded-full border-0 cursor-pointer appearance-none transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex flex-none items-center w-[44px] h-[24px] p-[3px] rounded-full border-0 cursor-pointer appearance-none transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
       style={{ background: checked ? 'var(--accent)' : 'var(--ctl-ring)', minHeight: 0, minWidth: 0 }}>
-      <span aria-hidden="true" className={`block size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(15,23,42,.25)] transition-transform duration-150 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+      <span aria-hidden="true" className={`block size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(15,23,42,.25)] transition-transform duration-150 ${checked ? 'translate-x-[20px]' : 'translate-x-0'}`} />
     </button>
   )
 }

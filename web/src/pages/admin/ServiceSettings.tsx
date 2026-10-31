@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAction, useOne } from '../../api/hooks'
 import { api, isApiError } from '../../api/client'
-import { Field, Toggle } from '../../components/Card'
+import { Field, PageHeader, Toggle } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { Icon } from '../../components/Icon'
 import { ConfirmDialog, Drawer } from '../../components/Overlay'
@@ -149,5 +149,15 @@ function ServiceDrawer({ s, onClose, onSaved }: { s: Svc; onClose: () => void; o
         <p className="m-0">Its saved keys are deleted. Anything that uses {s.label} stops working until you set it up again.</p>
       </ConfirmDialog>
     </Drawer>
+  )
+}
+
+/** Settings → Third-party services, as its own page in the sidebar. */
+export default function ServicesPage() {
+  return (
+    <>
+      <PageHeader title="Third-party services" subtitle="Payments, DNS, sign-in apps, captcha, email, Git, cloud, storage and notifications" />
+      <ServiceSettings />
+    </>
   )
 }
