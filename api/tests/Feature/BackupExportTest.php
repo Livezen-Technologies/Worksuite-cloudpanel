@@ -87,6 +87,11 @@ class BackupExportTest extends TestCase
         $artifact = BackupArtifact::allTenants()->first();
         $this->assertSame('postgres', $artifact->dump_engine);
         $this->assertTrue($artifact->verified);
+        $this->api($token)->postJson("/api/v1/backup-artifacts/{$artifact->id}/restore-test")->assertStatus(202);
+        $test = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'backup.test');
+        $this->assertSame(['kind' => 'db', 'image' => 'postgres:16-alpine'], $test['payload']['sandbox'], 'BKM-009: the dump is loaded into a fresh database');
+        $this->commandResult($secret, $test['id'], 'succeeded', ['output' => ['files' => 1, 'bytes' => 4096, 'dump_valid' => true, 'sandbox' => ['kind' => 'db', 'tables' => 3, 'rows' => 12345]]]);
+        $this->assertStringEndsWith('dump valid; sandbox database: 3 tables, 12,345 rows', $artifact->fresh()->restore_test_message);
         $this->assertStringStartsWith('escrow:', BackupPolicy::allTenants()->find($policy['id'])->recovery_key, 'recovery copy lives on the policy, apart from the password secret');
 
         $this->api($token)->postJson('/api/v1/restore-jobs', ['artifact_id' => $artifact->id, 'fresh_backup' => false])->assertStatus(202);
@@ -103,6 +108,7 @@ class BackupExportTest extends TestCase
         $this->api($token)->postJson("/api/v1/backup-artifacts/{$artifact->id}/restore-test")->assertStatus(202);
         $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'backup.test');
         $this->assertSame('snap1', $cmd['payload']['snapshot']);
+        $this->assertArrayNotHasKey('sandbox', $cmd['payload'], 'an app without a data volume has nothing to start');
         $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['files' => 12, 'bytes' => 20480, 'check' => ['ok' => true]]]);
         $this->api($token)->getJson('/api/v1/app/backups')->assertJsonPath('data.0.restore_test.status', 'passed')
             ->assertJsonPath('data.0.restore_test.message', 'Restored 12 file(s), 20 KiB');
@@ -111,6 +117,23 @@ class BackupExportTest extends TestCase
         config(['backups.restore_test_schedule' => '* * * * *']);
         app(Tenant::class)->set(null);
         $this->artisan('backups:restore-tests')->expectsOutput('Restore tests started: 1')->assertSuccessful();
+    }
+
+    public function test_restore_tests_start_the_restored_app_in_a_sandbox(): void
+    {
+        [$org, $token, $secret, $app] = $this->appBackup();
+        Application::allTenants()->whereKey($app->id)->update(['volume_path' => '/usr/share/nginx/html']);
+        $paths = \App\Models\Job::allTenants()->where('type', 'backup')->latest()->first()->payload['paths'];
+        $artifact = BackupArtifact::allTenants()->first();
+        $this->api($token)->postJson("/api/v1/backup-artifacts/{$artifact->id}/restore-test")->assertStatus(202);
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'backup.test');
+        $this->assertSame(['kind' => 'app', 'image' => 'nginx', 'source' => $paths[0], 'mount' => '/usr/share/nginx/html', 'seconds' => 20], $cmd['payload']['sandbox']);
+        $this->commandResult($secret, $cmd['id'], 'succeeded', ['output' => ['files' => 3, 'bytes' => 2048, 'sandbox' => ['kind' => 'app', 'running' => true, 'seconds' => 20]]]);
+        $this->assertSame('Restored 3 file(s), 2 KiB; the app ran on the restored data for 20s', BackupArtifact::allTenants()->find($artifact->id)->restore_test_message);
+
+        config(['backups.sandbox' => false]);
+        $this->api($token)->postJson("/api/v1/backup-artifacts/{$artifact->id}/restore-test")->assertStatus(202);
+        $this->assertArrayNotHasKey('sandbox', collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'backup.test')['payload']);
     }
 
     public function test_local_export_uploads_to_signed_url_and_downloads_the_real_file(): void

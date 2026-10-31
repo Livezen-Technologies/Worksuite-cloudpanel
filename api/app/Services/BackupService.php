@@ -92,7 +92,7 @@ class BackupService implements HandlesCommandResults
         $targetType = $policy?->target_type ?? $targetType;
         $targetId = $policy?->target_id ?? $targetId;
         [$server, $paths, $applicationId, $dump] = $this->target($targetType, $targetId);
-        $job = $this->jobs->create('backup', $dump ? ['dump', 'snapshot', 'retention', 'verify'] : ['snapshot', 'retention', 'verify'], null, $jobPayload);
+        $job = $this->jobs->create('backup', $dump ? ['dump', 'snapshot', 'retention', 'verify'] : ['snapshot', 'retention', 'verify'], null, $jobPayload + ['paths' => $paths]);
         $backup = BackupJob::create([
             'backup_policy_id' => $policy?->id, 'application_id' => $applicationId, 'job_id' => $job->id, 'server_id' => $server->id,
             'target_type' => $targetType, 'target_id' => $targetId, 'trigger' => $trigger, 'status' => 'running', 'started_at' => now(),
@@ -215,9 +215,32 @@ class BackupService implements HandlesCommandResults
             'env' => (object) $dest->env(),
             'engine' => $artifact->dump_engine,
             'check' => ['read_data_subset' => $source->policy?->check_subset ?: config('backups.check_subset')],
+            'sandbox' => $this->sandbox($artifact),
         ]), $job);
 
         return $job;
+    }
+
+    /**
+     * BKM-009: what the restore test starts from the restored data: a fresh database of
+     * the dump's engine (rows counted per table), or the app's own image on its restored
+     * volume (it must still be running after 20 s). Null when neither applies.
+     */
+    private function sandbox(BackupArtifact $artifact): ?array
+    {
+        if (! config('backups.sandbox')) {
+            return null;
+        }
+        if ($image = config('backups.sandbox_images')[$artifact->dump_engine ?? ''] ?? null) {
+            return ['kind' => 'db', 'image' => $image];
+        }
+        $app = $artifact->application_id ? Application::allTenants()->find($artifact->application_id) : null;
+        $paths = (array) (Job::find($artifact->backupJob?->job_id)?->payload['paths'] ?? []);
+        if ($app?->image && $app->volume_path && count($paths) === 1) {
+            return ['kind' => 'app', 'image' => $app->image, 'source' => $paths[0], 'mount' => $app->volume_path, 'seconds' => 20];
+        }
+
+        return null;
     }
 
     /**
@@ -480,7 +503,13 @@ class BackupService implements HandlesCommandResults
         $artifact = BackupArtifact::find($job->payload['artifact_id'] ?? null);
         $ok = $command->status === 'succeeded';
         $out = $command->output ?? [];
-        $message = $ok ? sprintf('Restored %d file(s), %s KiB%s', $out['files'] ?? 0, round(($out['bytes'] ?? 0) / 1024, 1), isset($out['dump_valid']) ? ', dump valid' : '') : ($command->message ?: 'Restore test failed');
+        $sb = (array) ($out['sandbox'] ?? []);
+        $sandbox = match ($sb['kind'] ?? null) {
+            'db' => sprintf('; sandbox database: %d tables, %s rows', $sb['tables'] ?? 0, number_format((int) ($sb['rows'] ?? 0))),
+            'app' => ! empty($sb['running']) ? sprintf('; the app ran on the restored data for %ds', $sb['seconds'] ?? 0) : '',
+            default => '',
+        };
+        $message = $ok ? sprintf('Restored %d file(s), %s KiB%s', $out['files'] ?? 0, round(($out['bytes'] ?? 0) / 1024, 1), isset($out['dump_valid']) ? ', dump valid' : '').$sandbox : ($command->message ?: 'Restore test failed');
         $artifact?->update(['restore_tested_at' => now(), 'restore_test_status' => $ok ? 'passed' : 'failed', 'restore_test_message' => $message]);
         $policy = $artifact?->backupJob?->policy;
         $policy?->update(['last_restore_test_at' => now(), 'last_restore_test_status' => $ok ? 'passed' : 'failed']);

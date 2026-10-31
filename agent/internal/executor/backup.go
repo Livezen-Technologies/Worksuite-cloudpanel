@@ -617,12 +617,18 @@ func safeName(s string) string {
 func (e *Executor) backupTest(ctx context.Context, id string, raw []byte, progress func(int, string)) (any, error) {
 	var p struct {
 		resticRepo
-		Snapshot string     `json:"snapshot"`
-		Engine   string     `json:"engine"`
-		Check    *checkSpec `json:"check"`
+		Snapshot string       `json:"snapshot"`
+		Engine   string       `json:"engine"`
+		Check    *checkSpec   `json:"check"`
+		Sandbox  *SandboxSpec `json:"sandbox"`
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
+	}
+	if p.Sandbox != nil {
+		if err := p.Sandbox.validate(p.Engine); err != nil {
+			return nil, err
+		}
 	}
 	snap := firstNonEmpty(p.Snapshot, "latest")
 	if !reSnap.MatchString(snap) {
@@ -675,6 +681,14 @@ func (e *Executor) backupTest(ctx context.Context, id string, raw []byte, progre
 		out["check"] = c
 		if c["ok"] != true {
 			return out, errors.New("restic integrity check failed")
+		}
+	}
+	// BKM-009: start what was restored and look inside it.
+	if p.Sandbox != nil {
+		sb, err := e.sandbox(cctx, id, p.Sandbox, p.Engine, tmp, progress)
+		out["sandbox"] = sb
+		if err != nil {
+			return out, err
 		}
 	}
 	return out, nil

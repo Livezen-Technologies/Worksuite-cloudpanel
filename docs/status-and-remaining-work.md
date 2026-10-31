@@ -103,7 +103,7 @@ alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, ~2 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
 private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
-Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
+Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), public pages
 (PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -197,9 +197,13 @@ a connection test (`backup.probe`: snapshots and stored bytes) with usage agains
 stated capacity and a warning above 85 %; object lock for S3/R2/B2 (forget without
 prune, lock no longer than retention).
 
-Left: BKM-009 restore tests restore and validate in a scratch directory; starting the
-app from the restored data in a sandbox container and counting database rows is not
-built yet.
+BKM-009: restore tests now also start what they restored in a sandbox container with no
+network (`BACKUP_SANDBOX_TESTS`, on by default). A database dump (PostgreSQL, MySQL,
+MariaDB) is loaded into a fresh server of the same engine and its rows are counted per
+table; an empty database fails the test. An app backup runs the app's own image on its
+restored volume and must still be running after 20 seconds. The result ("3 tables,
+12,345 rows" or "the app ran on the restored data for 20s") is part of the test's
+message; the sandbox is always removed.
 
 ## 1d. Mail: IMAP import and webmail
 
