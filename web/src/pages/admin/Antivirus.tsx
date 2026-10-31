@@ -110,17 +110,14 @@ export default function Antivirus() {
 
       <Card title="File integrity" pad={false} actions={<span className="text-sm text-muted">Code files changed outside a deployment. A baseline is taken after every deployment.</span>}>
         <DataTable label="File integrity" rows={((integrity.item?.volumes as R[]) ?? [])} loading={integrity.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [
+            ...(!r.baseline_at ? [{ label: `Take baseline of ${r.name}`, icon: 'bookmark', disabled: busy, onClick: () => fim(String(r.id), 'baseline', String(r.name)) }] : [{ label: `Check ${r.name} now`, icon: 'refresh', disabled: busy, onClick: () => fim(String(r.id), 'check', String(r.name)) }]),
+            ...(Number(r.open) > 0 ? [{ label: 'Accept changes', icon: 'check', menuOnly: true, disabled: busy, confirm: `Accept the ${r.open} changes on ${r.name} as the new baseline? Only do this if you made them.`, onClick: () => fim(String(r.id), 'accept', String(r.name)) }] : []),
+          ]}
           columns={[
             { key: 'name', header: 'Volume' },
             { key: 'open', header: 'Changes', render: (r) => Number(r.open) ? <Badge tone="r">{String(r.open)} to review</Badge> : r.baseline_at ? <Badge tone="g">none</Badge> : <Badge tone="n">no baseline</Badge> },
             { key: 'checked_at', header: 'Last check', render: (r) => r.checked_at ? ago(String(r.checked_at)) : '—' },
-            { key: 'actions', header: '', sortable: false, render: (r) => (
-              <span className="flex flex-wrap gap-1 justify-end">
-                {!r.baseline_at && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => fim(String(r.id), 'baseline', String(r.name))}>Take baseline</button>}
-                {!!r.baseline_at && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => fim(String(r.id), 'check', String(r.name))}>Check now</button>}
-                {Number(r.open) > 0 && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { if (window.confirm(`Accept the ${r.open} changes on ${r.name} as the new baseline? Only do this if you made them.`)) fim(String(r.id), 'accept', String(r.name)) }}>Accept changes</button>}
-              </span>
-            ) },
           ]} />
         {((integrity.item?.changes as R[]) ?? []).length > 0 && (
           <ul className="m-0 px-4 py-3 border-t border-line list-none flex flex-col gap-1 text-sm">
@@ -142,6 +139,16 @@ export default function Antivirus() {
         </Select>
       }>
         <DataTable label="Threats" rows={threats.rows} loading={threats.isLoading} rowKey={(r) => r.id}
+          actions={(r) => {
+            const st = String(r.status), live = ['infected', 'quarantined', 'restored'].includes(st)
+            return [
+              ...(['infected', 'restored'].includes(st) ? [{ label: 'Quarantine', icon: 'archive', disabled: busy, onClick: () => act(r, 'quarantine') }] : []),
+              ...(live && CORE_FILE.test(String(r.path)) ? [{ label: 'Clean', icon: 'shield', disabled: busy, onClick: () => setConfirm({ threat: r, action: 'clean' }) }] : []),
+              ...(st === 'quarantined' ? [{ label: 'Restore', icon: 'refresh', disabled: busy, onClick: () => setConfirm({ threat: r, action: 'restore' }) }] : []),
+              ...(live ? [{ label: 'Not a threat', icon: 'check', menuOnly: true, disabled: busy, onClick: () => setConfirm({ threat: r, action: 'ignore' }) }] : []),
+              ...(st === 'quarantined' ? [{ label: 'Delete', icon: 'trash', danger: true, confirm: false, disabled: busy, onClick: () => setConfirm({ threat: r, action: 'delete' }) }] : []),
+            ]
+          }}
           columns={[
             { key: 'status', header: 'Status', render: (r) => <Badge tone={STATUS_TONE[String(r.status)] ?? 'n'}>{String(r.status)}</Badge> },
             { key: 'path', header: 'File', render: (r) => (
@@ -152,15 +159,6 @@ export default function Antivirus() {
             ) },
             { key: 'signature', header: 'Detected as', render: (r) => <span className="font-mono text-xs">{String(r.signature)}</span> },
             { key: 'detected_at', header: 'Found', value: (r) => String(r.detected_at), render: (r) => ago(String(r.detected_at)) },
-            { key: 'actions', header: '', sortable: false, render: (r) => (
-              <span className="flex flex-wrap gap-1 justify-end">
-                {['infected', 'restored'].includes(String(r.status)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(r, 'quarantine')}>Quarantine</button>}
-                {['infected', 'quarantined', 'restored'].includes(String(r.status)) && CORE_FILE.test(String(r.path)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setConfirm({ threat: r, action: 'clean' })}>Clean</button>}
-                {r.status === 'quarantined' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setConfirm({ threat: r, action: 'restore' })}>Restore</button>}
-                {r.status === 'quarantined' && <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => setConfirm({ threat: r, action: 'delete' })}>Delete</button>}
-                {['infected', 'quarantined', 'restored'].includes(String(r.status)) && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setConfirm({ threat: r, action: 'ignore' })}>Not a threat</button>}
-              </span>
-            ) },
           ]} />
       </Card>
 

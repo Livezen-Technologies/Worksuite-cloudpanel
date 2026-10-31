@@ -97,6 +97,7 @@ export function Images() {
       <Card title="Images" pad={false} actions={<><span className="text-xs text-muted">{dangling.length} dangling</span><button type="button" className="btn btn-sm" onClick={() => setPrune(true)}>Prune unused</button></>}>
         <DataTable label="Images" rows={images.rows} loading={images.isLoading} rowKey={(r) => r.id} minWidth={900}
           filters={[{ id: 'vuln', label: 'Critical / high', test: (r) => num((r.scan_result ?? r.scan)?.critical ?? r.critical) + num((r.scan_result ?? r.scan)?.high ?? r.high) > 0 }, { id: 'dangling', label: 'Dangling', test: (r) => !!r.dangling || r.tag === '<none>' }]}
+          actions={(r) => [{ label: `Scan ${r.repository ?? r.name}`, icon: 'shield', onClick: () => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {}) }]}
           columns={[
             { key: 'repository', header: 'Repository', value: (r) => r.repository ?? r.name, render: (r) => <span className="font-semibold">{r.repository ?? r.name}</span> },
             { key: 'tag', header: 'Tag', render: (r) => mono(r.tag ?? imageTags(r)) },
@@ -105,7 +106,6 @@ export function Images() {
             { key: 'containers', header: 'Used by', value: (r) => num(r.users ?? r.container_count ?? r.containers), render: (r) => `${num(r.users ?? r.container_count ?? r.containers)} containers` },
             { key: 'server', header: 'Server', value: (r) => serverName(r) },
             { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); if (r.scan_status === 'scanning') return <Badge tone="b">scanning…</Badge>; if (r.scan_status === 'failed') return <Badge tone="y">scan failed</Badge>; return !scanned ? <Badge tone="n">not scanned</Badge> : <span className="inline-flex gap-1.5 flex-wrap"><Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium · ${num(sr?.low ?? r.low)} low` : 'clean'}</Badge>{r.blocks_deploy && <Badge tone="r">blocks deploys</Badge>}</span> } },
-            { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
           ]} />
       </Card>
       <FormModal open={addReg} onClose={() => setAddReg(false)} title="Add registry" submitLabel="Connect registry"
@@ -144,6 +144,7 @@ export function Networks() {
         <StatTile label="Mesh peers" value={rows.filter((n) => /wireguard/i.test(String(n.driver))).length} />
       </div>
       <DataTable label="Networks" rows={rows} loading={isLoading} rowKey={(r) => r.id}
+        actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) }]}
         columns={[
           { key: 'name', header: 'Name', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'driver', header: 'Driver' },
@@ -151,7 +152,6 @@ export function Networks() {
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'containers', header: 'Containers', value: (r) => num(r.container_count ?? r.containers) },
           { key: 'exposure', header: 'Exposure', render: (r) => <Badge tone={/public/i.test(String(r.exposure)) ? 'b' : /approved|exception/i.test(String(r.exposure)) ? 'y' : 'g'}>{r.exposure ?? 'private'}</Badge> },
-          { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button> },
         ]} />
       <p className="m-0 text-xs text-muted">Every network change is audited and checked for port conflicts, IP conflicts and accidental public exposure before it is applied.</p>
       <FormModal open={create} onClose={() => setCreate(false)} title="Create network" submitLabel="Create network" initial={{ driver: 'bridge' }}
@@ -198,6 +198,7 @@ export function Volumes() {
       </div>
       <DataTable label="Volumes" rows={rows} loading={isLoading} rowKey={(r) => r.id}
         filters={[{ id: 'nobackup', label: 'No backup policy', test: (r) => !r.backup_policy && !r.backup_policy_id }]}
+        actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) }]}
         columns={[
           { key: 'name', header: 'Volume', render: (r) => <span className="font-mono text-xs font-semibold">{r.name}</span> },
           { key: 'type', header: 'Type' },
@@ -205,7 +206,6 @@ export function Volumes() {
           { key: 'size', header: 'Size', value: (r) => num(r.size_mb ?? r.size_gb), render: (r) => r.size ?? (r.size_gb ? `${r.size_gb} GB` : mb(r.size_mb)) },
           { key: 'consumers', header: 'Used by', value: (r) => str(r.consumers ?? r.containers) },
           { key: 'backup', header: 'Backup', render: (r) => (r.backup_policy || r.backup_policy_id) ? <StatusBadge status={r.backup_status ?? 'protected'} /> : <Badge tone="y">no policy</Badge> },
-          { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button> },
         ]} />
       <FormModal open={create} onClose={() => setCreate(false)} title="Create volume" submitLabel="Create volume" initial={{ type: 'named' }}
         fields={[{ name: 'name', label: 'Name', required: true, mono: true }, { name: 'server_id', label: 'Server', type: 'select', options: servers, required: true }, { name: 'type', label: 'Type', type: 'select', options: [{ value: 'named', label: 'Named volume' }, { value: 'bind', label: 'Bind mount' }, { value: 'nfs', label: 'NFS mount' }], required: true }, { name: 'path', label: 'Host path', mono: true, show: (v) => v.type === 'bind' }, { name: 'nfs_server', label: 'NFS server', mono: true, show: (v) => v.type === 'nfs' }, { name: 'nfs_path', label: 'NFS export path', mono: true, show: (v) => v.type === 'nfs' }, { name: 'quota_gb', label: 'Quota (GB)', type: 'number' }]}
@@ -251,6 +251,11 @@ export function Domains() {
           { id: 'pending', label: 'Pending', test: (d) => certState(d).startsWith('pending') },
           { id: 'wildcard', label: 'Wildcard', test: (d) => String(domainName(d)).startsWith('*') || !!d.wildcard },
         ]}
+        actions={(r) => [
+          { label: `Check DNS for ${domainName(r)}`, icon: 'globe', onClick: () => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {}) },
+          { label: `Issue certificate for ${domainName(r)}`, icon: 'shield', onClick: () => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {}) },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setDel({ ...r, name: domainName(r) }) },
+        ]}
         columns={[
           { key: 'hostname', header: 'Domain', value: (r) => domainName(r), render: (r) => <span className="font-mono text-xs font-semibold">{domainName(r)}</span> },
           { key: 'app', header: 'Application', value: (r) => r.app_name ?? r.application_name ?? r.application?.name ?? '—' },
@@ -265,12 +270,6 @@ export function Domains() {
             </Select>
           ) },
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ? `${r.challenge}${r.dns_zone ? ` via ${r.dns_zone.name}` : ''}` : '—' },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {})}>Check DNS</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {})}>Issue cert</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel({ ...r, name: domainName(r) })}>Delete</button>
-            </span>) },
         ]} />
       {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}
       <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'auto', target_port: 80 }}

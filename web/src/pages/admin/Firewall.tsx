@@ -290,6 +290,10 @@ export default function Firewall() {
         <DataTable label="Rate limit rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
           searchKeys={(r) => `${r.name} ${(r.paths as string[] ?? []).join(' ')}`}
           empty={<Empty>No rules yet. Add one to rate-limit a path.</Empty>}
+          actions={(r) => [
+              { label: `Edit ${String(r.name ?? 'rule')}`, icon: 'pencil', onClick: () => setForm({ ...r, paths_text: ((r.paths as string[]) ?? []).join(', '), methods_text: ((r.methods as string[]) ?? []).join(', '), domain_id: r.domain_id ?? '' }) },
+              { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setRemove(r) },
+            ]}
           columns={[
             { key: 'name', header: 'Rule', sortable: true, render: (r) => (
               <div>
@@ -314,17 +318,6 @@ export default function Firewall() {
             { key: 'enabled', header: 'On', render: (r) => (
               <Toggle checked={!!r.enabled} label={`Enable ${String(r.name)}`}
                 onChange={(v) => run({ method: 'PATCH', path: `/firewall-rules/${r.id}`, body: { enabled: v }, label: 'Toggle rule', success: v ? 'Rule on' : 'Rule off' }).then(() => rules.refetch()).catch(() => {})} />
-            ) },
-            { key: 'act', header: '', render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({
-                  ...r,
-                  paths_text: ((r.paths as string[]) ?? []).join(', '),
-                  methods_text: ((r.methods as string[]) ?? []).join(', '),
-                  domain_id: r.domain_id ?? '',
-                })}>Edit</button>
-                <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemove(r)}>Delete</button>
-              </span>
             ) },
           ]} />
         </Card>
@@ -468,6 +461,9 @@ export default function Firewall() {
               { id: 'allow', label: 'Allowed', test: (r) => r.list === 'allow' },
               { id: 'block', label: 'Blocked', test: (r) => r.list === 'block' },
             ]}
+            actions={(r) => [
+                { label: `Remove ${String(r.cidr)}`, icon: 'trash', danger: true, confirm: `${String(r.cidr)} is taken off the list.`, onClick: () => run({ method: 'DELETE', path: `/firewall/ips/${r.id}`, label: 'Remove IP', success: `${String(r.cidr)} removed` }).then(() => refetch()).catch(() => {}) },
+              ]}
             columns={[
               { key: 'cidr', header: 'Address or range', sortable: true, render: (r) => <span className="font-mono text-xs">{String(r.cidr)}</span> },
               { key: 'list', header: 'List', render: (r) => <Badge tone={r.list === 'allow' ? 'g' : 'r'}>{String(r.list)}</Badge> },
@@ -475,10 +471,6 @@ export default function Firewall() {
               { key: 'note', header: 'Note', render: (r) => String(r.note ?? '—') },
               { key: 'expires_at', header: 'Expires', render: (r) => r.expired ? <Badge tone="n">expired</Badge>
                 : <span className="font-mono text-xs">{r.expires_at ? String(r.expires_at).replace('T', ' ').slice(0, 16) : 'never'}</span> },
-              { key: 'act', header: '', render: (r) => (
-                <button type="button" className="btn btn-sm btn-ghost btn-danger"
-                  onClick={() => run({ method: 'DELETE', path: `/firewall/ips/${r.id}`, label: 'Remove IP', success: `${String(r.cidr)} removed` }).then(() => refetch()).catch(() => {})}>Remove</button>
-              ) },
             ]} />
           </Card>
         </>
@@ -494,6 +486,10 @@ export default function Firewall() {
             { id: 'throttle', label: 'Throttled', test: (r) => r.action === 'throttle' },
             { id: 'challenge', label: 'Challenged', test: (r) => r.action === 'challenge' || r.action === 'recaptcha' },
           ]}
+          actions={(r) => [
+              { label: `Allow ${String(r.ip)}`, icon: 'check', disabled: busy, onClick: () => quickIp('allow', String(r.ip)) },
+              { label: `Block ${String(r.ip)}`, icon: 'shield', danger: true, confirm: `Block ${String(r.ip)} on every site?`, disabled: busy, onClick: () => quickIp('block', String(r.ip)) },
+            ]}
           columns={[
             { key: 'occurred_at', header: 'Time', sortable: true, render: (r) => <span className="font-mono text-xs">{String(r.occurred_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
             { key: 'action', header: 'Action', render: (r) => <Badge tone={ACTION_TONE[String(r.action)] ?? 'n'}>{String(r.action)}</Badge> },
@@ -502,12 +498,6 @@ export default function Firewall() {
             { key: 'request', header: 'Request', render: (r) => <span className="font-mono text-xs">{String(r.request ?? '—')}</span> },
             { key: 'domain', header: 'Domain', render: (r) => String(r.domain ?? 'all') },
             { key: 'rule', header: 'Rule', render: (r) => String(r.rule ?? '—') },
-            { key: 'act', header: '', render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => quickIp('allow', String(r.ip))}>Allow IP</button>
-                <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => quickIp('block', String(r.ip))}>Block IP</button>
-              </span>
-            ) },
           ]} />
         </Card>
       )}

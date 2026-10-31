@@ -195,6 +195,7 @@ export function Applications() {
       {active && <Pipeline key={active.id} d={active} />}
       <DataTable label="Applications" rows={apps.rows} loading={apps.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setParams({ id: r.id })} selectedRowId={selected?.id}
         filters={[{ id: 'production', label: 'Production', test: (r) => r.environment === 'production' }, { id: 'staging', label: 'Staging', test: (r) => r.environment === 'staging' }]}
+        actions={(r) => [{ label: `Deploy ${r.name}`, icon: 'rocket', onClick: () => run({ path: '/deployments', body: { application_id: r.id }, label: `Deploy ${r.name}` }).catch(() => {}) }]}
         columns={[
           { key: 'name', header: 'Application', render: (r) => <a className="font-semibold" href={`/admin/applications/${r.id}`} onClick={(e) => e.stopPropagation()}>{r.name}</a> },
           { key: 'source_type', header: 'Source' },
@@ -202,12 +203,12 @@ export function Applications() {
           { key: 'strategy', header: 'Strategy' },
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-          { key: 'deploy', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); run({ path: '/deployments', body: { application_id: r.id }, label: `Deploy ${r.name}` }).catch(() => {}) }}>Deploy</button> },
         ]} />
       {selected && <Releases app={selected} />}
       <BuildUsage path="/builds/usage" />
       <Card title="Release history" pad={false}>
         <DataTable label="Deployments" rows={deployments.rows} loading={deployments.isLoading} rowKey={(r) => r.id}
+          actions={(r) => r.status === 'awaiting_approval' ? [{ label: 'Approve', icon: 'check', onClick: () => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' }).catch(() => {}) }] : []}
           columns={[
             { key: 'application', header: 'Application', value: (r) => appLabel(r), render: (r) => <span className="font-semibold">{appLabel(r)}</span> },
             { key: 'version', header: 'Version', render: (r) => <span className="font-mono text-xs">{r.version ?? imageTag(r.image) ?? '—'}</span> },
@@ -216,7 +217,6 @@ export function Applications() {
             { key: 'source', header: 'Source', render: (r) => <span className="font-mono text-xs text-muted">{r.source ?? r.commit ?? '—'}</span> },
             { key: 'author', header: 'Author', value: (r) => r.author ?? r.user_name },
             { key: 'created_at', header: 'When', render: (r) => ago(r.created_at) },
-            { key: 'approve', header: '', sortable: false, render: (r) => r.status === 'awaiting_approval' ? <button type="button" className="btn btn-sm btn-primary" onClick={() => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' })}>Approve</button> : null },
           ]} />
       </Card>
       <DeployDialog open={params.get('deploy') === '1'} onClose={() => setParams({})} apps={apps.rows} />

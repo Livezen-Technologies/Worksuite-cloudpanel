@@ -32,7 +32,8 @@ export default function PrivateNetwork() {
         actions={<button type="button" className="btn" disabled={busy || p.members.length === 0} onClick={() => run({ path: '/mesh/apply', label: 'Re-apply mesh', success: 'Mesh configuration sent' }).catch(() => {})}>Re-apply</button>} />
       <Card title="Servers" subtitle="Each server keeps its own private key; allow UDP on the mesh port in its firewall">
         {p.members.length === 0 ? <Empty>No servers on the private network yet.</Empty> : (
-          <DataTable label="Mesh members" rows={p.members} rowKey={(m) => m.id} columns={[
+          <DataTable label="Mesh members" rows={p.members} rowKey={(m) => m.id} actions={(m) => [{ label: `Remove ${m.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setLeave(m) }]}
+          columns={[
             { key: 'name', header: 'Server' },
             { key: 'mesh_ip', header: 'Mesh address', render: (m) => <span className="font-mono text-xs">{m.mesh_ip}</span> },
             { key: 'ip', header: 'Endpoint', render: (m) => <span className="font-mono text-xs">{m.ip}:{p.port}</span> },
@@ -41,7 +42,6 @@ export default function PrivateNetwork() {
             { key: 'port', header: 'Firewall', render: (m) => <span className="text-xs">{m.status?.port_opened === 'ufw' ? 'opened in UFW' : m.status?.port_opened === 'firewalld' ? 'opened in firewalld' : m.status?.port_opened === 'none' ? 'no host firewall' : m.status?.port_opened ? <span className="text-danger">{m.status.port_opened}</span> : '—'}</span> },
             { key: 'ssh', header: 'SSH', render: (m) => <SshLock m={m} /> },
             { key: 'checked', header: 'Checked', render: (m) => m.status?.checked_at ? ago(m.status.checked_at) : '—' },
-            { key: 'actions', header: '', render: (m) => <button type="button" className="btn btn-sm" onClick={() => setLeave(m)}>Remove</button> },
           ]} />
         )}
         {p.members.some((m) => m.status?.error || m.status?.dns_error) && (

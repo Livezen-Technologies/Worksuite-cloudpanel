@@ -134,15 +134,12 @@ function DatabasesTab({ app }: { app: R }) {
       </Card>
       {!dbs.isLoading && mine.length === 0 && <Empty>No databases on this server yet.</Empty>}
       <DataTable label="Databases" rows={mine} loading={dbs.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [{ label: `Back up ${r.name}`, icon: 'archive', disabled: busy, onClick: () => run({ path: `/databases/${r.id}/backup`, label: `Back up ${r.name}` }).catch(() => {}) }]}
         columns={[
           { key: 'name', header: 'Database', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'engine', header: 'Engine' },
           { key: 'version', header: 'Version', value: (r) => r.version ?? '—' },
           { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? 'unknown'} /> },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                    onClick={() => run({ path: `/databases/${r.id}/backup`, label: `Back up ${r.name}` }).catch(() => {})}>Back up</button>
-          ) },
         ]} />
     </>
   )
@@ -173,19 +170,15 @@ function DomainsTab({ app }: { app: R }) {
       </Card>
       {!domains.isLoading && domains.rows.length === 0 && <Empty>No domains attached to this application.</Empty>}
       <DataTable label="Domains" rows={domains.rows} loading={domains.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Verify DNS for ${r.name}`, icon: 'globe', disabled: busy, onClick: () => run({ path: `/domains/${r.id}/verify`, label: `Verify ${r.name}` }).catch(() => {}) },
+          { label: `Issue certificate for ${r.name}`, icon: 'shield', disabled: busy, onClick: () => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.name}` }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Domain', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'dns_status', header: 'DNS', render: (r) => <StatusBadge status={r.dns_status ?? 'pending'} /> },
           { key: 'https_status', header: 'HTTPS', render: (r) => <StatusBadge status={r.https_status ?? 'pending'} /> },
           { key: 'certificate_expires_at', header: 'Certificate expires', value: (r) => r.certificate_expires_at ?? '—' },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Verify ${r.name}` }).catch(() => {})}>Verify DNS</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.name}` }).catch(() => {})}>Issue certificate</button>
-            </span>
-          ) },
         ]} />
     </>
   )
@@ -228,20 +221,16 @@ function CronTab({ app }: { app: R }) {
       </Card>
       {!jobs.isLoading && jobs.rows.length === 0 && <Empty>No cron jobs found.</Empty>}
       <DataTable label="Cron jobs" rows={jobs.rows} loading={jobs.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Run ${r.name} now`, icon: 'play', disabled: busy, onClick: () => run({ path: `/scheduled-jobs/${r.id}/run`, label: `Run ${r.name}` }).catch(() => {}) },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: `The cron job ${r.name} is deleted.`, disabled: busy, onClick: () => run({ method: 'DELETE', path: `/scheduled-jobs/${r.id}`, label: `Delete ${r.name}`, success: 'Cron job deleted' }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Job', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'cron', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.cron ?? r.trigger}</span> },
           { key: 'action', header: 'Action', value: (r) => String(r.action ?? '').replace(/_/g, ' ') },
           { key: 'enabled', header: 'Enabled', render: (r) => <Badge tone={r.enabled ? 'g' : 'n'}>{r.enabled ? 'enabled' : 'paused'}</Badge> },
           { key: 'next_run_at', header: 'Next run', value: (r) => r.next_run_at ?? '—' },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/scheduled-jobs/${r.id}/run`, label: `Run ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ method: 'DELETE', path: `/scheduled-jobs/${r.id}`, label: `Delete ${r.name}`, success: 'Cron job deleted' }).catch(() => {})}>Delete</button>
-            </span>
-          ) },
         ]} />
     </>
   )

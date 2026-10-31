@@ -185,6 +185,11 @@ export function Backups() {
         <Card title="Backup policies" pad={false} actions={<button type="button" className="btn btn-primary btn-sm" onClick={newPolicy}>+ New policy</button>}>
           <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
             empty={<Empty>No backup policies yet.</Empty>}
+            actions={(r) => [
+                { label: `Back up ${r.name} now`, icon: 'play', disabled: busy, onClick: () => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {}) },
+                { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(r) },
+                { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) },
+              ]}
             columns={[
               { key: 'name', header: 'Target', render: (r) => <span><span className="block font-semibold">{r.name}</span><span className="block text-xs text-muted">{TARGET_KIND[String(r.target_type)] ?? r.target_type}<span className="font-mono"> · {String(r.target_id ?? '').slice(0, 12)}</span></span></span> },
               { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{METHOD[String(r.target_type)] ?? 'Restic snapshot'}</span> },
@@ -193,12 +198,6 @@ export function Backups() {
               { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily}d`, r.keep_weekly && `${r.keep_weekly}w`, r.keep_monthly && `${r.keep_monthly}m`].filter(Boolean).join(' · ') : `${r.retention_days} days` },
               { key: 'last_status', header: 'Last run', render: (r) => <span><StatusBadge status={r.enabled === false ? 'paused' : (r.last_status ?? 'never run')} /><span className="block text-xs text-muted mt-1">{r.last_run_at ? ago(r.last_run_at) : '—'}</span></span> },
               { key: 'enabled', header: 'On', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
-              { key: 'act', header: '', sortable: false, render: (r) => (
-                <span className="flex gap-2 whitespace-nowrap">
-                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
-                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
-                  <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
-                </span>) },
             ]} />
         </Card>
       </div>}
@@ -442,23 +441,26 @@ export function Monitoring() {
       <Card title="Active alerts" pad={false}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
           filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
+          actions={(r) => r.acknowledged_at ? [] : [{ label: 'Acknowledge', icon: 'check', onClick: () => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {}) }]}
           columns={[
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'title', header: 'Alert', value: (r) => r.title ?? r.rule_name ?? r.name, render: (r) => <span className="font-semibold">{r.title ?? r.rule_name ?? r.name}</span> },
             { key: 'detail', header: 'Detail', value: (r) => r.detail ?? r.message ?? [r.resource_type, r.value != null ? `value ${r.value}` : null, r.status].filter(Boolean).join(' · ') },
             { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
-            { key: 'ack', header: '', sortable: false, render: (r) => r.acknowledged_at ? <Badge tone="n">acknowledged</Badge> : <button type="button" className="btn btn-sm" onClick={() => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {})}>Acknowledge</button> },
           ]} />
       </Card>
       <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope: 'organization', duration_minutes: 5 })}>Add rule</button>}>
         <DataTable label="Alert rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [
+              { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(toForm(r)) },
+              { label: 'Delete', icon: 'trash', danger: true, confirm: `The rule ${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/alert-rules/${r.id}`, label: 'Delete rule', success: 'Rule deleted' }).catch(() => {}) },
+            ]}
           columns={[
             { key: 'name', header: 'Rule', render: (r) => <span className="font-semibold">{r.name}</span> },
             { key: 'condition', header: 'Condition', value: (r) => `${r.metric} ${r.operator ?? '>'} ${r.threshold}${r.duration_minutes ? ` for ${r.duration_minutes} min` : ''}` },
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'scope', header: 'Scope & channels', value: (r) => `${r.scope ?? r.scope_type ?? 'organization'} · ${(r.channels ?? r.channel_ids ?? []).length ? str(((r.channels ?? []) as R[]).map((c) => c.name ?? c)) : 'no channels'}` },
             { key: 'enabled', header: 'Enabled', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`Enable ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/alert-rules/${r.id}`, body: { enabled: v }, label: 'Update rule', success: v ? 'Rule enabled' : 'Rule disabled' }).catch(() => {})} /> },
-            { key: 'edit', header: '', sortable: false, render: (r) => <span className="flex gap-2"><button type="button" className="btn btn-sm" onClick={() => setEdit(toForm(r))}>Edit</button><button type="button" className="btn btn-sm btn-danger" onClick={() => run({ method: 'DELETE', path: `/alert-rules/${r.id}`, label: 'Delete rule', success: 'Rule deleted' }).catch(() => {})}>Delete</button></span> },
           ]} />
       </Card>
       <Card title="Notification channels">
@@ -545,12 +547,12 @@ export function Automation() {
       )}
       <Card title="Maintenance windows" pad={false}>
         <DataTable label="Maintenance windows" rows={windows.rows} loading={windows.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: `${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/maintenance-windows/${r.id}`, label: 'Delete window', success: 'Window deleted' }).catch(() => {}) }]}
           columns={[
             { key: 'name', header: 'Name', render: (r) => <span className="font-semibold">{r.name ?? 'Window'}</span> },
             { key: 'scope', header: 'Server / group', value: (r) => r.server_name ?? r.group ?? serverName(r) },
             { key: 'starts_at', header: 'Starts', render: (r) => r.starts_at ? new Date(r.starts_at).toLocaleString() : (r.schedule ?? '—') },
             { key: 'ends_at', header: 'Ends', render: (r) => r.ends_at ? new Date(r.ends_at).toLocaleString() : '—' },
-            { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => run({ method: 'DELETE', path: `/maintenance-windows/${r.id}`, label: 'Delete window', success: 'Window deleted' }).catch(() => {})}>Delete</button> },
           ]} />
       </Card>
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New job'} initial={edit ?? {}} submitLabel="Save job"
