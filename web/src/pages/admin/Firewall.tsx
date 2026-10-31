@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api, isApiError } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, StatTile, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, StatTile, Toggle, Empty, FormActions } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog } from '../../components/Overlay'
@@ -425,7 +425,7 @@ export default function Firewall() {
                 </div>
                 <div className="text-xs text-muted mt-1.5">Below this score, the visitor is challenged.</div>
               </div>
-              <button className="btn btn-primary self-start" disabled={busy}>Save provider</button>
+              <FormActions><button className="btn btn-primary" disabled={busy}>Save provider</button></FormActions>
             </form>
           </Card>
           <Card className="flex-[1_1_320px]" title="Protected paths"

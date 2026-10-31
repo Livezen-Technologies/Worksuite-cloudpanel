@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
 import { StatusBadge } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { ConfirmDialog } from '../../components/Overlay'
@@ -103,17 +103,14 @@ export function AppDetail() {
   }
   return (
     <>
-      <Link to="/app/apps" className="text-sm font-semibold inline-flex items-center min-h-[44px]">← My apps</Link>
-      <div className="flex flex-wrap items-center gap-3">
-        <span aria-hidden="true" className="w-12 h-12 rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>
-        <div className="flex-1 min-w-[200px]">
-          <h1 className="m-0 text-[26px] font-bold">{a.name}</h1>
-          <div className="text-sm text-muted"><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</div>
-        </div>
-        <StatusBadge status={appState(a.state ?? a.status)} />
-        <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
-      </div>
+      <PageHeader title={a.name} back={<Link to="/app/apps" className="link-action inline-flex items-center min-h-[44px]">← My apps</Link>}
+        icon={<span aria-hidden="true" className="w-12 h-12 flex-none rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>}
+        badge={<StatusBadge status={appState(a.state ?? a.status)} />}
+        subtitle={<><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</>}
+        actions={<>
+          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
+        </>} />
       <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'scaling', label: 'Scaling' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
       {tab === 'overview' && (
         <>
@@ -175,7 +172,7 @@ export function AppDetail() {
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_deploy} onChange={(v) => setSettings({ ...settings, auto_deploy: v })} label="Auto-deploy when I push" /><span className="text-sm">Auto-deploy when I push to my main branch</span></div>
             <Field label="Health check path" hint="Requested on your app's port after each deploy; 2xx or 3xx means healthy."><input className="input font-mono" value={settings.health_path ?? '/'} onChange={(e) => setSettings({ ...settings, health_path: e.target.value })} /></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_restart} onChange={(v) => setSettings({ ...settings, auto_restart: v })} label="Restart automatically if it crashes" /><span className="text-sm">Restart automatically if it crashes</span></div>
-            <button type="button" className="btn btn-primary self-start" disabled={busy} onClick={() => run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: settings, label: 'Save settings', success: 'Settings saved' }).catch(() => {})}>Save settings</button>
+            <FormActions><button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: settings, label: 'Save settings', success: 'Settings saved' }).catch(() => {})}>Save settings</button></FormActions>
             <div className="flex flex-wrap items-center gap-3 justify-between p-4 rounded-xl border border-danger-line mt-4">
               <div><div className="font-semibold text-danger">Delete this app</div><div className="text-sm text-muted">The app is removed. Your data is kept for 7 days in case you change your mind.</div></div>
               <button type="button" className="btn btn-danger" onClick={() => setDel(true)}>Delete app</button>

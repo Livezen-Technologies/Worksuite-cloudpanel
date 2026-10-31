@@ -143,7 +143,7 @@ export default function Overview() {
             <span className="grid h-10 w-10 flex-none place-content-center rounded-xl bg-sel text-accent-fg"><Icon name={icon} size={20} /></span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold">{title}</span>
-              <span className="block truncate text-xs text-muted">{sub}</span>
+              <span className="block text-xs text-muted line-clamp-2">{sub}</span>
             </span>
           </Link>
         ))}

@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api, isApiError, type ApiError } from '../../api/client'
 import { useJob, useList, useOne } from '../../api/hooks'
-import { Card, Field } from '../../components/Card'
+import { Card, Field, PageHeader } from '../../components/Card'
 import { StepWizard } from '../../components/StepWizard'
 import { JobTimeline } from '../../components/JobTimeline'
 import { logLines } from '../../lib/logs'
@@ -160,8 +160,8 @@ export default function HostApp() {
           )}
           {src === 'compose' && (
             <>
-              <label className="label">Compose file<textarea className="input font-mono" rows={10} value={s.compose} onChange={(e) => setS({ ...s, compose: e.target.value })} placeholder="services:\n  web:\n    image: nginx" /></label>
-              <label className="label">Or upload compose.yaml<input type="file" accept=".yml,.yaml" className="text-sm font-normal min-h-[44px]" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, compose: await f.text() }) }} /></label>
+              <Field label="Compose file"><textarea className="input font-mono" rows={10} value={s.compose} onChange={(e) => setS({ ...s, compose: e.target.value })} placeholder="services:\n  web:\n    image: nginx" /></Field>
+              <Field label="Or upload compose.yaml"><input type="file" accept=".yml,.yaml" className="text-sm font-normal min-h-[44px]" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, compose: await f.text() }) }} /></Field>
             </>
           )}
           <div className="text-sm font-semibold">{src === 'template' ? 'Pick a template:' : 'Or start from a template:'}</div>
@@ -180,9 +180,9 @@ export default function HostApp() {
             <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
               <p className="m-0 text-sm">{String(picked.description ?? '')}{picked.type === 'compose' ? ` A stack of ${((picked.services as string[]) ?? []).join(', ')}, run together on one server.` : ''}{Number(picked.generates) > 0 ? ` We create ${picked.generates === 1 ? 'a password' : `${picked.generates} passwords and keys`} for it and keep ${picked.generates === 1 ? 'it' : 'them'} secret.` : ''}</p>
               {((picked.variables as R[]) ?? []).map((v) => (
-                <label key={String(v.key)} className="label">{String(v.label ?? v.key)}{v.required ? ' (required)' : ''}
+                <Field key={String(v.key)} label={String(v.label ?? v.key)} required={!!v.required}>
                   <input className="input font-mono" type={v.secret ? 'password' : 'text'} autoComplete="off" value={vars[String(v.key)] ?? ''} onChange={(e) => setVars({ ...vars, [String(v.key)]: e.target.value })} />
-                </label>
+                </Field>
               ))}
             </div>
           )}
@@ -298,7 +298,7 @@ export default function HostApp() {
   ]
   return (
     <>
-      <div><h1 className="m-0 text-[28px] font-bold">Host a Docker app</h1><p className="m-0 mt-1.5 text-sm text-muted">Four steps — we handle the server, HTTPS and restarts</p></div>
+      <PageHeader title="Host a Docker app" subtitle="Four steps — we handle the server, HTTPS and restarts" />
       <Card>
         <StepWizard steps={steps} step={step} maxReached={deploy ? 3 : max} busy={busy || (!!deploy && !done && !failed)} error={err}
           onStep={(n) => { if (deploy && n < 3 && !failed) return; setErr(null); setStep(n) }} hideNav={step === 3} />

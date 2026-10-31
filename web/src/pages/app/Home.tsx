@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import { useList, useOne } from '../../api/hooks'
 import { StatusBadge } from '../../components/Badge'
-import { StatTile } from '../../components/Card'
+import { PageHeader, StatTile } from '../../components/Card'
 import { Icon } from '../../components/Icon'
 import { useAuth } from '../../lib/auth'
 import { num, type R } from '../../lib/util'
@@ -59,12 +59,12 @@ export function Home() {
   ]
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-3.5">
-        <span aria-hidden="true" className="grid place-items-center w-11 h-11 rounded-[10px] bg-sel text-accent font-bold text-lg">{initials}</span>
-        <div className="flex-1 min-w-[220px]"><h1 className="m-0 text-2xl font-bold tracking-tight">{org}</h1><p className="m-0 mt-1 text-[13.5px] text-muted">Everything in your account at a glance</p></div>
-        <Link to="/app/new-site" className="btn no-underline">New site</Link>
-        <Link to="/app/host" className="btn btn-primary no-underline gap-1.5"><Icon name="plus" size={16} />Host an app</Link>
-      </div>
+      <PageHeader title={org} subtitle="Everything in your account at a glance"
+        icon={<span aria-hidden="true" className="grid flex-none place-items-center w-11 h-11 rounded-[10px] bg-sel text-accent font-bold text-lg">{initials}</span>}
+        actions={<>
+          <Link to="/app/new-site" className="btn no-underline">New site</Link>
+          <Link to="/app/host" className="btn btn-primary no-underline gap-1.5"><Icon name="plus" size={16} />Host an app</Link>
+        </>} />
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         {stats.map((s) => <StatTile key={s.k} label={s.k} value={s.v} delta={s.d} deltaTone="n" valueTone={s.tone as 'g' | 'r' | undefined} icon={<Icon name={s.icon} size={16} />} iconTone={s.tone === 'r' ? 'r' : s.tone === 'g' ? 'g' : 'b'} />)}
       </div>

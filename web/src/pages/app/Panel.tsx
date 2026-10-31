@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { CopyButton } from '../../components/CopyButton'
@@ -105,7 +105,7 @@ export function UserDomains() {
           <table className="tbl min-w-[640px]">
             <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Domain</th><th className="p-2.5">App</th><th className="p-2.5">DNS</th><th className="p-2.5">HTTPS</th><th className="p-2.5">Renews</th><th className="p-2.5"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {domains.rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No domains yet. Add one above.</td></tr>}
+              {domains.rows.length === 0 && <tr><td colSpan={6} className="!p-0"><Empty icon="globe">No domains yet. Add one above and HTTPS is issued automatically.</Empty></td></tr>}
               {domains.rows.map((d) => {
                 const renew = daysUntil(d.renewal_at ?? d.certificate?.expires_at ?? d.renews_at)
                 const expires = d.certificate?.expires_at ? daysUntil(d.certificate.expires_at) : null
@@ -321,7 +321,7 @@ export function Account() {
             <Field label="Full name"><input className="input" value={p.name ?? ''} onChange={(e) => setP({ ...p, name: e.target.value })} /></Field>
             <Field label="Email"><input className="input" type="email" value={p.email ?? ''} onChange={(e) => setP({ ...p, email: e.target.value })} /></Field>
             <Field label="Organisation"><input className="input" value={p.organization ?? ''} onChange={(e) => setP({ ...p, organization: e.target.value })} /></Field>
-            <button className="btn btn-primary self-start" disabled={busy}>Save</button>
+            <FormActions><button className="btn btn-primary" disabled={busy}>Save</button></FormActions>
           </form>
         </Card>
         <div className="flex-[1_1_320px] flex flex-col gap-4 min-w-0">

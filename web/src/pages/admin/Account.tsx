@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, isApiError } from '../../api/client'
 import { useAction, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader } from '../../components/Card'
+import { Card, Field, PageHeader, FormActions } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { PasskeyManager } from '../../components/Passkeys'
 import { Tabs } from '../../components/Tabs'
@@ -70,7 +70,7 @@ function Profile({ name, email, onSaved }: { name: string; email: string; onSave
         <Field label="Full name"><input className="input" required maxLength={120} autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Email" hint={emailChanged ? 'You will need to verify the new address.' : undefined}><input className="input" type="email" required autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         {emailChanged && <Field label="Current password" hint="Needed to change your email."><input className="input" type="password" required autoComplete="current-password" value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} /></Field>}
-        <button className="btn btn-primary self-start" disabled={busy || (f.name === name && !emailChanged)}>Save</button>
+        <FormActions><button className="btn btn-primary" disabled={busy || (f.name === name && !emailChanged)}>Save</button></FormActions>
       </form>
     </Card>
   )
@@ -102,7 +102,7 @@ function ChangePassword() {
         <Field label="Current password" error={err.current_password}><input className="input" type="password" required autoComplete="current-password" value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} /></Field>
         <Field label="New password" hint="At least 10 characters." error={err.password}><input className="input" type="password" required minLength={10} autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
         <Field label="Repeat the new password" error={mismatch ? 'The passwords do not match.' : undefined}><input className="input" type="password" required autoComplete="new-password" value={f.password_confirmation} onChange={(e) => setF({ ...f, password_confirmation: e.target.value })} /></Field>
-        <button className="btn btn-primary self-start" disabled={busy || mismatch || f.password.length < 10}>Change password</button>
+        <FormActions><button className="btn btn-primary" disabled={busy || mismatch || f.password.length < 10}>Change password</button></FormActions>
       </form>
     </Card>
   )

@@ -3,7 +3,7 @@ import { api, apiBase, errorMessage, request, tokenStore } from '../../api/clien
 import { TERMINAL, useList, useServerName } from '../../api/hooks'
 import type { Job } from '../../api/types'
 import { Badge } from '../../components/Badge'
-import { Empty, Meter, PageHeader } from '../../components/Card'
+import { Empty, Meter, PageHeader, Field } from '../../components/Card'
 import { FileEditor } from '../../components/FileEditor'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useToast } from '../../components/Toasts'
@@ -624,12 +624,12 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
             )}
             {(view === 'files' || view === 'search') && advanced && (
               <form className="grid gap-3 p-4 border-b border-line bg-head [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
-                <label className="label">Name contains<input className="input h-9" value={query.name} onChange={(e) => setQuery({ ...query, name: e.target.value })} /></label>
-                <label className="label">Extensions<input className="input h-9 font-mono" placeholder="php, js" value={query.extensions} onChange={(e) => setQuery({ ...query, extensions: e.target.value })} /></label>
-                <label className="label">Min size (MB)<input className="input h-9" inputMode="decimal" value={query.min} onChange={(e) => setQuery({ ...query, min: e.target.value })} /></label>
-                <label className="label">Max size (MB)<input className="input h-9" inputMode="decimal" value={query.max} onChange={(e) => setQuery({ ...query, max: e.target.value })} /></label>
-                <label className="label">Modified after<input type="date" className="input h-9" value={query.after} onChange={(e) => setQuery({ ...query, after: e.target.value })} /></label>
-                <label className="label">Modified before<input type="date" className="input h-9" value={query.before} onChange={(e) => setQuery({ ...query, before: e.target.value })} /></label>
+                <Field label="Name contains"><input className="input h-9" value={query.name} onChange={(e) => setQuery({ ...query, name: e.target.value })} /></Field>
+                <Field label="Extensions"><input className="input h-9 font-mono" placeholder="php, js" value={query.extensions} onChange={(e) => setQuery({ ...query, extensions: e.target.value })} /></Field>
+                <Field label="Min size (MB)"><input className="input h-9" inputMode="decimal" value={query.min} onChange={(e) => setQuery({ ...query, min: e.target.value })} /></Field>
+                <Field label="Max size (MB)"><input className="input h-9" inputMode="decimal" value={query.max} onChange={(e) => setQuery({ ...query, max: e.target.value })} /></Field>
+                <Field label="Modified after"><input type="date" className="input h-9" value={query.after} onChange={(e) => setQuery({ ...query, after: e.target.value })} /></Field>
+                <Field label="Modified before"><input type="date" className="input h-9" value={query.before} onChange={(e) => setQuery({ ...query, before: e.target.value })} /></Field>
                 <div className="flex items-end gap-2">
                   <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !Object.values(query).some((v) => v.trim())}>Search</button>
                   {view === 'search' && <button type="button" className="btn btn-sm" onClick={() => load(dir)}>Clear</button>}
@@ -904,10 +904,10 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           <button type="button" className="btn" onClick={() => setNaming(null)}>Cancel</button>
           <button type="button" className="btn btn-primary" disabled={busy || !validName(naming?.value ?? '')} onClick={submitName}>{busy ? 'Working…' : naming?.kind === 'rename' ? 'Rename' : 'Create'}</button>
         </>}>
-        <label className="label">Name
+        <Field label="Name">
           <input className="input font-mono" autoFocus value={naming?.value ?? ''} onChange={(e) => naming && setNaming({ ...naming, value: e.target.value })}
             onKeyDown={(e) => { if (e.key === 'Enter') submitName() }} aria-invalid={!!naming?.value && !validName(naming.value)} />
-        </label>
+        </Field>
         {!!naming?.value && !validName(naming.value) && <p className="text-xs text-danger mt-2">A name cannot contain “/” or be “.” or “..”.</p>}
       </Modal>
 
@@ -992,10 +992,10 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
                 </tr>
               ))}</tbody>
             </table>
-            <label className="label">Numeric value
+            <Field label="Numeric value">
               <input className="input font-mono w-28" inputMode="numeric" value={perm.mode.toString(8).padStart(3, '0')}
                 onChange={(e) => { const v = e.target.value.replace(/[^0-7]/g, '').slice(-3); if (v) setPerm({ ...perm, mode: parseInt(v, 8) }) }} />
-            </label>
+            </Field>
             {perm.items.some((i) => i.type === 'dir') && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={perm.recursive} onChange={(e) => setPerm({ ...perm, recursive: e.target.checked })} />Apply to everything inside the selected folders</label>}
             {canChown ? (
               <fieldset className="border border-line rounded-lg p-3 m-0">
@@ -1021,22 +1021,22 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
         </>}>
         {op && op.kind === 'compress' ? (
           <div className="flex flex-col gap-3">
-            <label className="label">Archive name<input className="input font-mono" value={op.name} onChange={(e) => setOp({ ...op, name: e.target.value })} /></label>
-            <label className="label">Format
+            <Field label="Archive name"><input className="input font-mono" value={op.name} onChange={(e) => setOp({ ...op, name: e.target.value })} /></Field>
+            <Field label="Format">
               <Select className="input" value={op.format} onChange={(e) => setOp({ ...op, format: e.target.value })}>
                 <option value="zip">ZIP</option><option value="tar.gz">TAR.GZ</option><option value="tar">TAR</option>
               </Select>
-            </label>
+            </Field>
             <p className="m-0 text-xs text-muted">The archive is created in {dir || 'the top folder'}. Links are left out.</p>
           </div>
         ) : op && (
           <div className="flex flex-col gap-3">
             {op.kind !== 'extract' && sameServer.length > 1 && (
-              <label className="label">Into
+              <Field label="Into">
                 <Select className="input" value={op.destId} onChange={(e) => setOp({ ...op, destId: e.target.value, dest: e.target.value === volumeId ? dir : '' })}>
                   {sameServer.map((v) => <option key={v.id} value={v.id}>{v.name}{v.id === volumeId ? ' (this one)' : ''}</option>)}
                 </Select>
-              </label>
+              </Field>
             )}
             <label className="label">{op.kind === 'extract' ? 'Extract into folder' : 'Destination folder'}
               <input className="input font-mono" value={op.dest} placeholder="(top folder)" onChange={(e) => setOp({ ...op, dest: e.target.value })} />

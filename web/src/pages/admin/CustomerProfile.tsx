@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Empty, Field, PageHeader, StatTile } from '../../components/Card'
+import { Card, Empty, Field, PageHeader, StatTile, FormActions } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { Icon } from '../../components/Icon'
@@ -121,7 +121,7 @@ export default function CustomerProfile() {
             <Field label="Name"><input className="input" required maxLength={120} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
             <Field label="Billing email"><input className="input" type="email" required value={f.billing_email} onChange={(e) => setF({ ...f, billing_email: e.target.value })} /></Field>
             <Field label="Internal notes"><textarea className="input min-h-32 py-2" maxLength={5000} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} placeholder="Contract terms, contacts, anything the team should know" /></Field>
-            <button className="btn btn-primary self-start" disabled={busy}>Save</button>
+            <FormActions><button className="btn btn-primary" disabled={busy}>Save</button></FormActions>
           </form>
         </Card>}
       </div>

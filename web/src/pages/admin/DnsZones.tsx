@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, PageHeader } from '../../components/Card'
+import { Card, PageHeader, Field } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -178,21 +178,21 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
       </div>
       {!!z.supports_settings && settings.item && (
         <div className="p-4 text-sm border-b border-line grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
-          <label className="label">SSL mode
+          <Field label="SSL mode">
             <Select className="input h-9" value={String(st.ssl)} disabled={busy} onChange={(e) => setSetting('ssl', e.target.value)}>
               {SSL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
-          </label>
-          <label className="label">Minimum TLS
+          </Field>
+          <Field label="Minimum TLS">
             <Select className="input h-9" value={String(st.min_tls_version)} disabled={busy} onChange={(e) => setSetting('min_tls_version', e.target.value)}>
               {['1.0', '1.1', '1.2', '1.3'].map((v) => <option key={v} value={v}>TLS {v}</option>)}
             </Select>
-          </label>
-          <label className="label">Cache level
+          </Field>
+          <Field label="Cache level">
             <Select className="input h-9" value={String(st.cache_level)} disabled={busy} onChange={(e) => setSetting('cache_level', e.target.value)}>
               {CACHE_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
-          </label>
+          </Field>
           <label className="flex items-center gap-2 self-end h-9">
             <input type="checkbox" checked={!!st.always_use_https} disabled={busy} onChange={(e) => setSetting('always_use_https', e.target.checked)} /> Always use HTTPS
           </label>

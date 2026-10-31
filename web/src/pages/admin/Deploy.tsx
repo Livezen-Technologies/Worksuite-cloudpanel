@@ -353,7 +353,7 @@ export function Compose() {
             <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option></Select></Field>
           </div>
           <Field label="Import from Git (optional)" hint="Repository URL containing compose.yaml"><input className="input font-mono" value={f.git_url} onChange={(e) => setF({ ...f, git_url: e.target.value })} /></Field>
-          <label className="label">Upload compose.yaml<input type="file" accept=".yml,.yaml" className="text-sm font-normal" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setF({ ...f, yaml: await file.text() }) }} /></label>
+          <Field label="Upload compose.yaml"><input type="file" accept=".yml,.yaml" className="text-sm font-normal" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setF({ ...f, yaml: await file.text() }) }} /></Field>
           <CodeEditor label="compose.yaml" value={f.yaml} onChange={(v) => setF({ ...f, yaml: v })} rows={12} />
         </div>
       </Modal>

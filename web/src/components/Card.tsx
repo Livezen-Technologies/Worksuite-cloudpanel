@@ -20,16 +20,37 @@ export function Card({ title, subtitle, actions, children, className = '', pad =
   )
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+/**
+ * The one page heading every page uses: optional back link, leading icon, title with a status badge,
+ * a subtitle, and the page's actions on the right.
+ */
+export function PageHeader({ title, subtitle, actions, back, icon, badge, center }: {
+  title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: ReactNode
+  icon?: ReactNode; badge?: ReactNode; center?: boolean
+}) {
   return (
-    <div className="flex flex-wrap items-end gap-4">
-      <div className="flex-1 min-w-[220px]">
-        <h1 className="m-0 text-[26px] leading-8 font-semibold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1.5 mb-0 text-sm text-muted">{subtitle}</p>}
+    <div className="flex flex-col gap-2">
+      {back && <div className="self-start text-sm">{back}</div>}
+      <div className={`flex flex-wrap items-end gap-4 ${center ? 'justify-center text-center' : ''}`}>
+        <div className={`flex items-center gap-3 min-w-[220px] ${center ? '' : 'flex-1'}`}>
+          {icon}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="m-0 text-[26px] leading-8 font-semibold tracking-tight break-words">{title}</h1>
+              {badge}
+            </div>
+            {subtitle && <p className="mt-1.5 mb-0 text-sm text-muted">{subtitle}</p>}
+          </div>
+        </div>
+        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
   )
+}
+
+/** The footer every form ends with: actions on the right, divided from the fields. */
+export function FormActions({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`flex flex-wrap items-center justify-end gap-2 pt-4 mt-1 border-t border-line ${className}`}>{children}</div>
 }
 
 export function Meter({ value, label, color, thick = false }: { value: number; label?: string; color?: string; thick?: boolean }) {

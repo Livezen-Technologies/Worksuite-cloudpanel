@@ -251,3 +251,10 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
 .code-hl .tok-nu { color: var(--tok-nu); }
 .code-hl .tok-va { color: var(--tok-va); }
 .code-hl .tok-tg { color: var(--tok-tg); }
+
+/* The page column spaces its sections with a gap; a section's own outer margin would double it,
+   and an empty section (no tiles yet, a hidden banner) must not leave a gap at all. */
+#main > * { margin-top: 0; margin-bottom: 0; }
+#main > :empty { display: none; }
+/* A table placed inside a titled card joins it instead of drawing a box inside a box. */
+.card .card.dt { border-width: 1px 0 0; border-radius: 0; box-shadow: none; }
