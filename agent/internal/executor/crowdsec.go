@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,10 +42,51 @@ func (e *Executor) cscli(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 type crowdsecApply struct {
-	Scenarios map[string]string `json:"scenarios"`
-	Profiles  string            `json:"profiles"`
+	Scenarios scenarioFiles `json:"scenarios"`
+	Profiles  string        `json:"profiles"`
 	// Whitelist is the allow list (FW-011) as a whitelist parser; empty removes it.
 	Whitelist string `json:"whitelist"`
+}
+
+// scenarioFiles maps a dmp-*.yaml file name to its contents.
+//
+// The panel sends it as a JSON object, but an installation with no firewall
+// rules sends "[]" instead of "{}": AgentCommand casts payload to
+// "encrypted:array", so Laravel decodes it with assoc=true and re-encodes an
+// empty PHP array as a JSON array, undoing the (object) cast made when the
+// command was dispatched. A plain map[string]string then fails to unmarshal and
+// the whole command is refused, which means a fresh install never gets its
+// profiles.yaml -- exactly when it is needed. Accept both shapes.
+type scenarioFiles map[string]string
+
+func (s *scenarioFiles) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		*s = nil
+
+		return nil
+	}
+	if b[0] == '[' {
+		var items []json.RawMessage
+		if err := json.Unmarshal(b, &items); err != nil {
+			return err
+		}
+		// Only an empty array is the encoding quirk above; a populated one is a
+		// real mismatch and must not pass as "no scenarios".
+		if len(items) > 0 {
+			return fmt.Errorf("scenarios: expected an object, got an array of %d", len(items))
+		}
+		*s = scenarioFiles{}
+
+		return nil
+	}
+	var m map[string]string
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	*s = m
+
+	return nil
 }
 
 // crowdsecApply replaces the panel's scenarios (dmp-*.yaml) and profiles.yaml,

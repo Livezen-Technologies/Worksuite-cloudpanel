@@ -159,3 +159,40 @@ func TestCrowdSecApplyWritesAndRemovesTheAllowList(t *testing.T) {
 		t.Fatal("an empty allow list removes the parser")
 	}
 }
+
+// An installation with no firewall rules sends "scenarios":[] rather than {}:
+// the panel's payload cast ("encrypted:array") re-encodes an empty PHP array as
+// a JSON array. That used to refuse the whole command, so a fresh install never
+// received its profiles.yaml.
+func TestCrowdSecApplyAcceptsAnEmptyScenarioArray(t *testing.T) {
+	e, f, dir := csExec(t)
+	raw := json.RawMessage(`{"scenarios":[],"profiles":"# defaults\n"}`)
+	if _, err := e.crowdsecApply(context.Background(), raw); err != nil {
+		t.Fatalf("empty scenario array refused: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "profiles.yaml"))
+	if err != nil || string(b) != "# defaults\n" {
+		t.Fatalf("profiles.yaml not written: %q err=%v", b, err)
+	}
+	if len(f.calls) == 0 {
+		t.Fatal("CrowdSec was never checked or reloaded")
+	}
+}
+
+// An object still works, and a populated array is still a real mismatch.
+func TestCrowdSecApplyScenarioShapes(t *testing.T) {
+	e, _, dir := csExec(t)
+	raw := json.RawMessage(`{"scenarios":{"dmp-fw-a.yaml":"name: a\n"},"profiles":"# p\n"}`)
+	if _, err := e.crowdsecApply(context.Background(), raw); err != nil {
+		t.Fatalf("object form refused: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "scenarios", "dmp-fw-a.yaml")); err != nil {
+		t.Fatalf("scenario not written: %v", err)
+	}
+
+	e2, _, _ := csExec(t)
+	bad := json.RawMessage(`{"scenarios":["dmp-fw-a.yaml"],"profiles":"# p\n"}`)
+	if _, err := e2.crowdsecApply(context.Background(), bad); err == nil {
+		t.Fatal("a populated array must not pass as \"no scenarios\"")
+	}
+}
