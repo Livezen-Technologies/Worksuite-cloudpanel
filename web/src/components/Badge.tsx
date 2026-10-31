@@ -18,8 +18,8 @@ export function toneFor(status?: string | null): Tone {
 export function Badge({ children, tone, className = '' }: { children: React.ReactNode; tone?: Tone; className?: string }) {
   const t = tone ?? toneFor(typeof children === 'string' ? children : undefined)
   return (
-    <span className={`inline-flex items-center h-[22px] px-2 rounded-md text-xs font-semibold whitespace-nowrap ${className}`}
-      style={{ background: `var(--${t}-bg)`, color: `var(--${t}-fg)` }}>
+    <span className={`inline-flex items-center h-[22px] px-2 rounded-md text-xs font-medium whitespace-nowrap ${className}`}
+      style={{ background: `var(--${t}-bg)`, color: `var(--${t}-fg)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--${t}-fg) 20%, transparent)` }}>
       {children}
     </span>
   )

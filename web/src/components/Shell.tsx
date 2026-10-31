@@ -114,27 +114,27 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
                 {me.organization.name.slice(0, 1).toUpperCase()}
               </span>
               <span className="max-w-[14rem] truncate">{me.organization.name}</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             </Link>
           )}
 
           {/* Search is the primary way into anything, so it sits centre. */}
           <button type="button" onClick={() => setPalette(true)}
-            className="!rounded-full mx-auto flex max-w-xl flex-1 items-center gap-2.5 border px-3 text-left min-h-10 lg:flex-none lg:w-[min(36rem,40vw)] bg-white/5 border-[var(--header-line)] text-white/60"
+            className="!rounded-full flex min-w-0 items-center justify-center gap-2.5 border text-left min-h-11 w-11 flex-none sm:mx-auto sm:min-h-10 sm:w-auto sm:max-w-xl sm:flex-1 sm:justify-start sm:px-3 lg:flex-initial lg:basis-[min(36rem,40vw)] bg-white/5 border-[var(--header-line)] text-white/60 hover:bg-white/10 hover:text-white/80"
             aria-label="Search (Ctrl K)">
-            <Icon name="search" size={16} /><span className="flex-1 truncate text-sm">Search servers, containers, apps…</span>
-            <kbd className="hidden sm:inline rounded border border-line px-1.5 py-0.5 font-sans text-[11px]">⌘K</kbd>
+            <Icon name="search" size={16} /><span className="hidden min-w-0 flex-1 truncate text-sm sm:block">Search servers, containers, apps…</span>
+            <kbd className="hidden sm:inline rounded border border-white/15 px-1.5 py-0.5 font-sans text-[11px] text-white/60">⌘K</kbd>
           </button>
 
           <div className="ml-auto flex flex-none items-center gap-1">
             {status && (
-              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted">
+              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-white/70">
                 <span className={`h-2 w-2 rounded-full ${status.tone === 'g' ? 'bg-g-fg' : status.tone === 'y' ? 'bg-y-fg' : 'bg-r-fg'}`} aria-hidden="true" />
                 {status.label}
               </span>
             )}
             <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
-              className="!min-h-11 !min-w-11 grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
+              className="!min-h-11 !min-w-11 hidden sm:grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </Link>
             {headerExtra}
@@ -184,9 +184,23 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
       <div className="flex flex-1 min-h-0">
       {rail && <Rail items={rail} />}
       <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">{side}</aside>
-      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
+      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>
+        {/* On phones the area rail is hidden, so the drawer carries it: without it a phone could not leave the current area. */}
+        {rail && (
+          <nav aria-label="Areas" className="mb-5 grid grid-cols-3 gap-1.5 border-b border-line pb-5">
+            {rail.map((r) => (
+              <NavLink key={r.to} to={r.to} end={r.end} onClick={() => setMenu(false)}
+                className={({ isActive }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
+                <Icon name={r.icon} size={20} />
+                <span className="w-full truncate text-[11px] font-semibold">{r.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        )}
+        {side}
+      </Drawer>
       <div className="flex-1 min-w-0 flex flex-col">
-        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
+        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full min-w-0 box-border">
           {me && !me.user.email_verified_at && <VerifyBanner email={String(me.user.email)} />}
           <Outlet />
         </main>

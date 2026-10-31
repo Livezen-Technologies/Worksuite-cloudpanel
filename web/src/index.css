@@ -3,13 +3,16 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #F8FAFC; --side: #FFFFFF; --card: #FFFFFF; --head: #F8FAFC;
-  --text: #0F172A; --muted: #5B6475; --line: #E2E8F0; --track: #EEF2F7;
-  --sel: #EEF2FF; --accent: #4F46E5; --accent-hover: #4338CA; --accent-fg: #4F46E5;
-  --g-bg: #ECFDF3; --g-fg: #15803D; --y-bg: #FEF9C3; --y-fg: #854D0E;
+  /* Tailwind Plus (Application UI v4) palette: gray neutrals, indigo accent. */
+  --bg: #F9FAFB; --side: #FFFFFF; --card: #FFFFFF; --head: #F9FAFB;
+  --text: #111827; --muted: #4B5563; --line: #E5E7EB; --track: #F3F4F6;
+  --sel: #EEF2FF; --accent: #4F46E5; --accent-hover: #6366F1; --accent-fg: #4F46E5;
+  --g-bg: #F0FDF4; --g-fg: #15803D; --y-bg: #FEFCE8; --y-fg: #854D0E;
   --r-bg: #FEF2F2; --r-fg: #B91C1C; --b-bg: #EFF6FF; --b-fg: #1D4ED8;
-  --n-bg: #F1F5F9; --n-fg: #475569; --danger: #B91C1C; --danger-line: #FECACA;
-  --code-bg: #0F172A; --code-fg: #E2E8F0;
+  --n-bg: #F9FAFB; --n-fg: #4B5563; --danger: #DC2626; --danger-line: #FECACA;
+  --code-bg: #111827; --code-fg: #E5E7EB;
+  /* Control surfaces: secondary buttons and inputs (white + gray-300 ring), cards (shadow + faint ring). */
+  --ctl-bg: #FFFFFF; --ctl-hover: #F9FAFB; --ctl-ring: #D1D5DB; --card-ring: rgb(17 24 39 / .06);
   /* Editor syntax colours (file manager), each at 4.5:1 or more on --card. */
   --tok-kw: #7C3AED; --tok-st: #047857; --tok-cm: #64748B; --tok-nu: #B45309; --tok-va: #1D4ED8; --tok-tg: #BE185D;
   /* The top bar stays dark in both themes, as the canvas specifies. */
@@ -17,13 +20,14 @@
   color-scheme: light;
 }
 .dark {
-  --bg: #0B1120; --side: #0F172A; --card: #111827; --head: #0F172A;
-  --text: #F1F5F9; --muted: #94A3B8; --line: #1E293B; --track: #1E293B;
-  --sel: #1E1B4B; --accent-fg: #A5B4FC;
-  --g-bg: #052E1B; --g-fg: #4ADE80; --y-bg: #3A2A05; --y-fg: #FACC15;
-  --r-bg: #3B0D0D; --r-fg: #F87171; --b-bg: #0C2340; --b-fg: #60A5FA;
-  --n-bg: #1E293B; --n-fg: #CBD5E1; --danger: #F87171; --danger-line: #7F1D1D;
-  --code-bg: #020617; --code-fg: #E2E8F0;
+  --bg: #111827; --side: #0D131F; --card: #18202E; --head: #1F2937;
+  --text: #F9FAFB; --muted: #9CA3AF; --line: rgb(255 255 255 / .1); --track: #1F2937;
+  --sel: rgb(99 102 241 / .15); --accent: #6366F1; --accent-hover: #818CF8; --accent-fg: #A5B4FC;
+  --g-bg: rgb(74 222 128 / .1); --g-fg: #4ADE80; --y-bg: rgb(250 204 21 / .1); --y-fg: #FACC15;
+  --r-bg: rgb(248 113 113 / .1); --r-fg: #F87171; --b-bg: rgb(96 165 250 / .1); --b-fg: #60A5FA;
+  --n-bg: rgb(156 163 175 / .1); --n-fg: #D1D5DB; --danger: #F87171; --danger-line: rgb(248 113 113 / .3);
+  --code-bg: #030712; --code-fg: #E5E7EB;
+  --ctl-bg: rgb(255 255 255 / .05); --ctl-hover: rgb(255 255 255 / .1); --ctl-ring: rgb(255 255 255 / .1); --card-ring: rgb(255 255 255 / .1);
   --tok-kw: #C4B5FD; --tok-st: #6EE7B7; --tok-cm: #94A3B8; --tok-nu: #FCD34D; --tok-va: #93C5FD; --tok-tg: #F9A8D4;
   color-scheme: dark;
 }
@@ -38,7 +42,8 @@
 
   --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / .04);
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / .05);
+  --shadow-card: 0 1px 3px rgb(0 0 0 / .1), 0 1px 2px -1px rgb(0 0 0 / .1);
   --shadow-pop:  0 8px 24px rgb(0 0 0 / .12);
   --shadow-over: 0 24px 48px rgb(0 0 0 / .20);
 
@@ -50,7 +55,8 @@
 }
 .dark {
   /* Shadows need more weight on a dark ground to read at all. */
-  --shadow-card: 0 1px 2px rgb(0 0 0 / .40);
+  --shadow-xs: none;
+  --shadow-card: none;
   --shadow-pop:  0 8px 24px rgb(0 0 0 / .55);
   --shadow-over: 0 24px 48px rgb(0 0 0 / .70);
 }
@@ -100,18 +106,18 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 @layer components {
-  .btn { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); min-height:40px; padding:0 14px; border-radius:var(--radius-md); transition:background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); font-size:14px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; white-space:nowrap; }
-  .btn:hover { background: var(--head); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); min-height:40px; padding:0 14px; border-radius:var(--radius-md); transition:background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); font-size:14px; line-height:20px; font-weight:600; border:1px solid var(--ctl-ring); background:var(--ctl-bg); color:var(--text); box-shadow:var(--shadow-xs); cursor:pointer; white-space:nowrap; text-decoration:none; }
+  .btn:hover { background: var(--ctl-hover); }
   .btn:disabled { opacity:.55; cursor:not-allowed; }
-  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn-primary { background:var(--accent); border-color:transparent; color:#fff; }
   .btn-primary:hover { background:var(--accent-hover); }
-  .btn-danger { background:transparent; border-color:var(--danger-line); color:var(--danger); }
+  .btn-danger { background:var(--ctl-bg); border-color:var(--danger-line); color:var(--danger); }
   .btn-danger:hover { background:var(--r-bg); }
   .btn-sm { min-height:32px; padding:0 10px; font-size:13px; }
   /* A quiet action: no border or fill until it is pointed at, so a row of
      actions does not compete with the data beside it. */
-  .btn-ghost { background:transparent; border-color:transparent; color:var(--muted); font-weight:600; }
-  .btn-ghost:hover { background:var(--head); color:var(--text); }
+  .btn-ghost { background:transparent; border-color:transparent; box-shadow:none; color:var(--muted); font-weight:600; }
+  .btn-ghost:hover { background:var(--ctl-hover); color:var(--text); }
   .btn-ghost.btn-danger { background:transparent; border-color:transparent; color:var(--muted); }
   .btn-ghost.btn-danger:hover { background:var(--r-bg); color:var(--danger); border-color:transparent; }
   /* Segmented group: related lifecycle actions read as one control rather
@@ -123,11 +129,12 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   .btn-group > .btn:only-child { border-radius:var(--radius-md); }
   /* The focused or hovered segment must sit above its neighbours' borders. */
   .btn-group > .btn:hover, .btn-group > .btn:focus-visible { position:relative; z-index:1; }
-  .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 var(--space-3); border-radius:var(--radius-md); transition:border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:14px; }
+  .input { width:100%; box-sizing:border-box; min-height:40px; padding:0 var(--space-3); border-radius:var(--radius-md); transition:border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); border:1px solid var(--ctl-ring); background:var(--ctl-bg); color:var(--text); font:inherit; font-size:14px; line-height:20px; }
   textarea.input { padding:10px 12px; }
-  .label { display:flex; flex-direction:column; gap:var(--space-2); font-size:13px; font-weight:600; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg); }
-  .chip { min-height:36px; padding:0 14px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
+  .label { display:flex; flex-direction:column; gap:var(--space-2); font-size:14px; line-height:20px; font-weight:500; color:var(--text); }
+  .card { background:var(--card); border:1px solid var(--card-ring); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); }
+  .chip { min-height:36px; padding:0 14px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--ctl-ring); background:var(--ctl-bg); color:var(--text); cursor:pointer; transition:background var(--dur-fast) var(--ease-out); }
+  .chip:hover { background:var(--ctl-hover); }
   .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
 
   /* States the controls never had: a visible focus ring, an invalid state the
@@ -136,7 +143,8 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   .check:focus-visible, .radio:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px;
   }
-  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .input:focus-visible { outline: none; }
   .input[aria-invalid="true"], .input:user-invalid { border-color: var(--danger); }
   .input:disabled, .input[readonly] { background: var(--track); color: var(--muted); cursor: not-allowed; }
   .input::placeholder { color: var(--muted); opacity: .8; }
@@ -144,7 +152,7 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   /* Checkbox and radio: native control, themed, 44px target via its label. */
   .check, .radio {
     appearance: none; width: 18px; height: 18px; flex: none; margin: 0;
-    border: 1px solid var(--line); background: var(--card); cursor: pointer;
+    border: 1px solid var(--ctl-ring); background: var(--ctl-bg); cursor: pointer;
     display: inline-grid; place-content: center;
     transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
   }
@@ -165,17 +173,31 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
   .file { width: 100%; font-size: 14px; color: var(--muted); }
   .file::file-selector-button {
     margin-right: var(--space-3); min-height: 36px; padding: 0 14px;
-    border-radius: var(--radius-md); border: 1px solid var(--line);
-    background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: var(--radius-md); border: 1px solid var(--ctl-ring);
+    background: var(--ctl-bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
   }
-  .file::file-selector-button:hover { background: var(--head); }
+  .file::file-selector-button:hover { background: var(--ctl-hover); }
 
   /* Validation message, tied to its field by aria-describedby. */
   .field-error { color: var(--danger); font-size: 13px; font-weight: 600; }
   .field-hint { color: var(--muted); font-size: 13px; }
 
+  /* A standalone text link used as an action (card header "View all", back links):
+     24px tall at least, so it is a comfortable target (WCAG 2.5.8). */
+  .link-action { display:inline-flex; align-items:center; min-height:24px; font-size:14px; font-weight:600; color:var(--accent-fg); text-decoration:none; border-radius:var(--radius-sm); }
+  .link-action:hover { text-decoration:underline; text-underline-offset:3px; }
+
   .panel-touch .btn, .panel-touch .input, .panel-touch .chip { min-height:44px; }
 }
+
+/* Grid and flex items default to min-width:auto, so one wide table or long word
+   widens the whole column (and the page on phones). Content scrolls in its own
+   box instead: tables already sit in overflow-x-auto wrappers. */
+#main .grid > *, #main > *, #main .flex-col > * { min-width: 0; }
+/* A scroll box must be the containing block of its absolutely positioned content
+   (sr-only labels in table headers), or that content escapes the clip and
+   widens the page. */
+.overflow-x-auto, .overflow-auto { position: relative; }
 
 /* Overlay entry. Durations collapse to zero under prefers-reduced-motion
    because the --dur-* tokens do. */

@@ -155,7 +155,7 @@ export default function Overview() {
           <LineChart label={`CPU and RAM usage over the ${RANGE_LABEL[range]}`} xLabels={xLabels(range, cpu.length)}
             series={[{ label: 'CPU', color: 'var(--accent)', data: cpu }, { label: 'RAM', color: 'var(--b-fg)', data: ram }]} />
         </Card>
-        <Card className="flex-[1_1_300px]" title="Active alerts" actions={<Link to="/admin/monitoring" className="text-[13px] font-semibold">View all</Link>}>
+        <Card className="flex-[1_1_300px]" title="Active alerts" actions={<Link to="/admin/monitoring" className="link-action">View all</Link>}>
           {/* Severity first: how bad matters before which. */}
           <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
             {([['emergency', 'Emergency', 'text-r-fg'], ['critical', 'Critical', 'text-r-fg'], ['warning', 'Warning', 'text-y-fg'], ['info', 'Info', 'text-b-fg']] as const).map(([key, lbl, cls]) => {
@@ -182,7 +182,7 @@ export default function Overview() {
       </div>
       <div className="flex flex-wrap gap-4">
         <Card className="flex-[2_1_520px]" title="Fleet health" subtitle={fleetTotal ? `${fleetTotal} server${fleetTotal === 1 ? '' : 's'} in your scope` : undefined}
-          actions={<Link to="/admin/servers" className="text-[13px] font-semibold">All servers</Link>}>
+          actions={<Link to="/admin/servers" className="link-action">All servers</Link>}>
           {!fleet ? <Empty>No servers enrolled yet.</Empty> : (
             <>
               <div className="flex flex-wrap items-center gap-6">
@@ -221,14 +221,14 @@ export default function Overview() {
           )}
         </Card>
         <Card className="flex-[1_1_300px]" title="Needs attention" subtitle="Lowest health first"
-          actions={<Link to="/admin/servers" className="text-[13px] font-semibold">All servers</Link>}>
+          actions={<Link to="/admin/servers" className="link-action">All servers</Link>}>
           {attention.length === 0 ? <Empty>Every server is at full health.</Empty> : (
             <ul className="list-none m-0 p-0">
               {attention.map((a, i) => (
                 <li key={String(a.id ?? i)} className="flex items-center gap-3 py-3 border-t border-line first:border-t-0 first:pt-0">
                   <span className="grid h-10 w-10 flex-none place-content-center rounded-full text-sm font-bold tabular-nums"
                     style={scoreStyle(num(a.score))}>{num(a.score)}</span>
-                  <Link to={`/admin/servers/${a.id}`} className="min-w-0 flex-1 no-underline text-fg">
+                  <Link to={`/admin/servers/${a.id}`} className="min-w-0 flex-1 py-1 no-underline text-fg">
                     <span className="block truncate text-sm font-semibold">{String(a.name)}</span>
                     <span className="block truncate text-xs text-muted">
                       {[a.ip, a.provider, ...((a.reasons ?? []) as string[])].filter(Boolean).join(' · ')}
@@ -242,7 +242,7 @@ export default function Overview() {
         </Card>
       </div>
       <div className="flex flex-wrap gap-4">
-        <Card className="flex-[2_1_520px]" pad={false} title="Recent deployments" actions={<Link to="/admin/applications" className="text-[13px] font-semibold">History</Link>}>
+        <Card className="flex-[2_1_520px]" pad={false} title="Recent deployments" actions={<Link to="/admin/applications" className="link-action">History</Link>}>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px] min-w-[620px]">
               <thead><tr className="text-left text-muted text-xs bg-head"><th className="py-2.5 px-5">Application</th><th className="p-2.5">Trigger</th><th className="p-2.5">Source</th><th className="p-2.5">Status</th><th className="p-2.5">Author</th><th className="py-2.5 pr-5 pl-2">When</th></tr></thead>
