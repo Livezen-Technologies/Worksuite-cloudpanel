@@ -324,7 +324,7 @@ class PublicPagesService
 <style>
 :root{color-scheme:light dark;--page:#fff;--foot:#6b7280;--strong:#030712}
 @media (prefers-color-scheme:dark){:root{--page:#030712;--foot:#9ca3af;--strong:#f9fafb}}
-*{box-sizing:border-box}html,body{height:100%}
+*{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;flex-direction:column;padding:8px;background:var(--page);color:#030712;font:16px/1.5 "Inter Tight",Inter,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 .panel{position:relative;flex:1;display:flex;flex-direction:column;border-radius:32px;overflow:hidden;background:{$grad};box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
 .panel:before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(3,7,18,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(3,7,18,.05) 1px,transparent 1px);background-size:96px 96px}
@@ -332,8 +332,8 @@ header{position:relative;display:flex;align-items:center;justify-content:space-b
 .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:18px;letter-spacing:-.01em}
 .mark{width:30px;height:30px;border-radius:9px;background:#030712;color:#fff;display:grid;place-items:center;font-size:14px}
 .pill{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 14px;border-radius:999px;background:rgba(255,255,255,.35);box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);font:500 12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:rgba(3,7,18,.75)}
-main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:24px 24px 56px}
-section{width:100%;max-width:640px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:20px}
+main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:16px 24px 48px}
+section{width:100%;max-width:640px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px}
 .code{font-size:clamp(96px,18vw,160px);font-weight:600;letter-spacing:-.06em;line-height:.9;color:rgba(3,7,18,.9)}
 .icon{width:72px;height:72px;border-radius:20px;display:grid;place-items:center;background:rgba(255,255,255,.55);box-shadow:inset 0 0 2px 1px rgba(255,255,255,.6),0 10px 30px -10px rgba(3,7,18,.25);color:#030712}
 .eyebrow{font:600 12px/20px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.16em;text-transform:uppercase;color:rgba(3,7,18,.6)}
