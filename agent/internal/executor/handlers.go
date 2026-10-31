@@ -111,6 +111,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.cronExec(ctx, c.Payload)
 	case "mail.import":
 		return e.mailImport(ctx, c.Payload, progress)
+	case "cron.schedule":
+		return e.cronSchedule(c.Payload)
 	case "cron.stop":
 		return e.cronStop(ctx, c.Payload)
 	case "wp.drop_tables":

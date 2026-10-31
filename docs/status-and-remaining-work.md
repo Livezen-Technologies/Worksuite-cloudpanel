@@ -103,7 +103,7 @@ alternative.
 
 Largest open groups, by requirements left: mail cluster (MCL, ~2 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
 private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
-Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), public pages
+Cloudflare Tunnel (CFT, 6), public pages
 (PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
@@ -176,11 +176,16 @@ secrets redacted from output; jobs deleted with their app; Operations → Cron &
 scheduler lists every customer's job for platform admins. The agent runs `cron.exec`
 beside its command queue so a long job never blocks other commands.
 
-Left: the dedicated runner services from the SRS (an `lz-scheduler` supercronic
-container or systemd timers per server, and a Swarm leader runner). The panel's own
-scheduler dispatches each run to the agent, so a run happens once per minute
-already, but scheduling stops while the panel is down (those runs are reported as
-missed afterwards).
+**Server runner**: each agent keeps the schedule of the command jobs that run on its
+server (`cron.schedule`, pushed on every job change and hourly by `cron:sync-runners`,
+stored 0600). While the panel is reachable the panel schedules every run, as before; when
+the agent has had no successful heartbeat for 90 s it runs the due jobs itself (five-field
+cron with steps, ranges, lists, macros and the job's timezone; once per minute at most)
+through the same `cron.exec`, keeps the results in an outbox, and the next heartbeat
+delivers them. The panel records them as runs "ran on the server", replaces the missed
+runs it logged for those minutes, ignores repeats and any job that is not that server's.
+HTTP jobs stay with the panel. A Swarm-leader runner is not built (the panel does not
+manage Swarm).
 
 ## 1c. Backup manager (BKM-001..009)
 

@@ -192,7 +192,24 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
             return $this->runHttp($scheduled, $run, $job);
         }
 
-        $payload = ['run_id' => (string) $run->id, 'mode' => $mode, 'command' => (string) ($scheduled->params['command'] ?? ''), 'timeout' => (int) ($scheduled->timeout ?: 600)];
+        [$server, $payload] = $this->target($scheduled);
+        $payload = ['run_id' => (string) $run->id] + $payload;
+        if (! $server || ! $server->isOnline()) {
+            // CRON-5: the runner (the server's agent) is down at the scheduled time.
+            $this->finishRun($scheduled, $run, $job, -1, 'The server that runs this job is offline.', 0, false, 'missed');
+
+            return $job->fresh();
+        }
+        $this->bus->dispatch($server, 'cron.exec', $payload, $job);
+
+        return $job;
+    }
+
+    /** Where a command job runs and the cron.exec payload for it (without a run id). */
+    private function target(ScheduledJob $scheduled): array
+    {
+        $mode = self::mode($scheduled);
+        $payload = ['mode' => $mode, 'command' => (string) ($scheduled->params['command'] ?? ''), 'timeout' => (int) ($scheduled->timeout ?: 600)];
         if ($mode === 'host') {
             $server = Server::allTenants()->find($scheduled->server_id);
         } else {
@@ -208,15 +225,74 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
                 }
             }
         }
-        if (! $server || ! $server->isOnline()) {
-            // CRON-5: the runner (the server's agent) is down at the scheduled time.
-            $this->finishRun($scheduled, $run, $job, -1, 'The server that runs this job is offline.', 0, false, 'missed');
 
-            return $job->fresh();
+        return [$server, $payload];
+    }
+
+    /**
+     * CRON: the server's own runner. Each agent keeps the schedule of the command jobs that
+     * run on it and runs them itself while it cannot reach the panel, so jobs keep running
+     * when the panel is down. HTTP jobs stay with the panel.
+     */
+    public function syncRunner(Server $server): void
+    {
+        if (! $server->isOnline()) {
+            return;
         }
-        $this->bus->dispatch($server, 'cron.exec', $payload, $job);
+        $jobs = [];
+        foreach (ScheduledJob::allTenants()->where('enabled', true)->where('trigger', 'cron')->whereNotNull('cron')->whereIn('action', self::ENGINE)->get() as $job) {
+            if (self::mode($job) === 'http') {
+                continue;
+            }
+            [$target, $payload] = $this->target($job);
+            if ($target?->id === $server->id) {
+                $jobs[] = ['id' => (string) $job->id, 'cron' => $job->cron, 'timezone' => $job->timezone ?: 'UTC', 'exec' => $payload];
+            }
+        }
+        $this->bus->dispatch($server, 'cron.schedule', ['jobs' => $jobs]);
+    }
 
-        return $job;
+    public function syncRunnerFor(ScheduledJob $job): void
+    {
+        $ids = array_filter([$job->server_id, \App\Models\Application::allTenants()->whereKey($job->application_id)->value('server_id')]);
+        foreach (Server::allTenants()->whereIn('id', $ids)->get() as $server) {
+            rescue(fn () => $this->syncRunner($server), report: true);
+        }
+    }
+
+    /** Runs the agent made on its own while the panel was unreachable, reported with a heartbeat. */
+    public function recordRunnerResults(Server $server, array $results): int
+    {
+        $n = 0;
+        foreach (array_slice($results, 0, 500) as $r) {
+            $job = ScheduledJob::allTenants()->where('organization_id', $server->organization_id)->find($r['job_id'] ?? null);
+            if (! $job || ($this->target($job)[0]?->id ?? null) !== $server->id) {
+                continue; // not this server's job: never trust a result for someone else's
+            }
+            $started = \Illuminate\Support\Carbon::parse($r['started_at'] ?? 'now');
+            if (\App\Models\ScheduledJobRun::allTenants()->where('scheduled_job_id', $job->id)->where('source', 'runner')->where('started_at', $started)->exists()) {
+                continue; // already recorded (a heartbeat retried)
+            }
+            app(Tenant::class)->as($job->organization_id, function () use ($job, $r, $started) {
+                // The panel reported this minute as missed while it was away; the server ran it.
+                \App\Models\ScheduledJobRun::allTenants()->where('scheduled_job_id', $job->id)->where('status', 'missed')
+                    ->whereBetween('started_at', [$started->copy()->subSeconds(90), $started->copy()->addSeconds(90)])->delete();
+                $exit = (int) ($r['exit_code'] ?? -1);
+                $output = $this->redact($job, (string) ($r['output'] ?? ''));
+                $status = ! empty($r['timed_out']) ? 'failed' : ($exit === 0 ? 'succeeded' : 'failed');
+                \App\Models\ScheduledJobRun::allTenants()->create([
+                    'organization_id' => $job->organization_id, 'scheduled_job_id' => $job->id, 'status' => $status, 'source' => 'runner', 'attempt' => 1,
+                    'exit_code' => $exit, 'output' => mb_strcut($output, max(0, strlen($output) - 65536)), 'started_at' => $started,
+                    'finished_at' => \Illuminate\Support\Carbon::parse($r['finished_at'] ?? 'now'), 'duration_ms' => (int) ($r['duration_ms'] ?? 0),
+                ]);
+                $result = ! empty($r['timed_out']) ? 'Timed out' : "Exit {$exit}";
+                $job->update(['last_run_at' => $started, 'last_status' => $status, 'last_result' => $result.' (ran on the server)']);
+                $this->afterRun($job, $status === 'succeeded', false, $status, $result, $output);
+            });
+            $n++;
+        }
+
+        return $n;
     }
 
     /** CRON-1: HTTP mode, with method, headers and the status that counts as success. */
