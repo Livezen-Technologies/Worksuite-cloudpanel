@@ -27,32 +27,38 @@ export function StepWizard({ steps, step, onStep, onFinish, finishLabel = 'Finis
   }
   return (
     <div className="flex flex-col gap-5">
-      <ol className="list-none m-0 p-0 grid gap-3" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }} aria-label="Progress">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-semibold">Step {step + 1} of {steps.length}</span>
+        <span className="text-muted truncate ml-3">{steps[step].label}</span>
+      </div>
+      <ol className="list-none m-0 p-0 flex items-center" aria-label="Progress">
         {steps.map((s, i) => {
-          const done = i <= step
+          const done = i < step
+          const cur = i === step
           const can = i <= reach && !busy
           return (
-            <li key={s.label} className="min-w-0">
-              <button type="button" disabled={!can} aria-current={i === step ? 'step' : undefined}
+            <li key={s.label} className="flex items-center flex-1 last:flex-none min-w-0">
+              <button type="button" disabled={!can} aria-current={cur ? 'step' : undefined} aria-label={`Step ${i + 1}: ${s.label}`}
                 onClick={() => {
                   if (i > step && check()) return
                   onStep(i)
                 }}
-                className="w-full flex flex-col items-start gap-0.5 pt-2.5 bg-transparent border-0 border-t-4 text-left cursor-pointer disabled:cursor-default text-fg"
-                style={{ borderTopColor: done ? 'var(--accent)' : 'var(--line)' }}>
-                <span className="text-xs font-semibold" style={{ color: done ? 'var(--accent-fg)' : 'var(--muted)' }}>Step {i + 1}</span>
-                <span className="text-[13px] font-semibold truncate max-w-full hidden sm:block">{s.label}</span>
-                <span className="sr-only sm:hidden">{s.label}</span>
+                className="flex items-center gap-2 bg-transparent border-0 p-0 cursor-pointer disabled:cursor-default min-w-0 text-fg">
+                <span aria-hidden="true" className="flex flex-none items-center justify-center rounded-full text-xs font-bold w-[28px] h-[28px] transition-colors"
+                  style={{ background: done || cur ? 'var(--accent)' : 'var(--head)', color: done || cur ? '#fff' : 'var(--muted)', boxShadow: cur ? '0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent)' : 'inset 0 0 0 1px var(--line)' }}>
+                  {done ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5L20 7" /></svg> : i + 1}
+                </span>
+                <span aria-hidden="true" className={`hidden md:block text-[13px] truncate ${cur ? 'font-semibold' : 'text-muted'}`}>{s.label}</span>
               </button>
+              {i < steps.length - 1 && <span aria-hidden="true" className="flex-1 mx-2 h-[2px] rounded min-w-3" style={{ background: i < step ? 'var(--accent)' : 'var(--line)' }} />}
             </li>
           )
         })}
       </ol>
-      <div className="sm:hidden text-sm font-semibold">{steps[step].label}</div>
       <div>{steps[step].content}</div>
       {(error || localErr) && <div role="alert" className="text-sm font-semibold text-danger">{error || localErr}</div>}
       {!hideNav && (
-        <div className="flex justify-end gap-2 flex-wrap">
+        <div className="flex justify-between gap-2 flex-wrap pt-4 border-t border-line">
           <button type="button" className="btn" disabled={step === 0 || busy} onClick={() => onStep(step - 1)}>Back</button>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={next}>{busy ? 'Working…' : last ? finishLabel : nextLabel}</button>
         </div>

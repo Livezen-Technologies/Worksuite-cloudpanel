@@ -124,13 +124,14 @@ export function Empty({ children, icon = 'inbox', action, compact }: { children:
   )
 }
 
-export function Field({ label, error, hint, children }: { label: string; error?: string; hint?: ReactNode; children: ReactNode }) {
+export function Field({ label, error, hint, required, children }: { label: string; error?: string; hint?: ReactNode; required?: boolean; children: ReactNode }) {
+  const star = required || / \*$/.test(label)
   return (
     <label className="label">
-      <span>{label}</span>
+      <span className="flex items-center gap-1">{label.replace(/ \*$/, '')}{star && <span aria-hidden="true" className="text-danger font-semibold">*</span>}{star && <span className="sr-only">(required)</span>}</span>
       {children}
       {hint && !error && <span className="text-xs font-normal text-muted">{hint}</span>}
-      {error && <span role="alert" className="text-xs font-semibold text-danger">{error}</span>}
+      {error && <span role="alert" className="flex items-center gap-1 text-xs font-semibold text-danger"><Icon name="warn" size={13} />{error}</span>}
     </label>
   )
 }
