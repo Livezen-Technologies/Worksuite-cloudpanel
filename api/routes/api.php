@@ -191,6 +191,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::delete("{$uri}/{id}", [$controller, 'destroy'])->middleware("perm:{$managePerm}")->name("{$uri}.destroy");
     };
     $crud('registries', Admin\RegistryController::class, 'resources.view', 'deploy');
+    Route::post('registries/{id}/gc', [Admin\RegistryController::class, 'gc'])->middleware('perm:deploy')->name('registries.gc');
 
     // Networks, volumes, storage
     Route::post('networks/check', [Admin\NetworkController::class, 'check'])->middleware('perm:resources.view')->name('networks.check');

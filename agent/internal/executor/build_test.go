@@ -31,6 +31,7 @@ type buildDocker struct {
 	pushAuth  string
 	buildFail bool
 	inspect   string // JSON for GET /containers/{id}/json
+	pulls     []string
 	logs      string
 }
 
@@ -54,6 +55,15 @@ func (b *buildDocker) handler(t *testing.T) http.Handler {
 				return
 			}
 			w.Write([]byte(`{"stream":"Step 1/2 : FROM scratch"}` + "\n" + `{"stream":"\n"}` + "\n" + `{"stream":"Step 2/2 : COPY app /app\n ---> Using cache\n ---> abc\n"}` + "\n" + `{"aux":{"ID":"sha256:feed"}}` + "\n" + `{"stream":"Successfully built feed\n"}` + "\n"))
+		case r.Method == "POST" && r.URL.Path == "/images/create":
+			ref := r.URL.Query().Get("fromImage") + ":" + r.URL.Query().Get("tag")
+			b.pulls = append(b.pulls, ref)
+			if strings.Contains(ref, "gone") {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"message":"manifest unknown"}`))
+				return
+			}
+			w.Write([]byte(`{"status":"Pulled"}` + "\n"))
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/push"):
 			b.pushAuth = r.Header.Get("X-Registry-Auth")
 			if r.URL.Path != "/images/reg.example.com:5000/org/app/push" || r.URL.Query().Get("tag") != "v1" {
@@ -355,5 +365,27 @@ func TestDetectStack(t *testing.T) {
 		if got, df := detectStack(dir); got != want || (want != "" && !strings.Contains(df, "EXPOSE 8080")) {
 			t.Errorf("%s: got %q", marker, got)
 		}
+	}
+}
+
+func TestImageBuildUsesRegistryImagesAsCache(t *testing.T) {
+	e, bd, _ := buildSetup(t)
+	e.Run = (&fakeGit{}).run
+	payload := `{"repo":"https://x/y","dockerfile_path":"svc/Dockerfile","context":"svc","image_tag":"reg.example.com:5000/org/app:v1",
+		"push":{"registry":"reg.example.com:5000","username":"u","password":"p"},
+		"cache_from":["reg.example.com:5000/org/app:v0","reg.example.com:5000/org/app:gone"]}`
+	r, err := e.Handle(context.Background(), cmd("cf1", "image.build", payload, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	if got := bd.buildQ.Get("cachefrom"); got != `["reg.example.com:5000/org/app:v0"]` {
+		t.Fatalf("cachefrom %q (pulls %v)", got, bd.pulls)
+	}
+	if fmt.Sprint(r.Output.(map[string]any)["cache_from"]) != "[reg.example.com:5000/org/app:v0]" {
+		t.Fatalf("%+v", r.Output)
+	}
+	bad := `{"repo":"https://x/y","image_tag":"reg.example.com:5000/org/app:v3","push":{"registry":"reg.example.com:5000"},"cache_from":["docker.io/evil/img:1"]}`
+	if _, err := e.Handle(context.Background(), cmd("cf2", "image.build", bad, now)); err == nil {
+		t.Fatal("cache image outside the push registry accepted")
 	}
 }

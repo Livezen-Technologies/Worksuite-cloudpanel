@@ -41,6 +41,10 @@ type BuildSpec struct {
 	Builder        string `json:"builder"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	NoCache        bool   `json:"no_cache"`
+	// CacheFrom (BLD-3) names earlier images of the app in the push registry.
+	// They are pulled and offered to the builder as layer cache, so a build on
+	// any builder can reuse layers another builder made.
+	CacheFrom []string `json:"cache_from"`
 }
 
 var (
@@ -113,6 +117,14 @@ func (s *BuildSpec) validate(e *Executor) error {
 	case "dockerfile", "auto":
 	default:
 		return fmt.Errorf("invalid builder %q", s.Builder)
+	}
+	if len(s.CacheFrom) > 3 {
+		return errors.New("at most 3 cache_from images")
+	}
+	for _, ref := range s.CacheFrom {
+		if checkImage(ref) != nil || s.Push == nil || !strings.HasPrefix(ref, s.Push.Registry+"/") {
+			return fmt.Errorf("invalid cache_from %q (must be in the push registry)", ref)
+		}
 	}
 	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > 6*3600 {
 		return fmt.Errorf("invalid timeout_seconds %d", s.TimeoutSeconds)
@@ -300,8 +312,24 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if c, ok := out["commit"].(string); ok {
 		labels["io.dockermgr.commit"] = c
 	}
+	// BLD-3: earlier images as layer cache; a missing one is not an error.
+	var cacheFrom []string
+	for _, ref := range s.CacheFrom {
+		name, tag := splitImageTag(ref)
+		if at := strings.Index(ref, "@"); at > 0 {
+			name, tag = ref[:at], ref[at+1:]
+		}
+		auth := &docker.RegistryAuth{Username: s.Push.Username, Password: s.Push.Password, ServerAddress: s.Push.Registry}
+		if err := e.Docker.PullImage(ctx, name, tag, auth, nil); err != nil {
+			sink.line("cache image " + ref + " not available: " + err.Error())
+			continue
+		}
+		cacheFrom = append(cacheFrom, ref)
+		sink.line("using " + ref + " as layer cache")
+	}
+	out["cache_from"] = cacheFrom
 	cache := &cacheStats{}
-	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels, NoCache: s.NoCache}, func(l string) {
+	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels, NoCache: s.NoCache, CacheFrom: cacheFrom}, func(l string) {
 		cache.line(l)
 		sink.line(l)
 	})

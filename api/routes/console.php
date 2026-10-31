@@ -113,6 +113,10 @@ Artisan::command('mail:watch', function (\App\Services\MailGuardService $guard) 
     $this->info('Mail servers checked: '.$guard->watchAll());
 })->purpose('MCL: delivery log, and holds for mailboxes or domains sending too much or bouncing');
 
+Artisan::command('registry:gc', function (\App\Services\RegistryGcService $gc) {
+    $this->info('Old images deleted: '.$gc->collectAll());
+})->purpose('BLD: delete pushed images older than the last BUILD_REGISTRY_KEEP releases of each app');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -261,6 +265,7 @@ Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('templates:sync')->daily();
+Schedule::command('registry:gc')->dailyAt('03:30');
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
