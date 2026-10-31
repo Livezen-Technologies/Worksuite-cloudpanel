@@ -201,6 +201,38 @@ class CustomerController extends Controller
     }
 
     /** Customer profiles span tenants: platform staff only. */
+    /**
+     * CUS-3: platform staff sign in as the customer's owner to see what they see. Needs a reason, lasts an
+     * hour, is audited on both sides, emails the owner, and cannot touch the owner's sign-in settings.
+     */
+    public function impersonate(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $d = $request->validate(['reason' => 'required|string|min:5|max:300']);
+        $staff = $request->user();
+        $member = \App\Models\Membership::allTenants()->where('organization_id', $org->id)->where('status', 'active')
+            ->orderByRaw("case role when 'owner' then 0 when 'admin' then 1 else 2 end")->first();
+        $target = $member ? \App\Models\User::find($member->user_id) : null;
+        if (! $target) {
+            throw \App\Exceptions\ApiException::conflict('This customer has no active member to sign in as.');
+        }
+        if ($target->id === $staff->id) {
+            throw \App\Exceptions\ApiException::conflict('You are already a member of this customer.');
+        }
+        $expires = now()->addHour();
+        $token = $target->createToken(\App\Support\Impersonation::PREFIX.$staff->id, ['*'], $expires);
+        $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+        $meta = ['reason' => $d['reason'], 'as' => $target->email, 'by' => $staff->email, 'expires_at' => $expires->toIso8601ZuluString()];
+        app(\App\Services\AuditLogger::class)->log('customer.impersonate', 'organizations', $org->id, $meta, $org->id, $staff->id, $staff->email);
+        app(\App\Services\AuditLogger::class)->log('customer.impersonate', 'organizations', $org->id, $meta, $staff->current_organization_id, $staff->id, $staff->email);
+        app(\App\Services\EmailTemplateService::class)->notify('support_access', $target, [
+            'staff' => $staff->name ?: $staff->email, 'reason' => $d['reason'], 'time' => now()->toDayDateTimeString().' UTC', 'minutes' => '60',
+        ]);
+
+        return $this->data(['token' => $token->plainTextToken, 'user' => ['name' => $target->name, 'email' => $target->email], 'organization' => $org->name, 'expires_at' => $meta['expires_at']]);
+    }
+
     private function staffOnly(Request $request): void
     {
         if (! $this->seesAllTenants($request)) {

@@ -159,6 +159,9 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        if ($staff = \App\Support\Impersonation::staffFor($request->user())) {
+            $this->audit->log('customer.impersonate_end', 'organizations', $request->user()->current_organization_id, ['as' => $request->user()->email, 'by' => $staff->email], $request->user()->current_organization_id, $staff->id, $staff->email);
+        }
         $request->user()->currentAccessToken()?->delete();
 
         return response()->noContent();
@@ -174,6 +177,7 @@ class AuthController extends Controller
             'organization' => $user->currentOrganization,
             'role' => $role,
             'permissions' => $rbac->permissionsFor($role),
+            'impersonated_by' => ($staff = \App\Support\Impersonation::staffFor($user)) ? ['name' => $staff->name, 'email' => $staff->email, 'expires_at' => $user->currentAccessToken()?->expires_at?->toIso8601ZuluString()] : null,
             'mfa_setup_required' => (bool) ($user->currentOrganization?->setting('security.require_mfa')) && ! $user->hasSecondFactor(),
             'organizations' => $user->memberships()->with('organization:id,name,slug')->get()->map(fn ($m) => ['id' => $m->organization_id, 'name' => $m->organization?->name, 'role' => $m->role]),
         ]);
