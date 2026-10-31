@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { StatusBadge } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { ConfirmDialog } from '../../components/Overlay'
@@ -28,7 +28,7 @@ export function MyApps() {
         actions={<Link to="/app/host" className="btn btn-primary no-underline">+ Host a Docker app</Link>} />
       {rows.some((a) => a.source_type === 'git') && <BuildUsage path="/app/builds/usage" />}
       {error && <div role="alert" className="card p-4 text-danger text-sm">We could not load your apps. Refresh the page to try again.</div>}
-      {isLoading ? <Card>Loading your apps…</Card> : rows.length === 0 ? (
+      {isLoading ? <Loading label="Loading your apps…" /> : rows.length === 0 ? (
         <Card><Empty>You are not hosting anything yet. <Link to="/app/host" className="font-semibold">Host your first app</Link> — it takes about two minutes.</Empty></Card>
       ) : (
         <ul className="list-none m-0 p-0 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">

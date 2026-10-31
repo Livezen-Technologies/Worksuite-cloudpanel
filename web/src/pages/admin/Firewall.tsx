@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api, isApiError } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, StatTile, Toggle, Empty, FormActions } from '../../components/Card'
+import { Card, Field, PageHeader, StatTile, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog } from '../../components/Overlay'
@@ -228,7 +228,7 @@ export default function Firewall() {
   const blockedCount = Object.values(countries).filter((s) => s === 'block').length
   const challengeCount = Object.values(countries).filter((s) => s === 'challenge').length
 
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
 
   return (
     <>

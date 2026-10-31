@@ -49,6 +49,17 @@ export function PageHeader({ title, subtitle, actions, back, icon, badge, center
 }
 
 /** The footer every form ends with: actions on the right, divided from the fields. */
+/** Placeholder while a section loads: shimmering lines in a card, with the message for screen readers. */
+export function Loading({ label = 'Loading…', lines = 3 }: { label?: string; lines?: number }) {
+  return (
+    <section className="card p-5 flex flex-col gap-3" aria-busy="true" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <span aria-hidden="true" className="h-4 w-1/3 rounded bg-head animate-pulse" />
+      {Array.from({ length: lines }, (_, i) => <span key={i} aria-hidden="true" className="h-3 rounded bg-head animate-pulse" style={{ width: `${90 - i * 15}%` }} />)}
+    </section>
+  )
+}
+
 export function FormActions({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`flex flex-wrap items-center justify-end gap-2 pt-4 mt-1 border-t border-line ${className}`}>{children}</div>
 }

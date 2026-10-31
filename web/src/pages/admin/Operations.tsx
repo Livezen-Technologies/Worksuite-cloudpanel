@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
-import { Card, PageHeader, StatTile, Toggle, Empty, Meter } from '../../components/Card'
+import { Card, PageHeader, StatTile, Toggle, Empty, Meter, Loading } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -528,7 +528,7 @@ export function Automation() {
     <>
       <PageHeader title="Automation" subtitle="Scheduled jobs, webhooks and maintenance windows"
         actions={<><button type="button" className="btn" onClick={() => setMw(true)}>New maintenance window</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ trigger: 'cron', enabled: true })}>New job</button></>} />
-      {jobs.isLoading ? <Card>Loading…</Card> : jobs.rows.length === 0 ? <Card><Empty>No scheduled jobs yet.</Empty></Card> : (
+      {jobs.isLoading ? <Loading label="Loading…" /> : jobs.rows.length === 0 ? <Card><Empty>No scheduled jobs yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 flex flex-col gap-3">
           {jobs.rows.map((j) => (
             <li key={j.id} className="card p-4 flex flex-wrap items-center gap-4">

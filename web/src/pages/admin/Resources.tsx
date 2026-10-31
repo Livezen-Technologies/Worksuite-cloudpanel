@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAction, useList, useServerName } from '../../api/hooks'
 import type { Server } from '../../api/types'
-import { Card, Meter, PageHeader, StatTile, Empty } from '../../components/Card'
+import { Card, Meter, PageHeader, StatTile, Empty, Loading } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -292,7 +292,7 @@ export function Databases() {
     <>
       <PageHeader title="Databases" subtitle="Managed database containers with application-consistent backups"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>New database</button>} />
-      {isLoading ? <Card>Loading…</Card> : rows.length === 0 ? <Card><Empty>No databases yet.</Empty></Card> : (
+      {isLoading ? <Loading label="Loading…" /> : rows.length === 0 ? <Card><Empty>No databases yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
           {rows.map((d) => (
             <li key={d.id} className="card p-5 flex flex-col gap-3">

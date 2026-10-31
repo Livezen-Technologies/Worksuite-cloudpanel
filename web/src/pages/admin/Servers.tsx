@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { useList } from '../../api/hooks'
 import type { Server } from '../../api/types'
-import { Card, Field, Meter, PageHeader, Empty } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Empty, Loading } from '../../components/Card'
 import { Badge, Dot, toneFor } from '../../components/Badge'
 import { Modal } from '../../components/Overlay'
 import { StepWizard } from '../../components/StepWizard'
@@ -233,7 +233,7 @@ export default function Servers() {
           </label>
           <button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>
         </>} />
-      {isLoading && <Card>Loading servers…</Card>}
+      {isLoading && <Loading label="Loading servers…" />}
       {!isLoading && rows.length === 0 && <Card><Empty icon="server" action={<button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>}>No servers yet. Add your first server to start managing containers.</Empty></Card>}
       {groups.map(([g, list]) => (
         <div key={g} className="flex flex-col gap-3">
