@@ -3,7 +3,6 @@ import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react
 import { api, isApiError } from '../../api/client'
 import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
-import { Brand } from '../../components/Shell'
 import { Field } from '../../components/Card'
 
 function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer?: ReactNode }) {
@@ -18,7 +17,10 @@ function AuthCard({ title, subtitle, children, footer }: { title: string; subtit
       <div className="relative isolate flex min-h-screen items-center justify-center p-6 lg:p-8">
         <div className="w-full max-w-md rounded-2xl bg-card shadow-xl ring-1 ring-black/5 dark:ring-white/10">
           <div className="flex flex-col gap-6 p-7 sm:p-10">
-            <Brand title="Docker Manager" subtitle="Portal" />
+            <span className="flex px-2 py-1">
+              <img src="/worksuite-logo-light.png" alt="WorkSuite" className="h-8 w-auto dark:hidden" />
+              <img src="/worksuite-logo-dark.png" alt="WorkSuite" className="hidden h-8 w-auto dark:block" />
+            </span>
             <div>
               <h1 className="m-0 text-xl font-semibold tracking-tight">{title}</h1>
               <p className="m-0 mt-1.5 text-sm/5 text-muted">{subtitle}</p>
@@ -76,16 +78,16 @@ export function Login() {
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <Field label="Email" error={fields.email}><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Password" error={fields.password}><input className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
-        <Link to="/forgot-password" className="-mt-2 self-end text-sm font-medium">Forgot password?</Link>
+        <Link to="/forgot-password" className="link-action -mt-2 self-end font-medium">Forgot password?</Link>
         <Field label={needOtp ? 'Authentication code' : 'Authentication code (if two-factor is on)'} error={fields.otp}>
           <input className="input font-mono tracking-widest" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
         </Field>
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
-        <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        {needOtp && <button type="button" className="btn min-h-11 !rounded-full" disabled={busy} onClick={() => withPasskey(true)}>Use a passkey instead of a code</button>}
+        <button className="btn btn-primary min-h-11" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        {needOtp && <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(true)}>Use a passkey instead of a code</button>}
       </form>
       <div className="flex items-center gap-3 text-xs text-muted" aria-hidden="true"><span className="flex-1 border-t border-line" />or<span className="flex-1 border-t border-line" /></div>
-      <button type="button" className="btn min-h-11 !rounded-full" disabled={busy} onClick={() => withPasskey(false)}>Sign in with a passkey</button>
+      <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(false)}>Sign in with a passkey</button>
     </AuthCard>
   )
 }
@@ -123,7 +125,7 @@ export function Register() {
         <Field label="Password" error={fields.password} hint="At least 8 characters"><input className="input" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} /></Field>
         <Field label="Organisation" error={fields.organization}><input className="input" autoComplete="organization" value={f.organization} onChange={set('organization')} /></Field>
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
-        <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
+        <button className="btn btn-primary min-h-11" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
       </form>
     </AuthCard>
   )
@@ -145,7 +147,7 @@ export function ForgotPassword() {
         : <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <Field label="Email"><input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
           {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
-          <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy || !/^\S+@\S+\.\S+$/.test(email)}>{busy ? 'Sending…' : 'Send reset link'}</button>
+          <button className="btn btn-primary min-h-11" disabled={busy || !/^\S+@\S+\.\S+$/.test(email)}>{busy ? 'Sending…' : 'Send reset link'}</button>
         </form>}
     </AuthCard>
   )
@@ -174,7 +176,7 @@ export function ResetPassword() {
         <Field label="New password" hint="At least 8 characters"><input className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
         <Field label="Repeat it" error={mismatch ? 'The passwords do not match.' : undefined}><input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
-        <button className="btn btn-primary min-h-11 !rounded-full shadow-md" disabled={busy || !email || !token || password.length < 8 || confirm !== password}>{busy ? 'Saving…' : 'Set new password'}</button>
+        <button className="btn btn-primary min-h-11" disabled={busy || !email || !token || password.length < 8 || confirm !== password}>{busy ? 'Saving…' : 'Set new password'}</button>
       </form>
     </AuthCard>
   )

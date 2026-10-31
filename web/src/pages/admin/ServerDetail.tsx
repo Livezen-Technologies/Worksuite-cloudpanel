@@ -38,7 +38,7 @@ export default function ServerDetail() {
 
   return (
     <>
-      <Link to="/admin/servers" className="text-sm font-semibold">← Servers</Link>
+      <Link to="/admin/servers" className="link-action self-start">← Servers</Link>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="m-0 text-[28px] font-bold tracking-tight">{s.name}</h1>
         <Badge tone={toneFor(s.status)}>{s.status}</Badge>

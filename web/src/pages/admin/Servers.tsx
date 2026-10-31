@@ -21,7 +21,7 @@ export function ServerCard({ s }: { s: Server }) {
     <li className="card p-5 flex flex-col gap-3.5">
       <div className="flex items-center gap-2.5">
         <Dot tone={toneFor(s.status)} />
-        <Link to={`/admin/servers/${s.id}`} className="font-bold text-[15px] flex-1 truncate text-fg">{s.name}</Link>
+        <Link to={`/admin/servers/${s.id}`} className="flex-1 truncate py-0.5 text-[15px] font-bold text-fg">{s.name}</Link>
         <Badge tone={toneFor(s.status)}>{s.status}</Badge>
       </div>
       <div className="text-xs text-muted"><span className="font-mono">{s.ip}</span>{s.provider ? ` · ${s.provider}` : ''} · {s.region}</div>

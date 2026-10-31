@@ -5,18 +5,18 @@ import { Meter } from '../../components/Card'
 import { num, type R } from '../../lib/util'
 
 export const PANEL_NAV: NavItem[] = [
-  { label: 'My apps', to: '/app', end: true },
-  { label: 'Host an app', to: '/app/host' },
-  { label: 'Files', to: '/app/files' },
-  { label: 'Domains', to: '/app/domains' },
-  { label: 'Backups', to: '/app/backups' },
-  { label: 'Email', to: '/app/email' },
-  { label: 'Security', to: '/app/security' },
-  { label: 'Firewall', to: '/app/firewall' },
-  { label: 'Scheduled jobs', to: '/app/cron' },
-  { label: 'Move a site here', to: '/app/move' },
-  { label: 'Billing', to: '/app/billing' },
-  { label: 'Account', to: '/app/account' },
+  { label: 'My apps', icon: 'grid', to: '/app', end: true },
+  { label: 'Host an app', icon: 'rocket', to: '/app/host' },
+  { label: 'Files', icon: 'file', to: '/app/files' },
+  { label: 'Domains', icon: 'globe', to: '/app/domains' },
+  { label: 'Backups', icon: 'archive', to: '/app/backups' },
+  { label: 'Email', icon: 'bell', to: '/app/email' },
+  { label: 'Security', icon: 'shield', to: '/app/security' },
+  { label: 'Firewall', icon: 'shield', to: '/app/firewall' },
+  { label: 'Scheduled jobs', icon: 'clock', to: '/app/cron' },
+  { label: 'Move a site here', icon: 'share', to: '/app/move' },
+  { label: 'Billing', icon: 'tag', to: '/app/billing' },
+  { label: 'Account', icon: 'user', to: '/app/account' },
 ]
 
 export function usageOf(b: R | undefined, key: 'apps' | 'ram_mb' | 'storage_gb' | 'bandwidth_gb') {

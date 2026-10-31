@@ -39,6 +39,12 @@ function cellValue<T>(c: Column<T>, r: T): string | number | null | undefined {
   return typeof v === 'number' || typeof v === 'string' ? v : v == null ? '' : String(v)
 }
 
+/** Columns of free text wrap; everything else (names, hosts, states, numbers) stays on one line
+ *  so identifiers like "prod-web-01" never break at a hyphen. The table scrolls in its card. */
+const PROSE = /^(detail|details|message|description|reason|notes?|error|summary|comment|event|what)$/i
+const cellWrap = (c: { header?: unknown; className?: string }) =>
+  /whitespace-/.test(c.className ?? '') ? '' : typeof c.header === 'string' && PROSE.test(c.header) ? 'min-w-[16rem]' : 'whitespace-nowrap'
+
 /** Data table with search, filter chips, sorting, pagination and multi-select bulk actions. Scrolls inside its card. */
 export function DataTable<T>(p: DataTableProps<T>) {
   const { rows, columns, rowKey, pageSize = 10 } = p
@@ -102,10 +108,10 @@ export function DataTable<T>(p: DataTableProps<T>) {
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]" style={{ minWidth: p.minWidth ?? 640 }} aria-label={p.label}>
           <thead>
-            <tr className="text-left text-muted text-[11px] uppercase tracking-wider bg-head">
+            <tr className="text-left text-fg text-[13px] bg-head">
               {p.selectable && (
                 <th className="py-3 pl-4 pr-1 w-8">
-                  <input type="checkbox" aria-label="Select all on this page" checked={allOnPage}
+                  <input type="checkbox" className="check" aria-label="Select all on this page" checked={allOnPage}
                     onChange={() => setSel((s) => { const n = new Set(s); shown.forEach((r) => (allOnPage ? n.delete(rowKey(r)) : n.add(rowKey(r)))); return n })} />
                 </th>
               )}
@@ -115,8 +121,11 @@ export function DataTable<T>(p: DataTableProps<T>) {
                   <th key={c.key} scope="col" className={`py-3 px-3 font-semibold whitespace-nowrap ${c.className ?? ''}`}
                     aria-sort={active ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}>
                     {c.sortable !== false && c.header ? (
-                      <button type="button" className="bg-transparent border-0 p-0 font-semibold text-muted cursor-pointer inline-flex gap-1" onClick={() => toggleSort(c.key)}>
-                        {c.header}<span aria-hidden="true">{active ? (sort!.dir === 1 ? '▲' : '▼') : ''}</span>
+                      <button type="button" className="group -mx-1.5 inline-flex min-h-7 items-center gap-1 rounded-md border-0 bg-transparent px-1.5 font-semibold text-fg cursor-pointer hover:bg-[var(--ctl-hover)]" onClick={() => toggleSort(c.key)}>
+                        {c.header}
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className={active ? 'text-fg' : 'text-muted opacity-0 group-hover:opacity-100'}>
+                          {active && sort!.dir === -1 ? <path fillRule="evenodd" d="M14.77 12.79a.75.75 0 0 1-1.06-.02L10 8.83l-3.71 3.94a.75.75 0 1 1-1.08-1.04l4.25-4.5a.75.75 0 0 1 1.08 0l4.25 4.5a.75.75 0 0 1-.02 1.06Z" clipRule="evenodd" /> : <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />}
+                        </svg>
                       </button>
                     ) : c.header ? c.header : <span className="sr-only">Actions</span>}
                   </th>
@@ -135,10 +144,10 @@ export function DataTable<T>(p: DataTableProps<T>) {
                   onClick={p.onRowClick ? () => p.onRowClick!(r) : undefined}>
                   {p.selectable && (
                     <td className="py-3.5 pl-4 pr-1" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" aria-label={`Select ${p.rowLabel ? p.rowLabel(r) : id}`} checked={sel.has(id)} onChange={() => toggle(id)} />
+                      <input type="checkbox" className="check" aria-label={`Select ${p.rowLabel ? p.rowLabel(r) : id}`} checked={sel.has(id)} onChange={() => toggle(id)} />
                     </td>
                   )}
-                  {columns.map((c) => <td key={c.key} className={`py-3 px-3 ${c.className ?? ''}`}>{c.render ? c.render(r) : String(cellValue(c, r) ?? '—')}</td>)}
+                  {columns.map((c) => <td key={c.key} className={`py-3 px-3 ${cellWrap(c)} ${c.className ?? ''}`}>{c.render ? c.render(r) : String(cellValue(c, r) ?? '—')}</td>)}
                 </tr>
               )
             })}
