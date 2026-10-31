@@ -31,6 +31,13 @@ class InvoiceService
                 'organization_id' => $app->organization_id, 'application_id' => $app->id,
                 'metric' => 'app_hours.'.$app->size, 'quantity' => 1, 'period' => $at->toDateString(),
             ]);
+            // SCL-10: copies beyond the first are billed by the hour at the app's size.
+            if (($extra = (int) $app->replicas - 1) > 0) {
+                UsageRecord::allTenants()->create([
+                    'organization_id' => $app->organization_id, 'application_id' => $app->id,
+                    'metric' => 'replica_hours.'.$app->size, 'quantity' => $extra, 'period' => $at->toDateString(),
+                ]);
+            }
             $count++;
         }
 
@@ -71,6 +78,19 @@ class InvoiceService
             $lines[] = ['description' => 'App '.($names[$row->application_id] ?? $row->application_id)." ({$plan->name}, {$plan->vcpu} vCPU / {$plan->ram_mb} MB)",
                 'quantity' => round($hours, 2), 'unit' => 'hours', 'unit_cents' => round($plan->price_cents / $hoursPerMonth, 4),
                 'amount_cents' => $amount, 'kind' => 'app', 'application_id' => $row->application_id, 'size' => $size];
+        }
+        $copies = UsageRecord::where('metric', 'like', 'replica_hours.%')->whereBetween('period', [$start->toDateString(), $end->toDateString()])
+            ->select('application_id', 'metric', DB::raw('SUM(quantity) as hours'))->groupBy('application_id', 'metric')->get();
+        $names = $names->union(Application::withTrashed()->whereIn('id', $copies->pluck('application_id'))->pluck('name', 'id'));
+        foreach ($copies as $row) {
+            $size = substr($row->metric, strlen('replica_hours.'));
+            if (! ($plan = $plans[$size] ?? null)) {
+                continue;
+            }
+            $hours = (float) $row->hours;
+            $lines[] = ['description' => 'Extra copies of '.($names[$row->application_id] ?? $row->application_id)." ({$plan->name})",
+                'quantity' => round($hours, 2), 'unit' => 'copy-hours', 'unit_cents' => round($plan->price_cents / $hoursPerMonth, 4),
+                'amount_cents' => (int) round($plan->price_cents * $hours / $hoursPerMonth), 'kind' => 'copies', 'application_id' => $row->application_id, 'size' => $size];
         }
         if (! $lines) {
             return null;

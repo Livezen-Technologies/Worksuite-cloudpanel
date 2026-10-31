@@ -37,7 +37,7 @@ class ScalingService
     public const STRATEGIES = ['round_robin', 'least_connections'];
 
     public const DEFAULTS = [
-        'mode' => 'fixed', 'min' => 1, 'max' => 3, 'cpu_target' => 70, 'schedule' => [],
+        'mode' => 'fixed', 'min' => 1, 'max' => 3, 'cpu_target' => 70, 'metric' => 'cpu', 'rps_target' => 50, 'schedule' => [],
         'sticky' => false, 'health' => ['path' => '/', 'interval' => 10, 'timeout' => 5, 'threshold' => 3],
         'servers' => [], 'canary' => null, 'strategy' => 'round_robin',
     ];
@@ -315,23 +315,29 @@ class ScalingService
                 $desired = $this->scheduled($s, $now);
                 $reason = 'schedule';
             } elseif ($s['mode'] === 'autoscale') {
-                $cpu = (float) $this->containers($app)->whereNotNull('cpu_pct')->avg('cpu_pct');
+                // SCL-2: CPU across the copies, or requests per second per copy from Traefik's metrics.
+                [$cpu, $target, $label] = $s['metric'] === 'rps'
+                    ? [$this->rpsPerCopy($app, $current), (float) $s['rps_target'], 'requests/s per copy']
+                    : [(float) $this->containers($app)->whereNotNull('cpu_pct')->avg('cpu_pct'), (float) $s['cpu_target'], 'CPU'];
+                if ($cpu === null) {
+                    continue; // no request metrics: leave the copies alone
+                }
                 $highKey = "scale:high:{$app->id}";
                 $lowKey = "scale:low:{$app->id}";
-                if ($cpu > $s['cpu_target']) {
+                if ($cpu > $target) {
                     Cache::forget($lowKey);
                     $since = Cache::get($highKey) ?? tap($now->getTimestamp(), fn ($t) => Cache::put($highKey, $t, 3600));
                     if ($now->getTimestamp() - $since >= 180) {
                         $desired = $current + 1;
-                        $reason = sprintf('autoscale: CPU %d%% > %d%% for 3 min', $cpu, $s['cpu_target']);
+                        $reason = $this->why($label, $cpu, '>', $target, '3 min');
                         Cache::forget($highKey);
                     }
-                } elseif ($cpu < $s['cpu_target'] / 2) {
+                } elseif ($cpu < $target / 2) {
                     Cache::forget($highKey);
                     $since = Cache::get($lowKey) ?? tap($now->getTimestamp(), fn ($t) => Cache::put($lowKey, $t, 3600));
                     if ($now->getTimestamp() - $since >= 900) {
                         $desired = $current - 1;
-                        $reason = sprintf('autoscale: CPU %d%% < %d%% for 15 min', $cpu, $s['cpu_target'] / 2);
+                        $reason = $this->why($label, $cpu, '<', $target / 2, '15 min');
                         Cache::forget($lowKey);
                     }
                 } else {
@@ -359,6 +365,24 @@ class ScalingService
         }
 
         return $changed;
+    }
+
+    private function why(string $label, float $value, string $op, float $limit, string $for): string
+    {
+        return $label === 'CPU'
+            ? sprintf('autoscale: CPU %d%% %s %d%% for %s', $value, $op, $limit, $for)
+            : sprintf('autoscale: %s %s %s %s for %s', round($value, 1), $label, $op, round($limit, 1), $for);
+    }
+
+    /** Requests per second per copy over the last 3 minutes, or null without Prometheus. */
+    public function rpsPerCopy(Application $app, int $copies): ?float
+    {
+        if (! \App\Support\PrometheusMetrics::enabled()) {
+            return null;
+        }
+        $rps = rescue(fn () => app(\App\Support\PrometheusMetrics::class)->requestsPerSecond($app->name), null, report: false);
+
+        return $rps === null ? null : $rps / max(1, $copies);
     }
 
     /** The replica count a schedule asks for now: the first matching window, else the minimum. */
