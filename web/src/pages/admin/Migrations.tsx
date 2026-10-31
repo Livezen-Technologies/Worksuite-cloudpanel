@@ -21,7 +21,9 @@ const stepOf = (status: string, sites: R[], checks: R[]): number => {
 }
 const mb = (b: unknown) => `${(Number(b ?? 0) / 1048576).toFixed(1)} MB`
 
-/** Migration wizard (SRS MIG): cPanel accounts into apps on this platform. */
+/** Migration wizard (SRS MIG): cPanel, Plesk and HestiaCP accounts into apps on this platform. */
+const SOURCE: Record<string, string> = { cpanel: 'cPanel', plesk: 'Plesk', hestia: 'HestiaCP' }
+const sourceName = (s: unknown) => SOURCE[String(s)] ?? 'cPanel'
 export default function Migrations() {
   const list = useList<R>('/migrations', undefined, { refetchInterval: 10000 })
   const servers = useList<R>('/servers')
@@ -38,10 +40,10 @@ export default function Migrations() {
 
   return (
     <>
-      <PageHeader title="Migrations" subtitle="Move cPanel accounts onto the platform: each site becomes an app, checked on a temporary address first."
+      <PageHeader title="Migrations" subtitle="Move cPanel, Plesk or HestiaCP accounts onto the platform: each site becomes an app, checked on a temporary address first."
         actions={<button type="button" className="btn" aria-expanded={showNew || list.rows.length === 0} onClick={() => setShowNew(!showNew)}>New migration</button>} />
 
-      {(showNew || (!list.isLoading && list.rows.length === 0)) && <Card title="New migration" subtitle="Step 1 · Connect a cPanel full backup">
+      {(showNew || (!list.isLoading && list.rows.length === 0)) && <Card title="New migration" subtitle="Step 1 · Connect a full account backup">
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] text-sm">
           <label className="flex flex-col gap-1">Target server
             <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
@@ -49,14 +51,14 @@ export default function Migrations() {
               {servers.rows.map((s) => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
             </Select>
           </label>
-          <label className="flex flex-col gap-1">cPanel full backup URL
+          <label className="flex flex-col gap-1">Backup URL (cPanel, Plesk or HestiaCP)
             <input className="input font-mono text-xs" placeholder="https://…/cpmove-user.tar.gz" value={form.archive_url} onChange={(e) => setForm({ ...form, archive_url: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1">SHA-256 (optional)
             <input className="input font-mono text-xs" value={form.sha256} onChange={(e) => setForm({ ...form, sha256: e.target.value })} />
           </label>
         </div>
-        <p className="m-0 mt-2 text-xs text-muted">In cPanel: Backup → Download a Full Account Backup. Put the file where the server can download it, such as a sharing link or object storage.</p>
+        <p className="m-0 mt-2 text-xs text-muted">cPanel: Backup → Download a Full Account Backup. Plesk: Backup Manager → Back Up (full, not encrypted, one file) → download. HestiaCP: Backups → download the user backup. The format is recognised from the file. Put the file where the server can download it, such as a sharing link or object storage.</p>
         <button type="button" className="btn btn-primary mt-3" disabled={busy || !form.server_id || !form.archive_url} onClick={create}>Fetch and inspect</button>
       </Card>}
 
@@ -66,7 +68,7 @@ export default function Migrations() {
         <DataTable label="Migrations" rows={list.rows} loading={list.isLoading} rowKey={(r) => String(r.id)} onRowClick={(r) => { setOpen(String(r.id)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
           columns={[
             { key: 'account', header: 'Account', render: (r) => <span className="font-semibold">{String(r.account ?? '…')}</span> },
-            { key: 'source', header: 'From', render: (r) => (r.requested ? 'cPanel (customer request)' : 'cPanel') },
+            { key: 'source', header: 'From', render: (r) => (r.requested ? `${sourceName(r.source)} (customer request)` : sourceName(r.source)) },
             { key: 'server', header: 'To server' },
             { key: 'sites', header: 'Sites', render: (r) => `${r.migrated}/${r.sites}` },
             { key: 'status', header: 'Status', render: (r) => <Badge tone={tone(String(r.status))}>{String(r.status)}</Badge> },
@@ -103,7 +105,7 @@ function MigrationWizard({ id, onClose }: { id: string; onClose: () => void }) {
 
   const step = stepOf(String(w.status ?? ''), sites, checks)
   const check = new Map(checks.map((c) => [String(c.domain), c]))
-  const source = inv.user ? `cPanel · ${String(inv.user)}` : 'cPanel'
+  const source = inv.user ? `${sourceName(inv.source ?? w.source)} · ${String(inv.user)}` : sourceName(inv.source ?? w.source)
   const td = 'px-3 py-2 align-top'
 
   return (

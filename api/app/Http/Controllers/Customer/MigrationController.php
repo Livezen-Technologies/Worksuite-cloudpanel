@@ -7,7 +7,7 @@ use App\Models\SiteMigration;
 use App\Services\MigrationService;
 use Illuminate\Http\Request;
 
-/** UMIG-001/003: a customer asks to move a cPanel account and follows its progress. */
+/** UMIG-001/003: a customer asks to move a cPanel, Plesk or HestiaCP account and follows its progress. */
 class MigrationController extends Controller
 {
     public function __construct(private MigrationService $migrations) {}

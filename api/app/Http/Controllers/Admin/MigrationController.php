@@ -8,7 +8,7 @@ use App\Models\SiteMigration;
 use App\Services\MigrationService;
 use Illuminate\Http\Request;
 
-/** Migration wizard (SRS MIG-001..011, UMIG-002): cPanel accounts into apps. */
+/** Migration wizard (SRS MIG-001..011, UMIG-002): cPanel, Plesk and HestiaCP accounts into apps. */
 class MigrationController extends Controller
 {
     public function __construct(private MigrationService $migrations) {}

@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Migration wizard (SRS MIG-001..011, UMIG): a cPanel full backup is fetched onto the
+ * Migration wizard (SRS MIG-001..011, UMIG): a cPanel, Plesk or HestiaCP backup is fetched onto the
  * target server and inspected (pre-flight); each site is mapped to a new app, which is
  * deployed on a temporary platform hostname and then filled with the site's files and
  * database. A checked site is cut over by DNS, can be rolled back, and can be re-synced.
@@ -32,7 +32,7 @@ class MigrationService implements HandlesCommandResults
 
     public function __construct(private CommandBus $bus, private JobService $jobs, private AuditLogger $audit) {}
 
-    /** MIG-001: start from a cPanel backup at a URL (an export link, a file share, object storage). */
+    /** MIG-001: start from a cPanel, Plesk or HestiaCP backup at a URL (an export link, a file share, object storage). */
     public function create(array $data, ?string $userId): SiteMigration
     {
         $server = Server::findOrFail($data['server_id']);
@@ -426,7 +426,9 @@ class MigrationService implements HandlesCommandResults
                 'database' => $s['wordpress'] && count($dbs) === 1 ? $dbs[0] : null, 'target_database_id' => null, 'status' => 'pending',
             ];
         }
-        $m->update(['inventory' => $inv, 'sites' => $sites, 'status' => 'ready']);
+        // The agent tells the format apart (cPanel, HestiaCP, Plesk) from the archive itself.
+        $source = in_array($inv['source'] ?? null, ['cpanel', 'hestia', 'plesk'], true) ? $inv['source'] : $m->source;
+        $m->update(['inventory' => $inv, 'sites' => $sites, 'status' => 'ready', 'source' => $source]);
         $m->event(sprintf('Inspected: %d sites, %d databases, %s files', count($sites), count($dbs), number_format((int) ($inv['files'] ?? 0))));
     }
 

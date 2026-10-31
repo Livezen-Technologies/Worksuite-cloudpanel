@@ -30,11 +30,14 @@ WordPress toolkit  100%   all 12 (WP-001..012, #29, #30): inventory, settings,
                           with restore points and automatic rollback, update
                           all, hardening, restore points, staging (clone,
                           refresh, push to live, password + noindex)
-Migration wizard   ~80%   cPanel: fetch and inspect, pre-flight, mapping,
+Migration wizard   100%   cPanel, Plesk and HestiaCP backups (format told
+                          apart from the archive; Hestia's zstd via the host's
+                          zstd): fetch and inspect, pre-flight, mapping,
                           resumable copy, temporary hostnames, timeline, DNS
                           cutover with a health gate and rollback, delta
-                          sync, bulk, customer requests with approval; left:
-                          Plesk and Hestia sources, customer page in the web
+                          sync, bulk, customer requests with approval and the
+                          customer page (Move a site here). Not read: Plesk
+                          encrypted or multi-volume backups
 Mail hosting       100%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           aliases, DNS + autoconfig, TLS from Traefik, limits,
                           relay, rDNS/blocklists with alerts, backups,
