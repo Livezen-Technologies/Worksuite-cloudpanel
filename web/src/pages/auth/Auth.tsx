@@ -1,3 +1,4 @@
+import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, isApiError } from '../../api/client'
@@ -20,6 +21,7 @@ const SIDES: Record<Side, [string, string, string, [string, string][]]> = {
 /** Split sign-in layout from the design: a brand panel on the left, the form on the right. */
 function AuthCard({ title, subtitle, children, footer, side = 'login' }: { title: string; subtitle: string; children: ReactNode; footer?: ReactNode; side?: Side }) {
   const [eyebrow, headline, body, stats] = SIDES[side]
+  useDocumentTitle(title)
   return (
     <div className="min-h-screen flex flex-wrap bg-bg text-fg">
       <aside className="hidden lg:flex flex-[1_1_520px] min-h-screen flex-col justify-between p-12 text-white"

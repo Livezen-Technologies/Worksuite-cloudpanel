@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Icon } from './Icon'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 export function Card({ title, subtitle, actions, children, className = '', pad = true, id }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; id?: string }) {
   return (
@@ -28,6 +29,7 @@ export function PageHeader({ title, subtitle, actions, back, icon, badge, center
   title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: ReactNode
   icon?: ReactNode; badge?: ReactNode; center?: boolean
 }) {
+  useDocumentTitle(title)
   return (
     <div className="flex flex-col gap-2">
       {back && <div className="self-start text-sm">{back}</div>}
