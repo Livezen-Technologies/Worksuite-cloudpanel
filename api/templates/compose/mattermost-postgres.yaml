@@ -1,0 +1,35 @@
+id: mattermost-postgres
+name: Mattermost + PostgreSQL
+category: Communication
+version: 1
+type: compose
+accent: "#1E325C"
+description: Mattermost team chat on PostgreSQL 16, credentials generated.
+port: 8065
+size: pro
+compose: |
+  services:
+    mattermost:
+      image: mattermost/mattermost-team-edition:10.1
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        MM_SQLSETTINGS_DRIVERNAME: postgres
+        MM_SQLSETTINGS_DATASOURCE: postgres://${SERVICE_USER_MM}:${SERVICE_PASSWORD_MM}@db:5432/mattermost?sslmode=disable
+        MM_SERVICESETTINGS_SITEURL: ${SERVICE_URL}
+      volumes: [data:/mattermost/data]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "8065"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: mattermost
+        POSTGRES_USER: ${SERVICE_USER_MM}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_MM}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    data: {}
+    db: {}

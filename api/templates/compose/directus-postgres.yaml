@@ -1,0 +1,41 @@
+id: directus-postgres
+name: Directus + PostgreSQL
+category: CMS
+version: 1
+type: compose
+accent: "#6644FF"
+description: Directus headless CMS on PostgreSQL 16, admin and secrets generated.
+port: 8055
+compose: |
+  services:
+    directus:
+      image: directus/directus:11.2
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        PUBLIC_URL: ${SERVICE_URL}
+        SECRET: ${SERVICE_HEX_SECRET}
+        DB_CLIENT: pg
+        DB_HOST: db
+        DB_PORT: "5432"
+        DB_DATABASE: directus
+        DB_USER: ${SERVICE_USER_DIRECTUS}
+        DB_PASSWORD: ${SERVICE_PASSWORD_DIRECTUS}
+        ADMIN_EMAIL: admin@example.com
+        ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}
+      volumes: [uploads:/directus/uploads]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "8055"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: directus
+        POSTGRES_USER: ${SERVICE_USER_DIRECTUS}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_DIRECTUS}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    uploads: {}
+    db: {}

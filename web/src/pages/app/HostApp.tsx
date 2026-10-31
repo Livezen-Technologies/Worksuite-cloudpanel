@@ -178,7 +178,7 @@ export default function HostApp() {
           </div>
           {src === 'template' && picked && (
             <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
-              <p className="m-0 text-sm">{String(picked.description ?? '')}{Number(picked.generates) > 0 ? ` We create ${picked.generates === 1 ? 'a password' : `${picked.generates} passwords and keys`} for it and keep ${picked.generates === 1 ? 'it' : 'them'} secret.` : ''}</p>
+              <p className="m-0 text-sm">{String(picked.description ?? '')}{picked.type === 'compose' ? ` A stack of ${((picked.services as string[]) ?? []).join(', ')}, run together on one server.` : ''}{Number(picked.generates) > 0 ? ` We create ${picked.generates === 1 ? 'a password' : `${picked.generates} passwords and keys`} for it and keep ${picked.generates === 1 ? 'it' : 'them'} secret.` : ''}</p>
               {((picked.variables as R[]) ?? []).map((v) => (
                 <label key={String(v.key)} className="label">{String(v.label ?? v.key)}{v.required ? ' (required)' : ''}
                   <input className="input font-mono" type={v.secret ? 'password' : 'text'} autoComplete="off" value={vars[String(v.key)] ?? ''} onChange={(e) => setVars({ ...vars, [String(v.key)]: e.target.value })} />

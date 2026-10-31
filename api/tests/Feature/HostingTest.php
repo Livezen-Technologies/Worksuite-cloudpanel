@@ -134,4 +134,30 @@ class HostingTest extends TestCase
         $list = collect($this->api($token)->getJson('/api/v1/app/templates')->json('data'))->keyBy('id');
         $this->assertSame([3000, 1, 'Monitoring'], [$list['grafana']['port'], $list['grafana']['generates'], $list['grafana']['category']]);
     }
+
+    public function test_customers_host_compose_stack_templates(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org, ['region' => 'eu-central']);
+        [$secret] = $this->enrollAgent($server, $token);
+        $list = collect($this->api($token)->getJson('/api/v1/app/templates')->json('data'))->keyBy('id');
+        $this->assertSame(['compose', ['ghost', 'db']], [$list['ghost-mysql']['type'], $list['ghost-mysql']['services']]);
+
+        $this->host($token, 'blog', ['source' => ['type' => 'template', 'template' => 'ghost-mysql'], 'port' => null, 'env' => [], 'size' => 'standard'])
+            ->assertStatus(202)->assertJsonPath('data.app.name', 'blog');
+        $app = Application::allTenants()->where('name', 'blog')->first();
+        $this->assertSame(['compose', $server->id], [$app->source_type, $app->server_id]);
+        $project = \App\Models\ComposeProject::allTenants()->find($app->source['compose_project_id']);
+        $this->assertSame($server->id, $project->server_id);
+        $install = \App\Models\TemplateInstall::allTenants()->where('resource_id', $project->id)->first();
+        $this->assertSame('compose_project', $install->resource_type);
+
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'compose.up');
+        $this->assertNotNull($cmd);
+        $this->assertStringContainsString('Host(`blog.'.config('platform.domain').'`)', json_encode($cmd['payload']));
+        $this->assertStringNotContainsString('${SERVICE_PASSWORD', json_encode($cmd['payload']));
+
+        $this->api($token)->deleteJson("/api/v1/app/apps/{$app->id}")->assertNoContent();
+        $this->assertSame('compose.down', collect($this->heartbeat($secret)['commands'])->last()['type']);
+    }
 }
