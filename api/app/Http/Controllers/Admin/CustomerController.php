@@ -26,9 +26,16 @@ class CustomerController extends Controller
         $subs = Subscription::withoutGlobalScopes()->whereIn('organization_id', $orgs->pluck('id'))->get()->keyBy('organization_id');
         $plans = Plan::all()->keyBy('id');
 
-        return $this->data($orgs->map(function ($o) use ($subs, $plans) {
+        // CUS-6: counts in grouped queries rather than one per customer.
+        $users = DB::table('memberships')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->pluck(DB::raw('count(*)'), 'organization_id');
+        $apps = DB::table('applications')->whereNull('deleted_at')->whereIn('organization_id', $orgs->pluck('id'))->groupBy('organization_id')->pluck(DB::raw('count(*)'), 'organization_id');
+
+        return $this->data($orgs->map(function ($o) use ($subs, $plans, $users, $apps) {
             $sub = $subs[$o->id] ?? null;
             $plan = $sub && isset($plans[$sub->plan_id]) ? $plans[$sub->plan_id] : null;
+            $appLimit = isset($plan?->limits['apps']) ? (int) $plan->limits['apps'] : null;
+            $appCount = (int) ($apps[$o->id] ?? 0);
+            $settings = $o->settings ?? [];
 
             return [
                 'id' => $o->id,
@@ -37,7 +44,11 @@ class CustomerController extends Controller
                 'billing_email' => $o->billing_email,
                 'plan' => $plan ? ['id' => $plan->id, 'code' => $plan->code, 'name' => $plan->name] : null,
                 'subscription_status' => $sub->status ?? null,
-                'users' => DB::table('memberships')->where('organization_id', $o->id)->count(),
+                'status' => ! empty($settings['closed']) ? 'closed' : (($sub->status ?? null) === 'suspended' ? 'suspended' : 'active'),
+                'users' => (int) ($users[$o->id] ?? 0),
+                'apps' => $appCount,
+                'app_limit' => $appLimit,
+                'over_limit' => $appLimit !== null && $appCount > $appLimit,
                 'created_at' => $o->created_at,
             ];
         }));

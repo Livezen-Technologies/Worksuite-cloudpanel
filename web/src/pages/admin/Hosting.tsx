@@ -16,6 +16,7 @@ type Customer = {
   id: string; name: string; slug: string; billing_email: string | null
   plan: { id: string; code: string; name: string } | null
   subscription_status: string | null; users: number
+  status?: "active" | "suspended" | "closed"; apps?: number; app_limit?: number | null; over_limit?: boolean
 }
 
 const money = (cents: number, ccy: string) =>
@@ -200,14 +201,24 @@ export function Customers() {
       {!customers.isLoading && customers.rows.length === 0 && <Empty>No hosting customers yet.</Empty>}
       <DataTable label="Customers" rows={customers.rows} loading={customers.isLoading} rowKey={(r) => r.id}
         onRowClick={(r) => nav(`/admin/customers/${r.id}`)} actions={(r) => [{ label: `Open ${r.name}`, icon: 'eye', onClick: () => nav(`/admin/customers/${r.id}`) }]}
+        filters={[
+          { id: 'active', label: 'Active', test: (r) => r.status === 'active' },
+          { id: 'suspended', label: 'Suspended', test: (r) => r.status === 'suspended' },
+          { id: 'over', label: 'Over limit', test: (r) => !!r.over_limit },
+          { id: 'closed', label: 'Closed', test: (r) => r.status === 'closed' },
+        ]}
         columns={[
           { key: 'name', header: 'Customer', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'slug', header: 'Slug', render: (r) => <span className="font-mono text-xs text-muted">{r.slug}</span> },
           { key: 'billing_email', header: 'Billing email', value: (r) => r.billing_email ?? '—' },
           { key: 'users', header: 'Users', render: (r) => <span className="tabular-nums">{r.users}</span> },
           {
-            key: 'status', header: 'Status', render: (r) =>
-              <Badge tone={r.subscription_status === 'active' ? 'g' : 'n'}>{r.subscription_status ?? 'none'}</Badge>,
+            key: 'apps', header: 'Apps', value: (r) => r.apps ?? 0,
+            render: (r) => <span className={`tabular-nums ${r.over_limit ? 'font-semibold text-r-fg' : ''}`} title={r.over_limit ? 'More apps than the package allows' : undefined}>{r.apps ?? 0}{r.app_limit != null ? ` / ${r.app_limit}` : ''}{r.over_limit ? ' · over' : ''}</span>,
+          },
+          {
+            key: 'status', header: 'Status', value: (r) => r.status ?? r.subscription_status ?? 'none', render: (r) =>
+              <Badge tone={r.status === 'closed' ? 'n' : r.status === 'suspended' ? 'r' : 'g'}>{r.status ?? r.subscription_status ?? 'none'}</Badge>,
           },
           {
             key: 'plan', header: 'Package', sortable: false, value: (r) => r.plan?.name ?? '—',
