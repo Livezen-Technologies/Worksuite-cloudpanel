@@ -3,16 +3,16 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Tailwind Plus (Application UI v4) palette: gray neutrals, indigo accent. */
-  --bg: #F9FAFB; --side: #FFFFFF; --card: #FFFFFF; --head: #F9FAFB;
-  --text: #111827; --muted: #4B5563; --line: #E5E7EB; --track: #F3F4F6;
-  --sel: #EEF2FF; --accent: #4F46E5; --accent-hover: #6366F1; --accent-fg: #4F46E5;
+  /* The WorkSuite family look (shared with WorkSuite IoT): slate neutrals, blue accent. */
+  --bg: #F8FAFC; --side: #FFFFFF; --card: #FFFFFF; --head: #F8FAFC;
+  --text: #0F172A; --muted: #475569; --line: #E2E8F0; --track: #F1F5F9;
+  --sel: #EFF6FF; --accent: #2563EB; --accent-hover: #1D4ED8; --accent-fg: #1D4ED8;
   --g-bg: #F0FDF4; --g-fg: #15803D; --y-bg: #FEFCE8; --y-fg: #854D0E;
   --r-bg: #FEF2F2; --r-fg: #B91C1C; --b-bg: #EFF6FF; --b-fg: #1D4ED8;
   --n-bg: #F9FAFB; --n-fg: #4B5563; --danger: #DC2626; --danger-line: #FECACA;
   --code-bg: #111827; --code-fg: #E5E7EB;
   /* Control surfaces: secondary buttons and inputs (white + gray-300 ring), cards (shadow + faint ring). */
-  --ctl-bg: #FFFFFF; --ctl-hover: #F9FAFB; --ctl-ring: #D1D5DB; --card-ring: rgb(17 24 39 / .06);
+  --ctl-bg: #FFFFFF; --ctl-hover: #F8FAFC; --ctl-ring: #CBD5E1; --card-ring: #E2E8F0;
   /* Editor syntax colours (file manager), each at 4.5:1 or more on --card. */
   --tok-kw: #7C3AED; --tok-st: #047857; --tok-cm: #64748B; --tok-nu: #B45309; --tok-va: #1D4ED8; --tok-tg: #BE185D;
   /* The top bar stays dark in both themes, as the canvas specifies. */
@@ -20,14 +20,14 @@
   color-scheme: light;
 }
 .dark {
-  --bg: #111827; --side: #0D131F; --card: #18202E; --head: #1F2937;
-  --text: #F9FAFB; --muted: #9CA3AF; --line: rgb(255 255 255 / .1); --track: #1F2937;
-  --sel: rgb(99 102 241 / .15); --accent: #6366F1; --accent-hover: #818CF8; --accent-fg: #A5B4FC;
+  --bg: #0B1120; --side: #0F172A; --card: #111827; --head: #0F172A;
+  --text: #F1F5F9; --muted: #94A3B8; --line: #1E293B; --track: #1E293B;
+  --sel: #172554; --accent: #3B82F6; --accent-hover: #60A5FA; --accent-fg: #93C5FD;
   --g-bg: rgb(74 222 128 / .1); --g-fg: #4ADE80; --y-bg: rgb(250 204 21 / .1); --y-fg: #FACC15;
   --r-bg: rgb(248 113 113 / .1); --r-fg: #F87171; --b-bg: rgb(96 165 250 / .1); --b-fg: #60A5FA;
   --n-bg: rgb(156 163 175 / .1); --n-fg: #D1D5DB; --danger: #F87171; --danger-line: rgb(248 113 113 / .3);
   --code-bg: #030712; --code-fg: #E5E7EB;
-  --ctl-bg: rgb(255 255 255 / .05); --ctl-hover: rgb(255 255 255 / .1); --ctl-ring: rgb(255 255 255 / .1); --card-ring: rgb(255 255 255 / .1);
+  --ctl-bg: #111827; --ctl-hover: #1E293B; --ctl-ring: #334155; --card-ring: #1E293B;
   --tok-kw: #C4B5FD; --tok-st: #6EE7B7; --tok-cm: #94A3B8; --tok-nu: #FCD34D; --tok-va: #93C5FD; --tok-tg: #F9A8D4;
   color-scheme: dark;
 }
@@ -43,7 +43,7 @@
   --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
 
   --shadow-xs: 0 1px 2px rgb(0 0 0 / .05);
-  --shadow-card: 0 1px 3px rgb(0 0 0 / .1), 0 1px 2px -1px rgb(0 0 0 / .1);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / .04);
   --shadow-pop:  0 8px 24px rgb(0 0 0 / .12);
   --shadow-over: 0 24px 48px rgb(0 0 0 / .20);
 
@@ -94,6 +94,16 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
+  --color-g-bg: var(--g-bg);
+  --color-g-fg: var(--g-fg);
+  --color-y-bg: var(--y-bg);
+  --color-y-fg: var(--y-fg);
+  --color-r-bg: var(--r-bg);
+  --color-r-fg: var(--r-fg);
+  --color-b-bg: var(--b-bg);
+  --color-b-fg: var(--b-fg);
+  --color-n-bg: var(--n-bg);
+  --color-n-fg: var(--n-fg);
   --color-danger: var(--danger);
   --color-danger-line: var(--danger-line);
   --color-code: var(--code-bg);

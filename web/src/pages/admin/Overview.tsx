@@ -69,13 +69,13 @@ function kpiTiles(k: R | R[] | undefined) {
   // Each figure carries its own state, so the grid reads at a glance rather
   // than label by label.
   return [
-    { label: 'Servers', value: String(total || 0), delta: 'enrolled', tone: 'n' as const },
-    { label: 'Online', value: String(online), delta: total ? `${Math.round((online / total) * 100)}% of fleet` : undefined, tone: (online > 0 ? 'g' : 'r') as 'g' | 'r', pct: total ? (online / total) * 100 : 0, bar: 'var(--g-fg)' },
-    { label: 'Offline', value: String(offline), delta: offline ? 'needs attention' : 'none', tone: (offline > 0 ? 'r' : 'n') as 'r' | 'n' },
-    { label: 'Active alerts', value: String(alerts), delta: alerts ? 'open now' : 'all clear', tone: (alerts > 0 ? 'r' : 'g') as 'r' | 'g' },
-    { label: 'Running containers', value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0, bar: 'var(--accent)' },
-    { label: 'CPU usage', value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: (cpu >= 85 ? 'r' : cpu >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: cpu },
-    { label: 'Memory usage', value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'r' : ram >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: ram },
+    { label: 'Servers', icon: 'server', iconTone: 'b' as const, value: String(total || 0), delta: 'enrolled', tone: 'n' as const },
+    { label: 'Online', icon: 'check', iconTone: 'g' as const, value: String(online), delta: total ? `${Math.round((online / total) * 100)}% of fleet` : undefined, tone: (online > 0 ? 'g' : 'r') as 'g' | 'r', pct: total ? (online / total) * 100 : 0, bar: 'var(--g-fg)' },
+    { label: 'Offline', icon: 'server', iconTone: 'r' as const, value: String(offline), delta: offline ? 'needs attention' : 'none', tone: (offline > 0 ? 'r' : 'n') as 'r' | 'n' },
+    { label: 'Active alerts', icon: 'pulse', iconTone: 'y' as const, value: String(alerts), delta: alerts ? 'open now' : 'all clear', tone: (alerts > 0 ? 'r' : 'g') as 'r' | 'g' },
+    { label: 'Running containers', icon: 'box', iconTone: 'b' as const, value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0, bar: 'var(--accent)' },
+    { label: 'CPU usage', icon: 'pulse', iconTone: 'b' as const, value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: (cpu >= 85 ? 'r' : cpu >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: cpu },
+    { label: 'Memory usage', icon: 'db', iconTone: 'b' as const, value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'r' : ram >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: ram },
   ]
 }
 
@@ -122,7 +122,8 @@ export default function Overview() {
       {error && <div role="alert" className="card p-4 text-sm text-danger">Could not load the dashboard: {(error as Error).message}</div>}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         {isLoading && !d ? [0, 1, 2, 3].map((i) => <div key={i} className="card p-5 h-[118px] animate-pulse" />) :
-          tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} valueTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined} />)}
+          tiles.map((k) => <StatTile key={k.label} label={k.label} value={k.value} delta={k.delta} deltaTone={'tone' in k ? (k as { tone: 'g' }).tone : 'n'} pct={k.pct} barColor={'bar' in k ? (k as { bar?: string }).bar : undefined}
+            icon={'icon' in k ? <Icon name={(k as { icon: Parameters<typeof Icon>[0]['name'] }).icon} size={16} /> : undefined} iconTone={'iconTone' in k ? (k as { iconTone: 'b' }).iconTone : undefined} />)}
       </div>
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {([
