@@ -123,4 +123,39 @@ class ScalingTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->getJson("/api/v1/app/apps/{$appId}/scaling")->assertNotFound();
     }
+
+    public function test_autoscale_on_requests_per_second_per_copy_from_traefik_metrics(): void
+    {
+        Carbon::setTestNow('2026-11-02 10:00:00');
+        [$org, $token, $secret, $appId] = $this->deployed();
+        $this->api($token)->patchJson("/api/v1/applications/{$appId}/scaling", ['mode' => 'autoscale', 'metric' => 'rps', 'rps_target' => 40])->assertStatus(422)->assertSee('METRICS_DRIVER');
+
+        config(['platform.drivers.metrics' => 'prometheus', 'platform.prometheus.url' => 'http://prom:9090']);
+        $rps = 120.0;
+        $queries = [];
+        \Illuminate\Support\Facades\Http::fake(function ($r) use (&$rps, &$queries) {
+            $queries[] = $r['query'];
+
+            return \Illuminate\Support\Facades\Http::response(['status' => 'success', 'data' => ['result' => [['value' => [0, (string) $rps]]]]]);
+        });
+        $this->api($token)->patchJson("/api/v1/applications/{$appId}/scaling", ['mode' => 'autoscale', 'min' => 1, 'max' => 3, 'metric' => 'rps', 'rps_target' => 40])->assertOk();
+
+        $this->artisan('scaling:evaluate')->assertSuccessful();
+        Carbon::setTestNow('2026-11-02 10:03:30');
+        $this->heartbeat($secret);
+        $this->artisan('scaling:evaluate')->assertSuccessful();
+        $this->assertSame(2, Application::allTenants()->find($appId)->replicas);
+        $this->assertSame('autoscale: 120 requests/s per copy > 40 for 3 min', ScalingEvent::allTenants()->latest('id')->value('reason'));
+        $this->assertStringContainsString('rate(traefik_service_requests_total{service=~"app-shop(-pool)?@.*"}[3m])', $queries[0]);
+
+        // 30 req/s over two copies is 15 each, under half the target: one copy goes after 15 minutes.
+        $rps = 30.0;
+        Carbon::setTestNow('2026-11-02 10:04:00');
+        $this->artisan('scaling:evaluate');
+        Carbon::setTestNow('2026-11-02 10:19:30');
+        $this->heartbeat($secret);
+        $this->artisan('scaling:evaluate');
+        $this->assertSame(1, Application::allTenants()->find($appId)->replicas);
+        Carbon::setTestNow();
+    }
 }

@@ -45,6 +45,7 @@ class ScalingController extends Controller
             'min' => 'sometimes|integer|min:1|max:'.ScalingService::MAX,
             'max' => 'sometimes|integer|min:1|max:'.ScalingService::MAX,
             'cpu_target' => 'sometimes|integer|min:10|max:95',
+            'metric' => 'sometimes|in:cpu,rps', 'rps_target' => 'sometimes|integer|min:1|max:100000',
             'schedule' => 'sometimes|array|max:10',
             'schedule.*.days' => 'sometimes|array', 'schedule.*.days.*' => 'integer|min:1|max:7',
             'schedule.*.from' => ['required_with:schedule', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
@@ -61,7 +62,10 @@ class ScalingController extends Controller
         if (isset($data['servers']) && empty($lim['placement'])) {
             throw ApiException::validation(['servers' => ['Choosing servers for copies is not available here.']]);
         }
-        $s = array_replace_recursive(ScalingService::settings($app), array_intersect_key($data, array_flip(['mode', 'min', 'max', 'cpu_target', 'schedule', 'sticky', 'health', 'strategy'])));
+        $s = array_replace_recursive(ScalingService::settings($app), array_intersect_key($data, array_flip(['mode', 'min', 'max', 'cpu_target', 'metric', 'rps_target', 'schedule', 'sticky', 'health', 'strategy'])));
+        if ($s['metric'] === 'rps' && ! \App\Support\PrometheusMetrics::enabled()) {
+            throw ApiException::validation(['metric' => ['Scaling on requests needs request metrics (METRICS_DRIVER=prometheus).']]);
+        }
         if (isset($data['schedule'])) {
             $s['schedule'] = $data['schedule'];
         }

@@ -79,6 +79,14 @@ class PrometheusMetrics
         return $v === null ? null : (int) round($v);
     }
 
+    /** SCL-2: requests per second over the last 3 minutes across an app's services (copies and pool). */
+    public function requestsPerSecond(string $appName): ?float
+    {
+        $service = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($appName));
+
+        return $this->instant("sum(rate(traefik_service_requests_total{service=~\"{$service}(-pool)?@.*\"}[3m]))");
+    }
+
     private function get(string $path, array $params): array
     {
         $req = Http::timeout(config('platform.prometheus.timeout'))->acceptJson();

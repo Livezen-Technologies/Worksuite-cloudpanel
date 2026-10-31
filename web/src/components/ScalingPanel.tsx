@@ -36,7 +36,7 @@ export function ScalingPanel({ path }: { path: string }) {
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
         <StatTile label="Copies" value={replicas} delta={`up to ${max} on this plan`} />
         <StatTile label="Healthy" value={`${num(w.healthy)} / ${((w.copies as R[]) ?? []).length}`} deltaTone={num(w.healthy) < ((w.copies as R[]) ?? []).length ? 'r' : undefined} />
-        <StatTile label="Scaling" value={MODE[String(s.mode)]?.[0] ?? String(s.mode)} delta={s.mode === 'autoscale' ? `${s.min}–${s.max} copies at ${s.cpu_target}% CPU` : undefined} />
+        <StatTile label="Scaling" value={MODE[String(s.mode)]?.[0] ?? String(s.mode)} delta={s.mode === 'autoscale' ? `${s.min}–${s.max} copies at ${s.metric === 'rps' ? `${s.rps_target} req/s per copy` : `${s.cpu_target}% CPU`}` : undefined} />
       </div>
 
       {((w.warnings as string[]) ?? []).length > 0 && replicas > 1 && <Card>
@@ -71,7 +71,13 @@ export function ScalingPanel({ path }: { path: string }) {
         {f.mode !== 'fixed' && <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
           <Field label="Fewest copies"><input className="input" type="number" min={1} max={max} value={String(f.min)} onChange={(e) => setF({ ...f, min: Number(e.target.value) })} /></Field>
           <Field label="Most copies"><input className="input" type="number" min={1} max={max} value={String(f.max)} onChange={(e) => setF({ ...f, max: Number(e.target.value) })} /></Field>
-          {f.mode === 'autoscale' && <Field label="Target CPU" hint="Add a copy after 3 minutes above it; remove one after 15 minutes under half of it.">
+          {f.mode === 'autoscale' && <Field label="Scale on">
+            <Select className="input" value={String(f.metric ?? 'cpu')} onChange={(e) => setF({ ...f, metric: e.target.value })}><option value="cpu">CPU</option><option value="rps">Requests per second</option></Select>
+          </Field>}
+          {f.mode === 'autoscale' && f.metric === 'rps' && <Field label="Requests/s per copy" hint="Needs request metrics (Prometheus). Same 3-minute / 15-minute rule as CPU.">
+            <input className="input" type="number" min={1} value={String(f.rps_target ?? 50)} onChange={(e) => setF({ ...f, rps_target: Number(e.target.value) })} />
+          </Field>}
+          {f.mode === 'autoscale' && f.metric !== 'rps' && <Field label="Target CPU" hint="Add a copy after 3 minutes above it; remove one after 15 minutes under half of it.">
             <Select className="input" value={String(f.cpu_target)} onChange={(e) => setF({ ...f, cpu_target: Number(e.target.value) })}>{[50, 60, 70, 80, 90].map((v) => <option key={v} value={v}>{v}%</option>)}</Select>
           </Field>}
         </div>}
@@ -104,7 +110,7 @@ export function ScalingPanel({ path }: { path: string }) {
           </Field>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, schedule: f.schedule ?? [], sticky: !!f.sticky, strategy: f.strategy ?? 'round_robin', health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, ...(f.mode === 'autoscale' ? { metric: f.metric ?? 'cpu', rps_target: f.rps_target ?? 50 } : {}), schedule: f.schedule ?? [], sticky: !!f.sticky, strategy: f.strategy ?? 'round_robin', health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
           <span className="text-xs text-muted">{((w.notes as string[]) ?? []).join(' ')}</span>
         </div>
       </Card>
