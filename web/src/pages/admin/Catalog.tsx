@@ -1,12 +1,12 @@
 import appIcons from '../../lib/appIcons.json'
 import { useMemo, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
 import { useAction, useList } from '../../api/hooks'
 import { Badge } from '../../components/Badge'
-import { Card, Field, PageHeader } from '../../components/Card'
-import Select from '../../components/Select'
+import { Card, PageHeader } from '../../components/Card'
+import InstallWizard from './InstallWizard'
 
 type Variable = { key: string; label: string; default: string | null; required: boolean; secret: boolean }
+export type CatalogTemplate = Template
 type Template = {
   id: string; name: string; category: string; type: 'image' | 'compose'; version: number; description: string
   image: string | null; port: number | null; accent: string | null; services: string[] | null; variables: Variable[]; generated: string[]
@@ -35,17 +35,13 @@ export function Logo({ t, size = 48 }: { t: Pick<Template, 'id' | 'name' | 'acce
 
 /** TPL-1..6: the template catalogue from the API; each install becomes an app or a Compose stack. */
 export default function Catalog() {
-  const nav = useNavigate()
   const { run, busy } = useAction()
   const { rows: templates, isLoading } = useList<Template>('/templates')
-  const { rows: servers } = useList<{ id: string; name: string }>('/servers')
   const installs = useList<Install>('/template-installs')
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
   const [type, setType] = useState('')
   const [picked, setPicked] = useState<Template | null>(null)
-  const [form, setForm] = useState({ name: '', domain: '', server_id: '', environment: 'production' })
-  const [vars, setVars] = useState<Record<string, string>>({})
 
   const categories = useMemo(() => [...new Set(templates.map((t) => t.category))].sort(), [templates])
   const shown = templates.filter((t) => (!cat || t.category === cat) && (!type || t.type === type)
@@ -54,68 +50,9 @@ export default function Catalog() {
 
   const choose = (t: Template) => {
     setPicked(t)
-    setForm({ name: t.id.slice(0, 40), domain: '', server_id: '', environment: 'production' })
-    setVars(Object.fromEntries(t.variables.map((v) => [v.key, v.default ?? ''])))
   }
 
-  const install = async () => {
-    if (!picked) return
-    const res = await run<{ data?: { resource_type: string; resource_id: string } }>({
-      path: `/templates/${picked.id}/install`, label: `Install ${picked.name}`, success: `${form.name} installed`,
-      body: { name: form.name, domain: form.domain.trim() || null, server_id: form.server_id || null, environment: form.environment, variables: vars },
-    }).catch(() => null)
-    const r = res?.data
-    if (!r) return
-    if (r.resource_type === 'application') {
-      if (form.domain.trim() && picked.port) {
-        await run({ path: '/domains', label: `Attach ${form.domain}`, success: `${form.domain} attached`, body: { name: form.domain.trim(), application_id: r.resource_id, target_port: picked.port } }).catch(() => {})
-      }
-      nav(`/admin/applications/${r.resource_id}`)
-    } else {
-      nav("/admin/compose")
-    }
-  }
-
-  if (picked) {
-    return (
-      <>
-        <PageHeader title={`Install ${picked.name}`} subtitle={picked.description}
-          actions={<button type="button" className="btn" onClick={() => setPicked(null)}>Back to catalogue</button>} />
-        <Card>
-          <form className="flex max-w-xl flex-col gap-4" onSubmit={(ev) => { ev.preventDefault(); install() }}>
-            <p className="m-0 text-sm text-muted">
-              {picked.type === 'compose' ? <>Compose stack: {picked.services?.join(', ')}</> : <>Image <code className="font-mono">{picked.image}</code> · port {picked.port ?? '—'}</>}
-              {picked.generated.length > 0 && <> · generates {picked.generated.length} secret{picked.generated.length > 1 ? 's' : ''} ({picked.generated.map((g) => g.replace(/^SERVICE_/, '').toLowerCase()).join(', ')})</>}
-            </p>
-            <Field label={picked.type === 'compose' ? 'Stack name' : 'Application name'} hint="Lowercase letters, numbers and dashes.">
-              <input className="input" required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </Field>
-            <Field label="Domain" hint="Optional. Used for the app's public URL; point its A record at the server.">
-              <input className="input" value={form.domain} placeholder="app.example.com" onChange={(e) => setForm({ ...form, domain: e.target.value })} />
-            </Field>
-            <Field label="Server" hint={picked.type === 'compose' ? 'Required for a stack.' : 'Leave automatic to let the scheduler place it.'}>
-              <Select className="input" value={form.server_id} onChange={(e) => setForm({ ...form, server_id: e.target.value })}>
-                <option value="">{picked.type === 'compose' ? 'Choose a server' : 'Automatic'}</option>
-                {servers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Environment">
-              <Select className="input" value={form.environment} onChange={(e) => setForm({ ...form, environment: e.target.value })}>
-                <option value="production">production</option><option value="staging">staging</option><option value="development">development</option>
-              </Select>
-            </Field>
-            {picked.variables.map((v) => (
-              <Field key={v.key} label={`${v.label}${v.required ? ' *' : ''}`}>
-                <input className="input font-mono text-xs" type={v.secret ? 'password' : 'text'} autoComplete="off" required={v.required}
-                       value={vars[v.key] ?? ''} onChange={(e) => setVars({ ...vars, [v.key]: e.target.value })} />
-              </Field>
-            ))}
-            <button className="btn btn-primary min-h-11 self-start" disabled={busy}>{busy ? 'Installing…' : `Install ${picked.name}`}</button>
-          </form>
-        </Card>
-      </>
-    )
-  }
+  if (picked) return <InstallWizard t={picked} onBack={() => setPicked(null)} />
 
   return (
     <>

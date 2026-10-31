@@ -447,6 +447,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('customers', [Admin\CustomerController::class, 'index'])->middleware('perm:users.manage|billing.manage')->name('customers.index');
     Route::post('customers', [Admin\CustomerController::class, 'store'])->middleware('perm:users.manage')->name('customers.store');
     Route::patch('customers/{id}', [Admin\CustomerController::class, 'update'])->middleware('perm:users.manage')->name('customers.update');
+    Route::get('customers/{id}', [Admin\CustomerController::class, 'show'])->middleware('perm:users.manage|billing.manage')->name('customers.show');
+    Route::post('customers/{id}/suspend', [Admin\CustomerController::class, 'suspend'])->middleware('perm:users.manage')->name('customers.suspend');
+    Route::post('customers/{id}/reactivate', [Admin\CustomerController::class, 'reactivate'])->middleware('perm:users.manage')->name('customers.reactivate');
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
 
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');

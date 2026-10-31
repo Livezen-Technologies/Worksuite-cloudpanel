@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Icon } from './Icon'
 
 export function Card({ title, subtitle, actions, children, className = '', pad = true, id }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; id?: string }) {
   return (
@@ -44,15 +45,37 @@ export function Meter({ value, label, color, thick = false }: { value: number; l
 
 const TONE_CHIP = { g: 'bg-g-bg text-g-fg', y: 'bg-y-bg text-y-fg', r: 'bg-r-bg text-r-fg', b: 'bg-b-bg text-b-fg', n: 'bg-n-bg text-n-fg' } as const
 
-/** A KPI card (WorkSuite family): optional tinted icon chip + label, the figure, a grey line under it. */
-export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor, icon, iconTone = 'b' }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string; icon?: ReactNode; iconTone?: keyof typeof TONE_CHIP }) {
+/** Icon for a stat label when the page gives none, so every KPI card matches the dashboard. */
+const AUTO_ICON: [RegExp, string][] = [
+  [/threat|malware|attack|blocked|firewall|security|score|protect|rule|enforc|countr/i, 'shield'],
+  [/alert|incident|fail|error|warning/i, 'warn'],
+  [/backup|stored|snapshot|archive|quarantin|restore/i, 'archive'],
+  [/next run|last|time|uptime|schedul|expir|cron|detection/i, 'clock'],
+  [/cpu|load|traffic|success|rate|health/i, 'pulse'],
+  [/memory|ram|database|db/i, 'db'],
+  [/disk|volume|storage|cloud/i, 'disk'],
+  [/domain|dns|certificate|site|network|exposed|mesh|peer/i, 'globe'],
+  [/container|image|app|stack/i, 'box'],
+  [/server|host/i, 'server'],
+  [/mail|alias|inbox|blocklist/i, 'inbox'],
+  [/user|member|customer|team/i, 'users'],
+  [/update|upgrade|php|wordpress|staging|copies/i, 'refresh'],
+  [/resolved|clean|valid|enabled|connected/i, 'check'],
+]
+const autoIcon = (label: string) => AUTO_ICON.find(([re]) => re.test(label))?.[1] ?? 'grid'
+
+/** A KPI card (WorkSuite family): tinted icon chip + label, the figure, a grey line under it. */
+export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor, icon, iconTone }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string; icon?: ReactNode; iconTone?: keyof typeof TONE_CHIP }) {
   // A figure that is its own status needs no separate badge.
   const tone = valueTone && valueTone !== 'n' ? { g: 'text-g-fg', y: 'text-y-fg', r: 'text-r-fg' }[valueTone] : ''
+  // No icon given: pick one from the label, tinted like the value (blue when neutral).
+  const chipTone = iconTone ?? (valueTone && valueTone !== 'n' ? valueTone : deltaTone && deltaTone !== 'n' && deltaTone !== 'g' ? deltaTone : 'b')
+  const glyph = icon ?? <Icon name={autoIcon(label)} size={16} />
   return (
     <div className="card px-4 py-4">
       <div className="flex items-center gap-2.5 text-sm text-muted font-medium">
-        {icon && <span aria-hidden="true" className={`w-7 h-7 rounded-md flex items-center justify-center flex-none ${TONE_CHIP[iconTone]}`}>{icon}</span>}
-        <span className="min-w-0 truncate">{label}</span>
+        <span aria-hidden="true" className={`w-7 h-7 rounded-md flex items-center justify-center flex-none ${TONE_CHIP[chipTone]}`}>{glyph}</span>
+        <span className="min-w-0 leading-tight">{label}</span>
       </div>
       <div className={`mt-2.5 text-[28px] leading-8 font-bold tracking-tight tabular-nums ${tone}`}>{value}</div>
       {delta && <div className="mt-1 text-[13px]" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</div>}

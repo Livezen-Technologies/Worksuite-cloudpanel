@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router'
 import { useState } from 'react'
 import { useAction, useList } from '../../api/hooks'
 import { Field, PageHeader, Empty } from '../../components/Card'
@@ -128,6 +129,7 @@ function generatePassword(length = 20): string {
 const NEW_CUSTOMER = { name: '', billing_email: '', plan_id: '', owner_name: '', owner_email: '', owner_password: '' }
 
 export function Customers() {
+  const nav = useNavigate()
   const customers = useList<Customer>('/customers')
   const plans = useList<Plan>('/plans')
   const { run, busy } = useAction()
@@ -197,6 +199,7 @@ export function Customers() {
 
       {!customers.isLoading && customers.rows.length === 0 && <Empty>No hosting customers yet.</Empty>}
       <DataTable label="Customers" rows={customers.rows} loading={customers.isLoading} rowKey={(r) => r.id}
+        onRowClick={(r) => nav(`/admin/customers/${r.id}`)} actions={(r) => [{ label: `Open ${r.name}`, icon: 'eye', onClick: () => nav(`/admin/customers/${r.id}`) }]}
         columns={[
           { key: 'name', header: 'Customer', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'slug', header: 'Slug', render: (r) => <span className="font-mono text-xs text-muted">{r.slug}</span> },
@@ -209,12 +212,12 @@ export function Customers() {
           {
             key: 'plan', header: 'Package', sortable: false, value: (r) => r.plan?.name ?? '—',
             render: (r) => (
-              <Select className="input !w-auto !min-h-8 text-xs" value={r.plan?.id ?? ''}
+              <span onClick={(e) => e.stopPropagation()}><Select className="input !w-auto !min-h-8 text-xs" value={r.plan?.id ?? ''}
                       aria-label={`Package for ${r.name}`}
                       onChange={(e) => run({ path: `/customers/${r.id}/plan`, body: { plan_id: e.target.value }, label: `Move ${r.name}`, success: 'Package changed' }).catch(() => {})}>
                 {!r.plan && <option value="">Choose…</option>}
                 {plans.rows.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
+              </Select></span>
             ),
           },
         ]} />

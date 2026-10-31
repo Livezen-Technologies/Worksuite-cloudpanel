@@ -245,12 +245,20 @@ class TemplateService
     {
         $m = $t->manifest;
         $name = $data['name'];
+        // INST-3: an existing managed database fills the template's connection variables on the server,
+        // so its password never reaches the browser; the app goes on the database's server and network.
+        $db = null;
+        if (! empty($data['database_id']) && $t->type !== 'compose') {
+            $db = \App\Models\Database::findOrFail($data['database_id']);
+            $data['server_id'] = $db->server_id;
+            $data['variables'] = $this->databaseVariables($m, $db, (array) ($data['variables'] ?? []));
+        }
         $r = $this->render($m, $name, $data['domain'] ?? null, (array) ($data['variables'] ?? []));
         if ($r['unresolved']) {
             throw ApiException::validation(['variables' => ['Fill in: '.implode(', ', $r['unresolved'])]]);
         }
 
-        return DB::transaction(function () use ($t, $m, $data, $name, $r, $user) {
+        return DB::transaction(function () use ($t, $m, $data, $name, $r, $user, $db) {
             if ($t->type === 'compose') {
                 if (empty($data['server_id'])) {
                     throw ApiException::validation(['server_id' => ['Choose a server for the stack.']]);
@@ -268,14 +276,21 @@ class TemplateService
                     throw ApiException::validation(['name' => ['An application with this name already exists.']]);
                 }
                 $secretKeys = array_merge($this->generatedKeys($m), array_column(array_filter((array) ($m['variables'] ?? []), fn ($v) => ! empty($v['secret'])), 'key'));
-                $app = Application::create([
-                    'name' => $name, 'kind' => 'admin', 'source_type' => 'image', 'image' => $m['image'], 'port' => $m['port'] ?? null,
-                    'health_path' => $m['health'] ?? null, 'volume_path' => $m['volume'] ?? null, 'server_id' => $data['server_id'] ?? null,
-                    'environment' => $data['environment'] ?? 'production', 'source' => ['template' => $t->id],
-                ]);
+                $app = Application::create(array_filter([
+                    'name' => $name, 'kind' => 'admin', 'source_type' => 'image', 'image' => $m['image'], 'port' => $data['port'] ?? $m['port'] ?? null,
+                    'health_path' => $data['health_path'] ?? $m['health'] ?? null, 'volume_path' => $data['volume_path'] ?? $m['volume'] ?? null, 'server_id' => $data['server_id'] ?? null,
+                    'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id]),
+                    'size' => $data['size'] ?? null,
+                ], fn ($v) => $v !== null) + (array_key_exists('auto_restart', $data) ? ['auto_restart' => (bool) $data['auto_restart']] : []));
                 foreach ($r['env'] as $k => $v) {
-                    $secret = (bool) array_filter($secretKeys, fn ($s) => str_contains((string) ($m['env'][$k] ?? '${'.$k.'}'), '${'.$s.'}'));
+                    $secret = (bool) array_filter($secretKeys, fn ($s) => str_contains((string) ($m['env'][$k] ?? '${'.$k.'}'), '${'.$s.'}'))
+                        || ($db && preg_match('/PASS/i', $k));
                     EnvVar::create(['application_id' => $app->id, 'key' => $k, 'value' => $v, 'secret' => $secret]);
+                }
+                foreach ((array) ($data['env'] ?? []) as $e) {
+                    if (! isset($r['env'][$e['key']])) {
+                        EnvVar::create(['application_id' => $app->id, 'key' => $e['key'], 'value' => (string) ($e['value'] ?? ''), 'secret' => (bool) ($e['secret'] ?? false)]);
+                    }
                 }
                 $type = 'application';
                 $id = $app->id;
@@ -286,6 +301,35 @@ class TemplateService
                 'resource_type' => $type, 'resource_id' => $id, 'values' => $r['values'], 'user_id' => $user?->id,
             ]);
         });
+    }
+
+    /** INST-3: fill a template's database variables (host, port, user, password) from a managed database. */
+    public function databaseVariables(array $m, \App\Models\Database $db, array $vars): array
+    {
+        $tpl = config('platform.database_templates')[$db->engine] ?? [];
+        $host = 'db-'.\Illuminate\Support\Str::slug($db->name);
+        $port = (string) ($tpl['port'] ?? '');
+        $user = $db->engine === 'postgres' ? 'postgres' : 'root';
+        $password = (string) (\App\Models\Secret::find($db->secret_id)?->value ?? '');
+        $keys = array_column((array) ($m['variables'] ?? []), 'key');
+        $hasPort = (bool) preg_grep('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG).*PORT$/', $keys);
+        // A template with a single, generically named host variable (phpMyAdmin's PMA_HOST) points at the database too.
+        $hosts = preg_grep('/HOST$/', $keys);
+        $loneHost = count($hosts) === 1 && ! preg_grep('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG).*HOST$/', $keys) ? reset($hosts) : null;
+        foreach ($keys as $k) {
+            if ($k !== $loneHost && ! preg_match('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG)/', $k)) {
+                continue;
+            }
+            $vars[$k] = match (true) {
+                (bool) preg_match('/HOST$/', $k) => $hasPort || $port === '' ? $host : "{$host}:{$port}",
+                (bool) preg_match('/PORT$/', $k) => $port,
+                (bool) preg_match('/(USER|USERNAME)$/', $k) => $user,
+                (bool) preg_match('/(PASSWORD|PASS)$/', $k) => $password,
+                default => $vars[$k] ?? '',
+            };
+        }
+
+        return $vars;
     }
 
     /** TPL-5: re-render with the stored values on the template's newest version and redeploy. */
