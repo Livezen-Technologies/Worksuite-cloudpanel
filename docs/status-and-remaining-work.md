@@ -75,7 +75,6 @@ Email templates    ~97%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
                           limit, alert, invite, verify_email, password_reset).
                           Not wired: preview_ready and wordpress_updates
                           (no event yet)
-WorkSuite Server     0%   blocked: no readable source for the image
 Overall            ~70%   up from ~40%: file manager, firewall enforcement,
                           antivirus, DNS zones, WordPress, migrations
 ```
@@ -337,11 +336,7 @@ same service. Site-wide rules attach to the domain router.
 - [ ] Telegram channel
 - [ ] Grafana dashboard and a public status page
 
-## 5. WorkSuite Server v3.2
-
-- [ ] Blocked: no readable source for the image. Needs access before anything.
-
-## 6. Housekeeping
+## 5. Housekeeping
 
 - [ ] **`config:cache` breaks the test suite** — it makes `DNS_DRIVER=fake`
       from `phpunit.xml` inert, and the suite then reports ~34 failures that
