@@ -185,6 +185,81 @@ class EnvironmentService
         return $started;
     }
 
+    /**
+     * ENV: a pull request opened (or pushed to) gets `PR #<n>`, a copy of the project's
+     * preview source environment on the PR's branch, with a platform address per app.
+     *
+     * @return array{environment: Environment, deployments: list<string>, urls: list<string>}
+     */
+    public function openPreview(Project $project, int $number, string $branch): array
+    {
+        $env = Environment::where('project_id', $project->id)->where('preview_number', $number)->first();
+        $created = false;
+        if (! $env) {
+            $source = $project->preview_environment_id ? Environment::find($project->preview_environment_id) : null;
+            $source ??= Environment::where('project_id', $project->id)->where('kind', 'staging')->first();
+            if (! $source) {
+                throw ApiException::conflict('Choose a preview source environment for this project first.');
+            }
+            $env = $this->duplicate($source, ['name' => "PR #{$number}", 'kind' => 'preview', 'branch' => $branch]);
+            $env->update(['preview_number' => $number, 'requires_approval' => false]);
+            $created = true;
+        } elseif ($env->branch !== $branch) {
+            $env->update(['branch' => $branch]);
+        }
+        $urls = [];
+        $deployments = [];
+        $domains = app(DomainService::class);
+        foreach (Application::where('environment_id', $env->id)->get() as $app) {
+            if ($created || ! Domain::where('application_id', $app->id)->exists()) {
+                $host = substr($app->name, 0, 50).'.'.config('platform.domain');
+                if (! Domain::allTenants()->where('name', $host)->exists() && $app->port) {
+                    $domains->create(['name' => $host, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => true], true);
+                }
+            }
+            if (isset($app->source['repo'])) {
+                $app->update(['source' => array_merge($app->source, ['branch' => $branch])]);
+            }
+            $deployments[] = app(DeploymentService::class)->start($app->fresh(), null, 'preview')->id;
+            if ($d = Domain::where('application_id', $app->id)->value('name')) {
+                $urls[] = 'https://'.$d;
+            }
+        }
+
+        return ['environment' => $env, 'deployments' => $deployments, 'urls' => $urls];
+    }
+
+    /** ENV: the pull request was closed or merged; its environment and apps go. */
+    public function closePreview(Project $project, int $number): bool
+    {
+        $env = Environment::where('project_id', $project->id)->where('preview_number', $number)->first();
+        if (! $env) {
+            return false;
+        }
+        foreach (Application::where('environment_id', $env->id)->get() as $app) {
+            Domain::where('application_id', $app->id)->delete();
+            $app->retire();
+        }
+        Application::withTrashed()->where('environment_id', $env->id)->update(['environment_id' => null]);
+        $env->delete();
+        app(TraefikConfigService::class)->push();
+
+        return true;
+    }
+
+    /** ENV-7: a request reached a sleeping app; start it again. */
+    public function wakeApp(Application $app): bool
+    {
+        if (! $app->asleep_at) {
+            return false;
+        }
+        $this->containers($app, 'container.start');
+        $app->update(['asleep_at' => null, 'woken_at' => now(), 'status' => 'running']);
+        app(TraefikConfigService::class)->push();
+
+        return true;
+    }
+
     /** ENV-7: stop the apps of sleeping environments after their idle window. */
     public function sleepIdle(): int
     {
@@ -199,6 +274,8 @@ class EnvironmentService
                 $n++;
             }
         }
+        // Sleeping apps' domains show the waking page, which starts them on the next request.
+        $n && app(TraefikConfigService::class)->push();
 
         return $n;
     }
@@ -210,6 +287,7 @@ class EnvironmentService
             $this->containers($app, 'container.start');
             $app->update(['asleep_at' => null, 'woken_at' => now(), 'status' => 'running']);
         }
+        $apps->isNotEmpty() && app(TraefikConfigService::class)->push();
 
         return $apps->count();
     }

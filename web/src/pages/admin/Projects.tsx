@@ -10,7 +10,7 @@ import { type R } from '../../lib/util'
 
 type App = { id: string; name: string; service: string; status: string; asleep: boolean; image: string | null; last_deployed_at: string | null; url: string | null }
 type Env = { id: string; name: string; slug: string; kind: string; branch: string | null; requires_approval: boolean; sleep_after_minutes: number | null; variables: string[]; apps: App[] }
-type Project = { id: string; name: string; description: string | null; webhook_url: string; environments: Env[] }
+type Project = { id: string; name: string; description: string | null; webhook_url: string; preview_environment_id: string | null; environments: Env[] }
 
 const KIND_TONE: Record<string, 'g' | 'b' | 'y' | 'n'> = { production: 'g', staging: 'b', development: 'n', preview: 'y' }
 
@@ -97,7 +97,12 @@ export default function Projects() {
         <section key={p.id} className="mb-6" aria-label={p.name}>
           <div className="flex flex-wrap items-baseline gap-3 mb-2">
             <h2 className="text-base font-semibold m-0">{p.name}</h2>
-            <span className="text-xs text-muted">Push webhook: <code className="font-mono">{p.webhook_url}</code></span>
+            <span className="text-xs text-muted">Webhook (pushes and pull requests): <code className="font-mono">{p.webhook_url}</code></span>
+            <label className="text-xs text-muted flex items-center gap-2 ml-auto">Pull request previews copy
+              <Select className="input !w-auto !py-1 text-xs" value={p.preview_environment_id ?? ''} onChange={(e) => run({ path: `/projects/${p.id}`, method: 'PATCH', body: { preview_environment_id: e.target.value || null }, label: 'Preview source', success: 'Preview source saved' }).catch(() => {})}>
+                <option value="">staging (default)</option>{p.environments.filter((e) => e.kind !== 'preview').map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </Select>
+            </label>
           </div>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">{p.environments.map((e) => <EnvCard key={e.id} project={p} env={e} />)}</div>
         </section>

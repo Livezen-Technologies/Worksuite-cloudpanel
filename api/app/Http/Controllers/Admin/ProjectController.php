@@ -19,7 +19,7 @@ class ProjectController extends Controller
     {
         return [
             'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
-            'webhook_url' => url("/api/v1/hooks/git/{$p->id}"),
+            'webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'preview_environment_id' => $p->preview_environment_id,
             'environments' => Environment::where('project_id', $p->id)->orderByRaw("case kind when 'production' then 0 when 'staging' then 1 else 2 end")->orderBy('name')->get()
                 ->map(fn ($e) => $this->envs->present($e))->values(),
         ];
@@ -122,5 +122,18 @@ class ProjectController extends Controller
         $project->update(['webhook_secret' => Str::random(40)]);
 
         return $this->data(['webhook_secret' => $project->webhook_secret]);
+    }
+
+    /** ENV: which environment pull-request previews copy. */
+    public function update(Request $request, string $id)
+    {
+        $project = Project::findOrFail($id);
+        $v = $request->validate(['name' => 'sometimes|string|max:80', 'description' => 'nullable|string|max:255', 'preview_environment_id' => 'nullable|uuid']);
+        if (! empty($v['preview_environment_id'])) {
+            Environment::where('project_id', $project->id)->findOrFail($v['preview_environment_id']);
+        }
+        $project->update($v);
+
+        return $this->data($this->present($project->fresh()));
     }
 }

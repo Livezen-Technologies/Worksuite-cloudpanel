@@ -34,6 +34,7 @@ class PublicPagesService
         'not_found' => ['status' => 404, 'title' => 'Site not found', 'message' => 'There is no site at this address.'],
         'suspended' => ['status' => 403, 'title' => 'This site is suspended', 'message' => 'This site has been suspended. If it is yours, contact support.'],
         'expired' => ['status' => 402, 'title' => 'This site is paused', 'message' => 'The plan for this site has ended. If it is yours, renew it in the panel.'],
+        'sleeping' => ['status' => 503, 'title' => 'Waking this site up', 'message' => 'This preview was asleep to save resources. It is starting now and this page reloads by itself.'],
         'welcome' => ['status' => 200, 'title' => 'Your domain is connected', 'message' => 'This domain points at the platform. Connect it to an app in the panel to put your site here.'],
     ];
 
@@ -109,6 +110,9 @@ class PublicPagesService
         if ($app?->status === 'suspended') {
             return 'suspended';
         }
+        if ($app?->asleep_at) {
+            return 'sleeping';
+        }
         $sub = Subscription::withoutGlobalScopes()->where('organization_id', $domain->organization_id)->latest()->first();
         if ($sub && in_array($sub->status, ['expired', 'canceled', 'cancelled'], true)
             && $sub->current_period_end && $sub->current_period_end->copy()->addDays((int) $this->settings()['grace_days'])->isPast()) {
@@ -154,6 +158,11 @@ class PublicPagesService
                 // PUB-3: admins open the site once with ?ws_bypass=<token>; the cookie then skips maintenance.
                 $out[$name.'-bypass'] = ['rule' => "({$rule}) && Query(`ws_bypass`, `{$token}`)", 'priority' => 100001, 'entryPoints' => $entry, 'service' => $service, 'middlewares' => ['dmp-pages-bypass'], 'tls' => $tls];
                 $takeover .= " && !HeaderRegexp(`Cookie`, `ws_bypass={$token}`)";
+            }
+            if ($page === 'sleeping') {
+                // ENV-7: the page's /__wake request goes to the panel, which starts the app.
+                $mw['dmp-pages-wake'] = ['replacePath' => ['path' => '/api/v1/hooks/wake']];
+                $out[$name.'-wake'] = ['rule' => "({$rule}) && Path(`/__wake`)", 'priority' => 100002, 'entryPoints' => $entry, 'service' => 'dmp-panel-wake', 'middlewares' => ['dmp-pages-wake'], 'tls' => $tls];
             }
             $out[$name.'-page'] = ['rule' => $takeover, 'priority' => 100000, 'entryPoints' => $entry, 'service' => $service, 'middlewares' => ['dmp-pages-p-'.$page], 'tls' => $tls];
         }
@@ -244,10 +253,14 @@ class PublicPagesService
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : '#4F46E5';
         $name = $brand['sender_name'] ?: config('app.name', 'WorkSuite CloudPanel');
         $retry = (int) $s['retry_after'];
-        $refresh = $key === 'busy' ? '<meta http-equiv="refresh" content="30">' : ($key === 'maintenance' ? '<meta http-equiv="refresh" content="'.min(300, max(30, $retry)).'">' : '');
+        $refresh = $key === 'busy' ? '<meta http-equiv="refresh" content="30">' : ($key === 'sleeping' ? '<meta http-equiv="refresh" content="10">' : ($key === 'maintenance' ? '<meta http-equiv="refresh" content="'.min(300, max(30, $retry)).'">' : ''));
         $link = ! empty($text['link_url']) && preg_match('#^https?://#i', $text['link_url'])
             ? '<p><a href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? $text['link_url']).'</a></p>' : '';
         $retryNote = $key === 'busy' ? '<p class="m">Trying again in 30 seconds…</p>' : '';
+        if ($key === 'sleeping') {
+            // No scripts on these pages: an image request is what wakes the app.
+            $retryNote = '<p class="m">This usually takes under a minute.</p><img src="/__wake" alt="" width="1" height="1">';
+        }
 
         return <<<HTML
 <!doctype html>
@@ -268,7 +281,7 @@ HTML;
     public function nginxConf(): string
     {
         $retry = (int) $this->settings()['retry_after'];
-        $codes = ['maintenance' => 503, 'suspended' => 403, 'expired' => 402, 'not_found' => 404];
+        $codes = ['maintenance' => 503, 'sleeping' => 503, 'suspended' => 403, 'expired' => 402, 'not_found' => 404];
         $blocks = '';
         foreach ($codes as $page => $code) {
             $retryHeader = $code === 503 ? "    add_header Retry-After {$retry} always;\n" : '';
