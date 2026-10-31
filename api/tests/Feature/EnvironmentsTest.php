@@ -181,6 +181,44 @@ class EnvironmentsTest extends TestCase
         $this->assertNotNull(Application::allTenants()->find($appId), 'the source environment is untouched');
     }
 
+    public function test_a_finished_preview_emails_preview_ready_with_its_address(): void
+    {
+        $sent = [];
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSent::class, function ($e) use (&$sent) {
+            $sent[] = [$e->message->getSubject(), $e->message->getTextBody()];
+        });
+        [$token, $agentSecret, $project, $server] = $this->setUpProject();
+        $staging = $this->env($project, 'staging');
+        $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'environment_id' => $staging['id'], 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated();
+        $this->api($token)->patchJson("/api/v1/projects/{$project['id']}", ['preview_environment_id' => $staging['id']])->assertOk();
+        $secret = Project::allTenants()->find($project['id'])->webhook_secret;
+        $json = json_encode(['action' => 'opened', 'number' => 9, 'pull_request' => ['number' => 9, 'head' => ['ref' => 'feature/cart']]]);
+        $this->call('POST', "/api/v1/hooks/git/{$project['id']}", [], [], [], ['HTTP_X_GITHUB_EVENT' => 'pull_request', 'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $json, $secret)], $json)->assertStatus(202);
+
+        $create = collect($this->heartbeat($agentSecret)['commands'])->firstWhere('type', 'container.create');
+        $this->commandResult($agentSecret, $create['id'], 'succeeded', ['output' => ['container_id' => 'c-pr']])->assertOk();
+        $this->passHealthChecks($agentSecret);
+
+        $mail = collect($sent)->first(fn ($m) => str_starts_with($m[0], 'Preview of'));
+        $this->assertNotNull($mail, 'preview_ready was sent');
+        $this->assertSame('Preview of web-pr-9 (feature/cart) is ready', $mail[0]);
+        $this->assertStringContainsString('https://web-pr-9.'.config('platform.domain'), $mail[1]);
+        $this->assertCount(1, collect($sent)->filter(fn ($m) => str_contains($m[0], 'web-pr-9')), 'a preview is not also announced as a normal deployment');
+    }
+
+    public function test_a_normal_deployment_email_names_the_version_once(): void
+    {
+        $sent = [];
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSent::class, function ($e) use (&$sent) {
+            $sent[] = $e->message->getSubject();
+        });
+        [$token, $secret, , $server] = $this->setUpProject();
+        $appId = $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated()->json('data.id');
+        $this->deploy($token, $secret, $appId);
+        $this->assertContains('web v1 is live', $sent);
+    }
+
     public function test_preview_addresses_are_commented_on_the_pull_request(): void
     {
         [$token, , $project, $server] = $this->setUpProject();

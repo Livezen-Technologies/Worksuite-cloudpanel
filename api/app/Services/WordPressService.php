@@ -680,6 +680,27 @@ PHP;
             ]),
         ]);
         $this->scanVulnerabilities($site->fresh());
+        $this->notifyUpdates($site->fresh());
+    }
+
+    /**
+     * EML: "WordPress updates" when a site has updates waiting. Sent again only when the number
+     * changes, so a daily inventory does not repeat the same email.
+     */
+    private function notifyUpdates(WpSite $site): void
+    {
+        $count = (int) $site->updates_count;
+        $last = $site->settings['updates_notified'] ?? null;
+        if ($count === $last) {
+            return;
+        }
+        $site->update(['settings' => array_merge($site->settings ?? [], ['updates_notified' => $count])]);
+        if ($count > 0) {
+            app(EmailTemplateService::class)->notifyOrganization($site->organization_id, 'wordpress_updates', [
+                'site' => (string) ($site->url ? parse_url($site->url, PHP_URL_HOST) ?: $site->url : Application::allTenants()->find($site->application_id)?->name),
+                'count' => (string) $count, 'security' => (string) (int) $site->security_count,
+            ]);
+        }
     }
 
     /**

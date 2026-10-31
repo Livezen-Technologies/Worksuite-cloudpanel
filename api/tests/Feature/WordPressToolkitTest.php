@@ -55,6 +55,27 @@ class WordPressToolkitTest extends TestCase
         return $c;
     }
 
+    public function test_waiting_updates_email_the_organisation_once_per_change(): void
+    {
+        $sent = [];
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSent::class, function ($e) use (&$sent) {
+            $sent[] = $e->message->getSubject();
+        });
+        [, $token, $secret, $site] = $this->setUpSite();
+        $this->assertSame(['1 WordPress updates for blog.example.com'], array_values(array_filter($sent, fn ($s) => str_contains($s, 'WordPress updates'))));
+
+        $inv = ['version' => '6.8.3', 'siteurl' => 'https://blog.example.com',
+            'plugins' => [['name' => 'contact-form-7', 'status' => 'active', 'version' => '5.9.3', 'update' => 'available', 'update_version' => '5.9.8']], 'themes' => [], 'core_updates' => []];
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/refresh")->assertStatus(202);
+        $this->step($secret, 'wp.inventory', $inv);
+        $this->assertCount(1, array_filter($sent, fn ($s) => str_contains($s, 'WordPress updates')), 'the same count is not emailed again');
+
+        $inv['core_updates'] = [['version' => '6.9']];
+        $this->api($token)->postJson("/api/v1/wordpress/{$site->id}/refresh")->assertStatus(202);
+        $this->step($secret, 'wp.inventory', $inv);
+        $this->assertContains('2 WordPress updates for blog.example.com', $sent);
+    }
+
     public function test_sites_are_detected_inventoried_and_scanned(): void
     {
         [, $token, , $site] = $this->setUpSite();

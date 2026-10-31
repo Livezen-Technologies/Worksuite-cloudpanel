@@ -491,10 +491,17 @@ class DeploymentService implements HandlesCommandResults
             $this->jobs->succeed($job, ['deployment_id' => $deployment->id, 'release_id' => $release->id, 'version' => $release->version, 'url' => $this->primaryUrl($app)]);
         });
         $deployment->refresh();
-        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
-            'app' => $app->name, 'version' => 'v'.(Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
-            'duration' => $deployment->started_at ? $deployment->started_at->diffForHumans(now(), true) : '—',
-        ]);
+        // EML: a pull-request preview gets "Preview ready" with its address instead of the usual note.
+        if ($deployment->source === 'preview') {
+            app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'preview_ready', [
+                'app' => $app->name, 'branch' => (string) ($app->source['branch'] ?? $app->environmentModel?->branch ?? ''), 'url' => (string) $this->primaryUrl($app),
+            ]);
+        } else {
+            app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
+                'app' => $app->name, 'version' => (string) (Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
+                'duration' => $deployment->started_at ? $deployment->started_at->diffForHumans(now(), true) : '—',
+            ]);
+        }
         // AV-10: the deployed files are the new integrity baseline. Never fail a deployment over it.
         try {
             app(IntegrityService::class)->afterDeployment($app);
