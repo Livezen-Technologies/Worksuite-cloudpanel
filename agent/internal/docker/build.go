@@ -19,6 +19,7 @@ type BuildOptions struct {
 	BuildArgs  map[string]string
 	Labels     map[string]string
 	NoCache    bool
+	CacheFrom  []string
 }
 
 // streamMsg is one JSON line of a build or push progress stream.
@@ -54,6 +55,10 @@ func (c *Client) BuildImage(ctx context.Context, tarCtx io.Reader, o BuildOption
 	}
 	if o.NoCache {
 		q.Set("nocache", "1")
+	}
+	if len(o.CacheFrom) > 0 {
+		b, _ := json.Marshal(o.CacheFrom)
+		q.Set("cachefrom", string(b))
 	}
 	if len(o.BuildArgs) > 0 {
 		b, _ := json.Marshal(o.BuildArgs)

@@ -146,7 +146,14 @@ class BuildService
             $payload['git_auth'] = array_filter(['username' => $source['git_username'] ?? null, 'token' => (string) $secret->value]);
         }
         if ($registry) {
-            $payload['push'] = ['registry' => self::registryHost($registry), 'username' => (string) $registry->username, 'password' => (string) $registry->credentials];
+            $host = self::registryHost($registry);
+            $payload['push'] = ['registry' => $host, 'username' => (string) $registry->username, 'password' => (string) $registry->credentials];
+            // BLD-3: the app's last pushed images are the layer cache for any builder.
+            $cache = \App\Models\Release::where('application_id', $app->id)->where('status', '!=', 'failed')->orderByDesc('version')->limit(5)->pluck('image')
+                ->filter(fn ($i) => is_string($i) && str_starts_with($i, $host.'/'))->unique()->take(2)->values()->all();
+            if ($cache) {
+                $payload['cache_from'] = $cache;
+            }
         }
 
         return $payload;

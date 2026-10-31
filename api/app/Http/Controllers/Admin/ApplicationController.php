@@ -128,6 +128,9 @@ class ApplicationController extends Controller
         $this->authorizeFor($request, 'deploy', $app);
         $data = $request->validate(['release_id' => 'required|uuid']);
         $release = Release::where('application_id', $app->id)->findOrFail($data['release_id']);
+        if (! empty($release->config['image_deleted_at'])) {
+            throw \App\Exceptions\ApiException::conflict("Release v{$release->version}'s image was removed from the registry by the clean-up; redeploy from source instead.");
+        }
         $deployment = $this->deployments->start($app, $request->user(), 'rollback', $release);
 
         return $this->accepted($deployment->job, ['deployment_id' => $deployment->id]);

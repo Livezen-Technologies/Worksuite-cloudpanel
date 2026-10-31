@@ -291,4 +291,33 @@ class BuildPipelineTest extends TestCase
         $this->assertSame(3, $page['minutes_used']);
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(409)->assertSee('build minutes are used up');
     }
+
+    public function test_builds_reuse_pushed_images_as_cache_and_old_images_are_cleaned_up(): void
+    {
+        [$token, , $target, , , $builderSecret] = $this->fleet();
+        $registry = $this->api($token)->postJson('/api/v1/registries', ['name' => 'reg', 'type' => 'private', 'url' => 'https://reg.example.com', 'username' => 'ci', 'password' => 'pw'])->assertCreated()->json('data.id');
+        $appId = $this->gitApp($token, $target, ['push_registry_id' => $registry]);
+        $digest = fn ($i) => 'sha256:'.str_repeat((string) $i, 64);
+        foreach (range(1, 7) as $v) {
+            Release::allTenants()->create(['organization_id' => \App\Models\Application::allTenants()->find($appId)->organization_id, 'application_id' => $appId, 'version' => $v,
+                'image' => 'reg.example.com/acme/api@'.$digest($v), 'config' => [], 'status' => $v === 7 ? 'active' : 'superseded', 'created_at' => now()]);
+        }
+        $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
+        [$build] = $this->heartbeat($builderSecret)['commands'];
+        $this->assertSame(['reg.example.com/acme/api@'.$digest(7), 'reg.example.com/acme/api@'.$digest(6)], $build['payload']['cache_from']);
+
+        // Clean-up keeps the last 5 releases; dry run first.
+        $preview = $this->api($token)->postJson("/api/v1/registries/{$registry}/gc", ['dry_run' => true])->assertOk()->json('data.images');
+        $this->assertSame([2, 1], array_column($preview, 'version'));
+        \Illuminate\Support\Facades\Http::fake(['reg.example.com/v2/acme/api/manifests/'.$digest(2) => \Illuminate\Support\Facades\Http::response('', 202),
+            'reg.example.com/v2/acme/api/manifests/*' => \Illuminate\Support\Facades\Http::response('', 405)]);
+        $run = $this->api($token)->postJson("/api/v1/registries/{$registry}/gc", ['dry_run' => false])->assertOk()->json('data');
+        $this->assertSame(1, $run['deleted']);
+        $this->assertStringContainsString('does not allow deletes', collect($run['images'])->firstWhere('version', 1)['error']);
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => $r->method() === 'DELETE' && $r->hasHeader('Authorization') && str_ends_with($r->url(), $digest(2)));
+
+        $v2 = Release::allTenants()->where('application_id', $appId)->where('version', 2)->first();
+        $this->assertNotEmpty($v2->config['image_deleted_at']);
+        $this->api($token)->postJson("/api/v1/applications/{$appId}/rollback", ['release_id' => $v2->id])->assertStatus(409)->assertSee('removed from the registry');
+    }
 }

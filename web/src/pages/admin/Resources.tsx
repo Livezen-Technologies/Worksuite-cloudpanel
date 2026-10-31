@@ -79,7 +79,17 @@ export function Images() {
           <div key={r.id} className="card p-4 flex flex-col gap-1.5">
             <div className="flex justify-between items-center gap-2"><span className="font-semibold">{r.name}</span><StatusBadge status={r.status ?? 'connected'} /></div>
             <div className="text-xs text-muted font-mono truncate">{r.url ?? r.type}</div>
-            <button type="button" className="btn btn-sm btn-danger self-start mt-1" onClick={() => setDel(r)}>Remove</button>
+            <span className="flex gap-2 mt-1">
+              {r.type === 'private' && <button type="button" className="btn btn-sm" onClick={async () => {
+                const prev = await run<R>({ path: `/registries/${r.id}/gc`, body: { dry_run: true }, label: 'Check old images', silent: true }).catch(() => null)
+                const n = ((prev as R)?.data?.images as R[] | undefined)?.length ?? 0
+                if (!n) { window.alert('Nothing to clean up: only the last releases of each app are stored.'); return }
+                if (window.confirm(`Delete ${n} old app image${n === 1 ? '' : 's'} from ${r.name}? The last 5 releases of each app are kept; older ones can no longer be rolled back to.`)) {
+                  run({ path: `/registries/${r.id}/gc`, body: { dry_run: false }, label: 'Clean up registry', success: 'Old images deleted' }).catch(() => {})
+                }
+              }}>Clean up</button>}
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Remove</button>
+            </span>
           </div>
         ))}
         {regs.rows.length === 0 && !regs.isLoading && <Card><Empty>No registries connected.</Empty></Card>}
