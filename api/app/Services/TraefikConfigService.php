@@ -59,7 +59,10 @@ class TraefikConfigService implements HandlesCommandResults
         // Without a dedicated ingress every app server runs its own Traefik.
         // Servers pushed before stay included so removed routers are removed there too.
         $serverIds = Application::allTenants()->whereIn('id', Domain::allTenants()->whereNotNull('application_id')->select('application_id'))->pluck('server_id')
-            ->merge(Cache::get('traefik-config:servers', []))->filter()->unique();
+            ->merge(Cache::get('traefik-config:servers', []))
+            // Adopted sites live on the server their hand-written file was on.
+            ->merge(Domain::allTenants()->whereNull('application_id')->get()->map(fn (Domain $d) => self::upstream($d)['server_id'] ?? null))
+            ->filter()->unique();
 
         return Server::allTenants()->whereIn('id', $serverIds)->get();
     }
@@ -108,8 +111,24 @@ class TraefikConfigService implements HandlesCommandResults
     /** Domains served through the server's Traefik (all tenants: the ingress is shared). */
     private function domainsFor(Server $server, bool $dedicated): Collection
     {
-        return Domain::allTenants()->with('application')->where('dns_status', 'verified')->whereNotNull('application_id')->get()
-            ->filter(fn (Domain $d) => $d->application && ($dedicated || $d->application->server_id === $server->id))->values();
+        return Domain::allTenants()->with('application')->where('dns_status', 'verified')->get()
+            ->filter(function (Domain $d) use ($server, $dedicated) {
+                if ($d->application_id) {
+                    return $d->application && ($dedicated || $d->application->server_id === $server->id);
+                }
+                // Adopted from a hand-written file: a fixed upstream on the server the file was on.
+                $up = self::upstream($d);
+
+                return $up && ($dedicated || $up['server_id'] === $server->id);
+            })->values();
+    }
+
+    /** An adopted domain's upstream ({server_id, url, file, state}) while it is managed, else null. */
+    public static function upstream(Domain $domain): ?array
+    {
+        $up = $domain->options['upstream'] ?? null;
+
+        return ! $domain->application_id && is_array($up) && in_array($up['state'] ?? null, ['adopting', 'active'], true) && ! empty($up['url']) ? $up : null;
     }
 
     /** @return array{http: array}|array{} Dynamic configuration for one ingress server; empty when it routes nothing. */
@@ -118,10 +137,16 @@ class TraefikConfigService implements HandlesCommandResults
         $routers = [];
         $middlewares = [];
         $suffix = config('platform.traefik.docker_service_suffix');
+        $upstreams = [];
         foreach ($this->domainsFor($server, $dedicated) as $domain) {
             $app = $domain->application;
             $name = self::routerName($domain);
-            $service = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name)).$suffix;
+            if ($up = self::upstream($domain)) {
+                $service = $name.'-upstream';
+                $upstreams[$service] = ['loadBalancer' => ['passHostHeader' => true, 'servers' => [['url' => $up['url']]]]];
+            } else {
+                $service = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name)).$suffix;
+            }
             $base = ltrim($domain->name, '*.');
             if ($domain->wildcard) {
                 $rule = 'HostRegexp(`^[a-z0-9-]+\\.'.str_replace('.', '\\.', $base).'$`) || Host(`'.$base.'`)';
@@ -176,7 +201,8 @@ class TraefikConfigService implements HandlesCommandResults
             }
         }
         // SCL-6/7: copies on other servers and canaries need a file-provider service in front of the app.
-        [$services, $swap] = $this->scalingServices($this->domainsFor($server, $dedicated)->pluck('application')->unique('id'));
+        [$services, $swap] = $this->scalingServices($this->domainsFor($server, $dedicated)->pluck('application')->filter()->unique('id'));
+        $services += $upstreams;
         foreach ($routers as $r => $router) {
             if (isset($router['service'], $swap[$router['service']])) {
                 $routers[$r]['service'] = $swap[$router['service']];

@@ -36,7 +36,7 @@ var Types = map[string]bool{
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,
 	"backup.run": true, "restore.run": true, "backup.test": true, "backup.export": true, "backup.probe": true,
-	"proxy.config": true, "proxy.certs": true,
+	"proxy.config": true, "proxy.certs": true, "proxy.scan": true, "proxy.retire": true, "proxy.restore": true,
 	"agent.update": true, "agent.restart": true,
 	"terminal.open": true,
 	"image.build":   true, "image.scan": true, "container.healthcheck": true,

@@ -80,6 +80,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('servers/{id}/containers', [Admin\ServerController::class, 'containers'])->name('servers.containers');
         Route::get('servers/{id}/cleanup', [Admin\CleanupController::class, 'show'])->name('servers.cleanup');
         Route::get('servers/{id}/tunnel', [Admin\TunnelController::class, 'show'])->name('servers.tunnel');
+        Route::get('servers/{id}/proxy/adoptable', [Admin\ProxyAdoptionController::class, 'show'])->name('servers.proxy.adoptable');
         Route::get('mesh', [Admin\MeshController::class, 'show'])->name('mesh.show');
     });
     Route::middleware('perm:servers.manage')->group(function () {
@@ -97,6 +98,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::delete('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'unlockSsh'])->name('mesh.ssh-lock.destroy');
         Route::post('mesh/vpn-peers', [Admin\MeshController::class, 'addPeer'])->name('mesh.vpn-peers.store');
         Route::delete('mesh/vpn-peers/{id}', [Admin\MeshController::class, 'revokePeer'])->name('mesh.vpn-peers.destroy');
+        Route::post('servers/{id}/proxy/scan', [Admin\ProxyAdoptionController::class, 'scan'])->name('servers.proxy.scan');
+        Route::post('servers/{id}/proxy/adopt', [Admin\ProxyAdoptionController::class, 'adopt'])->name('servers.proxy.adopt');
         Route::post('servers/{id}/tunnel/sync', [Admin\TunnelController::class, 'sync'])->name('servers.tunnel.sync');
         Route::post('servers/{id}/tunnel/restart', [Admin\TunnelController::class, 'restart'])->name('servers.tunnel.restart');
         Route::patch('servers/{id}/tunnel', [Admin\TunnelController::class, 'update'])->name('servers.tunnel.update');
