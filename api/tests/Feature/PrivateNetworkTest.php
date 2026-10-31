@@ -90,4 +90,40 @@ class PrivateNetworkTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->postJson("/api/v1/mesh/servers/{$a->id}")->assertNotFound();
     }
+
+    public function test_ssh_can_be_limited_to_the_private_network_with_a_confirmation_window(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-11-02 10:00:00');
+        [, $org, $token] = $this->org();
+        $a = $this->server($org, ['name' => 'web-1', 'ip' => '203.0.113.10']);
+        [$secret] = $this->enrollAgent($a, $token);
+        $this->heartbeat($secret);
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock")->assertNotFound();
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}")->assertStatus(202);
+        $first = $this->applyAs($secret, self::KEY_A)[0];
+        $this->applyAs($secret, self::KEY_A);
+        $this->assertTrue($first['open_port'], 'the WireGuard port is opened in the host firewall');
+        $this->assertArrayNotHasKey('ssh_lock', $first);
+
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock")->assertStatus(409)->assertSee('lock yourself out');
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock", ['allow' => ['nope']])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock", ['allow' => ['198.51.100.7']])->assertStatus(202);
+        $lock = collect($this->applyAs($secret, self::KEY_A))->last()['ssh_lock'];
+        $this->assertSame(['port' => 22, 'allow' => ['198.51.100.7'], 'confirm_within_seconds' => 300], $lock);
+
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock/confirm")->assertOk()->assertJsonPath('data.members.0.ssh_lock.allow.0', '198.51.100.7');
+        $this->assertSame('mesh.confirm', $this->heartbeat($secret)['commands'][0]['type']);
+        $this->api($token)->postJson('/api/v1/mesh/apply')->assertStatus(202);
+        $this->assertSame(0, collect($this->applyAs($secret, self::KEY_A))->last()['ssh_lock']['confirm_within_seconds'], 'a confirmed lock is applied without a rollback');
+
+        // An unconfirmed lock expires on the panel as it does on the server.
+        $this->api($token)->deleteJson("/api/v1/mesh/servers/{$a->id}/ssh-lock")->assertStatus(202);
+        $this->assertArrayNotHasKey('ssh_lock', collect($this->applyAs($secret, self::KEY_A))->last());
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock", ['allow' => ['198.51.100.0/24']])->assertStatus(202);
+        $this->applyAs($secret, self::KEY_A);
+        \Illuminate\Support\Carbon::setTestNow('2026-11-02 10:06:00');
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock/confirm")->assertStatus(409)->assertSee('window passed');
+        $this->assertNull(\App\Models\Server::allTenants()->find($a->id)->mesh_ssh_lock);
+        \Illuminate\Support\Carbon::setTestNow();
+    }
 }

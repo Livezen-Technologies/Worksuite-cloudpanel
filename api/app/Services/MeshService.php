@@ -23,7 +23,61 @@ use Illuminate\Support\Str;
  */
 class MeshService
 {
+    /** PNET-7: how long an unconfirmed SSH lock stays before the agent removes it. */
+    public const SSH_CONFIRM_SECONDS = 300;
+
     public function __construct(private CommandBus $bus, private JobService $jobs) {}
+
+    /**
+     * PNET-7: allow SSH to this server only from the private network (and `$allow`).
+     * Refused unless an admin device is on the network or another way in is listed,
+     * and removed by the agent unless confirmed within SSH_CONFIRM_SECONDS.
+     */
+    public function lockSsh(Server $server, array $allow, int $port = 22): Server
+    {
+        if (! $server->mesh_ip || ! $server->mesh_public_key) {
+            throw ApiException::conflict("{$server->name} is not on the private network yet.");
+        }
+        $connected = VpnPeer::whereNull('revoked_at')->where('last_handshake_at', '>=', now()->subMinutes(15))->exists();
+        if (! $connected && ! $allow) {
+            throw ApiException::conflict('Connect an admin device to the private network first (or list an address that may still use SSH), so you do not lock yourself out.');
+        }
+        $server->update(['mesh_ssh_lock' => ['allow' => array_values($allow), 'port' => $port, 'pending_until' => now()->addSeconds(self::SSH_CONFIRM_SECONDS)->toIso8601String(), 'confirmed_at' => null]]);
+        $this->applyAll();
+
+        return $server->fresh();
+    }
+
+    /** The admin reached the server over the VPN: keep the lock. */
+    public function confirmSsh(Server $server): Server
+    {
+        $lock = $server->mesh_ssh_lock ?? throw ApiException::conflict('SSH is not locked on this server.');
+        if (! empty($lock['pending_until']) && now()->gt($lock['pending_until'])) {
+            $server->update(['mesh_ssh_lock' => null]);
+            throw ApiException::conflict('The confirmation window passed and the server removed the lock. Lock it again.');
+        }
+        $server->update(['mesh_ssh_lock' => array_merge($lock, ['confirmed_at' => now()->toIso8601String(), 'pending_until' => null])]);
+        $this->bus->dispatch($server, 'mesh.confirm', []);
+
+        return $server->fresh();
+    }
+
+    public function unlockSsh(Server $server): void
+    {
+        $server->update(['mesh_ssh_lock' => null]);
+        $this->applyAll();
+    }
+
+    /** Locks left unconfirmed were removed by their agents; forget them here too. */
+    public function expireSshLocks(): void
+    {
+        foreach (Server::allTenants()->whereNotNull('mesh_ssh_lock')->get() as $s) {
+            $p = $s->mesh_ssh_lock['pending_until'] ?? null;
+            if ($p && empty($s->mesh_ssh_lock['confirmed_at']) && now()->gt($p)) {
+                $s->update(['mesh_ssh_lock' => null]);
+            }
+        }
+    }
 
     private function base(): array
     {
@@ -116,10 +170,14 @@ class MeshService
             foreach ($vpn as $p) {
                 $peers[] = ['public_key' => $p->public_key, 'allowed_ips' => [$p->address.'/32']];
             }
-            $this->bus->dispatch($server, 'mesh.apply', [
-                'address' => $server->mesh_ip.'/'.$bits, 'listen_port' => $port, 'peers' => $peers,
+            $lock = $server->mesh_ssh_lock;
+            $this->bus->dispatch($server, 'mesh.apply', array_filter([
+                'address' => $server->mesh_ip.'/'.$bits, 'listen_port' => $port, 'peers' => $peers, 'open_port' => true,
                 'dns' => ['zone' => config('platform.mesh.zone'), 'image' => config('platform.mesh.dns_image'), 'records' => $records],
-            ], $job);
+                // PNET-7: until confirmed, the lock removes itself after the confirmation window.
+                'ssh_lock' => $lock ? ['port' => (int) ($lock['port'] ?? 22), 'allow' => array_values($lock['allow'] ?? []),
+                    'confirm_within_seconds' => empty($lock['confirmed_at']) ? self::SSH_CONFIRM_SECONDS : 0] : null,
+            ], fn ($v) => $v !== null), $job);
         }
 
         return $job;
@@ -127,6 +185,7 @@ class MeshService
 
     public function refreshStatus(): int
     {
+        $this->expireSshLocks();
         $n = 0;
         foreach (Server::allTenants()->whereNotNull('mesh_ip')->get() as $server) {
             if ($server->isOnline()) {
@@ -208,7 +267,7 @@ class MeshService
             'subnet' => config('platform.mesh.subnet'), 'port' => (int) config('platform.mesh.port'), 'zone' => config('platform.mesh.zone'),
             'members' => $this->members()->map(fn ($s) => [
                 'id' => $s->id, 'name' => $s->name, 'ip' => $s->ip, 'mesh_ip' => $s->mesh_ip, 'public_key' => $s->mesh_public_key,
-                'joined_at' => $s->mesh_joined_at, 'status' => $s->mesh_status, 'online' => $s->isOnline(),
+                'joined_at' => $s->mesh_joined_at, 'status' => $s->mesh_status, 'online' => $s->isOnline(), 'ssh_lock' => $s->mesh_ssh_lock,
             ])->values(),
             'candidates' => Server::whereNull('mesh_ip')->orderBy('name')->get(['id', 'name', 'ip'])->values(),
             'records' => $this->records(),

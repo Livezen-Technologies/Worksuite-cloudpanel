@@ -22,6 +22,7 @@ class Server extends Model
             'roles' => 'array',
             'cleanup' => 'array',
             'mesh_status' => 'array',
+            'mesh_ssh_lock' => 'array',
             'mesh_joined_at' => 'datetime',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',

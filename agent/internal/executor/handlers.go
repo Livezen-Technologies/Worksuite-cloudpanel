@@ -181,6 +181,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.meshApply(ctx, c.Payload, progress)
 	case "mesh.status":
 		return e.meshStatus(ctx)
+	case "mesh.confirm":
+		return e.meshConfirm()
 	case "server.cleanup":
 		return e.cleanup(ctx, c.Payload, progress)
 	case "image.prune":

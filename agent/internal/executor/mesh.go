@@ -26,7 +26,16 @@ type MeshSpec struct {
 	ListenPort int        `json:"listen_port"`
 	Peers      []MeshPeer `json:"peers"`
 	Down       bool       `json:"down"`
-	DNS        *struct {
+	// OpenPort opens the WireGuard port in UFW or firewalld when either is active.
+	OpenPort bool `json:"open_port"`
+	// SSHLock (PNET-7) drops SSH from everywhere except the mesh and Allow.
+	// It rolls itself back after ConfirmWithin seconds unless mesh.confirm arrives.
+	SSHLock *struct {
+		Port          int      `json:"port"`
+		Allow         []string `json:"allow"`
+		ConfirmWithin int      `json:"confirm_within_seconds"`
+	} `json:"ssh_lock"`
+	DNS *struct {
 		Image   string `json:"image"`
 		Zone    string `json:"zone"`
 		Records []struct {
@@ -114,6 +123,17 @@ func (s *MeshSpec) validate() error {
 			return fmt.Errorf("invalid keepalive %d", p.Keepalive)
 		}
 	}
+	if s.SSHLock != nil {
+		if s.SSHLock.Port == 0 {
+			s.SSHLock.Port = 22
+		}
+		if s.SSHLock.Port < 1 || s.SSHLock.Port > 65535 || s.SSHLock.ConfirmWithin < 0 || s.SSHLock.ConfirmWithin > 3600 {
+			return errors.New("invalid ssh_lock")
+		}
+		if _, _, err := parseCIDRs("ssh_lock.allow", s.SSHLock.Allow); err != nil {
+			return err
+		}
+	}
 	if s.DNS != nil {
 		for _, r := range s.DNS.Records {
 			if !reDNSName.MatchString(r.Name) || net.ParseIP(r.IP).To4() == nil {
@@ -164,6 +184,10 @@ func (e *Executor) meshApply(ctx context.Context, raw []byte, progress func(int,
 	env := baseEnv()
 	confPath := filepath.Join(e.wgDir(), MeshInterface+".conf")
 	if s.Down {
+		if _, err := os.Stat(filepath.Join(e.StateDir, "mesh", "ssh-lock.nft")); err == nil {
+			_, _ = e.run(ctx, "", env, "nft", "delete", "table", "inet", meshTable)
+			_ = os.Remove(filepath.Join(e.StateDir, "mesh", "ssh-lock.nft"))
+		}
 		_, _ = e.run(ctx, "", env, "wg-quick", "down", MeshInterface)
 		_ = os.Remove(confPath)
 		if e.Docker != nil {
@@ -195,6 +219,14 @@ func (e *Executor) meshApply(ctx context.Context, raw []byte, progress func(int,
 		return nil, fmt.Errorf("wg-quick up (is wireguard-tools installed?): %v: %s", err, strings.TrimSpace(string(o)))
 	}
 	out := map[string]any{"interface": MeshInterface, "up": true, "public_key": pub, "peers": len(s.Peers)}
+	if s.OpenPort {
+		out["port_opened"] = e.meshOpenPort(ctx, s.ListenPort)
+	}
+	if lock, err := e.meshSSHLock(ctx, s); err != nil {
+		return out, err
+	} else if lock != nil {
+		out["ssh_lock"] = lock
+	}
 	if s.DNS != nil {
 		progress(70, "updating internal DNS")
 		if err := e.meshDNS(ctx, s); err != nil {
@@ -284,4 +316,105 @@ func (e *Executor) meshStatus(ctx context.Context) (any, error) {
 		peers = append(peers, p)
 	}
 	return map[string]any{"up": true, "peers": peers}, nil
+}
+
+// meshTable holds the SSH lock; it is separate from the panel firewall's table.
+const meshTable = "dockermgr_mesh"
+
+func (e *Executor) meshLook(name string) bool {
+	look := e.LookPath
+	if look == nil {
+		look = execLookPath
+	}
+	_, err := look(name)
+	return err == nil
+}
+
+// meshOpenPort allows the WireGuard UDP port in the host firewall that is active.
+func (e *Executor) meshOpenPort(ctx context.Context, port int) string {
+	p := strconv.Itoa(port) + "/udp"
+	if e.meshLook("ufw") {
+		if o, err := e.run(ctx, "", baseEnv(), "ufw", "status"); err == nil && strings.Contains(string(o), "Status: active") {
+			if _, err := e.run(ctx, "", baseEnv(), "ufw", "allow", p, "comment", "dmp-mesh"); err == nil {
+				return "ufw"
+			}
+			return "ufw-failed"
+		}
+	}
+	if e.meshLook("firewall-cmd") {
+		if o, err := e.run(ctx, "", baseEnv(), "firewall-cmd", "--state"); err == nil && strings.TrimSpace(string(o)) == "running" {
+			if _, err := e.run(ctx, "", baseEnv(), "firewall-cmd", "--permanent", "--add-port="+p); err == nil {
+				_, _ = e.run(ctx, "", baseEnv(), "firewall-cmd", "--reload")
+				return "firewalld"
+			}
+			return "firewalld-failed"
+		}
+	}
+	return "none"
+}
+
+// meshSSHLock loads or removes the SSH lock. With a lock it returns its summary.
+func (e *Executor) meshSSHLock(ctx context.Context, s MeshSpec) (map[string]any, error) {
+	lockFile := filepath.Join(e.StateDir, "mesh", "ssh-lock.nft")
+	if s.SSHLock == nil {
+		if _, err := os.Stat(lockFile); err == nil {
+			_, _ = e.run(ctx, "", baseEnv(), "nft", "delete", "table", "inet", meshTable)
+			_ = os.Remove(lockFile)
+		}
+		return nil, nil
+	}
+	if !e.meshLook("nft") {
+		return nil, errors.New("nftables is not installed; SSH cannot be limited to the private network")
+	}
+	_, mesh, _ := net.ParseCIDR(s.Address)
+	v4, v6, _ := parseCIDRs("ssh_lock.allow", s.SSHLock.Allow)
+	v4 = append([]string{mesh.String()}, v4...)
+	var b strings.Builder
+	b.WriteString("table inet " + meshTable + "\ndelete table inet " + meshTable + "\ntable inet " + meshTable + " {\n")
+	b.WriteString("  chain input {\n    type filter hook input priority -5; policy accept;\n    iif lo accept\n")
+	b.WriteString("    ct state established,related accept\n")
+	b.WriteString(fmt.Sprintf("    tcp dport %d ip saddr { %s } accept\n", s.SSHLock.Port, strings.Join(v4, ", ")))
+	if len(v6) > 0 {
+		b.WriteString(fmt.Sprintf("    tcp dport %d ip6 saddr { %s } accept\n", s.SSHLock.Port, strings.Join(v6, ", ")))
+	}
+	b.WriteString(fmt.Sprintf("    tcp dport %d drop\n  }\n}\n", s.SSHLock.Port))
+	dir := filepath.Join(e.StateDir, "mesh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	path := lockFile
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		return nil, err
+	}
+	if o, err := e.run(ctx, "", baseEnv(), "nft", "--check", "-f", path); err != nil {
+		return nil, fmt.Errorf("SSH lock rejected by nft: %s", strings.TrimSpace(string(o)))
+	}
+	if o, err := e.run(ctx, "", baseEnv(), "nft", "-f", path); err != nil {
+		return nil, fmt.Errorf("SSH lock failed to load: %s", strings.TrimSpace(string(o)))
+	}
+	if s.SSHLock.ConfirmWithin > 0 {
+		stamp := filepath.Join(dir, "ssh-pending")
+		_ = os.WriteFile(stamp, []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
+		seconds := s.SSHLock.ConfirmWithin
+		go func() {
+			time.Sleep(time.Duration(seconds) * time.Second)
+			if _, err := os.Stat(stamp); err != nil {
+				return // confirmed
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = e.run(ctx, "", baseEnv(), "nft", "delete", "table", "inet", meshTable)
+			_ = os.Remove(stamp)
+		}()
+	}
+	return map[string]any{"port": s.SSHLock.Port, "allowed": append(v4, v6...), "rollback_in": s.SSHLock.ConfirmWithin}, nil
+}
+
+// meshConfirm keeps the SSH lock: it cancels the pending rollback.
+func (e *Executor) meshConfirm() (any, error) {
+	err := os.Remove(filepath.Join(e.StateDir, "mesh", "ssh-pending"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return map[string]any{"confirmed": true}, nil
 }
