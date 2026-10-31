@@ -16,6 +16,7 @@ import { num, type R } from '../../lib/util'
 import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
 import Select from '../../components/Select'
+import { Icon } from '../../components/Icon'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive', 'sftp']
 const S3_LIKE = ['s3', 'b2', 'r2']
@@ -361,7 +362,16 @@ export function Monitoring() {
   const { run } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
   const s = (metrics.item?.series ?? metrics.item ?? {}) as R
-  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--b-fg)', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((s.disk ?? []) as unknown[]).map(num) }]
+  // Three series, three distinct hues (blue, violet, amber) that hold in both themes.
+  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--tok-kw)', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((s.disk ?? []) as unknown[]).map(num) }]
+  const containers = useList<Container>('/containers', server ? { server_id: server } : undefined, { refetchInterval: 30000 })
+  const last = (d: number[]) => (d.length ? d[d.length - 1] : null)
+  const peak = (d: number[]) => (d.length ? Math.max(...d) : null)
+  const pctTone = (v: number | null) => (v == null ? 'n' : v >= 85 ? 'r' : v >= 70 ? 'y' : 'g') as 'g' | 'y' | 'r' | 'n'
+  const openAlerts = alerts.rows.filter((a) => a.status === 'open' || a.status === 'firing' || !a.resolved_at)
+  const shownServers = servers.rows.filter((x) => !server || x.id === server)
+  const busy = [...containers.rows].filter((c) => c.state === 'running').sort((a, b) => num(b.cpu_pct) - num(a.cpu_pct)).slice(0, 6)
+  const unhealthy = containers.rows.filter((c) => c.health === 'unhealthy' || c.state === 'restarting').length
   const toForm = (r: R) => ({ ...r, ...Object.fromEntries(((r.channels ?? r.channel_ids ?? []) as (string | R)[]).map((c) => [`ch_${typeof c === 'string' ? c : c.id}`, true])) })
   const fromForm = (v: Record<string, unknown>) => {
     const ids = Object.keys(v).filter((k) => k.startsWith('ch_') && v[k]).map((k) => k.slice(3))
@@ -372,12 +382,51 @@ export function Monitoring() {
     <>
       <PageHeader title="Monitoring" subtitle="Metrics, alerts and alert rules"
         actions={<Select className="input !w-auto" aria-label="Server filter" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select>} />
-      <Card title="Fleet resources" actions={<>
-        {series.map((x) => <button key={x.label} type="button" className="chip !min-h-8 !text-xs" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}>{x.label}</button>)}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+        {series.map((x) => <StatTile key={x.label} label={`${x.label} now`} value={last(x.data) == null ? '—' : `${Math.round(last(x.data)!)}%`} delta={peak(x.data) == null ? 'no data yet' : `peak ${Math.round(peak(x.data)!)}% in ${range}`}
+          deltaTone={pctTone(peak(x.data)) === 'g' ? 'n' : pctTone(peak(x.data))} pct={last(x.data) ?? 0} barColor={x.color}
+          icon={<Icon name={x.label === 'CPU' ? 'pulse' : x.label === 'RAM' ? 'db' : 'disk'} size={16} />} iconTone={pctTone(last(x.data)) === 'g' ? 'b' : pctTone(last(x.data))} />)}
+        <StatTile label="Open alerts" value={String(openAlerts.length)} delta={openAlerts.length ? `${openAlerts.filter((a) => a.severity === 'critical' || a.severity === 'emergency').length} critical` : 'all clear'} deltaTone={openAlerts.length ? 'r' : 'g'}
+          icon={<Icon name="shield" size={16} />} iconTone={openAlerts.length ? 'r' : 'g'} />
+        <StatTile label="Containers" value={`${containers.rows.filter((c) => c.state === 'running').length} / ${containers.rows.length}`} delta={unhealthy ? `${unhealthy} unhealthy` : 'all healthy'} deltaTone={unhealthy ? 'r' : 'g'}
+          icon={<Icon name="box" size={16} />} iconTone={unhealthy ? 'r' : 'b'} />
+      </div>
+      <Card title="Fleet resources" subtitle={server ? servers.rows.find((x) => x.id === server)?.name : `${servers.rows.length} servers`} actions={<>
+        {series.map((x) => <button key={x.label} type="button" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}
+          className={`btn btn-sm gap-1.5 ${on[x.label] ? '' : 'opacity-50'}`}><span aria-hidden="true" className="w-2.5 h-2.5 rounded-full" style={{ background: x.color }} />{x.label}</button>)}
         <Select className="input !w-auto !min-h-8 text-xs" aria-label="Range" value={range} onChange={(e) => setRange(e.target.value)}>{['1h', '6h', '24h', '7d'].map((r) => <option key={r}>{r}</option>)}</Select>
       </>}>
         <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} />
       </Card>
+      <div className="grid gap-4 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
+        <Card title="Servers" subtitle="Click one to chart it alone" pad={false}>
+          <ul className="m-0 p-0 list-none">
+            {shownServers.map((x) => (
+              <li key={x.id}>
+                <button type="button" onClick={() => setServer(server === x.id ? '' : x.id)} className={`w-full text-left grid gap-x-4 gap-y-1.5 items-center px-5 py-3 border-0 border-t border-line first:border-t-0 bg-transparent cursor-pointer hover:bg-head [grid-template-columns:minmax(120px,1.2fr)_repeat(3,minmax(70px,1fr))] ${server === x.id ? 'bg-sel' : ''}`}>
+                  <span className="min-w-0"><span className="block font-semibold text-sm truncate">{x.name}</span><span className="flex items-center gap-1.5 text-xs text-muted"><StatusBadge status={x.status} />{x.last_heartbeat_at ? ago(x.last_heartbeat_at) : ''}</span></span>
+                  {([['CPU', x.cpu_pct, 'var(--accent)'], ['RAM', x.ram_pct, 'var(--tok-kw)'], ['Disk', x.disk_pct, 'var(--y-fg)']] as const).map(([k, v, c]) => (
+                    <span key={k} className="min-w-0"><span className="flex justify-between text-xs text-muted"><span>{k}</span><span className="tabular-nums font-medium text-fg">{v == null ? '—' : `${Math.round(num(v))}%`}</span></span><Meter value={num(v)} label={`${x.name} ${k}`} color={num(v) >= 85 ? 'var(--r-fg)' : c} /></span>
+                  ))}
+                </button>
+              </li>
+            ))}
+            {shownServers.length === 0 && <li className="px-5 py-4 text-sm text-muted">No servers yet.</li>}
+          </ul>
+        </Card>
+        <Card title="Busiest containers" subtitle="Running, by CPU" pad={false}>
+          <ul className="m-0 p-0 list-none">
+            {busy.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 px-5 py-2.5 border-t border-line first:border-t-0 text-sm">
+                <span className="flex-1 min-w-0"><span className="block font-mono text-xs font-semibold truncate">{c.name}</span><span className="text-xs text-muted">{c.server_name ?? c.server?.name ?? ''}{c.mem_mb != null ? ` · ${Math.round(num(c.mem_mb))} MB` : ''}</span></span>
+                <span className="w-28"><Meter value={num(c.cpu_pct)} label={`${c.name} CPU`} /></span>
+                <span className="w-12 text-right tabular-nums text-xs font-semibold">{c.cpu_pct == null ? '—' : `${Math.round(num(c.cpu_pct))}%`}</span>
+              </li>
+            ))}
+            {busy.length === 0 && <li className="px-5 py-4 text-sm text-muted">No running containers.</li>}
+          </ul>
+        </Card>
+      </div>
       <StatusPageCard />
       <Card title="Active alerts" pad={false}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}

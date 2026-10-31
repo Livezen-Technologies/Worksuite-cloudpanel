@@ -66,7 +66,7 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
       onClick={() => onChange(!checked)}
       className="relative w-11 h-[26px] rounded-full border-0 cursor-pointer flex-none disabled:opacity-50"
-      style={{ background: checked ? 'var(--accent)' : 'var(--track)' }}>
+      style={{ background: checked ? 'var(--accent)' : 'var(--ctl-ring)' }}>
       <span className="absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all" style={{ left: checked ? 21 : 3 }} />
     </button>
   )
