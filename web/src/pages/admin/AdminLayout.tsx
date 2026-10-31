@@ -15,6 +15,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid', desc: 'Fleet health, alerts and quick actions', items: [
     { label: 'Overview', to: '/admin', end: true, icon: 'grid' },
     { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
+    { label: 'Uptime', to: '/admin/uptime', icon: 'clock' },
   ] },
   { id: 'deploy', label: 'Deploy', icon: 'rocket', desc: 'Applications, stacks, containers and images', items: [
     { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
