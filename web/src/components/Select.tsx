@@ -1,5 +1,5 @@
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
-import { CheckIcon, ChevronUpDownIcon } from '@heroicons/react/16/solid'
+import { CheckIcon, ChevronDownIcon } from '@heroicons/react/16/solid'
 import { Children, isValidElement, useMemo, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 
 type Opt = { value: string; label: string; disabled?: boolean }
@@ -63,10 +63,10 @@ export default function Select({
     >
       <ListboxButton
         id={id} title={title} aria-label={ariaLabel} onClick={onClick}
-        className={`${className} flex items-center justify-between gap-2 text-left cursor-pointer data-disabled:opacity-50 data-disabled:cursor-not-allowed`}
+        className={`${className} group flex items-center justify-between gap-2 text-left cursor-pointer data-open:border-[var(--ctl-ring-hover,var(--muted))] data-disabled:opacity-50 data-disabled:cursor-not-allowed`}
       >
         <span className={`truncate ${selected ? '' : 'text-muted'}`}>{selected?.label ?? '—'}</span>
-        <ChevronUpDownIcon aria-hidden="true" className="size-4 flex-none text-muted" />
+        <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-muted transition-transform duration-150 group-data-open:rotate-180" />
       </ListboxButton>
 
       {/* anchor keeps it attached through scroll and resize, and flips it when
@@ -74,7 +74,7 @@ export default function Select({
       <ListboxOptions
         anchor="bottom start"
         transition
-        className="z-80 max-h-72 min-w-(--button-width) w-max max-w-[min(92vw,28rem)] overflow-auto rounded-xl border border-line bg-card p-1.5
+        className="z-80 max-h-72 min-w-(--button-width) w-max max-w-[min(92vw,28rem)] overflow-auto rounded-xl border border-line bg-card py-1.5
                    shadow-[0_12px_32px_-8px_rgba(15,23,42,.22),0_2px_6px_rgba(15,23,42,.06)] outline-none
                    [--anchor-gap:6px] origin-top transition duration-120 ease-out data-closed:-translate-y-1 data-closed:opacity-0"
       >
@@ -82,12 +82,12 @@ export default function Select({
         {opts.map((o, i) => (
           <ListboxOption
             key={`${o.value}-${i}`} value={o.value} disabled={o.disabled} data-value={String(o.value)}
-            className="group flex min-h-9 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-fg
-                       data-focus:bg-head data-selected:bg-sel data-selected:text-accent
+            className="group flex min-h-11 cursor-pointer items-center gap-3 px-4 py-2.5 text-[15px] text-fg
+                       data-focus:bg-head data-selected:bg-accent data-selected:text-white
                        data-disabled:cursor-not-allowed data-disabled:opacity-40"
           >
             <span className="flex-1 whitespace-nowrap group-data-selected:font-semibold">{o.label}</span>
-            <CheckIcon aria-hidden="true" className="size-4 flex-none text-accent invisible group-data-selected:visible" />
+            <CheckIcon aria-hidden="true" className="size-4 flex-none text-white invisible group-data-selected:visible" />
           </ListboxOption>
         ))}
       </ListboxOptions>
