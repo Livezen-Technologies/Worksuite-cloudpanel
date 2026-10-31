@@ -177,6 +177,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			return nil, err
 		}
 		return d.RemoveImage(ctx, p.Image, p.Force)
+	case "mesh.apply":
+		return e.meshApply(ctx, c.Payload, progress)
+	case "mesh.status":
+		return e.meshStatus(ctx)
 	case "server.cleanup":
 		return e.cleanup(ctx, c.Payload, progress)
 	case "image.prune":

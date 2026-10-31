@@ -72,6 +72,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::get('servers/{id}/containers', [Admin\ServerController::class, 'containers'])->name('servers.containers');
         Route::get('servers/{id}/cleanup', [Admin\CleanupController::class, 'show'])->name('servers.cleanup');
         Route::get('servers/{id}/tunnel', [Admin\TunnelController::class, 'show'])->name('servers.tunnel');
+        Route::get('mesh', [Admin\MeshController::class, 'show'])->name('mesh.show');
     });
     Route::middleware('perm:servers.manage')->group(function () {
         Route::post('servers', [Admin\ServerController::class, 'store'])->name('servers.store');
@@ -80,6 +81,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
         Route::patch('servers/{id}/cleanup', [Admin\CleanupController::class, 'update'])->name('servers.cleanup.update');
         Route::post('servers/{id}/cleanup', [Admin\CleanupController::class, 'run'])->name('servers.cleanup.run');
         Route::post('servers/{id}/tunnel', [Admin\TunnelController::class, 'enable'])->name('servers.tunnel.enable');
+        Route::post('mesh/servers/{id}', [Admin\MeshController::class, 'join'])->name('mesh.join');
+        Route::delete('mesh/servers/{id}', [Admin\MeshController::class, 'leave'])->name('mesh.leave');
+        Route::post('mesh/apply', [Admin\MeshController::class, 'apply'])->name('mesh.apply');
+        Route::post('mesh/vpn-peers', [Admin\MeshController::class, 'addPeer'])->name('mesh.vpn-peers.store');
+        Route::delete('mesh/vpn-peers/{id}', [Admin\MeshController::class, 'revokePeer'])->name('mesh.vpn-peers.destroy');
         Route::post('servers/{id}/tunnel/sync', [Admin\TunnelController::class, 'sync'])->name('servers.tunnel.sync');
         Route::post('servers/{id}/tunnel/restart', [Admin\TunnelController::class, 'restart'])->name('servers.tunnel.restart');
         Route::delete('servers/{id}/tunnel', [Admin\TunnelController::class, 'disable'])->name('servers.tunnel.disable');

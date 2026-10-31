@@ -31,7 +31,7 @@ var Types = map[string]bool{
 	"container.start": true, "container.stop": true, "container.restart": true,
 	"container.pause": true, "container.unpause": true, "container.remove": true,
 	"container.create": true, "container.logs": true, "container.prune": true,
-	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true,
+	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true, "mesh.apply": true, "mesh.status": true,
 	"network.create": true, "network.remove": true,
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,
@@ -91,6 +91,8 @@ type Executor struct {
 	AcmeJSON   string
 	LookPath   func(string) (string, error)
 	StateDir   string
+	// WireGuardDir holds the mesh interface config (default /etc/wireguard).
+	WireGuardDir string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
 	// AllowLocalGit permits file:// and absolute-path repositories in image.build.
