@@ -19,7 +19,7 @@ import (
 	"strings"
 )
 
-// Migration wizard (MIG): a cPanel full backup (cpmove-<user>.tar.gz) is fetched
+// Migration wizard (MIG): a cPanel, Plesk or HestiaCP backup (migrate_formats.go) is fetched
 // into the agent's state directory, inspected, and unpacked into app volumes and
 // database containers. Nothing from the archive is ever executed.
 
@@ -64,6 +64,13 @@ func (e *Executor) migrate(ctx context.Context, typ string, raw json.RawMessage)
 	case "migrate.fetch":
 		return e.migrateFetch(ctx, dir, archive, p)
 	case "migrate.inspect":
+		kind, err := detectFormat(ctx, archive)
+		if err != nil {
+			return nil, err
+		}
+		if kind != fmtCPanel {
+			return inspectPanel(ctx, archive)
+		}
 		return inspectCPanel(archive)
 	case "migrate.extract":
 		return e.migrateExtract(ctx, archive, p)
@@ -245,7 +252,7 @@ func inspectCPanel(archive string) (any, error) {
 	for _, d := range yamlList(mainYAML, "sub_domains") {
 		add(d, "subdomain")
 	}
-	return map[string]any{"user": user, "sites": sites, "databases": databases, "files": files, "bytes": bytes}, nil
+	return map[string]any{"source": fmtCPanel, "user": user, "sites": sites, "databases": databases, "files": files, "bytes": bytes}, nil
 }
 
 // isUserdataDomain matches userdata/<domain>, not its _SSL, .cache or .yaml siblings.
@@ -333,9 +340,18 @@ func (e *Executor) migrateExtract(ctx context.Context, archive string, p migrate
 	if owner == 0 {
 		owner = 33
 	}
-	prefix := "homedir/" + from + "/"
+	kind, err := detectFormat(ctx, archive)
+	if err != nil {
+		return nil, err
+	}
+	// cPanel document roots are relative to the home directory; the others are virtual paths.
+	prefix := from + "/"
+	if kind == fmtCPanel {
+		prefix = "homedir/" + prefix
+	}
+	want := func(p string) bool { return strings.HasPrefix(prefix, p) || strings.HasPrefix(p, prefix) }
 	var files, skipped, resumed, bytes int64
-	_, err = walkArchive(archive, func(rel string, h *tar.Header, r io.Reader) error {
+	_, _, err = walkSource(ctx, archive, want, func(rel string, h *tar.Header, r io.Reader) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -394,7 +410,7 @@ func (e *Executor) migrateImportDB(ctx context.Context, archive string, p migrat
 		return nil, errors.New("invalid database name")
 	}
 	if p.DB.Engine != "mysql" && p.DB.Engine != "mariadb" {
-		return nil, errors.New("cPanel databases import into MySQL or MariaDB")
+		return nil, errors.New("databases from a backup import into MySQL or MariaDB")
 	}
 	if !reRef.MatchString(p.DB.Container) {
 		return nil, errors.New("invalid container name")
@@ -413,13 +429,16 @@ func (e *Executor) migrateImportDB(ctx context.Context, archive string, p migrat
 	}
 	found := false
 	var bytes int64
-	_, err = walkArchive(archive, func(rel string, h *tar.Header, r io.Reader) error {
-		if rel != "mysql/"+p.SQL+".sql" || h.Typeflag != tar.TypeReg {
+	want := "mysql/" + p.SQL + ".sql"
+	_, _, err = walkSource(ctx, archive, func(prefix string) bool { return prefix == want }, func(rel string, h *tar.Header, r io.Reader) error {
+		if rel != want || h.Typeflag != tar.TypeReg || found {
 			return nil
 		}
 		found = true
-		bytes = h.Size
-		return e.stream(ctx, env, r, &sink, docker, append(base, p.DB.Database)...)
+		c := &countingReader{r: r}
+		err := e.stream(ctx, env, c, &sink, docker, append(base, p.DB.Database)...)
+		bytes = c.n
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("importing %s: %w", p.SQL, err)
@@ -437,4 +456,15 @@ func chownIn(root *os.Root, name string, uid int) {
 		_ = d.Chown(uid, uid)
 		d.Close()
 	}
+}
+
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }

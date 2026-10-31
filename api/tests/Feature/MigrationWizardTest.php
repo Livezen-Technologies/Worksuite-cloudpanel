@@ -86,6 +86,27 @@ class MigrationWizardTest extends TestCase
         $this->api($other)->getJson("/api/v1/migrations/{$m['id']}")->assertNotFound();
     }
 
+    public function test_plesk_and_hestia_backups_keep_their_source_and_virtual_document_roots(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        foreach (['plesk' => 'domains/shop.lk/httpdocs', 'hestia' => 'web/shop.lk/public_html'] as $source => $root) {
+            $m = $this->api($token)->postJson('/api/v1/migrations', ['server_id' => $server->id, 'archive_url' => "https://backups.example.com/{$source}.tar"])->assertStatus(202)->json('data');
+            $this->step($secret, 'migrate.fetch', ['bytes' => 1024]);
+            $this->step($secret, 'migrate.inspect', ['source' => $source, 'user' => 'shop', 'files' => 3, 'bytes' => 1024, 'databases' => ['wpdb'],
+                'sites' => [['domain' => 'shop.lk', 'kind' => 'main', 'docroot' => $root, 'wordpress' => true]]]);
+            $show = $this->api($token)->getJson("/api/v1/migrations/{$m['id']}")->assertOk()->json('data');
+            $this->assertSame([$source, 'ready', $root, 'wpdb'], [$show['source'], $show['status'], $show['sites'][0]['docroot'], $show['sites'][0]['database']]);
+        }
+        // An unknown source from an agent is not stored.
+        $m = $this->api($token)->postJson('/api/v1/migrations', ['server_id' => $server->id, 'archive_url' => 'https://backups.example.com/x.tar'])->assertStatus(202)->json('data');
+        $this->step($secret, 'migrate.fetch', ['bytes' => 1]);
+        $this->step($secret, 'migrate.inspect', ['source' => '<script>', 'sites' => [], 'databases' => []]);
+        $this->assertSame('cpanel', SiteMigration::allTenants()->find($m['id'])->source);
+    }
+
     public function test_a_failed_copy_is_reported_and_can_be_retried(): void
     {
         [, $org, $token] = $this->org();
