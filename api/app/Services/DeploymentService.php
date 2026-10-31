@@ -565,7 +565,13 @@ class DeploymentService implements HandlesCommandResults
         $server = $app->server_id ? Server::allTenants()->find($app->server_id) : null;
         $ip = $server ? app(MeshService::class)->appAddress($app, $server) : null;
 
-        return $ip ? [['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => $ip]] : [['name' => 'proxy']];
+        $nets = $ip ? [['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => $ip]] : [['name' => 'proxy']];
+        // INST-3: an app wired to a managed database also joins the databases' internal network.
+        if (! empty($app->source['database_id'])) {
+            $nets[] = ['name' => 'internal'];
+        }
+
+        return $nets;
     }
 
     private function createRelease(Deployment $deployment, Application $app): Release
