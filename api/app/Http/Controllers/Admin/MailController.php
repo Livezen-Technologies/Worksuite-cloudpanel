@@ -25,6 +25,7 @@ class MailController extends Controller
                 'id' => $m->id, 'server_id' => $m->server_id, 'server' => $servers[$m->server_id] ?? null, 'hostname' => $m->hostname,
                 'status' => $m->status, 'error' => $m->error, 'synced_at' => $m->synced_at?->toIso8601ZuluString(),
                 'webmail_hostname' => $m->webmail_hostname, 'webmail_status' => $m->webmail_status,
+                'backup_server_id' => $m->backup_server_id, 'backup_hostname' => $m->backup_hostname,
                 'settings' => $this->presentSettings($m), 'health' => $m->health, 'tls' => $m->tls, 'health_checked_at' => $m->health_checked_at?->toIso8601ZuluString(),
             ]),
             'domains' => MailDomain::query()->orderBy('name')->get()->map(fn (MailDomain $d) => $this->presentDomain($d)),
@@ -264,6 +265,20 @@ class MailController extends Controller
             'presets' => \App\Services\MailImportService::PRESETS,
             'imports' => \App\Models\MailImport::whereIn('mailbox_id', $boxes)->latest()->limit(50)->get()->map(fn ($i) => \App\Services\MailImportService::present($i)),
         ]);
+    }
+
+    /** MCL: a backup MX on another server (server_id null removes it). */
+    public function backup(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'server_id' => 'nullable|uuid',
+            'hostname' => ['required_with:server_id', 'nullable', 'string', 'max:253', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
+        ]);
+        $mail = MailServer::findOrFail($id);
+        $server = ! empty($data['server_id']) ? \App\Models\Server::findOrFail($data['server_id']) : null;
+        $mail = $this->mail->setBackup($mail, $server, $data['hostname'] ?? null, $request->user()->id);
+
+        return $this->data(['backup_server_id' => $mail->backup_server_id, 'backup_hostname' => $mail->backup_hostname], $server ? 202 : 200);
     }
 
     /** Roundcube webmail beside the mail container, on its own hostname. */

@@ -88,6 +88,73 @@ class MailService implements HandlesCommandResults
         return $mail;
     }
 
+    public const BACKUP_CONTAINER = 'mail-backup';
+
+    public const BACKUP_IMAGE = 'boky/postfix:v4.3.0';
+
+    /**
+     * MCL: a store-and-forward backup MX on another server. Senders try it (MX 20)
+     * only when the primary (MX 10) does not answer; it accepts mail for this
+     * server's domains, queues it for up to five days and hands it to the primary
+     * as soon as that answers again. It holds no mailboxes and relays nothing else.
+     */
+    public function setBackup(MailServer $mail, ?Server $server, ?string $hostname, ?string $userId): MailServer
+    {
+        $old = $mail->backup_server_id ? Server::allTenants()->find($mail->backup_server_id) : null;
+        if ($old?->isOnline() && $old->id !== $server?->id) {
+            $this->bus->dispatch($old, 'container.remove', ['container_id' => self::BACKUP_CONTAINER, 'force' => true]);
+        }
+        if (! $server) {
+            $mail->update(['backup_server_id' => null, 'backup_hostname' => null]);
+            $this->audit->log('mail.backup_removed', 'mail_servers', $mail->id, []);
+
+            return $mail->fresh();
+        }
+        if ($server->id === $mail->server_id) {
+            throw ApiException::validation(['server_id' => ['The backup MX must run on a different server from the mail server.']]);
+        }
+        if (! $server->isOnline()) {
+            throw ApiException::conflict("{$server->name} is offline.");
+        }
+        $mail->update(['backup_server_id' => $server->id, 'backup_hostname' => strtolower((string) $hostname)]);
+        $this->applyBackup($mail);
+        $this->audit->log('mail.backup', 'mail_servers', $mail->id, ['server' => $server->name, 'hostname' => $mail->backup_hostname]);
+
+        return $mail->fresh();
+    }
+
+    /** (Re)creates the relay with the current domain list. */
+    public function applyBackup(MailServer $mail): void
+    {
+        $server = Server::allTenants()->find($mail->backup_server_id);
+        if (! $server?->isOnline()) {
+            return;
+        }
+        $domains = MailDomain::allTenants()->where('mail_server_id', $mail->id)->orderBy('name')->pluck('name')->all();
+        $transport = implode(', ', array_map(fn ($d) => "{$d}=smtp:[{$mail->hostname}]:25", $domains));
+        $spec = ContainerSpec::build([
+            'name' => self::BACKUP_CONTAINER, 'image' => self::BACKUP_IMAGE, 'read_only_rootfs' => false,
+            'env' => [
+                'ALLOW_EMPTY_SENDER_DOMAINS' => 'true',
+                'POSTFIX_myhostname' => $mail->backup_hostname,
+                'POSTFIX_mydestination' => '',
+                'POSTFIX_relay_domains' => implode(' ', $domains) ?: 'invalid.invalid',
+                'POSTFIX_transport_maps' => $domains ? 'inline:{ '.$transport.' }' : '',
+                // Accept only for these domains, never relay for anyone else.
+                'POSTFIX_smtpd_relay_restrictions' => 'reject_unauth_destination',
+                'POSTFIX_smtpd_recipient_restrictions' => 'reject_unauth_destination',
+                'POSTFIX_mynetworks' => '127.0.0.0/8',
+                'POSTFIX_maximal_queue_lifetime' => '5d',
+                'POSTFIX_bounce_queue_lifetime' => '5d',
+            ],
+            'ports' => [['container_port' => 587, 'host_port' => 25]],
+            'mounts' => [['source' => 'mail-backup-queue', 'target' => '/var/spool/postfix']],
+            'memory_mb' => 256, 'labels' => ['io.dockermgr.mail-backup' => $mail->id],
+        ], Tenant::current());
+        $this->bus->dispatch($server, 'container.remove', ['container_id' => self::BACKUP_CONTAINER, 'force' => true, 'keep_volumes' => true]);
+        $this->bus->dispatch($server, 'container.create', $spec);
+    }
+
     /** MAIL-002: a mail domain with a fresh 2048-bit DKIM key; its DNS records are published when a managed zone holds it. */
     public function addDomain(MailServer $mail, string $name, ?string $userId): MailDomain
     {
@@ -116,6 +183,8 @@ class MailService implements HandlesCommandResults
 
         return [
             ['type' => 'MX', 'name' => $domain->name, 'value' => $host, 'priority' => 10],
+            // MCL: the backup MX takes mail only when the primary does not answer.
+            ...(($backup = MailServer::allTenants()->find($domain->mail_server_id)->backup_hostname) ? [['type' => 'MX', 'name' => $domain->name, 'value' => $backup, 'priority' => 20]] : []),
             ['type' => 'TXT', 'name' => $domain->name, 'value' => 'v=spf1 mx a:'.$host.' ~all'],
             ['type' => 'TXT', 'name' => $domain->dkim_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_public],
             ...($domain->dkim_next_selector ? [['type' => 'TXT', 'name' => $domain->dkim_next_selector.'._domainkey.'.$domain->name, 'value' => 'v=DKIM1; k=rsa; p='.$domain->dkim_next_public, 'next' => true]] : []),
@@ -677,6 +746,9 @@ class MailService implements HandlesCommandResults
     {
         if ($mail->status !== 'running') {
             return null; // the install job syncs once the container runs
+        }
+        if ($mail->backup_server_id) {
+            $this->applyBackup($mail); // the relay's domain list follows the primary's
         }
         $files = $this->files($mail);
         $dirs = collect(array_keys($files))->map(fn ($p) => dirname($p))->filter(fn ($d) => $d !== '.')

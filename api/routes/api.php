@@ -326,6 +326,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('mail/domains/{id}/mailboxes/{box}/webmail', [Admin\MailController::class, 'webmailLink'])->middleware('perm:deploy')->name('mail.webmail-link');
     Route::post('mail/domains/{id}/mailboxes/{box}/import', [Admin\MailController::class, 'startImport'])->middleware(['perm:deploy', 'throttle:10,1'])->name('mail.import');
     Route::get('mail/domains/{id}/imports', [Admin\MailController::class, 'imports'])->middleware('perm:resources.view|servers.view')->name('mail.imports');
+    Route::post('mail/servers/{id}/backup', [Admin\MailController::class, 'backup'])->middleware('perm:servers.manage')->name('mail.backup');
     Route::post('mail/servers/{id}/webmail', [Admin\MailController::class, 'webmail'])->middleware('perm:servers.manage')->name('mail.webmail');
     Route::get('mail/holds', [Admin\MailGuardController::class, 'holds'])->middleware('perm:resources.view|servers.view')->name('mail.holds');
     Route::get('mail/log', [Admin\MailGuardController::class, 'search'])->middleware('perm:logs.view|servers.view')->name('mail.log');

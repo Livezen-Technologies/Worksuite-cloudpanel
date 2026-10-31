@@ -183,4 +183,39 @@ class MailImportWebmailTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->postJson("/api/v1/mail/domains/{$d['id']}/mailboxes/{$box['id']}/webmail")->assertNotFound();
     }
+
+    public function test_a_backup_mx_on_another_server_queues_mail_for_the_domains(): void
+    {
+        [$token, $secret, $mail] = $this->setUpMail();
+        [$d] = $this->mailbox($token, $mail);
+        $org = \App\Models\Organization::find($mail->organization_id);
+        $standby = $this->server($org, ['ip' => '198.51.100.30']);
+        [$standbySecret] = $this->enrollAgent($standby, $token);
+        $this->heartbeat($standbySecret);
+
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/backup", ['server_id' => $mail->server_id, 'hostname' => 'mx2.example.com'])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/backup", ['server_id' => $standby->id, 'hostname' => 'mx2.example.com'])
+            ->assertStatus(202)->assertJsonPath('data.backup_hostname', 'mx2.example.com');
+        $cmds = $this->heartbeat($standbySecret)['commands'];
+        $this->assertSame(['container.remove', 'container.create'], array_column($cmds, 'type'));
+        $spec = $cmds[1]['payload'];
+        $this->assertSame([MailService::BACKUP_CONTAINER, MailService::BACKUP_IMAGE, 'mx2.example.com'], [$spec['name'], $spec['image'], $spec['env']['POSTFIX_myhostname']]);
+        $this->assertSame('example.com', $spec['env']['POSTFIX_relay_domains']);
+        $this->assertSame('inline:{ example.com=smtp:[mail.example.com]:25 }', $spec['env']['POSTFIX_transport_maps']);
+        $this->assertSame(['reject_unauth_destination', '5d'], [$spec['env']['POSTFIX_smtpd_relay_restrictions'], $spec['env']['POSTFIX_maximal_queue_lifetime']], 'never an open relay; mail waits up to five days');
+        $this->assertSame([['container_port' => 587, 'host_port' => 25]], array_map(fn ($p) => array_intersect_key($p, array_flip(['container_port', 'host_port'])), $spec['ports']));
+
+        // The second MX record, behind the primary.
+        $records = collect(app(MailService::class)->records(\App\Models\MailDomain::allTenants()->find($d['id'])))->where('type', 'MX')->values();
+        $this->assertSame([['mail.example.com', 10], ['mx2.example.com', 20]], $records->map(fn ($r) => [$r['value'], $r['priority']])->all());
+
+        // A new domain re-renders the relay.
+        $this->api($token)->postJson('/api/v1/mail/domains', ['mail_server_id' => $mail->id, 'name' => 'other.test'])->assertCreated();
+        $create = collect($this->heartbeat($standbySecret)['commands'])->where('type', 'container.create')->last();
+        $this->assertSame('example.com other.test', $create['payload']['env']['POSTFIX_relay_domains']);
+
+        $this->api($token)->postJson("/api/v1/mail/servers/{$mail->id}/backup", ['server_id' => null])->assertOk()->assertJsonPath('data.backup_hostname', null);
+        $this->assertSame('container.remove', collect($this->heartbeat($standbySecret)['commands'])->last()['type']);
+        $this->assertCount(1, collect(app(MailService::class)->records(\App\Models\MailDomain::allTenants()->find($d['id'])))->where('type', 'MX'));
+    }
 }
