@@ -51,6 +51,17 @@ const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'host', '
 const WRITE_ONLY = ['access_key', 'secret_key', 'private_key']
 
 /** Flat form values -> API body; credentials are only sent when typed (write-only). */
+/** Five evenly spaced clock labels across the chosen range, ending at now. */
+function timeLabels(range: string) {
+  const span = ({ '1h': 3600e3, '6h': 6 * 3600e3, '24h': 86400e3, '7d': 7 * 86400e3 } as Record<string, number>)[range] ?? 6 * 3600e3
+  const now = Date.now()
+  return [0, 1, 2, 3, 4].map((i) => {
+    const d = new Date(now - span + (span * i) / 4)
+    if (i === 4) return 'now'
+    return range === '7d' ? d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }) : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  })
+}
+
 export function policyBody(v: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {}
   const dc: Record<string, string> = {}
@@ -394,9 +405,9 @@ export function Monitoring() {
       <Card title="Fleet resources" subtitle={server ? servers.rows.find((x) => x.id === server)?.name : `${servers.rows.length} servers`} actions={<>
         {series.map((x) => <button key={x.label} type="button" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}
           className={`btn btn-sm gap-1.5 ${on[x.label] ? '' : 'opacity-50'}`}><span aria-hidden="true" className="w-2.5 h-2.5 rounded-full" style={{ background: x.color }} />{x.label}</button>)}
-        <Select className="input !w-auto !min-h-8 text-xs" aria-label="Range" value={range} onChange={(e) => setRange(e.target.value)}>{['1h', '6h', '24h', '7d'].map((r) => <option key={r}>{r}</option>)}</Select>
+        <span className="btn-group" role="group" aria-label="Range">{['1h', '6h', '24h', '7d'].map((r) => <button key={r} type="button" aria-pressed={range === r} className={`btn btn-sm ${range === r ? 'btn-primary' : ''}`} onClick={() => setRange(r)}>{r}</button>)}</span>
       </>}>
-        <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} />
+        <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} xLabels={timeLabels(range)} height={260} />
       </Card>
       <div className="grid gap-4 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
         <Card title="Servers" subtitle="Click one to chart it alone" pad={false}>

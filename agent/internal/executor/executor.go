@@ -48,6 +48,7 @@ var Types = map[string]bool{
 	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
 	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
 	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "wp.cli": true, "wp.inventory": true, "wp.copy_tables": true, "wp.drop_tables": true, "cron.exec": true, "cron.stop": true, "cron.schedule": true, "mail.import": true, "mail.certs": true, "migrate.fetch": true, "migrate.inspect": true, "migrate.extract": true, "migrate.import_db": true, "migrate.cleanup": true, "av.realtime": true, "av.events": true,
+	"svc.list": true, "svc.action": true, "svc.install": true, "svc.create": true, "svc.delete": true, "svc.logs": true,
 	"av.scan": true, "av.quarantine": true, "av.restore": true, "av.delete": true,
 }
 
@@ -93,6 +94,8 @@ type Executor struct {
 	StateDir   string
 	// ProcSysDir is /proc/sys (tests point it elsewhere).
 	ProcSysDir string
+	// UnitDir is where svc.create writes systemd units (default /etc/systemd/system).
+	UnitDir string
 	// WireGuardDir holds the mesh interface config (default /etc/wireguard).
 	WireGuardDir string
 	// AllowedBindRoots limits host bind mounts in container.create.

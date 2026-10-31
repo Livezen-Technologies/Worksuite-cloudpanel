@@ -107,6 +107,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.migrate(ctx, c.Type, c.Payload)
 	case "mail.certs":
 		return e.mailCerts(ctx, c.Payload)
+	case "svc.list", "svc.action", "svc.install", "svc.create", "svc.delete", "svc.logs":
+		return e.systemServices(ctx, c.Type, c.Payload, progress)
 	case "cron.exec":
 		return e.cronExec(ctx, c.Payload)
 	case "mail.import":
