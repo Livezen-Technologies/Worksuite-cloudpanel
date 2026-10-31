@@ -58,6 +58,29 @@ class ProjectController extends Controller
         return $this->data($this->present(Project::findOrFail($id)));
     }
 
+    /** PRJ-9: what a hand-over would move. */
+    public function transferPreview(string $id)
+    {
+        return $this->data(app(\App\Services\ProjectTransferService::class)->preview(\App\Models\Project::findOrFail($id)));
+    }
+
+    /** PRJ-9: hand the project over to a hosting customer. Staff only; the project's name confirms it. */
+    public function transfer(Request $request, string $id)
+    {
+        if (! $this->seesAllTenants($request)) {
+            throw \App\Exceptions\ApiException::forbidden('Only platform staff can hand projects over.');
+        }
+        $project = \App\Models\Project::findOrFail($id);
+        $v = $request->validate(['organization_id' => 'required|uuid', 'confirm' => 'required|string']);
+        if (trim($v['confirm']) !== $project->name) {
+            throw \App\Exceptions\ApiException::validation(['confirm' => ['Type the project name to confirm.']]);
+        }
+        $to = \App\Models\Organization::findOrFail($v['organization_id']);
+        $moved = app(\App\Services\ProjectTransferService::class)->handOver($project, $to, $request->user()->id, $request->user()->email);
+
+        return $this->data(['project_id' => $project->id, 'organization' => ['id' => $to->id, 'name' => $to->name], 'moved' => $moved]);
+    }
+
     public function destroy(string $id)
     {
         $project = Project::findOrFail($id);

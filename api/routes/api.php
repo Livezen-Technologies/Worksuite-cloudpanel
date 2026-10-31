@@ -180,6 +180,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::patch('projects/{id}', [Admin\ProjectController::class, 'update'])->name('projects.update');
+        Route::get('projects/{id}/transfer', [Admin\ProjectController::class, 'transferPreview'])->name('projects.transfer.preview');
+        Route::post('projects/{id}/transfer', [Admin\ProjectController::class, 'transfer'])->name('projects.transfer');
         Route::post('projects/{id}/webhook-secret', [Admin\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
         Route::post('projects/{id}/environments', [Admin\ProjectController::class, 'storeEnvironment'])->name('environments.store');
         Route::patch('environments/{id}', [Admin\ProjectController::class, 'updateEnvironment'])->name('environments.update');
