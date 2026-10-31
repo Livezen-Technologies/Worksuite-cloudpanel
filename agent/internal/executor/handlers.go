@@ -265,6 +265,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.backupExport(ctx, c.ID, c.Payload, progress)
 	case "proxy.config":
 		return e.proxyConfig(c.Payload)
+	case "proxy.scan", "proxy.retire", "proxy.restore":
+		return e.proxyAdopt(c.Type, c.Payload)
 	case "proxy.certs":
 		return e.ProxyCerts()
 	case "agent.update":

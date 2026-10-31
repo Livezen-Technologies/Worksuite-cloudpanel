@@ -106,7 +106,7 @@ class PublicPagesService
     /** Which page, if any, takes over a domain instead of its app. */
     public function takeover(Domain $domain): ?string
     {
-        if (! $domain->application_id) {
+        if (! $domain->application_id && ! TraefikConfigService::upstream($domain)) {
             return 'welcome';
         }
         if ($this->settings()['maintenance'] || ($domain->options['pages']['maintenance'] ?? false)) {
@@ -179,7 +179,8 @@ class PublicPagesService
     /** Domains served by the pages container: verified ones, with or without an app. */
     public function domains()
     {
-        return Domain::allTenants()->where('dns_status', 'verified')->where('platform_subdomain', false)->whereNull('application_id')->get();
+        return Domain::allTenants()->where('dns_status', 'verified')->where('platform_subdomain', false)->whereNull('application_id')->get()
+            ->reject(fn (Domain $d) => TraefikConfigService::upstream($d) !== null)->values();
     }
 
     public function installed(): bool

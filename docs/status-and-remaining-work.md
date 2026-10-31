@@ -6,9 +6,10 @@
 Canvas / UI        100%   all 35 artboards done or verified aligned
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
                           monitoring, hardened SSH, backups in two places
-Firewall           ~90%   enforced through CrowdSec (#14): rate limits,
-                          countries, challenges, events; live sites still
-                          on hand-written Traefik files
+Firewall           100%   enforced through CrowdSec (#14): rate limits,
+                          countries, challenges, events; hand-written
+                          Traefik files are adopted from Servers → Routes
+                          (to run on the live servers: see section 3)
 Antivirus          100%   all 14 (AV-1..14): ClamAV + YARA, real-time scan,
                           scan schedule, threats, encrypted quarantine,
                           WordPress core clean, false positives, brute-force
@@ -305,10 +306,8 @@ Design note worth remembering: **a Traefik middleware cannot match a path**, so
 a path-scoped rule gets its own router at a higher priority pointing at the
 same service. Site-wide rules attach to the domain router.
 
-- [ ] Decide the enforcement route: GeoIP plugin, CrowdSec, or Cloudflare at
-      the edge. Everything above is blocked on that one choice.
-- [ ] Nothing writes `firewall_events` yet — it needs a log shipper or a
-      Traefik access-log reader on the ingress.
+- [x] Enforcement route: CrowdSec with its Traefik bouncer (#14).
+- [x] `firewall_events` is filled by `firewall:sync-events` from CrowdSec's alerts.
 - [ ] The challenge keys must be entered by the operator in Settings. Do not
       handle them.
 
@@ -320,10 +319,17 @@ same service. Site-wide rules attach to the domain router.
       `livezenbiz.com`.** Check each for a live copy first (see warnings).
 - [ ] Retire old copies on `51.89.192.43` once restored sites are verified
 - [ ] **Bring the 7 live sites under panel management.** They are served by
-      hand-written Traefik files (`giantforests.yml`, `security.yml`, …), so
-      `dmp-domains.yml` renders empty and the firewall renderer is proven by
-      tests, not live traffic. Until this is done the Firewall page cannot
-      affect them.
+      hand-written Traefik files (`giantforests.yml`, `security.yml`, …). The
+      tool now exists: Servers → server → **Routes** → Scan reads the files
+      (`proxy.scan`), lists each with its hosts and upstream, and **Adopt**
+      creates a managed domain per host with that upstream (firewall, WAF,
+      bouncer, public pages and uptime then apply), pushes the panel's route,
+      renames the old file to `<name>.adopted` (`proxy.retire`) and checks
+      each host over HTTPS; if one answers 500+ or not at all the file is put
+      back (`proxy.restore`) and the managed route withdrawn. Files that only
+      hold middlewares (`security.yml`) or point at Docker-label services are
+      listed as not adoptable. Needs `CERT_DRIVER=traefik`. To do on the live
+      servers: run it per site, one at a time.
 - [ ] CloudPanel: `8433:8443/tcp` is open to the world on a self-signed cert
 - [ ] A brute-force source was hammering `dazzlingtours.com/wp-login.php`
       (34 requests, not the outage cause). Blocking it is what the firewall is
