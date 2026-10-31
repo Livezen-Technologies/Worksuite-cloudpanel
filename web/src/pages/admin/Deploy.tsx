@@ -7,7 +7,7 @@ import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
-import { JobTimeline } from '../../components/JobTimeline'
+import { JobTimeline, seconds } from '../../components/JobTimeline'
 import { CodeEditor } from '../../components/CodeEditor'
 import { useToast } from '../../components/Toasts'
 import { ago, unwrap } from '../../lib/format'
@@ -101,13 +101,27 @@ function DeployDialog({ open, onClose, apps }: { open: boolean; onClose: () => v
   )
 }
 
+const IN_PROGRESS = ['running', 'queued', 'pending', 'awaiting_approval']
+
+/**
+ * The newest deployment. While it runs, its whole pipeline shows; once it has finished it folds into one
+ * line (status, app, version, when, how long) with the steps a click away, so the app list stays in view.
+ */
 function Pipeline({ d }: { d: R }) {
   const { job } = useJob(d.job_id)
+  const status = String(job?.status ?? d.status)
+  const live = IN_PROGRESS.includes(status)
+  const [open, setOpen] = useState(false)
   const stages: JobStage[] = job?.stages?.length ? job.stages : (d.stages as JobStage[] | undefined) ?? PIPELINE.map((name) => ({ name, status: 'pending' }))
+  const title = `${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}`.trim()
+  const took = d.started_at && d.finished_at ? seconds(Math.max(0, Math.round((new Date(d.finished_at).getTime() - new Date(d.started_at).getTime()) / 1000))) : null
+  const showSteps = live || open
   return (
-    <Card title={`Pipeline · ${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}${d.environment ? ` → ${d.environment}` : ''}`} actions={<StatusBadge status={job?.status ?? d.status} />}>
-      <JobTimeline job={job} stages={stages} />
-      {!!job?.build_log?.length && <BuildLog lines={job.build_log} />}
+    <Card title={<span className="flex flex-wrap items-center gap-2"><span className="text-muted font-normal">{live ? 'Deploying' : 'Last deployment'}</span>{title}{d.environment ? <StatusBadge status={d.environment} /> : null}</span>}
+      subtitle={!live ? [ago(d.finished_at ?? d.created_at), took ? `took ${took}` : null, stages.filter((s) => s.status === 'skipped').length ? `${stages.filter((s) => s.status === 'skipped').length} steps skipped` : null].filter(Boolean).join(' · ') : undefined}
+      actions={<span className="flex items-center gap-2"><StatusBadge status={status} />{!live && <button type="button" className="btn btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide steps' : 'Show steps'}</button>}</span>}>
+      {showSteps && <JobTimeline job={live ? job : undefined} stages={stages} />}
+      {showSteps && !!job?.build_log?.length && <BuildLog lines={job.build_log} />}
     </Card>
   )
 }
@@ -164,7 +178,6 @@ export function Applications() {
     <>
       <PageHeader title="Applications" subtitle="Deploy from Git, a Docker image, a Dockerfile or a Compose stack"
         actions={<><a className="btn" href="/admin/catalog">Install from catalogue</a><button type="button" className="btn" onClick={() => setNewApp(true)}>New application</button><button type="button" className="btn btn-primary" onClick={() => setParams({ deploy: '1' })}>New deployment</button></>} />
-      <BuildUsage path="/builds/usage" />
       {approvals.rows.length > 0 && (
         <Card title="Waiting for approval">
           <ul className="list-none m-0 p-0">
@@ -179,7 +192,7 @@ export function Applications() {
           </ul>
         </Card>
       )}
-      {active && <Pipeline d={active} />}
+      {active && <Pipeline key={active.id} d={active} />}
       <DataTable label="Applications" rows={apps.rows} loading={apps.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setParams({ id: r.id })} selectedRowId={selected?.id}
         filters={[{ id: 'production', label: 'Production', test: (r) => r.environment === 'production' }, { id: 'staging', label: 'Staging', test: (r) => r.environment === 'staging' }]}
         columns={[
@@ -192,6 +205,7 @@ export function Applications() {
           { key: 'deploy', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); run({ path: '/deployments', body: { application_id: r.id }, label: `Deploy ${r.name}` }).catch(() => {}) }}>Deploy</button> },
         ]} />
       {selected && <Releases app={selected} />}
+      <BuildUsage path="/builds/usage" />
       <Card title="Release history" pad={false}>
         <DataTable label="Deployments" rows={deployments.rows} loading={deployments.isLoading} rowKey={(r) => r.id}
           columns={[
