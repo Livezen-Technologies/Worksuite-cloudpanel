@@ -8,10 +8,11 @@ import { passkeyAssertion } from './passkeys'
 interface AuthCtx {
   me: Me | null
   loading: boolean
-  login: (email: string, password: string, otp?: string) => Promise<Me | null>
+  login: (email: string, password: string, otp?: string, captcha?: string | null) => Promise<Me | null>
+  acceptToken: (res: unknown) => Promise<Me | null>
   /** Passwordless passkey sign-in, or (with email + password) a passkey as the second factor. */
   loginPasskey: (email?: string, password?: string) => Promise<Me | null>
-  register: (b: { name: string; email: string; password: string; organization: string }) => Promise<Me | null>
+  register: (b: { name: string; email: string; password: string; organization: string; captcha?: string | null }) => Promise<Me | null>
   logout: () => Promise<void>
   refresh: () => Promise<Me | null>
 }
@@ -41,8 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return refresh()
   }, [refresh])
 
-  const login = useCallback(async (email: string, password: string, otp?: string) =>
-    accept(await api.post('/auth/login', { email, password, ...(otp ? { otp } : {}) }, { retries: 0 })), [accept])
+  const login = useCallback(async (email: string, password: string, otp?: string, captcha?: string | null) =>
+    accept(await api.post('/auth/login', { email, password, ...(otp ? { otp } : {}), ...(captcha ? { captcha } : {}) }, { retries: 0 })), [accept])
   const loginPasskey = useCallback(async (email?: string, password?: string) => {
     if (email && password) {
       const passkey = await passkeyAssertion(email)
@@ -51,14 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const a = await passkeyAssertion()
     return accept(await api.post('/auth/passkey/login', a, { retries: 0 }))
   }, [accept])
-  const register = useCallback(async (b: { name: string; email: string; password: string; organization: string }) =>
+  const register = useCallback(async (b: { name: string; email: string; password: string; organization: string; captcha?: string | null }) =>
     accept(await api.post('/auth/register', b, { retries: 0 })), [accept])
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout') } catch { /* already gone */ }
     tokenStore.clear(); setMe(null); qc.clear()
   }, [qc])
 
-  return <Ctx.Provider value={{ me, loading, login, loginPasskey, register, logout, refresh }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ me, loading, login, loginPasskey, register, logout, refresh, acceptToken: accept }}>{children}</Ctx.Provider>
 }
 export function useAuth() {
   const c = useContext(Ctx)

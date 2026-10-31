@@ -19,6 +19,7 @@ class AuthController extends Controller
 
     public function register(Request $request, OrganizationService $organizations)
     {
+        app(\App\Services\Auth\CaptchaService::class)->check($request->input('captcha'), 'signup');
         $data = $request->validate([
             'name' => 'required|string|max:120',
             'email' => 'required|email|max:190|unique:users,email',
@@ -40,6 +41,10 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
+        // SVC-6: the bot check comes first (not on the second step, when only the code is new).
+        if (! $request->filled('otp') && ! $request->filled('passkey')) {
+            app(\App\Services\Auth\CaptchaService::class)->check($request->input('captcha'), 'login');
+        }
         $data = $request->validate(['email' => 'required|email', 'password' => 'required|string', 'otp' => 'nullable|string',
             'passkey' => 'nullable|array', 'passkey.challenge_id' => 'required_with:passkey|string', 'passkey.credential' => 'required_with:passkey|array']);
         $user = User::where('email', strtolower($data['email']))->first();
@@ -55,6 +60,45 @@ class AuthController extends Controller
         }
 
         return $this->completeLogin($user, ! empty($data['passkey']) ? 'password+passkey' : ($user->mfa_enabled ? 'password+totp' : 'password'));
+    }
+
+    /** SVC-6/7: what the sign-in page offers (captcha, sign-in apps). Public. */
+    public function config()
+    {
+        return $this->data(['captcha' => app(\App\Services\Auth\CaptchaService::class)->publicConfig(), 'sso' => app(\App\Services\Auth\SsoService::class)->enabled()]);
+    }
+
+    /** SVC-7: the provider's authorisation URL. */
+    public function ssoStart(string $provider)
+    {
+        return $this->data(['url' => app(\App\Services\Auth\SsoService::class)->start($provider)]);
+    }
+
+    /**
+     * SVC-7: finishes a provider sign-in. Accounts with two-factor still need their code:
+     * the first call returns mfa_required with a one-time ticket, the second sends ticket + otp.
+     */
+    public function ssoFinish(Request $request)
+    {
+        $data = $request->validate(['state' => 'required_without:ticket|string|max:100', 'code' => 'required_without:ticket|string|max:2000', 'ticket' => 'nullable|string|max:80', 'otp' => 'nullable|string|max:10']);
+        if (! empty($data['ticket'])) {
+            $user = User::find(\Illuminate\Support\Facades\Cache::get('sso:ticket:'.$data['ticket']));
+            if (! $user) {
+                throw ApiException::validation(['ticket' => ['This sign-in has expired. Start again.']]);
+            }
+        } else {
+            $user = app(\App\Services\Auth\SsoService::class)->finish($data['state'], $data['code']);
+        }
+        if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
+            $ticket = $data['ticket'] ?? \Illuminate\Support\Str::random(40);
+            \Illuminate\Support\Facades\Cache::put('sso:ticket:'.$ticket, $user->id, now()->addMinutes(5));
+            throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']], ['mfa_required' => true, 'ticket' => $ticket]);
+        }
+        if (! empty($data['ticket'])) {
+            \Illuminate\Support\Facades\Cache::forget('sso:ticket:'.$data['ticket']);
+        }
+
+        return $this->completeLogin($user, 'sso');
     }
 
     /** Issues the session token after a successful sign-in (password(+2FA) or passkey). */

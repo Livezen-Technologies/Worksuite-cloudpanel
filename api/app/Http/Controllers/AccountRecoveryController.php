@@ -36,6 +36,7 @@ class AccountRecoveryController extends Controller
 
     public function forgot(Request $request)
     {
+        app(\App\Services\Auth\CaptchaService::class)->check($request->input('captcha'), 'forgot');
         $data = $request->validate(['email' => 'required|email|max:190']);
         $email = strtolower($data['email']);
         $user = User::where('email', $email)->first();

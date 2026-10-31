@@ -19,6 +19,9 @@ Route::pattern('id', $uuid);
 Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/register', [AuthController::class, 'register'])->name('auth.register');
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
+    Route::get('auth/config', [AuthController::class, 'config'])->name('auth.config');
+    Route::get('auth/sso/{provider}', [AuthController::class, 'ssoStart'])->where('provider', '[a-z_]+')->name('auth.sso.start');
+    Route::post('auth/sso/callback', [AuthController::class, 'ssoFinish'])->name('auth.sso.finish');
     Route::post('auth/passkey/options', [\App\Http\Controllers\PasskeyController::class, 'loginOptions'])->name('auth.passkey-options');
     Route::post('auth/passkey/login', [\App\Http\Controllers\PasskeyController::class, 'login'])->name('auth.passkey-login');
     Route::post('auth/forgot-password', [\App\Http\Controllers\AccountRecoveryController::class, 'forgot'])->name('auth.forgot-password');

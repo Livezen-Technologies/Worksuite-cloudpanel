@@ -25,7 +25,7 @@ class EmailTemplateService
 
     public const GLOBALS = ['platform_name', 'user_name', 'panel_url'];
 
-    public const BRAND_DEFAULTS = ['sender_name' => null, 'logo_url' => null, 'color' => '#4F46E5', 'footer' => 'You receive this email because you have an account on {{platform_name}}.'];
+    public const BRAND_DEFAULTS = ['sender_name' => null, 'logo_url' => null, 'color' => '#030712', 'footer' => 'You receive this email because you have an account on {{platform_name}}.'];
 
     public function __construct(private AuditLogger $audit) {}
 
@@ -276,9 +276,9 @@ class EmailTemplateService
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{$e($f['preview'])}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg" style="background:#f4f5f7"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="container" style="width:600px;max-width:600px">
-<tr><td class="card" style="background:#ffffff;border-radius:20px 20px 0 0;height:8px;line-height:8px;font-size:0;background-image:linear-gradient(90deg,{$bar})">&nbsp;</td></tr>
-<tr><td class="card" style="background:#ffffff;padding:24px 32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{$logo}</td><td align="right">{$tagHtml}</td></tr></table></td></tr>
-<tr><td class="card pad" style="background:#ffffff;border-radius:0 0 20px 20px;padding:24px 32px 32px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827">
+<tr><td class="card" style="background:#ffffff;border-radius:24px 24px 0 0;height:8px;line-height:8px;font-size:0;background-image:linear-gradient(90deg,{$bar})">&nbsp;</td></tr>
+<tr><td class="card" style="background:#ffffff;padding:28px 40px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{$logo}</td><td align="right">{$tagHtml}</td></tr></table></td></tr>
+<tr><td class="card pad" style="background:#ffffff;border-radius:0 0 24px 24px;padding:24px 40px 32px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827">
 {$eyebrow}<h1 style="margin:0 0 16px;font-size:26px;line-height:1.2;letter-spacing:-0.02em;color:#111827">{$e($f['heading'])}</h1>
 {$body}{$code}
 {$this->detailsTable($rows)}
