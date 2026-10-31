@@ -67,4 +67,10 @@ class User extends Authenticatable
     {
         return $this->grant($permission) !== null;
     }
+
+    /** MFA-POL: a second factor is set up when the person has an authenticator app or at least one passkey. */
+    public function hasSecondFactor(): bool
+    {
+        return (bool) $this->mfa_enabled || \App\Models\Passkey::where('user_id', $this->id)->exists();
+    }
 }
