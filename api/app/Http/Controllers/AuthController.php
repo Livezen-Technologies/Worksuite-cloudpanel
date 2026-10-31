@@ -172,6 +172,22 @@ class AuthController extends Controller
         return $this->data(['mfa_enabled' => true, 'recovery_codes' => \App\Support\RecoveryCodes::generate($user)]);
     }
 
+    /** SSO-ID: the sign-in apps this person can use, with last use and whether they turned one off. */
+    public function signInApps(Request $request)
+    {
+        return $this->data(app(\App\Services\Auth\SsoService::class)->forUser($request->user()));
+    }
+
+    public function updateSignInApp(Request $request, string $provider)
+    {
+        $data = $request->validate(['blocked' => 'required|boolean']);
+        $user = $request->user();
+        app(\App\Services\Auth\SsoService::class)->setBlocked($user, $provider, $data['blocked']);
+        $this->audit->log($data['blocked'] ? 'auth.sign_in_app_blocked' : 'auth.sign_in_app_allowed', 'users', $user->id, ['provider' => $provider], $user->current_organization_id, $user->id, $user->email);
+
+        return $this->data(app(\App\Services\Auth\SsoService::class)->forUser($user));
+    }
+
     /** MFA-REC: a fresh set of recovery codes; the old ones stop working. Needs a current code. */
     public function mfaRecoveryCodes(Request $request)
     {

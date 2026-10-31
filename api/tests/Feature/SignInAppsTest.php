@@ -73,4 +73,36 @@ class SignInAppsTest extends TestCase
         $this->postJson('/api/v1/auth/sso/callback', ['ticket' => $ticket, 'otp' => '000000'])->assertStatus(401);
         $this->postJson('/api/v1/auth/sso/callback', ['ticket' => $ticket, 'otp' => \App\Support\Totp::code($secret)])->assertOk();
     }
+
+    public function test_people_see_their_sign_in_apps_and_can_turn_one_off(): void
+    {
+        [$admin, , $token] = $this->org();
+        $this->setUpService($token, 'google_login', ['client_id' => 'cid.apps', 'client_secret' => 'aaaa-aaaa-client']);
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'at']),
+            'openidconnect.googleapis.com/*' => Http::response(['email' => $admin->email, 'email_verified' => true]),
+        ]);
+        $signIn = function () {
+            parse_str(parse_url($this->getJson('/api/v1/auth/sso/google_login')->json('data.url'), PHP_URL_QUERY), $q);
+
+            return $this->postJson('/api/v1/auth/sso/callback', ['state' => $q['state'], 'code' => 'c']);
+        };
+
+        $apps = $this->api($token)->getJson('/api/v1/me/sign-in-apps')->assertOk()->json('data');
+        $this->assertSame([['key' => 'google_login', 'label' => 'Google', 'email' => null, 'last_used_at' => null, 'blocked' => false]], $apps);
+
+        $signIn()->assertOk();
+        $google = $this->api($token)->getJson('/api/v1/me/sign-in-apps')->json('data.0');
+        $this->assertSame($admin->email, $google['email']);
+        $this->assertNotNull($google['last_used_at']);
+
+        $this->api($token)->patchJson('/api/v1/me/sign-in-apps/google_login', ['blocked' => true])->assertOk()->assertJsonPath('data.0.blocked', true);
+        $signIn()->assertStatus(403)->assertJsonPath('error.code', 'forbidden');
+        $this->assertDatabaseHas('audit_logs', ['action' => 'auth.sign_in_app_blocked', 'user_id' => $admin->id]);
+
+        $this->api($token)->patchJson('/api/v1/me/sign-in-apps/google_login', ['blocked' => false])->assertOk();
+        $signIn()->assertOk();
+        $this->api($token)->patchJson('/api/v1/me/sign-in-apps/nope', ['blocked' => true])->assertNotFound();
+    }
 }
+
