@@ -32,17 +32,19 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Networks', to: '/admin/networks', icon: 'share' },
     { label: 'Private network', to: '/admin/private-network', icon: 'shield' },
   ] },
-  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, firewall, antivirus, packages and hosting customers', items: [
+  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, mail, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
     { label: 'DNS zones', to: '/admin/dns', icon: 'globe' },
     { label: 'WordPress', to: '/admin/wordpress', icon: 'rocket' },
     { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
     { label: 'Mail', to: '/admin/mail', icon: 'bell' },
     { label: 'Public pages', to: '/admin/public-pages', icon: 'file' },
-    { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
-    { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
     { label: 'Packages', to: '/admin/packages', icon: 'tag' },
     { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
+  ] },
+  { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
+    { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
+    { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
   ] },
   { id: 'operations', label: 'Operations', icon: 'pulse', desc: 'Backups, logs and scheduled work', items: [
     { label: 'Backups', to: '/admin/backups', icon: 'archive' },
