@@ -67,6 +67,17 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- An incident whose container was replaced stayed open for ever and kept
+  re-notifying. `UptimeService::checkInfrastructure` iterates the container and
+  server rows that exist now, opening or closing an incident keyed by each row's
+  id. A container recreated under a new id leaves its old incident unvisited, so
+  nothing ever resolves it while `followUpOpenIncidents` re-notifies it on every
+  cycle. One alert on the ingress host had been open since 2026-10-29 and had
+  notified **81 times**, long after the container recovered. `checkInfrastructure`
+  now closes open container and server incidents whose resource row has gone.
+  This matters more since the security e-mails landed: a dangling incident now
+  sends mail rather than only writing an Ops-log line.
+
 - `TestRunLoop` failed on any machine that actually runs the agent. The test
   never set `PolicyPath`, so `ApplyDefaults` pointed the policy store at the
   real `/etc/dockermgr/policy.json`. On an agent host that directory is

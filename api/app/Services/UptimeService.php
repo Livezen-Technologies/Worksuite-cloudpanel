@@ -406,7 +406,40 @@ class UptimeService
             }
         }
 
+        $closed += $this->closeOrphanedIncidents();
+
         return ['opened' => $opened, 'closed' => $closed];
+    }
+
+    /**
+     * Closes open incidents whose resource no longer exists. Both loops above
+     * iterate the rows that are there now, so a container recreated under a new
+     * id (or a server that was removed) is never visited again and its incident
+     * would stay open for ever, re-notified by followUpOpenIncidents.
+     */
+    private function closeOrphanedIncidents(): int
+    {
+        $closed = 0;
+        $live = [
+            'container' => \App\Models\Container::allTenants()->pluck('id')->all(),
+            'server' => \App\Models\Server::allTenants()->pluck('id')->all(),
+        ];
+        foreach ($live as $type => $ids) {
+            if ($ids === []) {
+                // Nothing to compare against. That reads as a sync gap, not as
+                // every incident of this type having lost its resource.
+                continue;
+            }
+            $orphans = Alert::allTenants()->where('resource_type', $type)->where('status', 'open')
+                ->whereNotIn('resource_id', $ids)->get();
+            foreach ($orphans as $a) {
+                $this->resolve($a, "{$a->title} no longer exists",
+                    'The '.$type.' was removed or replaced, so the incident was closed automatically.');
+                $closed++;
+            }
+        }
+
+        return $closed;
     }
 
     private function incidentFor(string $type, string $id): ?Alert
