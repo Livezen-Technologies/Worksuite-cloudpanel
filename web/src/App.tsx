@@ -1,3 +1,4 @@
+import CustomerProfile from './pages/admin/CustomerProfile'
 import { Home as CustomerHome } from './pages/app/Home'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
@@ -98,6 +99,7 @@ export function AppRoutes() {
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="packages" element={<Packages />} />
         <Route path="customers" element={<Customers />} />
+        <Route path="customers/:id" element={<CustomerProfile />} />
         <Route path="compose" element={<Compose />} />
         <Route path="images" element={<Images />} />
         <Route path="networks" element={<Networks />} />

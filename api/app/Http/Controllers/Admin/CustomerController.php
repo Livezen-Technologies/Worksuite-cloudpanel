@@ -18,8 +18,9 @@ use Illuminate\Validation\Rule;
  */
 class CustomerController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $this->staffOnly($request);
         $orgs = Organization::orderBy('name')->get();
         // Platform-admin view spans tenants, so the organisation scope must not apply.
         $subs = Subscription::withoutGlobalScopes()->whereIn('organization_id', $orgs->pluck('id'))->get()->keyBy('organization_id');
@@ -45,6 +46,7 @@ class CustomerController extends Controller
     /** Creates the tenant, its owner (a hosting user) and the package subscription in one step. */
     public function store(Request $request)
     {
+        $this->staffOnly($request);
         $d = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'billing_email' => ['required', 'email', 'max:190'],
@@ -85,14 +87,96 @@ class CustomerController extends Controller
         return $this->data(['id' => $org->id, 'name' => $org->name, 'slug' => $org->slug], 201);
     }
 
+    /** CUS-1: the whole customer on one page: account, package, people, apps, domains, billing and activity. */
+    public function show(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $sub = Subscription::withoutGlobalScopes()->where('organization_id', $org->id)->first();
+        $plan = $sub ? Plan::find($sub->plan_id) : null;
+        $apps = \App\Models\Application::allTenants()->where('organization_id', $org->id)->orderBy('name')->get();
+        $members = DB::table('memberships')->join('users', 'users.id', '=', 'memberships.user_id')->where('memberships.organization_id', $org->id)
+            ->orderBy('users.name')->get(['users.id', 'users.name', 'users.email', 'users.mfa_enabled', 'users.last_login_at', 'memberships.role', 'memberships.status']);
+        $domains = DB::table('domains')->where('organization_id', $org->id)->orderBy('name')->get(['id', 'name', 'application_id', 'status', 'created_at']);
+        $settings = $org->settings ?? [];
+
+        return $this->data([
+            'id' => $org->id, 'name' => $org->name, 'slug' => $org->slug, 'billing_email' => $org->billing_email, 'created_at' => $org->created_at,
+            'status' => ($sub->status ?? null) === 'suspended' ? 'suspended' : 'active',
+            'suspension' => $settings['suspension'] ?? null,
+            'notes' => $settings['admin_notes'] ?? '',
+            'plan' => $plan ? ['id' => $plan->id, 'code' => $plan->code, 'name' => $plan->name, 'limits' => $plan->limits] : null,
+            'subscription' => $sub ? ['status' => $sub->status, 'current_period_start' => $sub->current_period_start, 'current_period_end' => $sub->current_period_end] : null,
+            'counts' => ['members' => $members->count(), 'apps' => $apps->count(), 'running' => $apps->where('status', 'running')->count(),
+                'domains' => $domains->count(), 'projects' => DB::table('projects')->where('organization_id', $org->id)->count(),
+                'mailboxes' => DB::table('mailboxes')->where('organization_id', $org->id)->count()],
+            'members' => $members->map(fn ($m) => (array) $m + ['mfa_enabled' => (bool) $m->mfa_enabled])->values(),
+            'apps' => $apps->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'status' => $a->status, 'image' => $a->image, 'project_id' => $a->project_id, 'last_deployed_at' => $a->last_deployed_at])->values(),
+            'projects' => DB::table('projects')->where('organization_id', $org->id)->orderBy('name')->get(['id', 'name', 'created_at']),
+            'domains' => $domains,
+            'invoices' => DB::table('invoices')->where('organization_id', $org->id)->orderByDesc('period_start')->limit(24)
+                ->get(['id', 'number', 'period_start', 'period_end', 'amount_cents', 'currency', 'status', 'pdf_url']),
+            'activity' => DB::table('audit_logs')->where('organization_id', $org->id)->orderByDesc('id')->limit(50)
+                ->get(['id', 'actor', 'action', 'resource_type', 'ip', 'created_at']),
+        ]);
+    }
+
+    /** CUS-2: suspend a customer: their apps show the "suspended" page until reactivated. */
+    public function suspend(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $d = $request->validate(['reason' => 'required|string|max:300']);
+        DB::transaction(function () use ($org, $d, $request) {
+            $apps = \App\Models\Application::allTenants()->where('organization_id', $org->id)->where('status', '!=', 'suspended')->get(['id', 'status']);
+            $settings = $org->settings ?? [];
+            $settings['suspension'] = ['reason' => $d['reason'], 'at' => now()->toIso8601ZuluString(), 'by' => $request->user()->email,
+                'previous' => array_merge($settings['suspension']['previous'] ?? [], $apps->pluck('status', 'id')->all())];
+            $org->forceFill(['settings' => $settings])->save();
+            \App\Models\Application::allTenants()->whereIn('id', $apps->pluck('id'))->update(['status' => 'suspended']);
+            Subscription::withoutGlobalScopes()->where('organization_id', $org->id)->update(['status' => 'suspended']);
+        });
+        app(\App\Services\AuditLogger::class)->log('customer.suspend', 'organizations', $org->id, ['reason' => $d['reason']], $org->id);
+        rescue(fn () => app(\App\Services\TraefikConfigService::class)->push(), report: true);
+
+        return $this->show($request, $org->id);
+    }
+
+    public function reactivate(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        DB::transaction(function () use ($org) {
+            $settings = $org->settings ?? [];
+            foreach ($settings['suspension']['previous'] ?? [] as $appId => $status) {
+                \App\Models\Application::allTenants()->where('id', $appId)->where('status', 'suspended')->update(['status' => $status ?: 'running']);
+            }
+            unset($settings['suspension']);
+            $org->forceFill(['settings' => $settings])->save();
+            Subscription::withoutGlobalScopes()->where('organization_id', $org->id)->where('status', 'suspended')->update(['status' => 'active']);
+        });
+        app(\App\Services\AuditLogger::class)->log('customer.reactivate', 'organizations', $org->id, [], $org->id);
+        rescue(fn () => app(\App\Services\TraefikConfigService::class)->push(), report: true);
+
+        return $this->show($request, $org->id);
+    }
+
     public function update(Request $request, string $id)
     {
+        $this->staffOnly($request);
         $org = Organization::findOrFail($id);
         $d = $request->validate([
             'name' => ['sometimes', 'string', 'max:120'],
             'billing_email' => ['sometimes', 'email', 'max:190'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
         ]);
-        $org->update($d);
+        if (array_key_exists('notes', $d)) {
+            $settings = $org->settings ?? [];
+            $settings['admin_notes'] = (string) $d['notes'];
+            $org->forceFill(['settings' => $settings]);
+            unset($d['notes']);
+        }
+        $org->fill($d)->save();
 
         return $this->data(['id' => $org->id, 'name' => $org->name, 'billing_email' => $org->billing_email]);
     }
@@ -100,6 +184,7 @@ class CustomerController extends Controller
     /** Move a customer onto another package. */
     public function setPlan(Request $request, string $id)
     {
+        $this->staffOnly($request);
         $org = Organization::findOrFail($id);
         $d = $request->validate(['plan_id' => ['required', 'uuid', 'exists:plans,id']]);
 
@@ -113,6 +198,14 @@ class CustomerController extends Controller
         $plan = Plan::find($d['plan_id']);
 
         return $this->data(['organization_id' => $org->id, 'plan' => ['id' => $plan->id, 'code' => $plan->code, 'name' => $plan->name]]);
+    }
+
+    /** Customer profiles span tenants: platform staff only. */
+    private function staffOnly(Request $request): void
+    {
+        if (! $this->seesAllTenants($request)) {
+            throw \App\Exceptions\ApiException::forbidden('Only platform staff can manage customers.');
+        }
     }
 
     private function uniqueSlug(string $name): string
