@@ -189,7 +189,7 @@ function DomainPanel({ id, domains, onPick, newBox, setNewBox, onChange }: { id:
           {boxes.length === 0
             ? <Empty>{d.isLoading ? 'Loading…' : 'No mailboxes on this domain yet.'}</Empty>
             : <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-[13px]">
+              <table className="tbl min-w-[640px] text-[13px]">
                 <thead><tr className="text-left text-xs text-muted border-b border-[var(--line)]">
                   <th className="px-5 py-2">Address</th><th className="px-3 py-2">Quota</th><th className="px-3 py-2">Status</th><th className="px-5 py-2 text-right">Actions</th>
                 </tr></thead>

@@ -79,7 +79,7 @@ export function UserDomains() {
           <div className="mt-5">
             <div className="text-sm font-semibold mb-2">Add these records at your DNS provider for <span className="font-mono">{active.domain ?? active.hostname}</span></div>
             <div className="overflow-x-auto border border-line rounded-lg">
-              <table className="w-full text-sm border-collapse min-w-[560px]">
+              <table className="tbl min-w-[560px]">
                 <thead><tr className="text-left text-xs text-muted bg-head"><th className="p-2.5">Type</th><th className="p-2.5">Name</th><th className="p-2.5">Value</th><th className="p-2.5">Status</th><th className="p-2.5"><span className="sr-only">Copy</span></th></tr></thead>
                 <tbody>
                   {(check?.records ?? []).map((r) => (
@@ -102,7 +102,7 @@ export function UserDomains() {
       </Card>
       <Card title="Your domains" pad={false}>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse min-w-[640px]">
+          <table className="tbl min-w-[640px]">
             <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Domain</th><th className="p-2.5">App</th><th className="p-2.5">DNS</th><th className="p-2.5">HTTPS</th><th className="p-2.5">Renews</th><th className="p-2.5"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {domains.rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No domains yet. Add one above.</td></tr>}

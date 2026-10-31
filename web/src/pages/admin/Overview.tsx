@@ -252,7 +252,7 @@ export default function Overview() {
       <div className="flex flex-wrap gap-4">
         <Card className="flex-[2_1_520px]" pad={false} title="Recent deployments" actions={<Link to="/admin/applications" className="link-action">History</Link>}>
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px] min-w-[620px]">
+            <table className="tbl text-[13px] min-w-[620px]">
               <thead><tr className="text-left text-muted text-xs bg-head"><th className="py-2.5 px-5">Application</th><th className="p-2.5">Trigger</th><th className="p-2.5">Source</th><th className="p-2.5">Status</th><th className="p-2.5">Author</th><th className="py-2.5 pr-5 pl-2">When</th></tr></thead>
               <tbody>
                 {deploys.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No deployments yet.</td></tr>}

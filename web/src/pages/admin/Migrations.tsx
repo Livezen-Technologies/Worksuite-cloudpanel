@@ -139,7 +139,7 @@ function MigrationWizard({ id, onClose }: { id: string; onClose: () => void }) {
           {sites.length === 0
             ? <Empty>{m.isLoading ? 'Loading…' : 'No sites found yet. The backup is still being fetched and inspected.'}</Empty>
             : <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-[13px]">
+              <table className="tbl min-w-[860px] text-[13px]">
                 <thead><tr className="text-left text-xs text-muted border-b border-[var(--line)]">
                   <th className={td}>Move</th><th className={td}>Domain</th><th className={td}>Detected</th><th className={td}>Target app</th><th className={td}>Database</th><th className={td}>Pre-flight</th><th className={td}>Status</th>
                 </tr></thead>
