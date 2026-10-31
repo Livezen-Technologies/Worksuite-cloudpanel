@@ -3,6 +3,8 @@
 return [
     // Free customer subdomains are <app>.<domain> (UHOST-005).
     'domain' => env('PLATFORM_DOMAIN', 'livezen.app'),
+    // PUB-6: the company named in "Hosted on …" at the foot of public pages (maintenance, blocked, 404…).
+    'hosted_by' => env('PLATFORM_HOSTED_BY', 'Livezen Cloud'),
     'ingress_ip' => env('PLATFORM_INGRESS_IP', '203.0.113.10'),
     'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
     'terminal_ws_url' => env('TERMINAL_WS_URL', 'wss://localhost/ws/terminal'),

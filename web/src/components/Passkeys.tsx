@@ -6,11 +6,14 @@ import { ago } from '../lib/format'
 import { Card, Field } from './Card'
 import { ConfirmDialog, Modal } from './Overlay'
 import { useToast } from './Toasts'
+import { useAuth } from '../lib/auth'
 
 /** Account page: register, list, rename and delete passkeys (SEC-002, UACC-002). Used by both panels. */
 export function PasskeyManager() {
   const list = useList<Passkey>('/me/passkeys')
   const toast = useToast()
+  // MFA-POL: a passkey can satisfy the organisation's two-step rule, so the signed-in user is refreshed.
+  const { refresh } = useAuth()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [rename, setRename] = useState<Passkey | null>(null)
@@ -20,7 +23,7 @@ export function PasskeyManager() {
 
   const add = async () => {
     setBusy(true)
-    try { await registerPasskey(name.trim() || 'Passkey'); toast.success('Passkey added'); setAdding(false); setName(''); list.refetch() }
+    try { await registerPasskey(name.trim() || 'Passkey'); toast.success('Passkey added'); setAdding(false); setName(''); list.refetch(); refresh() }
     catch (e) { toast.error(new Error(passkeyError(e)), 'Could not add the passkey') } finally { setBusy(false) }
   }
   const saveName = async () => {
@@ -30,7 +33,7 @@ export function PasskeyManager() {
   }
   const remove = async () => {
     if (!del) return
-    try { await api.del(`/me/passkeys/${del.id}`); toast.success('Passkey removed'); setDel(null); list.refetch() }
+    try { await api.del(`/me/passkeys/${del.id}`); toast.success('Passkey removed'); setDel(null); list.refetch(); refresh() }
     catch (e) { toast.error(e, 'Could not remove the passkey') }
   }
   return (

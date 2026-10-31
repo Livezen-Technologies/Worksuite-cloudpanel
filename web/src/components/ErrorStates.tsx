@@ -57,3 +57,13 @@ export class PageErrorBoundary extends Component<{ children: ReactNode }, { erro
     )
   }
 }
+
+/** MFA-POL: the organisation requires two-step verification and this person has none yet. */
+export function MfaRequired({ accountPath }: { accountPath: string }) {
+  useDocumentTitle('Set up two-step verification')
+  return (
+    <Shell icon="shield" tone="b" title="Set up two-step verification"
+      body="Your organisation asks every member to use an authenticator app or a passkey when signing in. It takes about a minute, and then everything opens up again."
+      actions={<Link to={accountPath} className="btn btn-primary no-underline">Set it up now</Link>} />
+  )
+}

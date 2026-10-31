@@ -145,6 +145,7 @@ class AuthController extends Controller
             'organization' => $user->currentOrganization,
             'role' => $role,
             'permissions' => $rbac->permissionsFor($role),
+            'mfa_setup_required' => (bool) ($user->currentOrganization?->setting('security.require_mfa')) && ! $user->hasSecondFactor(),
             'organizations' => $user->memberships()->with('organization:id,name,slug')->get()->map(fn ($m) => ['id' => $m->organization_id, 'name' => $m->organization?->name, 'role' => $m->role]),
         ]);
     }

@@ -29,8 +29,9 @@ class SetTenant
             $user->forceFill(['last_activity_at' => now()])->saveQuietly();
         }
         $org = $this->tenant->organization();
-        if ($org?->setting('security.require_mfa') && ! $user->mfa_enabled && ! $request->is('api/v1/me*', 'api/v1/auth/*')) {
-            throw ApiException::forbidden('Your organisation requires two-factor authentication. Enable it under your account.');
+        // MFA-POL: an authenticator app or a passkey satisfies the policy; account pages stay open so it can be set up.
+        if ($org?->setting('security.require_mfa') && ! $user->hasSecondFactor() && ! $request->is('api/v1/me*', 'api/v1/auth/*')) {
+            throw new ApiException('forbidden', 'Your organisation requires two-step verification. Set up an authenticator app or a passkey under your account.', 403, [], ['mfa_setup_required' => true]);
         }
 
         return $next($request);
