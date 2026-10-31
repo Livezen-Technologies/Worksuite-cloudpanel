@@ -4,6 +4,9 @@ import {
   DocumentDuplicateIcon, DocumentTextIcon, GlobeAltIcon, MagnifyingGlassIcon, MoonIcon, PhotoIcon,
   RocketLaunchIcon, ServerStackIcon, ShareIcon, ShieldCheckIcon, Squares2X2Icon, SunIcon,
   TagIcon, UserCircleIcon, UserGroupIcon, XMarkIcon,
+  EyeIcon, PencilSquareIcon, TrashIcon, ArrowDownTrayIcon, EllipsisHorizontalIcon, FunnelIcon, ViewColumnsIcon,
+  AdjustmentsHorizontalIcon, ListBulletIcon, TableCellsIcon, BookmarkIcon, ArrowPathIcon, PlayIcon, StopIcon,
+  ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ExclamationTriangleIcon, InboxIcon, PlusIcon, Bars2Icon,
 } from '@heroicons/react/24/outline'
 import type { ComponentType, SVGProps } from 'react'
 
@@ -50,6 +53,28 @@ const ICONS: Record<string, IconComponent> = {
   tag: TagIcon,
   gear: Cog6ToothIcon,
   user: UserCircleIcon,
+  eye: EyeIcon,
+  pencil: PencilSquareIcon,
+  trash: TrashIcon,
+  duplicate: DocumentDuplicateIcon,
+  download: ArrowDownTrayIcon,
+  dots: EllipsisHorizontalIcon,
+  funnel: FunnelIcon,
+  columns: ViewColumnsIcon,
+  adjust: AdjustmentsHorizontalIcon,
+  list: ListBulletIcon,
+  table: TableCellsIcon,
+  bookmark: BookmarkIcon,
+  refresh: ArrowPathIcon,
+  play: PlayIcon,
+  stop: StopIcon,
+  up: ChevronUpIcon,
+  down: ChevronDownIcon,
+  left: ChevronLeftIcon,
+  warn: ExclamationTriangleIcon,
+  inbox: InboxIcon,
+  plus: PlusIcon,
+  density: Bars2Icon,
 }
 
 export function Icon({ name, size = 18, className }: { name: keyof typeof ICONS | string; size?: number; className?: string }) {

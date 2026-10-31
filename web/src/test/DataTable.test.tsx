@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DataTable, type Column } from '../components/DataTable'
@@ -13,15 +13,16 @@ const columns: Column<Row>[] = [
 const bodyRows = () => within(screen.getByRole('table')).getAllByRole('row').slice(1)
 
 describe('DataTable', () => {
+  beforeEach(() => localStorage.clear())
   it('paginates', async () => {
     render(<DataTable label="Containers" rows={rows} columns={columns} rowKey={(r) => r.id} pageSize={10} />)
     expect(bodyRows()).toHaveLength(10)
     expect(screen.getByText('1–10 of 23')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
     expect(bodyRows()).toHaveLength(3)
-    expect(screen.getByText('Page 3 of 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
   })
 
   it('searches across columns', async () => {

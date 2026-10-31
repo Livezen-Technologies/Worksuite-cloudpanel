@@ -248,24 +248,30 @@ export default function Containers() {
           { id: 'unhealthy', label: 'Unhealthy', test: (r) => r.health === 'unhealthy' },
         ]}
         toolbar={<Select className="input !w-auto" aria-label="Server" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
-        bulkActions={[{ label: 'Restart', onClick: bulk('restart') }, { label: 'Stop', onClick: bulk('stop') }]}
+        bulkActions={[{ label: 'Restart', icon: 'refresh', onClick: bulk('restart') }, { label: 'Stop', icon: 'stop', onClick: bulk('stop'), confirm: 'The selected containers stop until you start them again.' }]}
+        tableId="containers"
+        actions={(r) => {
+          const one = (action: string) => () => run({ path: `/containers/${r.id}/actions`, body: { action }, label: `${action[0].toUpperCase()}${action.slice(1)} ${r.name}` }).catch(() => {})
+          return [
+            { label: `Open ${r.name}`, icon: 'eye', onClick: () => setParams({ id: r.id }) },
+            { label: `Restart ${r.name}`, icon: 'refresh', onClick: one('restart'), disabled: r.state !== 'running' },
+            r.state === 'running'
+              ? { label: 'Stop', icon: 'stop', onClick: one('stop'), confirm: `${r.name} stops until you start it again.`, menuOnly: true }
+              : { label: r.state === 'paused' ? 'Unpause' : 'Start', icon: 'play', onClick: one(r.state === 'paused' ? 'unpause' : 'start'), menuOnly: true },
+            { label: 'Logs and details', icon: 'file', onClick: () => setParams({ id: r.id }), menuOnly: true },
+            { label: 'Remove…', icon: 'trash', danger: true, confirm: false, onClick: () => setRemoving(r) },
+          ]
+        }}
         minWidth={980}
         columns={[
           { key: 'name', header: 'Name', render: (r) => <span className="inline-flex items-center gap-2 font-semibold"><Dot tone={dotTone(r)} />{r.name}</span> },
           { key: 'image', header: 'Image', render: (r) => <span className="font-mono text-[11.5px] text-muted">{r.image}</span> },
           { key: 'server', header: 'Server', value: (r) => serverName(r as unknown as R) },
-          { key: 'state', header: 'State', render: (r) => <StatusBadge status={r.state} /> },
-          { key: 'health', header: 'Health', render: (r) => <StatusBadge status={r.health ?? '—'} /> },
-          { key: 'cpu_pct', header: 'CPU', value: (r) => r.cpu_pct ?? 0, render: (r) => pct(r.cpu_pct) },
-          { key: 'mem_mb', header: 'Memory', value: (r) => r.mem_mb ?? 0, render: (r) => mb(r.mem_mb) },
-          { key: 'ports', header: 'Ports', render: (r) => <span className="font-mono text-[11.5px] text-muted">{ports(r.ports)}</span> },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            // Quiet by default: a column of bold red on every row makes the
-            // destructive action the most prominent thing in the table.
-            <span className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setParams({ id: r.id })}>Logs</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(r)}>Remove</button>
-            </span>) },
+          { key: 'state', header: 'State', options: ['running', 'exited', 'paused', 'created', 'restarting'], render: (r) => <StatusBadge status={r.state} /> },
+          { key: 'health', header: 'Health', options: ['healthy', 'unhealthy', 'starting', 'none'], render: (r) => <StatusBadge status={r.health ?? '—'} /> },
+          { key: 'cpu_pct', header: 'CPU', kind: 'number', align: 'right', value: (r) => r.cpu_pct ?? 0, render: (r) => pct(r.cpu_pct) },
+          { key: 'mem_mb', header: 'Memory', kind: 'number', align: 'right', value: (r) => r.mem_mb ?? 0, render: (r) => mb(r.mem_mb) },
+          { key: 'ports', header: 'Ports', value: (r) => ports(r.ports), render: (r) => <span className="block max-w-[18rem] truncate font-mono text-[11.5px] text-muted" title={ports(r.ports)}>{ports(r.ports)}</span> },
         ]} />
       <p className="m-0 text-xs text-muted">Removing a container never deletes attached volumes unless you untick “Keep attached volumes”.</p>
       {sel && <DetailPanel id={sel} onClose={() => setParams({})} />}

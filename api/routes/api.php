@@ -62,6 +62,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::patch('me/passkeys/{id}', [\App\Http\Controllers\PasskeyController::class, 'update'])->name('me.passkeys.update');
     Route::delete('me/passkeys/{id}', [\App\Http\Controllers\PasskeyController::class, 'destroy'])->name('me.passkeys.destroy');
 
+    // TBL-4: saved table views (personal, or shared with the organisation).
+    Route::get('table-views', [\App\Http\Controllers\TableViewController::class, 'index'])->name('table-views.index');
+    Route::post('table-views', [\App\Http\Controllers\TableViewController::class, 'store'])->name('table-views.store');
+    Route::patch('table-views/{id}', [\App\Http\Controllers\TableViewController::class, 'update'])->name('table-views.update');
+    Route::delete('table-views/{id}', [\App\Http\Controllers\TableViewController::class, 'destroy'])->name('table-views.destroy');
+
     Route::get('jobs', [JobController::class, 'index'])->name('jobs.index');
     Route::get('jobs/{id}', [JobController::class, 'show'])->name('jobs.show');
     Route::get('search', [Admin\DashboardController::class, 'search'])->name('search');

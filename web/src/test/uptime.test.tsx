@@ -27,7 +27,7 @@ describe('Uptime page', () => {
     expect(screen.getByText('98.75%')).toBeInTheDocument()
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.getByText('1 without checks yet')).toBeInTheDocument()
-    expect(String(fetch.mock.calls[0][0])).toContain('range=30d')
+    expect(fetch.mock.calls.map((c) => String(c[0])).find((u) => !u.includes('table-views'))).toContain('range=30d')
 
     await userEvent.click(screen.getByText('shop.example.com'))
     expect(screen.getByText('Incidents · shop.example.com')).toBeInTheDocument()
