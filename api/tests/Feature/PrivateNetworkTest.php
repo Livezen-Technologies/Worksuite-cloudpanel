@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Server;
 use App\Models\VpnPeer;
+use App\Support\Tenant;
 use Tests\TestCase;
 
 /** PNET-1..5: WireGuard mesh, *.internal names, admin VPN configs and status. */
@@ -46,7 +47,8 @@ class PrivateNetworkTest extends TestCase
 
         $this->api($token)->postJson("/api/v1/mesh/servers/{$b->id}")->assertStatus(202);
         $toB = $this->applyAs($secretB, self::KEY_B)[0];
-        $this->assertSame([['public_key' => self::KEY_A, 'endpoint' => '203.0.113.10:51820', 'allowed_ips' => ['10.88.0.1/32'], 'keepalive' => 25]], $toB['peers']);
+        $this->assertSame([['public_key' => self::KEY_A, 'endpoint' => '203.0.113.10:51820', 'allowed_ips' => ['10.88.0.1/32', '10.89.1.0/24'], 'keepalive' => 25]], $toB['peers']);
+        $this->assertSame(['10.89.2.0/24', '10.89.0.0/16'], [$toB['container_subnet'], $toB['container_supernet']]);
         $this->assertSame('10.88.0.2/16', $toB['address']);
         // B's new key is pushed to A.
         $toA = collect($this->applyAs($secretA, self::KEY_A))->last();
@@ -60,7 +62,7 @@ class PrivateNetworkTest extends TestCase
         $vpn = $this->api($token)->postJson('/api/v1/mesh/vpn-peers', ['name' => 'laptop'])->assertCreated()->json('data');
         $this->assertSame('10.88.255.254', $vpn['address']);
         $this->assertStringContainsString("Address = 10.88.255.254/32\nDNS = 10.88.0.1, internal", $vpn['config']);
-        $this->assertStringContainsString("PublicKey = ".self::KEY_A."\nEndpoint = 203.0.113.10:51820\nAllowedIPs = 10.88.0.1/32", $vpn['config']);
+        $this->assertStringContainsString("PublicKey = ".self::KEY_A."\nEndpoint = 203.0.113.10:51820\nAllowedIPs = 10.88.0.1/32, 10.89.1.0/24", $vpn['config']);
         preg_match('/PrivateKey = (\S+)/', $vpn['config'], $m);
         $peer = VpnPeer::allTenants()->find($vpn['id']);
         $this->assertSame(base64_encode(sodium_crypto_box_publickey_from_secretkey(base64_decode($m[1]))), $peer->public_key);
@@ -125,5 +127,34 @@ class PrivateNetworkTest extends TestCase
         $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}/ssh-lock/confirm")->assertStatus(409)->assertSee('window passed');
         $this->assertNull(\App\Models\Server::allTenants()->find($a->id)->mesh_ssh_lock);
         \Illuminate\Support\Carbon::setTestNow();
+    }
+
+    public function test_apps_on_the_mesh_network_get_a_fixed_routable_address(): void
+    {
+        [, $org, $token] = $this->org();
+        $a = $this->server($org, ['name' => 'web-1', 'ip' => '203.0.113.10']);
+        [$secret] = $this->enrollAgent($a, $token);
+        $this->heartbeat($secret);
+        $this->api($token)->postJson("/api/v1/mesh/servers/{$a->id}")->assertStatus(202);
+        $this->applyAs($secret, self::KEY_A);
+        $this->applyAs($secret, self::KEY_A);
+        $appId = $this->api($token)->postJson('/api/v1/applications', ['name' => 'api', 'source_type' => 'image', 'image' => 'acme/api:1', 'server_id' => $a->id, 'port' => 9000, 'mesh_network' => true])->assertCreated()->json('data.id');
+        $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
+        $create = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
+        $this->assertSame([['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => '10.89.1.10']], $create['payload']['networks']);
+        $records = collect(app(Tenant::class)->as($org->id, fn () => app(\App\Services\MeshService::class)->records()))->pluck('ip', 'name');
+        $this->assertSame('10.89.1.10', $records['api.internal']);
+        $this->assertSame('10.88.0.1', $records['web-1.internal']);
+    }
+
+    public function test_the_admin_api_can_be_limited_to_the_private_network(): void
+    {
+        [, , $token] = $this->org();
+        config(['security.admin_allowed_cidrs' => ['10.88.0.0/16']]);
+        $this->api($token)->getJson('/api/v1/servers')->assertStatus(403)->assertJsonPath('error.code', 'network_restricted');
+        $this->api($token)->getJson('/api/v1/me')->assertOk();
+        $this->api($token)->withServerVariables(['REMOTE_ADDR' => '10.88.255.254'])->getJson('/api/v1/servers')->assertOk();
+        config(['security.admin_allowed_cidrs' => []]);
+        $this->api($token)->getJson('/api/v1/servers')->assertOk();
     }
 }

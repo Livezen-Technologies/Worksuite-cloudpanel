@@ -342,7 +342,7 @@ class DeploymentService implements HandlesCommandResults
             'read_only_rootfs' => false,
             'memory_mb' => $config['memory_mb'] ?? null,
             'cpus' => $config['cpus'] ?? null,
-            'networks' => [['name' => 'proxy']],
+            'networks' => $this->networks($app),
             'mounts' => ! empty($config['volume_path']) ? [['type' => 'volume', 'source' => 'app-'.$app->name.'-data', 'target' => $config['volume_path']]] : [],
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.deployment' => $deployment->id],
             'pull' => $config['pull'] ?? 'always',
@@ -552,6 +552,15 @@ class DeploymentService implements HandlesCommandResults
     }
 
     /** Immutable release (APP-006); keeps the last N releases. */
+    /** The proxy network, plus dmp-mesh at the app's fixed address when it asked for one (PNET-4). */
+    private function networks(Application $app): array
+    {
+        $server = $app->server_id ? Server::allTenants()->find($app->server_id) : null;
+        $ip = $server ? app(MeshService::class)->appAddress($app, $server) : null;
+
+        return $ip ? [['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => $ip]] : [['name' => 'proxy']];
+    }
+
     private function createRelease(Deployment $deployment, Application $app): Release
     {
         $source = $deployment->rollback_of_release_id ? Release::find($deployment->rollback_of_release_id) : null;

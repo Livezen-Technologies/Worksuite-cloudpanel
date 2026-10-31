@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -51,6 +52,8 @@ type PortSpec struct {
 type NetworkSpec struct {
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases"`
+	// IPv4 pins the container's address on this network (PNET: dmp-mesh).
+	IPv4 string `json:"ipv4_address"`
 }
 
 type MountSpec struct {
@@ -232,12 +235,20 @@ func (e *Executor) BuildCreateBody(s *CreateSpec) (map[string]any, []NetworkSpec
 			if n.Name == "host" {
 				return nil, nil, errors.New("host networking not allowed")
 			}
+			if n.IPv4 != "" {
+				if ip := net.ParseIP(n.IPv4); ip == nil || ip.To4() == nil {
+					return nil, nil, fmt.Errorf("invalid ipv4_address %q", n.IPv4)
+				}
+			}
 		}
 		first := s.Networks[0]
 		host["NetworkMode"] = first.Name
 		ep := map[string]any{}
 		if len(first.Aliases) > 0 {
 			ep["Aliases"] = first.Aliases
+		}
+		if first.IPv4 != "" {
+			ep["IPAMConfig"] = map[string]string{"IPv4Address": first.IPv4}
 		}
 		cfg["NetworkingConfig"] = map[string]any{"EndpointsConfig": map[string]any{first.Name: ep}}
 		extra = s.Networks[1:]
@@ -360,7 +371,7 @@ func (e *Executor) createContainer(ctx context.Context, raw []byte, progress fun
 	}
 	progress(60, "created")
 	for _, n := range extra {
-		if err := d.ConnectNetwork(ctx, n.Name, id, n.Aliases); err != nil {
+		if err := d.ConnectNetwork(ctx, n.Name, id, n.Aliases, n.IPv4); err != nil {
 			return map[string]any{"container_id": id}, fmt.Errorf("connect %s: %w", n.Name, err)
 		}
 	}

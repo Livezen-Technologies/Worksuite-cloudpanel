@@ -54,6 +54,7 @@ function SettingsTab({ app }: { app: R }) {
     health_timeout: app.health_timeout ?? 60, environment: app.environment ?? 'production',
     size: app.size ?? 'small', strategy: app.strategy ?? 'rolling',
     auto_deploy: !!app.auto_deploy, auto_restart: !!app.auto_restart, requires_approval: !!app.requires_approval,
+    mesh_network: !!app.mesh_network,
   })
   useEffect(() => { setF((p) => ({ ...p, name: app.name ?? p.name })) }, [app.id])
 
@@ -81,7 +82,8 @@ function SettingsTab({ app }: { app: R }) {
         <div className="col-span-full flex flex-col gap-3">
           {([['auto_deploy', 'Deploy automatically on a new release'],
              ['auto_restart', 'Restart the container if it exits'],
-             ['requires_approval', 'Require a second approver for production deploys']] as const).map(([k, label]) => (
+             ['requires_approval', 'Require a second approver for production deploys'],
+             ['mesh_network', 'Reachable from other servers on the private network (applies at the next deploy)']] as const).map(([k, label]) => (
             <label key={k} className="flex items-center gap-3 text-sm">
               <Toggle checked={(f as R)[k]} label={label} onChange={(v) => setF({ ...f, [k]: v })} />
               <span>{label}</span>

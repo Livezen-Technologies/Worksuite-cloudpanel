@@ -30,6 +30,9 @@ func (f *fakeWG) run(_ context.Context, _ string, _ []string, name string, args 
 	if name == "wg" && len(args) == 3 && args[2] == "dump" {
 		return []byte(f.dump), nil
 	}
+	if name == "iptables" && args[0] == "-C" {
+		return nil, errors.New("Bad rule")
+	}
 	if name == "ufw" && args[0] == "status" {
 		return []byte("Status: active\n"), nil
 	}
@@ -166,5 +169,35 @@ func TestMeshOpensPortAndLocksSSH(t *testing.T) {
 	}
 	if _, err := e.Handle(context.Background(), cmd("p3", "mesh.apply", `{"address":"10.88.0.2/16","peers":[],"ssh_lock":{"allow":["not-an-ip"]}}`, now)); err == nil {
 		t.Fatal("bad allow entry accepted")
+	}
+}
+
+func TestMeshRoutesTheContainerNetwork(t *testing.T) {
+	dir := t.TempDir()
+	g := &fakeWG{}
+	proc := filepath.Join(dir, "proc")
+	os.MkdirAll(filepath.Join(proc, "net", "ipv4"), 0o755)
+	e := &Executor{HMACKey: key, Journal: &Journal{Path: filepath.Join(dir, "j.json")}, Report: (&fakePanel{results: map[string][]protocol.Result{}}).report,
+		StateDir: filepath.Join(dir, "state"), WireGuardDir: filepath.Join(dir, "wg"), ProcSysDir: proc, Run: g.run, Now: func() time.Time { return now }}
+	r, err := e.Handle(context.Background(), cmd("n1", "mesh.apply", `{"address":"10.88.0.2/16","peers":[],"container_subnet":"10.89.2.0/24","container_supernet":"10.89.0.0/16"}`, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	if r.Output.(map[string]any)["container_network"] != "dmp-mesh" {
+		t.Fatalf("%+v", r.Output)
+	}
+	if b, _ := os.ReadFile(filepath.Join(proc, "net", "ipv4", "ip_forward")); string(b) != "1\n" {
+		t.Fatalf("ip_forward %q", b)
+	}
+	want := "iptables -I DOCKER-USER -s 10.88.0.0/16 -d 10.89.0.0/16 -j ACCEPT"
+	found := false
+	for _, c := range g.calls {
+		found = found || strings.Join(c, " ") == want
+	}
+	if !found {
+		t.Fatalf("no %q in %v", want, g.calls)
+	}
+	if _, err := e.Handle(context.Background(), cmd("n2", "mesh.apply", `{"address":"10.88.0.2/16","peers":[],"container_subnet":"192.168.1.0/24","container_supernet":"10.89.0.0/16"}`, now)); err == nil {
+		t.Fatal("subnet outside the supernet accepted")
 	}
 }

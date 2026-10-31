@@ -324,10 +324,17 @@ func (c *Client) CreateContainer(ctx context.Context, name string, body any) (st
 }
 
 // ConnectNetwork attaches a container to an additional network.
-func (c *Client) ConnectNetwork(ctx context.Context, network, container string, aliases []string) error {
+func (c *Client) ConnectNetwork(ctx context.Context, network, container string, aliases []string, ipv4 string) error {
 	body := map[string]any{"Container": container}
+	ep := map[string]any{}
 	if len(aliases) > 0 {
-		body["EndpointConfig"] = map[string]any{"Aliases": aliases}
+		ep["Aliases"] = aliases
+	}
+	if ipv4 != "" {
+		ep["IPAMConfig"] = map[string]string{"IPv4Address": ipv4}
+	}
+	if len(ep) > 0 {
+		body["EndpointConfig"] = ep
 	}
 	return c.call(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", nil, body, nil)
 }
