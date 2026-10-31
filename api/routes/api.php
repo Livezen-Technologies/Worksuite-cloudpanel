@@ -22,6 +22,8 @@ Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/passkey/options', [\App\Http\Controllers\PasskeyController::class, 'loginOptions'])->name('auth.passkey-options');
     Route::post('auth/passkey/login', [\App\Http\Controllers\PasskeyController::class, 'login'])->name('auth.passkey-login');
     Route::post('auth/forgot-password', [\App\Http\Controllers\AccountRecoveryController::class, 'forgot'])->name('auth.forgot-password');
+    Route::get('auth/invite/{token}', [\App\Http\Controllers\InviteController::class, 'show'])->where('token', '[A-Za-z0-9]{40}')->name('auth.invite.show');
+    Route::post('auth/invite/{token}', [\App\Http\Controllers\InviteController::class, 'accept'])->where('token', '[A-Za-z0-9]{40}')->name('auth.invite.accept');
     Route::post('auth/reset-password', [\App\Http\Controllers\AccountRecoveryController::class, 'reset'])->name('auth.reset-password');
     Route::post('auth/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'verify'])->name('auth.verify-email');
 });
@@ -44,6 +46,11 @@ Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::c
 Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('me', [AuthController::class, 'me'])->name('me.show');
+    Route::patch('me/profile', [\App\Http\Controllers\MeController::class, 'profile'])->name('me.profile');
+    Route::post('me/password', [\App\Http\Controllers\MeController::class, 'password'])->middleware('throttle:5,10')->name('me.password');
+    Route::get('me/sessions', [\App\Http\Controllers\MeController::class, 'sessions'])->name('me.sessions');
+    Route::delete('me/sessions', [\App\Http\Controllers\MeController::class, 'endSession'])->name('me.sessions.end-others');
+    Route::delete('me/sessions/{id}', [\App\Http\Controllers\MeController::class, 'endSession'])->name('me.sessions.end');
     Route::post('me/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'resend'])->middleware('throttle:3,10')->name('me.verify-email');
     Route::match(['get', 'patch'], 'me/email-preferences', [Admin\EmailTemplateController::class, 'preferences'])->name('me.email-preferences');
     Route::post('me/mfa/enable', [AuthController::class, 'mfaEnable'])->name('me.mfa-enable');
@@ -406,6 +413,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('users/invite', [Admin\UserController::class, 'store'])->name('users.invite');
         Route::patch('users/{id}', [Admin\UserController::class, 'update'])->name('users.update');
         Route::delete('users/{id}', [Admin\UserController::class, 'destroy'])->name('users.destroy');
+        Route::post('users/{id}/password-reset', [Admin\UserController::class, 'sendPasswordReset'])->middleware('throttle:5,10')->name('users.password-reset');
+        Route::post('users/{id}/mfa-reset', [Admin\UserController::class, 'resetMfa'])->name('users.mfa-reset');
+        Route::post('users/{id}/status', [Admin\UserController::class, 'status'])->name('users.status');
+        Route::post('users/{id}/resend-invite', [Admin\UserController::class, 'resendInvite'])->middleware('throttle:5,10')->name('users.resend-invite');
     });
     // Hosting packages (plans) and hosting customers (organisations).
     Route::get('plans', [Admin\PlanController::class, 'index'])->middleware('perm:billing.manage|billing')->name('plans.index');

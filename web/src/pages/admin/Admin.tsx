@@ -4,7 +4,8 @@ import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
-import { ConfirmDialog } from '../../components/Overlay'
+import { ConfirmDialog, Modal } from '../../components/Overlay'
+import { useAuth } from '../../lib/auth'
 import { FormModal } from '../../components/FormModal'
 import { Tabs } from '../../components/Tabs'
 import { TokenReveal } from '../../components/TokenReveal'
@@ -32,13 +33,19 @@ export function Users() {
   const { run, busy } = useAction()
   const [invite, setInvite] = useState(false)
   const [remove, setRemove] = useState<R | null>(null)
+  const [manage, setManage] = useState<R | null>(null)
+  const [q, setQ] = useState('')
+  const { me } = useAuth()
+  const shown = users.rows.filter((r) => !q || `${r.name} ${r.email} ${r.role}`.toLowerCase().includes(q.toLowerCase()))
+  const act = (r: R, path: string, label: string, success: string, body?: R) => run({ path: `/users/${r.id}/${path}`, body: body ?? {}, label, success }).then(() => { users.refetch(); setManage(null) }).catch(() => {})
   return (
     <>
       <PageHeader title="Users & Teams" subtitle="Organisation-scoped roles with MFA, passkeys and approval workflows"
         actions={<button type="button" className="btn btn-primary" onClick={() => setInvite(true)}>Invite user</button>} />
       <div className="flex flex-wrap gap-4 items-start">
         <div className="flex-[2_1_520px] min-w-0">
-          <DataTable label="Members" rows={users.rows} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
+          <input className="input mb-3" type="search" aria-label="Search members" placeholder="Search by name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
+          <DataTable label="Members" rows={shown} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
               { key: 'role', header: 'Role', render: (r) => (
@@ -48,8 +55,8 @@ export function Users() {
                 </Select>) },
               { key: 'auth', header: 'Sign-in', value: (r) => r.sign_in_method ?? (r.mfa_enabled ? 'MFA' : 'Password') },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
-              { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? (r.invited ? 'pending' : 'active')} /> },
-              { key: 'rm', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setRemove(r) }}>Remove</button> },
+              { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status === 'suspended' ? 'suspended' : r.invited ? 'invited' : (r.status ?? 'active')} /> },
+              { key: 'manage', header: '', sortable: false, render: (r) => r.id === me?.user?.id ? <a className="btn btn-sm" href="/admin/account" onClick={(e) => e.stopPropagation()}>Your account</a> : <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setManage(r) }}>Manage</button> },
             ]} />
         </div>
         <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<Select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</Select>}>
@@ -63,11 +70,41 @@ export function Users() {
       <FormModal open={invite} onClose={() => setInvite(false)} title="Invite user" submitLabel="Send invite" initial={{ role: 'developer' }}
         fields={[{ name: 'email', label: 'Email', type: 'email', required: true }, { name: 'name', label: 'Name' }, { name: 'role', label: 'Role', type: 'select', required: true, options: roleNames.map((r) => ({ value: r, label: pretty(r) })) }]}
         onSubmit={(v) => run({ path: '/users/invite', body: v, label: 'Invite', success: `Invite sent to ${v.email}` })} />
+      <Modal open={!!manage} onClose={() => setManage(null)} title={`Manage ${manage?.name ?? ''}`}>
+        {manage && (
+          <div className="flex flex-col gap-4 text-sm">
+            <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5">
+              <dt className="text-muted">Email</dt><dd className="m-0">{manage.email}</dd>
+              <dt className="text-muted">Role</dt><dd className="m-0">{pretty(String(manage.role))}</dd>
+              <dt className="text-muted">Sign-in</dt><dd className="m-0">{manage.mfa_enabled ? 'Password + two-factor' : 'Password'}</dd>
+              <dt className="text-muted">Last active</dt><dd className="m-0">{manage.last_activity_at ?? manage.last_login_at ? ago(manage.last_activity_at ?? manage.last_login_at) : 'never'}</dd>
+            </dl>
+            <ul className="m-0 p-0 list-none flex flex-col">
+              {manage.invited && <MemberAction title="Resend the invitation" text="Sends a new link; the old one stops working." button="Resend" busy={busy} onClick={() => act(manage, 'resend-invite', 'Resend invite', `Invitation sent to ${manage.email}`)} />}
+              <MemberAction title="Send a password reset link" text="They get an email with a link that works for one hour." button="Send link" busy={busy} onClick={() => act(manage, 'password-reset', 'Send reset link', `Reset link sent to ${manage.email}`)} />
+              {manage.mfa_enabled && <MemberAction title="Reset two-factor" text="Turns it off and signs them out, so they can set it up again (a lost phone)." button="Reset" busy={busy} onClick={() => act(manage, 'mfa-reset', 'Reset two-factor', 'Two-factor reset')} />}
+              {manage.status === 'suspended'
+                ? <MemberAction title="Reactivate" text="They can sign in to this organisation again." button="Reactivate" busy={busy} onClick={() => act(manage, 'status', 'Reactivate', `${manage.name} is active again`, { status: 'active' })} />
+                : <MemberAction title="Suspend" text="Signs them out and blocks sign-in here; nothing is deleted." button="Suspend" danger busy={busy} onClick={() => act(manage, 'status', 'Suspend', `${manage.name} is suspended`, { status: 'suspended' })} />}
+              <MemberAction title="Remove from the organisation" text="Takes away access for good. Their audit history is kept." button="Remove…" danger busy={busy} onClick={() => { setRemove(manage); setManage(null) }} />
+            </ul>
+          </div>
+        )}
+      </Modal>
       <ConfirmDialog open={!!remove} onClose={() => setRemove(null)} danger confirmText={remove?.email} title={`Remove ${remove?.name}?`} confirmLabel="Remove member" busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/users/${remove!.id}`, label: 'Remove member', success: 'Member removed' }).then(() => setRemove(null)).catch(() => {})}>
         <p className="m-0">They lose access to this organisation immediately. Their audit history is kept.</p>
       </ConfirmDialog>
     </>
+  )
+}
+
+function MemberAction({ title, text, button, onClick, busy, danger }: { title: string; text: string; button: string; onClick: () => void; busy: boolean; danger?: boolean }) {
+  return (
+    <li className="flex flex-wrap items-center gap-3 py-3 border-t border-line">
+      <div className="flex-1 min-w-[200px]"><div className="font-semibold">{title}</div><div className="text-xs text-muted">{text}</div></div>
+      <button type="button" className={`btn btn-sm ${danger ? 'btn-danger' : ''}`} disabled={busy} onClick={onClick}>{button}</button>
+    </li>
   )
 }
 
