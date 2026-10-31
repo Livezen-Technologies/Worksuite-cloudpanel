@@ -97,7 +97,12 @@ func TestRunLoop(t *testing.T) {
 	}))
 	defer panel.Close()
 
-	cfg := &config.Config{PanelURL: panel.URL, AgentSecret: "sec", HMACKey: "hk", DockerSocket: sock, StateDir: t.TempDir(), HeartbeatInterval: 15}
+	dir := t.TempDir()
+	// Without an explicit path, ApplyDefaults points the policy store at
+	// /etc/dockermgr/policy.json. On a host that runs the agent, that directory is
+	// 0700 root, so os.Stat returns EACCES rather than ENOENT, the store fails
+	// closed, and every command is rejected before it runs.
+	cfg := &config.Config{PanelURL: panel.URL, AgentSecret: "sec", HMACKey: "hk", DockerSocket: sock, StateDir: dir, PolicyPath: filepath.Join(dir, "policy.json"), HeartbeatInterval: 15}
 	cfg.ApplyDefaults()
 	a, err := newAgent(cfg, filepath.Join(t.TempDir(), "agent"), log.New(io.Discard, "", 0))
 	if err != nil {
