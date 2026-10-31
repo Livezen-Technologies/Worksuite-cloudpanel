@@ -156,6 +156,12 @@ class ScalingTest extends TestCase
         $this->assertTrue($this->api($token)->getJson("/api/v1/app/apps/{$appId}/scaling")->json('data.limits.canary'));
     }
 
+    public function test_only_the_pro_package_includes_traffic_splitting(): void
+    {
+        $limits = \App\Models\Plan::all()->mapWithKeys(fn ($p) => [$p->code => (bool) ($p->limits['traffic_splitting'] ?? false)])->all();
+        $this->assertSame(['pro' => true, 'small' => false, 'standard' => false], collect($limits)->sortKeys()->all());
+    }
+
     public function test_autoscale_on_requests_per_second_per_copy_from_traefik_metrics(): void
     {
         Carbon::setTestNow('2026-11-02 10:00:00');
