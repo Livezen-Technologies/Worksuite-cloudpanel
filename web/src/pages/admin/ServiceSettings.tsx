@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAction, useOne } from '../../api/hooks'
 import { api, isApiError } from '../../api/client'
 import { Field, PageHeader, Toggle } from '../../components/Card'
-import { Badge } from '../../components/Badge'
 import { Icon } from '../../components/Icon'
 import { ConfirmDialog, Drawer } from '../../components/Overlay'
 import Select from '../../components/Select'
+import { Tabs } from '../../components/Tabs'
 import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
 
@@ -30,11 +30,15 @@ function Logo({ s, size = 40 }: { s: Svc; size?: number }) {
   const l = LOGO[s.key]
   return (
     <span aria-hidden="true" className="grid place-items-center flex-none rounded-xl bg-white ring-1 ring-line" style={{ width: size, height: size }}>
-      {l ? <span style={{ width: size * 0.55, height: size * 0.55, background: `#${l[1]}`, WebkitMask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat`, mask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat` }} />
+      {s.key === 'microsoft_login' ? <span className="grid grid-cols-2 gap-[2px]" style={{ width: size * 0.45, height: size * 0.45 }}><i className="bg-[#F25022]" /><i className="bg-[#7FBA00]" /><i className="bg-[#00A4EF]" /><i className="bg-[#FFB900]" /></span>
+        : l ? <span style={{ width: size * 0.55, height: size * 0.55, background: `#${l[1]}`, WebkitMask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat`, mask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat` }} />
         : <span className="text-sm font-bold text-[#334155]">{s.label.split(/\s+/).map((w) => w[0]).join('').slice(0, 2)}</span>}
     </span>
   )
 }
+
+/** Short tab names; the full name stays as the group heading. */
+const SHORT: Record<string, string> = { dns: 'DNS & CDN', login: 'Sign-in apps', captcha: 'Captcha', email: 'Email', git: 'Git', cloud: 'Cloud & VPS', storage: 'Storage' }
 
 const state = (s: Svc) => !s.configured ? { tone: 'n' as const, text: 'Not set up' } : !s.enabled ? { tone: 'y' as const, text: 'Off' } : s.last_test && !s.last_test.ok ? { tone: 'r' as const, text: 'Check failed' } : { tone: 'g' as const, text: 'Connected' }
 
@@ -51,6 +55,24 @@ export function ServiceSettings() {
   const connected = (d?.services ?? []).filter((s) => s.configured).length
   return (
     <div className="flex flex-col gap-5">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+        {[
+          ['Connected', (d?.services ?? []).filter((x) => state(x).tone === 'g').length, 'var(--g-fg)'],
+          ['Turned off', (d?.services ?? []).filter((x) => state(x).tone === 'y').length, 'var(--y-fg)'],
+          ['Check failed', (d?.services ?? []).filter((x) => state(x).tone === 'r').length, 'var(--r-fg)'],
+          ['Available', (d?.services ?? []).filter((x) => !x.configured).length, 'var(--muted)'],
+        ].map(([k, v, c]) => (
+          <div key={String(k)} className="card px-4 py-3 flex items-center gap-3">
+            <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full" style={{ background: String(c) }} />
+            <span className="text-sm text-muted flex-1">{k}</span><span className="text-xl font-semibold tabular-nums">{page.isLoading ? '…' : v}</span>
+          </div>
+        ))}
+      </div>
+      <Tabs label="Service categories" value={cat} onChange={setCat}
+        tabs={[['all', 'All'], ['connected', 'Set up'], ...Object.entries(d?.categories ?? {})].map(([k, l]) => {
+          const n = k === 'all' ? (d?.services.length ?? 0) : k === 'connected' ? connected : (d?.services ?? []).filter((x) => x.category === k).length
+          return { id: k, label: <span className="inline-flex items-center gap-1.5 whitespace-nowrap">{SHORT[k] ?? l}<span className="min-w-5 h-5 px-1.5 rounded-full bg-head text-[11px] font-semibold text-muted grid place-items-center tabular-nums">{n}</span></span> }
+        })} />
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 flex-1 min-w-[220px] h-10 px-3 rounded-lg border border-line bg-card text-muted focus-within:border-accent">
           <Icon name="search" size={16} />
@@ -58,28 +80,27 @@ export function ServiceSettings() {
         </label>
         <span className="text-sm text-muted">{connected} of {d?.services.length ?? 0} set up</span>
       </div>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Categories">
-        {[['all', 'All'], ['connected', 'Set up'], ...Object.entries(d?.categories ?? {})].map(([k, l]) => (
-          <button key={k} type="button" className="chip" aria-pressed={cat === k} onClick={() => setCat(k)}>{l}</button>
-        ))}
-      </div>
       {page.isLoading && <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">{Array.from({ length: 6 }, (_, i) => <div key={i} className="h-28 rounded-xl bg-head animate-pulse" />)}</div>}
       {grouped.map((g) => (
         <section key={g.k} aria-label={g.label}>
           <h3 className="m-0 mb-2.5 text-sm font-semibold text-muted">{g.label}</h3>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {g.items.map((s) => {
               const st = state(s)
               return (
                 <button key={s.key} type="button" onClick={() => setOpen(s.key)}
-                  className="card text-left p-4 flex flex-col gap-3 cursor-pointer transition-colors hover:border-accent/60">
-                  <span className="flex items-center gap-3">
-                    <Logo s={s} />
-                    <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{s.label}</span><span className="block text-xs text-muted truncate">{s.description}</span></span>
+                  className="group card text-left p-0 flex flex-col cursor-pointer transition-[border-color,box-shadow,transform] duration-150 hover:border-accent/50 hover:shadow-[0_8px_24px_-12px_rgba(15,23,42,.25)] hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-accent">
+                  <span className="flex items-start gap-3 p-4 pb-3">
+                    <Logo s={s} size={44} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2"><span className="font-semibold truncate">{s.label}</span>
+                        <span aria-hidden="true" className={`ml-auto flex-none w-2 h-2 rounded-full ${st.tone === 'g' ? 'bg-[var(--g-fg)]' : st.tone === 'r' ? 'bg-[var(--r-fg)]' : st.tone === 'y' ? 'bg-[var(--y-fg)]' : 'bg-line'}`} /></span>
+                      <span className="block text-[13px] leading-snug text-muted mt-0.5 line-clamp-2">{s.description}</span>
+                    </span>
                   </span>
-                  <span className="flex items-center justify-between gap-2 text-xs">
-                    <Badge tone={st.tone}>{st.text}</Badge>
-                    <span className="text-accent font-semibold">{s.configured ? 'Manage →' : 'Set up →'}</span>
+                  <span className="mt-auto flex items-center justify-between gap-2 px-4 py-2.5 border-t border-line text-xs">
+                    <span className={`font-medium ${st.tone === 'g' ? 'text-[var(--g-fg)]' : st.tone === 'r' ? 'text-[var(--r-fg)]' : st.tone === 'y' ? 'text-[var(--y-fg)]' : 'text-muted'}`}>{st.text}</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-accent">{s.configured ? 'Manage' : 'Set up'}<Icon name="chevron" size={14} className="transition-transform group-hover:translate-x-0.5" /></span>
                   </span>
                 </button>
               )
