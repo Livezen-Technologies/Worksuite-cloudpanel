@@ -4,6 +4,7 @@ import { useAction, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { PasskeyManager } from '../../components/Passkeys'
+import { Tabs } from '../../components/Tabs'
 import { Icon } from '../../components/Icon'
 import { OtpInput, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useToast } from '../../components/Toasts'
@@ -11,25 +12,48 @@ import { useAuth } from '../../lib/auth'
 import { ago, unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
 
-/** Your profile, password, two-factor, passkeys and sessions (admin panel). */
+type AccountTab = 'profile' | 'security' | 'sessions'
+
+/** Your profile, password, two-factor, passkeys and sessions (admin panel), in tabs. */
 export function AdminAccount() {
   const { me, refresh } = useAuth()
   const u = me?.user
+  const [tab, setTab] = useState<AccountTab>(() => (['profile', 'security', 'sessions'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'profile') as AccountTab)
+  useEffect(() => { history.replaceState(null, '', `#${tab}`) }, [tab])
+  const name = String(u?.name ?? '')
+  const email = String(u?.email ?? '')
+  const initials = (name || email).split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()
+  const mfa = !!u?.mfa_enabled
   return (
     <>
       <PageHeader title="Account" subtitle="Your profile and how you sign in" />
-      <div className="grid gap-4 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))]">
-        <Profile name={String(u?.name ?? '')} email={String(u?.email ?? '')} role={String(me?.role ?? '')} verified={!!u?.email_verified_at || u?.email_verified !== false} onSaved={refresh} />
-        <ChangePassword />
-        <TwoFactor on={!!u?.mfa_enabled} onChange={refresh} />
-        <PasskeyManager />
-        <Sessions />
+      <div className="card p-5 mb-5 flex flex-wrap items-center gap-4">
+        <span aria-hidden="true" className="w-14 h-14 rounded-full bg-accent text-white text-lg font-bold grid place-items-center flex-none">{initials}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-lg font-semibold truncate">{name}</div>
+          <div className="text-sm text-muted truncate">{email}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge tone="b">{String(me?.role ?? '').replace(/_/g, ' ')}</Badge>
+          <Badge tone={mfa ? 'g' : 'y'}>{mfa ? 'two-factor on' : 'two-factor off'}</Badge>
+          {u?.email_verified === false && <Badge tone="y">email not verified</Badge>}
+        </div>
+      </div>
+      <Tabs label="Account sections" value={tab} onChange={setTab} tabs={[{ id: 'profile', label: 'Profile' }, { id: 'security', label: 'Security' }, { id: 'sessions', label: 'Sessions' }]} />
+      <div className="mt-5 max-w-3xl flex flex-col gap-4">
+        {tab === 'profile' && <Profile name={name} email={email} onSaved={refresh} />}
+        {tab === 'security' && <>
+          <ChangePassword />
+          <TwoFactor on={mfa} onChange={refresh} />
+          <PasskeyManager />
+        </>}
+        {tab === 'sessions' && <Sessions />}
       </div>
     </>
   )
 }
 
-function Profile({ name, email, role, verified, onSaved }: { name: string; email: string; role: string; verified: boolean; onSaved: () => unknown }) {
+function Profile({ name, email, onSaved }: { name: string; email: string; onSaved: () => unknown }) {
   const { run, busy } = useAction()
   const [f, setF] = useState({ name, email, current_password: '' })
   useEffect(() => setF({ name, email, current_password: '' }), [name, email])
@@ -40,14 +64,9 @@ function Profile({ name, email, role, verified, onSaved }: { name: string; email
     if (emailChanged) Object.assign(body, { email: f.email, current_password: f.current_password })
     run({ method: 'PATCH', path: '/me/profile', body, label: 'Save profile', success: emailChanged ? 'Saved. Check your new inbox to verify the address.' : 'Profile saved' }).then(() => onSaved()).catch(() => {})
   }
-  const initials = (f.name || email).split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <Card title="Profile">
+    <Card title="Profile" subtitle="Your name and the address we email">
       <form className="flex flex-col gap-4" onSubmit={submit}>
-        <div className="flex items-center gap-3">
-          <span aria-hidden="true" className="w-12 h-12 rounded-full bg-accent text-white font-bold flex items-center justify-center flex-none">{initials}</span>
-          <div className="min-w-0 text-sm"><div className="font-semibold truncate">{name}</div><div className="text-muted flex flex-wrap items-center gap-2">{role.replace(/_/g, ' ')}{!verified && <Badge tone="y">email not verified</Badge>}</div></div>
-        </div>
         <Field label="Full name"><input className="input" required maxLength={120} autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Email" hint={emailChanged ? 'You will need to verify the new address.' : undefined}><input className="input" type="email" required autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         {emailChanged && <Field label="Current password" hint="Needed to change your email."><input className="input" type="password" required autoComplete="current-password" value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} /></Field>}
