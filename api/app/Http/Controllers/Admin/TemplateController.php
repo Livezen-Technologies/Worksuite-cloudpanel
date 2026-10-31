@@ -36,7 +36,27 @@ class TemplateController extends Controller
     {
         $this->templates->catalogue();
         $tpl = Template::findOrFail($template);
-        $data = $request->validate([
+        $data = $request->validate($this->installRules());
+        $install = $this->templates->install($tpl, $data, $request->user());
+
+        return $this->data(['id' => $install->id, 'resource_type' => $install->resource_type, 'resource_id' => $install->resource_id, 'version' => $install->version,
+            'job_id' => $install->job_id, 'deployment_id' => $install->deployment_id, 'url' => $install->url], 201);
+    }
+
+    /** INST-7: run the install checks without installing anything. */
+    public function preflight(Request $request, string $template)
+    {
+        $this->templates->catalogue();
+
+        return $this->data($this->templates->preflight(Template::findOrFail($template), $request->validate($this->installRules(false))));
+    }
+
+    private function installRules(bool $strict = true): array
+    {
+        // Preflight reports a bad name, domain or variable as a check instead of a 422.
+        $loose = $strict ? [] : ['name' => 'nullable|string|max:200', 'domain' => 'nullable|string|max:253', 'env.*.key' => 'nullable|string|max:120'];
+
+        return $loose + [
             'name' => ['required', 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'server_id' => 'nullable|uuid|exists:servers,id',
             'domain' => ['nullable', 'string', 'max:253', 'regex:/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
@@ -50,10 +70,9 @@ class TemplateController extends Controller
             'auto_restart' => 'sometimes|boolean',
             'env' => 'nullable|array|max:100', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string|max:4096', 'env.*.secret' => 'nullable|boolean',
             'database_id' => 'nullable|uuid',
-        ]);
-        $install = $this->templates->install($tpl, $data, $request->user());
-
-        return $this->data(['id' => $install->id, 'resource_type' => $install->resource_type, 'resource_id' => $install->resource_id, 'version' => $install->version], 201);
+            'domain_mode' => 'nullable|in:auto,subdomain,custom,none',
+            'subdomain' => 'nullable|string|max:63',
+        ];
     }
 
     public function installs()

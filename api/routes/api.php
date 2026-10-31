@@ -178,6 +178,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::delete('applications/{id}/canary', [Admin\ScalingController::class, 'abortCanary'])->name('applications.canary.abort');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
         Route::post('templates/{template}/install', [Admin\TemplateController::class, 'install'])->name('templates.install');
+        Route::post('templates/{template}/preflight', [Admin\TemplateController::class, 'preflight'])->name('templates.preflight');
         Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');
         Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
