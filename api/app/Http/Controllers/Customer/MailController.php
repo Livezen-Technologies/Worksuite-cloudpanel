@@ -152,6 +152,15 @@ class MailController extends Controller
     }
 
     /** MCL-10: start an IMAP import into a mailbox. */
+    /** MCL: a one-click, single-use webmail sign-in link for this mailbox. */
+    public function webmailLink(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(['url' => $this->mail->webmailLink(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box))]);
+    }
+
     public function startImport(Request $request, string $id, string $box)
     {
         $d = MailDomain::findOrFail($id);

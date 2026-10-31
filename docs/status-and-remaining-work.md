@@ -47,8 +47,11 @@ Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           allow/block lists (Sieve on X-Rspamd-Score), and
                           a delivery log parsed from Postfix every 5 min
                           that each organisation searches for its domains;
-                          left: one-click webmail sign-in, live import
-                          progress, a second mail server for failover
+                          one-click webmail sign-in (single-use link, a
+                          Roundcube plugin redeems it for a master-user
+                          login) and live import progress (N of M
+                          messages from imapsync's ETA line);
+                          left: a second mail server for failover
 Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
                           busy (502-504), suspended, expired, welcome pages
                           from an edge container; left: bot-check page
@@ -95,7 +98,7 @@ CoreDNS. The platform currently uses Laravel queues and a Laravel job runner, Pr
 through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues as the MVP
 alternative.
 
-Largest open groups, by requirements left: mail cluster (MCL, ~4 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
+Largest open groups, by requirements left: mail cluster (MCL, ~2 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
 private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
 Cloudflare Tunnel (CFT, 6), cron engine (CRON, 1: dedicated runners), backup manager (BKM, 1: BKM-009 sandbox start), public pages
 (PUB, done in #41).
@@ -208,9 +211,15 @@ the import ends. Results: messages, folders, bytes, errors and the last 16 KB of
 hostname, routed and certified by Traefik; customers get "Open webmail" and per-mailbox
 links with the address filled in, and the mail-app settings.
 
-Left: live progress during an import (the result arrives at the end), one-click
-sign-in to webmail without typing the password, and importing from the migration
-wizard (MIG-001).
+**One-click webmail**: "Webmail" on a mailbox asks the panel for a 60-second, single-use
+link (`POST …/mailboxes/{box}/webmail`). The `dmp_sso` Roundcube plugin, written into its
+own volume at install, redeems the token server to server at `/api/v1/webmail-sso/{token}`
+with a per-server bearer and signs in as `box*dmpimport` (the Dovecot master user), so no
+password is typed or stored in the browser. **Live progress**: while imapsync runs, the
+agent reads its log every 10 s and reports "N of M messages copied" with a percentage,
+shown on the import list.
+
+Left: importing from the migration wizard (MIG-001).
 
 ## 1e. Scaling and load balancing (SCL, USCL)
 

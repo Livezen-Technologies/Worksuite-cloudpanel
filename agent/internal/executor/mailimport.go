@@ -46,7 +46,37 @@ type mailImport struct {
 	Dest      imapEnd `json:"dest"`
 }
 
-func (e *Executor) mailImport(ctx context.Context, raw json.RawMessage) (any, error) {
+// importPollEvery is how often a running import's log is read for progress.
+var importPollEvery = 10 * time.Second
+
+// reLeft is imapsync's ETA line: "ETA: <date>  <secs> s  <left>/<total> msgs left".
+var reLeft = regexp.MustCompile(`(\d+)/(\d+) msgs left`)
+
+// importProgress reads the running container's recent log and reports the share copied.
+func (e *Executor) importProgress(ctx context.Context, name string, progress func(int, string)) {
+	out, err := e.Run(ctx, "", nil, "docker", "logs", "--tail", "40", name)
+	if err != nil {
+		return
+	}
+	all := reLeft.FindAllStringSubmatch(string(out), -1)
+	if len(all) == 0 {
+		return
+	}
+	m := all[len(all)-1]
+	left, _ := strconv.Atoi(m[1])
+	total, _ := strconv.Atoi(m[2])
+	if total <= 0 || left > total {
+		return
+	}
+	done := total - left
+	pct := done * 100 / total
+	if pct > 99 {
+		pct = 99
+	}
+	progress(pct, fmt.Sprintf("%d of %d messages copied", done, total))
+}
+
+func (e *Executor) mailImport(ctx context.Context, raw json.RawMessage, progress func(int, string)) (any, error) {
 	var p mailImport
 	if err := decode(raw, &p); err != nil {
 		return nil, err
@@ -102,7 +132,27 @@ func (e *Executor) mailImport(ctx context.Context, raw json.RawMessage) (any, er
 	e.cron.add(p.RunID, cancel)
 	defer e.cron.remove(p.RunID)
 	started := time.Now()
+	stop := make(chan struct{})
+	polled := make(chan struct{})
+	go func() {
+		defer close(polled)
+		if progress == nil {
+			return
+		}
+		t := time.NewTicker(importPollEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				e.importProgress(cctx, "ws-import-"+p.RunID, progress)
+			}
+		}
+	}()
 	out, err := e.Run(cctx, "", nil, "docker", args...)
+	close(stop)
+	<-polled
 	text := string(out)
 	res := map[string]any{"exit_code": 0, "output": tailString(text, 16<<10), "duration_ms": time.Since(started).Milliseconds()}
 	for key, re := range map[string]*regexp.Regexp{"messages": reTransfer, "folders": reFolders, "bytes": reBytes, "errors": reErrors} {

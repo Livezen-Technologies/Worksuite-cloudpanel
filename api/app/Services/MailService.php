@@ -15,6 +15,8 @@ use App\Models\MailDomain;
 use App\Models\MailServer;
 use App\Models\Server;
 use App\Support\Tenant;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * Mail hosting (SRS MAIL-001..010, 012, 014). One docker-mailserver container per server runs Postfix,
@@ -333,10 +335,12 @@ class MailService implements HandlesCommandResults
             'env' => [
                 'ROUNDCUBEMAIL_DEFAULT_HOST' => 'ssl://'.$mail->hostname, 'ROUNDCUBEMAIL_DEFAULT_PORT' => '993',
                 'ROUNDCUBEMAIL_SMTP_SERVER' => 'tls://'.$mail->hostname, 'ROUNDCUBEMAIL_SMTP_PORT' => '587',
+                'ROUNDCUBEMAIL_PLUGINS' => 'archive,zipdownload,dmp_sso',
                 'ROUNDCUBEMAIL_DB_TYPE' => 'sqlite', 'ROUNDCUBEMAIL_SKIN' => 'elastic', 'ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE' => '25M',
             ],
             'networks' => [['name' => 'proxy']],
-            'mounts' => [['source' => 'webmail-db', 'target' => '/var/roundcube/db']],
+            'mounts' => [['source' => 'webmail-db', 'target' => '/var/roundcube/db'], ['source' => 'webmail-sso', 'target' => '/var/www/html/plugins/dmp_sso', 'read_only' => true],
+                ['source' => 'webmail-config', 'target' => '/var/roundcube/config']],
             'memory_mb' => 256,
             'labels' => [
                 'io.dockermgr.mail' => $mail->id,
@@ -349,12 +353,56 @@ class MailService implements HandlesCommandResults
             ],
         ], Tenant::current());
         $mail->update(['webmail_hostname' => $hostname, 'webmail_status' => 'installing']);
-        $steps = [['container.remove', ['container_id' => self::WEBMAIL_CONTAINER, 'keep_volumes' => true, 'force' => true]], ['container.create', $spec]];
+        // MCL: one-click sign-in, a Roundcube plugin that trades a single-use panel token for a master-user login.
+        $config = "<?php\n\$config['dmp_sso_url'] = ".var_export(rtrim((string) config('app.url'), '/').'/api/v1/webmail-sso', true).";\n\$config['dmp_sso_secret'] = ".var_export($this->webmailSecret($mail), true).";\n";
+        $steps = [
+            ['volume.create', ['name' => 'webmail-sso']], ['volume.create', ['name' => 'webmail-config']],
+            ['fs.write', ['volume' => 'webmail-sso', 'path' => 'dmp_sso.php', 'content' => file_get_contents(resource_path('webmail/dmp_sso.php'))]],
+            ['fs.write', ['volume' => 'webmail-config', 'path' => 'dmp_sso.inc.php', 'content' => $config]],
+            ['container.remove', ['container_id' => self::WEBMAIL_CONTAINER, 'keep_volumes' => true, 'force' => true]], ['container.create', $spec],
+        ];
         $job = $this->jobs->create('mail', ['execute'], $mail, ['mail_server_id' => $mail->id, 'action' => 'webmail', 'steps' => $steps, 'step' => 0], $userId, $mail->organization_id);
         $this->dispatch($mail, $job, $steps[0]);
         $this->audit->log('mail.webmail_install', 'mail_servers', $mail->id, ['hostname' => $hostname]);
 
         return $mail->fresh();
+    }
+
+    /** The bearer the webmail container presents when it redeems a sign-in token. */
+    public function webmailSecret(MailServer $mail): string
+    {
+        return hash_hmac('sha256', 'webmail-sso:'.$mail->id, $this->masterPassword($mail));
+    }
+
+    /** MCL: a single-use, 60-second link that signs straight in to webmail as this mailbox. */
+    public function webmailLink(Mailbox $box): string
+    {
+        $domain = MailDomain::allTenants()->findOrFail($box->mail_domain_id);
+        $mail = MailServer::allTenants()->findOrFail($domain->mail_server_id);
+        if (! $mail->webmail_hostname || $mail->webmail_status !== 'running') {
+            throw ApiException::conflict('Webmail is not installed on this mail server.');
+        }
+        $token = Str::random(64);
+        Cache::put('webmail-sso:'.$token, ['mail_server_id' => $mail->id, 'address' => $box->local_part.'@'.$domain->name], 60);
+        $this->audit->log('mail.webmail_sso', 'mailboxes', $box->id, []);
+
+        return 'https://'.$mail->webmail_hostname.'/?_task=login&_sso='.$token;
+    }
+
+    /** Called by the webmail container: the login for a token, once. */
+    public function redeemWebmailToken(string $token, ?string $bearer): ?array
+    {
+        $entry = Cache::get('webmail-sso:'.$token);
+        $mail = $entry ? MailServer::allTenants()->find($entry['mail_server_id']) : null;
+        if (! $mail || ! $bearer || ! hash_equals($this->webmailSecret($mail), $bearer)) {
+            return null;
+        }
+        Cache::forget('webmail-sso:'.$token);
+        $box = explode('@', $entry['address']);
+        $exists = Mailbox::allTenants()->where('local_part', $box[0])->where('enabled', true)
+            ->whereIn('mail_domain_id', MailDomain::allTenants()->where('mail_server_id', $mail->id)->where('name', $box[1])->pluck('id'))->exists();
+
+        return $exists ? ['user' => $entry['address'].'*'.self::MASTER_USER, 'password' => $this->masterPassword($mail)] : null;
     }
 
     /** UMAIL: where to point a mail app, and the webmail address. */
@@ -669,8 +717,9 @@ class MailService implements HandlesCommandResults
             }
             if ($job->payload['action'] === 'webmail' && $command->type === 'container.remove') {
                 // Nothing to remove on a first install: carry on.
-                $next = $job->payload['steps'][1];
-                $job->update(['payload' => ['step' => 1] + $job->payload]);
+                $step = (int) $job->payload['step'] + 1;
+                $next = $job->payload['steps'][$step];
+                $job->update(['payload' => ['step' => $step] + $job->payload]);
                 $this->dispatch($mail, $job, $next);
 
                 return;
