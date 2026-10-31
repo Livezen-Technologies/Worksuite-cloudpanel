@@ -151,6 +151,8 @@ return [
         ],
         'security' => [
             'require_mfa' => false,
+            // SSO-POL: members sign in with a sign-in app, not a password (owners keep a password for emergencies).
+            'require_sso' => false,
             'require_approval_destructive' => true,
             'require_production_deploy_approval' => false,
             'secure_container_defaults' => true,
