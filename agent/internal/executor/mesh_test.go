@@ -201,3 +201,37 @@ func TestMeshRoutesTheContainerNetwork(t *testing.T) {
 		t.Fatal("subnet outside the supernet accepted")
 	}
 }
+
+func TestMeshCarriesIPv6(t *testing.T) {
+	dir := t.TempDir()
+	g := &fakeWG{}
+	e := &Executor{HMACKey: key, Journal: &Journal{Path: filepath.Join(dir, "j.json")}, Report: (&fakePanel{results: map[string][]protocol.Result{}}).report, StateDir: filepath.Join(dir, "state"), WireGuardDir: filepath.Join(dir, "wg"), Run: g.run, Now: func() time.Time { return now }}
+	peer := "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+	payload := `{"address":"10.88.0.2/16","address6":"fd88::2/64","peers":[{"public_key":"` + peer + `","endpoint":"203.0.113.5:51820","allowed_ips":["10.88.0.1/32","fd88::1/128"]}],
+		"dns":{"records":[{"name":"web-1.internal","ip":"10.88.0.1"},{"name":"web-1.internal","ip":"fd88::1"}]}}`
+	if r, err := e.Handle(context.Background(), cmd("v1", "mesh.apply", payload, now)); err != nil {
+		t.Fatal(err, r.Message)
+	}
+	conf, _ := os.ReadFile(filepath.Join(dir, "wg", "dmp0.conf"))
+	for _, want := range []string{"Address = 10.88.0.2/16, fd88::2/64", "AllowedIPs = 10.88.0.1/32, fd88::1/128"} {
+		if !strings.Contains(string(conf), want) {
+			t.Errorf("config lacks %q:\n%s", want, conf)
+		}
+	}
+	hosts, _ := os.ReadFile(filepath.Join(dir, "state", "coredns", "hosts"))
+	if !strings.Contains(string(hosts), "fd88::1 web-1.internal") {
+		t.Fatalf("hosts %q", hosts)
+	}
+	// Live interface: syncconf, then the IPv6 address is put on it.
+	if r, err := e.Handle(context.Background(), cmd("v2", "mesh.apply", payload, now)); err != nil {
+		t.Fatal(err, r.Message)
+	}
+	if last := strings.Join(g.calls[len(g.calls)-1], " "); last != "ip -6 address replace fd88::2/64 dev dmp0" {
+		t.Fatalf("last call %s", last)
+	}
+	for _, bad := range []string{`"2001:db8::2/64"`, `"10.0.0.2/24"`, `"nope"`} {
+		if _, err := e.Handle(context.Background(), cmd("v-bad"+bad, "mesh.apply", `{"address":"10.88.0.2/16","address6":`+bad+`,"peers":[]}`, now)); err == nil {
+			t.Errorf("address6 %s accepted", bad)
+		}
+	}
+}

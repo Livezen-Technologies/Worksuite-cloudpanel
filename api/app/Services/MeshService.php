@@ -86,6 +86,27 @@ class MeshService
         return [ip2long($net), (int) $bits];
     }
 
+    /**
+     * PNET: the IPv6 ULA paired with a mesh IPv4 address: the same host number in
+     * MESH_SUBNET6 (10.88.0.3 -> fd88::3). Empty MESH_SUBNET6 turns IPv6 off.
+     */
+    public function ipv6(?string $v4): ?string
+    {
+        $cfg = (string) config('platform.mesh.subnet6');
+        if ($cfg === '' || ! $v4) {
+            return null;
+        }
+        [$net] = explode('/', $cfg);
+        $host = ip2long($v4) - $this->base()[0];
+
+        return inet_ntop(substr((string) inet_pton($net), 0, 12).pack('N', $host));
+    }
+
+    private function bits6(): int
+    {
+        return (int) (explode('/', (string) config('platform.mesh.subnet6'))[1] ?? 64);
+    }
+
     /** PNET-4: the server's /24 of the container supernet (10.89.<n>.0/24 for mesh address x.x.0.<n>). */
     public function containerSubnet(Server $server): ?string
     {
@@ -176,13 +197,24 @@ class MeshService
         foreach ($members as $s) {
             $out[] = ['name' => Str::slug($s->name).'.'.$zone, 'ip' => $s->mesh_ip];
         }
+        $v6 = [];
         $byServer = $members->keyBy('id');
         foreach (Application::whereIn('server_id', $members->pluck('id'))->get(['name', 'server_id', 'mesh_network', 'mesh_address']) as $app) {
             // PNET-4: an app on dmp-mesh resolves to its own address, others to their server.
             $out[] = ['name' => $app->name.'.'.$zone, 'ip' => $app->mesh_network && $app->mesh_address ? $app->mesh_address : $byServer[$app->server_id]->mesh_ip];
+            if (! ($app->mesh_network && $app->mesh_address)) {
+                $v6[] = ['name' => $app->name.'.'.$zone, 'server' => $byServer[$app->server_id]->mesh_ip];
+            }
+        }
+        $out = collect($out)->unique('name')->values()->all();
+        // AAAA beside A for names that resolve to a server (dmp-mesh containers stay IPv4).
+        foreach (array_merge(array_map(fn ($s) => ['name' => Str::slug($s->name).'.'.$zone, 'server' => $s->mesh_ip], $members->all()), $v6) as $r) {
+            if ($ip6 = $this->ipv6($r['server'])) {
+                $out[] = ['name' => $r['name'], 'ip' => $ip6];
+            }
         }
 
-        return collect($out)->unique('name')->values()->all();
+        return collect($out)->unique(fn ($r) => $r['name'].' '.$r['ip'])->values()->all();
     }
 
     /** Pushes the current peer list and DNS records to every member (PNET-1/2/4). */
@@ -203,14 +235,14 @@ class MeshService
             }
             $peers = $members->where('id', '!=', $server->id)->whereNotNull('mesh_public_key')->map(fn ($o) => [
                 'public_key' => $o->mesh_public_key, 'endpoint' => $o->ip.':'.$port,
-                'allowed_ips' => array_values(array_filter([$o->mesh_ip.'/32', $this->containerSubnet($o)])), 'keepalive' => 25,
+                'allowed_ips' => array_values(array_filter([$o->mesh_ip.'/32', ($v6 = $this->ipv6($o->mesh_ip)) ? $v6.'/128' : null, $this->containerSubnet($o)])), 'keepalive' => 25,
             ])->values()->all();
             foreach ($vpn as $p) {
-                $peers[] = ['public_key' => $p->public_key, 'allowed_ips' => [$p->address.'/32']];
+                $peers[] = ['public_key' => $p->public_key, 'allowed_ips' => array_values(array_filter([$p->address.'/32', ($v6 = $this->ipv6($p->address)) ? $v6.'/128' : null]))];
             }
             $lock = $server->mesh_ssh_lock;
             $this->bus->dispatch($server, 'mesh.apply', array_filter([
-                'address' => $server->mesh_ip.'/'.$bits, 'listen_port' => $port, 'peers' => $peers, 'open_port' => true,
+                'address' => $server->mesh_ip.'/'.$bits, 'address6' => ($v6 = $this->ipv6($server->mesh_ip)) ? $v6.'/'.$this->bits6() : null, 'listen_port' => $port, 'peers' => $peers, 'open_port' => true,
                 'container_subnet' => $this->containerSubnet($server), 'container_supernet' => $this->containerSubnet($server) ? config('platform.mesh.container_supernet') : null,
                 'dns' => ['zone' => config('platform.mesh.zone'), 'image' => config('platform.mesh.dns_image'), 'records' => $records],
                 // PNET-7: until confirmed, the lock removes itself after the confirmation window.
@@ -285,10 +317,11 @@ class MeshService
     {
         $members = $this->members()->whereNotNull('mesh_public_key');
         $port = (int) config('platform.mesh.port');
-        $lines = ['[Interface]', "PrivateKey = {$privateKey}", "Address = {$peer->address}/32",
+        $v6 = $this->ipv6($peer->address);
+        $lines = ['[Interface]', "PrivateKey = {$privateKey}", 'Address = '.$peer->address.'/32'.($v6 ? ", {$v6}/128" : ''),
             'DNS = '.$members->first()->mesh_ip.', '.config('platform.mesh.zone'), ''];
         foreach ($members as $s) {
-            $allowed = implode(', ', array_filter([$s->mesh_ip.'/32', $this->containerSubnet($s)]));
+            $allowed = implode(', ', array_filter([$s->mesh_ip.'/32', ($v6s = $this->ipv6($s->mesh_ip)) ? $v6s.'/128' : null, $this->containerSubnet($s)]));
             array_push($lines, "# {$s->name}", '[Peer]', "PublicKey = {$s->mesh_public_key}", "Endpoint = {$s->ip}:{$port}", "AllowedIPs = {$allowed}", 'PersistentKeepalive = 25', '');
         }
 

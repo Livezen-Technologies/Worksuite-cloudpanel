@@ -47,28 +47,30 @@ class PrivateNetworkTest extends TestCase
 
         $this->api($token)->postJson("/api/v1/mesh/servers/{$b->id}")->assertStatus(202);
         $toB = $this->applyAs($secretB, self::KEY_B)[0];
-        $this->assertSame([['public_key' => self::KEY_A, 'endpoint' => '203.0.113.10:51820', 'allowed_ips' => ['10.88.0.1/32', '10.89.1.0/24'], 'keepalive' => 25]], $toB['peers']);
+        $this->assertSame([['public_key' => self::KEY_A, 'endpoint' => '203.0.113.10:51820', 'allowed_ips' => ['10.88.0.1/32', 'fd88::1/128', '10.89.1.0/24'], 'keepalive' => 25]], $toB['peers']);
         $this->assertSame(['10.89.2.0/24', '10.89.0.0/16'], [$toB['container_subnet'], $toB['container_supernet']]);
-        $this->assertSame('10.88.0.2/16', $toB['address']);
+        $this->assertSame(['10.88.0.2/16', 'fd88::2/64'], [$toB['address'], $toB['address6']]);
         // B's new key is pushed to A.
         $toA = collect($this->applyAs($secretA, self::KEY_A))->last();
         $this->assertSame(self::KEY_B, $toA['peers'][0]['public_key']);
         $this->assertSame('203.0.113.20:51820', $toA['peers'][0]['endpoint']);
-        $names = collect($toA['dns']['records'])->pluck('ip', 'name')->all();
+        $names = collect($toA['dns']['records'])->filter(fn ($r) => str_contains($r['ip'], '.'))->pluck('ip', 'name')->all();
         $this->assertSame(['web-1.internal' => '10.88.0.1', 'db-1.internal' => '10.88.0.2', 'shop.internal' => '10.88.0.2'], $names);
+        $aaaa = collect($toA['dns']['records'])->reject(fn ($r) => str_contains($r['ip'], '.'))->pluck('ip', 'name')->all();
+        $this->assertSame(['web-1.internal' => 'fd88::1', 'db-1.internal' => 'fd88::2', 'shop.internal' => 'fd88::2'], $aaaa);
         $this->applyAs($secretB, self::KEY_B);
 
         // Admin VPN: config shown once, private key not stored; servers learn the peer.
         $vpn = $this->api($token)->postJson('/api/v1/mesh/vpn-peers', ['name' => 'laptop'])->assertCreated()->json('data');
         $this->assertSame('10.88.255.254', $vpn['address']);
-        $this->assertStringContainsString("Address = 10.88.255.254/32\nDNS = 10.88.0.1, internal", $vpn['config']);
-        $this->assertStringContainsString("PublicKey = ".self::KEY_A."\nEndpoint = 203.0.113.10:51820\nAllowedIPs = 10.88.0.1/32, 10.89.1.0/24", $vpn['config']);
+        $this->assertStringContainsString("Address = 10.88.255.254/32, fd88::fffe/128\nDNS = 10.88.0.1, internal", $vpn['config']);
+        $this->assertStringContainsString("PublicKey = ".self::KEY_A."\nEndpoint = 203.0.113.10:51820\nAllowedIPs = 10.88.0.1/32, fd88::1/128, 10.89.1.0/24", $vpn['config']);
         preg_match('/PrivateKey = (\S+)/', $vpn['config'], $m);
         $peer = VpnPeer::allTenants()->find($vpn['id']);
         $this->assertSame(base64_encode(sodium_crypto_box_publickey_from_secretkey(base64_decode($m[1]))), $peer->public_key);
         $this->assertStringNotContainsString($m[1], json_encode($peer->getAttributes()));
         $withVpn = $this->applyAs($secretA, self::KEY_A)[0];
-        $this->assertContains(['public_key' => $peer->public_key, 'allowed_ips' => ['10.88.255.254/32']], $withVpn['peers']);
+        $this->assertContains(['public_key' => $peer->public_key, 'allowed_ips' => ['10.88.255.254/32', 'fd88::fffe/128']], $withVpn['peers']);
         $this->applyAs($secretB, self::KEY_B);
 
         // Status: handshakes reach the server row and the VPN peer.
@@ -142,7 +144,7 @@ class PrivateNetworkTest extends TestCase
         $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202);
         $create = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
         $this->assertSame([['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => '10.89.1.10']], $create['payload']['networks']);
-        $records = collect(app(Tenant::class)->as($org->id, fn () => app(\App\Services\MeshService::class)->records()))->pluck('ip', 'name');
+        $records = collect(app(Tenant::class)->as($org->id, fn () => app(\App\Services\MeshService::class)->records()))->filter(fn ($r) => str_contains($r['ip'], '.'))->pluck('ip', 'name');
         $this->assertSame('10.89.1.10', $records['api.internal']);
         $this->assertSame('10.88.0.1', $records['web-1.internal']);
     }
@@ -156,5 +158,15 @@ class PrivateNetworkTest extends TestCase
         $this->api($token)->withServerVariables(['REMOTE_ADDR' => '10.88.255.254'])->getJson('/api/v1/servers')->assertOk();
         config(['security.admin_allowed_cidrs' => []]);
         $this->api($token)->getJson('/api/v1/servers')->assertOk();
+    }
+
+    public function test_ipv6_follows_the_ipv4_host_number_and_can_be_turned_off(): void
+    {
+        $mesh = app(\App\Services\MeshService::class);
+        $this->assertSame(['fd88::3', 'fd88::102'], [$mesh->ipv6('10.88.0.3'), $mesh->ipv6('10.88.1.2')]);
+        config(['platform.mesh.subnet6' => 'fd12:3456:789a::/64']);
+        $this->assertSame('fd12:3456:789a::fffe', $mesh->ipv6('10.88.255.254'));
+        config(['platform.mesh.subnet6' => '']);
+        $this->assertNull($mesh->ipv6('10.88.0.3'));
     }
 }
