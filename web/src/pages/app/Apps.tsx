@@ -103,7 +103,7 @@ export function AppDetail() {
   }
   return (
     <>
-      <Link to="/app" className="text-sm font-semibold inline-flex items-center min-h-[44px]">← My apps</Link>
+      <Link to="/app/apps" className="text-sm font-semibold inline-flex items-center min-h-[44px]">← My apps</Link>
       <div className="flex flex-wrap items-center gap-3">
         <span aria-hidden="true" className="w-12 h-12 rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>
         <div className="flex-1 min-w-[200px]">
@@ -184,7 +184,7 @@ export function AppDetail() {
         </Card>
       )}
       <ConfirmDialog open={del} onClose={() => setDel(false)} danger confirmText={a.name} title={`Delete ${a.name}?`} confirmLabel="Delete app" busy={busy}
-        onConfirm={() => run({ method: 'DELETE', path: `/app/apps/${a.id}`, label: `Delete ${a.name}`, success: `${a.name} deleted. Data is kept for 7 days.` }).then(() => nav('/app')).catch(() => {})}>
+        onConfirm={() => run({ method: 'DELETE', path: `/app/apps/${a.id}`, label: `Delete ${a.name}`, success: `${a.name} deleted. Data is kept for 7 days.` }).then(() => nav('/app/apps')).catch(() => {})}>
         <p className="m-0">Your app stops and its address goes offline. Your data is kept for 7 days, then deleted for good.</p>
       </ConfirmDialog>
       <ConfirmDialog open={!!rollback} onClose={() => setRollback(null)} title={`Go back to ${rollback?.version ?? 'this version'}?`} confirmLabel="Roll back" busy={busy}
