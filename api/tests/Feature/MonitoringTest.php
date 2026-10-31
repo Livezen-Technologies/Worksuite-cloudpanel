@@ -213,4 +213,19 @@ class MonitoringTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame('mine is down', $rows[0]['title']);
     }
+
+    public function test_channels_from_the_settings_form_store_their_target_and_secret_and_telegram_sends(): void
+    {
+        [, , $token] = $this->org();
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $id = $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'ops', 'type' => 'telegram', 'target' => '-1001234', 'secret' => '123:ABC', 'enabled' => true])
+            ->assertCreated()->assertJsonPath('data.target', '-1001234')->assertJsonMissingPath('data.config')->json('data.id');
+        // Renaming without re-entering the token keeps it.
+        $this->api($token)->patchJson("/api/v1/notification-channels/{$id}", ['name' => 'ops-2'])->assertOk();
+        $this->api($token)->postJson("/api/v1/notification-channels/{$id}/test")->assertOk();
+        Http::assertSent(fn ($r) => $r->url() === 'https://api.telegram.org/bot123:ABC/sendMessage' && $r['chat_id'] === '-1001234' && str_contains($r['text'], 'Test notification'));
+
+        $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'mail', 'type' => 'email', 'target' => 'not-an-email'])->assertStatus(422);
+        $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'hook', 'type' => 'webhook', 'target' => 'https://hooks.example.com/x'])->assertCreated()->assertJsonPath('data.target', 'hooks.example.com');
+    }
 }

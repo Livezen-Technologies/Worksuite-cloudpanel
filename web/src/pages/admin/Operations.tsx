@@ -312,6 +312,43 @@ const RULE_FIELDS = (channels: R[]): FieldDef[] => [
   ...channels.map((c) => ({ name: `ch_${c.id}`, label: `Notify ${c.name ?? c.type}`, type: 'checkbox' as const })),
 ]
 
+/** The public status page: which domains it shows, under which names. */
+function StatusPageCard() {
+  const page = useOne<R>('/status-page')
+  const { run, busy } = useAction()
+  const [f, setF] = useState<R | null>(null)
+  const w = f ?? page.item
+  if (!w) return null
+  const comps = ((w.components as R[]) ?? [])
+  const domains = ((page.item?.domains as R[]) ?? [])
+  const set = (patch: R) => setF({ ...w, ...patch })
+  const save = () => run({ path: '/status-page', method: 'PATCH', label: 'Save status page', success: 'Status page saved',
+    body: { enabled: !!w.enabled, title: w.title, notice: w.notice || null, components: comps.filter((c) => c.domain_id && c.name) } }).then(() => { setF(null); page.refetch() }).catch(() => {})
+  return (
+    <Card title="Public status page" subtitle={w.enabled ? <a className="link" href={String(page.item?.url ?? '/status')} target="_blank" rel="noreferrer">{String(page.item?.url ?? '/status')}</a> : 'Off'}
+      actions={<Toggle checked={!!w.enabled} label="Publish the status page" onChange={(v) => set({ enabled: v })} />}>
+      <p className="m-0 mb-3 text-xs text-muted">Visitors see each component's state, 90 days of daily uptime from the 5-minute checks, and when incidents started and ended. Domain names and alert details are never shown.</p>
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <label className="flex flex-col gap-1 text-sm">Title<input className="input" value={String(w.title ?? '')} onChange={(e) => set({ title: e.target.value })} /></label>
+        <label className="flex flex-col gap-1 text-sm">Notice (optional)<input className="input" value={String(w.notice ?? '')} placeholder="Planned maintenance on Sunday 02:00 UTC" onChange={(e) => set({ notice: e.target.value })} /></label>
+      </div>
+      <ul className="m-0 mt-3 p-0 list-none flex flex-col gap-2">
+        {comps.map((c, i) => <li key={i} className="flex flex-wrap items-center gap-2">
+          <input className="input flex-[1_1_160px]" aria-label="Component name" value={String(c.name ?? '')} placeholder="Website" onChange={(e) => set({ components: comps.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+          <Select className="input flex-[1_1_200px]" aria-label="Domain checked" value={String(c.domain_id ?? '')} onChange={(e) => set({ components: comps.map((x, j) => (j === i ? { ...x, domain_id: e.target.value } : x)) })}>
+            <option value="">Choose a domain…</option>{domains.map((d) => <option key={String(d.id)} value={String(d.id)}>{String(d.name)}</option>)}
+          </Select>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => set({ components: comps.filter((_, j) => j !== i) })}>Remove</button>
+        </li>)}
+      </ul>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="btn btn-sm" disabled={comps.length >= 20} onClick={() => set({ components: [...comps, { name: '', domain_id: '' }] })}>Add a component</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy || !f} onClick={save}>Save</button>
+      </div>
+    </Card>
+  )
+}
+
 export function Monitoring() {
   const servers = useList<Server>('/servers')
   const [server, setServer] = useState('')
@@ -341,6 +378,7 @@ export function Monitoring() {
       </>}>
         <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} />
       </Card>
+      <StatusPageCard />
       <Card title="Active alerts" pad={false}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
           filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}

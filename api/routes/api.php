@@ -38,6 +38,7 @@ Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::
 Route::match(['get', 'post'], 'shares/{token}', [\App\Http\Controllers\ShareController::class, 'show'])->middleware('throttle:api')->where('token', '[A-Za-z0-9]{40}')->name('files.share-public');
 Route::get('file-downloads/{id}', [\App\Http\Controllers\SignedFileController::class, 'fileDownload'])->middleware('signed')->name('files.transfer');
 Route::get('invoices/{id}/pdf', [\App\Http\Controllers\SignedFileController::class, 'invoicePdf'])->middleware('signed')->name('invoice.pdf');
+Route::get('status', [Admin\StatusPageController::class, 'public'])->middleware('throttle:api')->name('status.public');
 Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
 
 Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit'])->group(function () {
@@ -345,6 +346,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::delete('mail/domains/{id}/mailboxes/{box}', [Admin\MailController::class, 'destroyMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.destroy');
     Route::post('mail/domains/{id}/aliases', [Admin\MailController::class, 'storeAlias'])->middleware('perm:deploy')->name('mail.aliases.store');
     Route::delete('mail/domains/{id}/aliases/{alias}', [Admin\MailController::class, 'destroyAlias'])->middleware('perm:deploy')->name('mail.aliases.destroy');
+    // Monitoring: the public status page.
+    Route::get('status-page', [Admin\StatusPageController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('status-page.show');
+    Route::patch('status-page', [Admin\StatusPageController::class, 'update'])->middleware('perm:settings.manage')->name('status-page.update');
     // Public pages (PUB-1..4).
     Route::get('public-pages', [Admin\PublicPagesController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('public-pages.show');
     Route::patch('public-pages', [Admin\PublicPagesController::class, 'update'])->middleware('perm:settings.manage')->name('public-pages.update');
