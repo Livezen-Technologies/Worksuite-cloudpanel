@@ -35,7 +35,7 @@ Migration wizard   ~80%   cPanel: fetch and inspect, pre-flight, mapping,
                           cutover with a health gate and rollback, delta
                           sync, bulk, customer requests with approval; left:
                           Plesk and Hestia sources, customer page in the web
-Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
+Mail hosting       100%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           aliases, DNS + autoconfig, TLS from Traefik, limits,
                           relay, rDNS/blocklists with alerts, backups,
                           auto-replies, logs, customer page, package quotas;
@@ -51,7 +51,10 @@ Mail hosting       ~70%   by SRS: stack, domains, DKIM + rotation, mailboxes,
                           Roundcube plugin redeems it for a master-user
                           login) and live import progress (N of M
                           messages from imapsync's ETA line);
-                          left: a second mail server for failover
+                          a backup MX on a second server (Postfix
+                          relay, MX 20, queues inbound mail up to 5 days
+                          and forwards it when the primary answers; never
+                          an open relay; follows the domain list)
 Public pages       ~90%   maintenance (platform/site, admin bypass), 404,
                           busy (502-504), suspended, expired, welcome pages
                           from an edge container; left: bot-check page

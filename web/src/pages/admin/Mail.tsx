@@ -97,6 +97,7 @@ export default function Mail() {
 
 function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
   const { run, busy } = useAction()
+  const standby = useList<R>('/servers')
   const set = (m.settings as R) ?? {}
   const h = m.health as R | null
   const [logs, setLogs] = useState<string[] | null>(null)
@@ -121,6 +122,7 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
   return (
     <div className="mt-1 ml-4 flex flex-col gap-1 text-xs">
       {m.webmail_hostname ? <span>Webmail <Badge tone={m.webmail_status === 'running' ? 'g' : m.webmail_status === 'failed' ? 'r' : 'y'}>{String(m.webmail_status)}</Badge>{m.webmail_status === 'running' ? <> · <a href={`https://${m.webmail_hostname}`} target="_blank" rel="noopener noreferrer">{String(m.webmail_hostname)}</a></> : null}</span> : null}
+      {m.backup_hostname ? <span>Backup MX <Badge tone="b">{String(m.backup_hostname)}</Badge> <span className="text-muted">(MX 20; queues mail up to 5 days while this server is down)</span></span> : null}
       <span className="text-muted">Limit {String(set.send_per_hour)} messages/hour per mailbox · spam header at {String(set.spam_header)}, reject at {String(set.spam_reject)} · relay: {set.relay ? String((set.relay as R).host) : 'none (direct delivery)'}</span>
       {m.tls ? <span>TLS <Badge tone={(m.tls as R).source === 'acme' ? 'g' : 'y'}>{(m.tls as R).source === 'acme' ? "Let's Encrypt (from Traefik)" : 'self-signed'}</Badge>{(m.tls as R).not_after ? <span className="text-muted"> until {String((m.tls as R).not_after).slice(0, 10)}</span> : null}{(m.tls as R).source !== 'acme' ? <span className="text-muted"> · add the mail hostname as a domain so Traefik issues a certificate</span> : null}</span> : null}
       {h && <span>
@@ -134,6 +136,15 @@ function ServerTools({ m, onChange }: { m: R; onChange: () => void }) {
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/certs`, label: 'Refresh certificate', success: 'Checking Traefik for a certificate' }).then(onChange)}>Refresh certificate</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/mail/servers/${m.id}/backups`, body: {}, label: 'Back up mailboxes nightly', success: 'Nightly backup policy saved; change its destination under Backups' }).then(onChange)}>Nightly backup</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={relay}>Relay</button>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+          if (m.backup_hostname) { if (window.confirm('Remove the backup MX?')) run({ path: `/mail/servers/${m.id}/backup`, body: { server_id: null }, label: 'Backup MX', success: 'Backup MX removed' }).then(onChange); return }
+          const others = standby.rows.filter((s) => s.id !== m.server_id)
+          const name = window.prompt(`Backup MX server (${others.map((s) => s.name).join(', ')}):`)
+          const target = others.find((s) => s.name === name)
+          if (!target) return
+          const hostname = window.prompt('Backup MX hostname (point its A record at that server):', 'mx2.' + String(m.hostname).replace(/^mail\./, ''))
+          if (hostname) run({ path: `/mail/servers/${m.id}/backup`, body: { server_id: target.id, hostname }, label: 'Backup MX', success: 'Backup MX starting; publish its MX record' }).then(onChange)
+        }}>{m.backup_hostname ? 'Remove backup MX' : 'Backup MX'}</button>
         <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
           const hostname = window.prompt('Webmail address (point its A record at this server):', String(m.webmail_hostname ?? 'webmail.' + String(m.hostname).replace(/^mail\./, '')))
           if (hostname) run({ path: `/mail/servers/${m.id}/webmail`, body: { hostname }, label: 'Install webmail', success: 'Installing Roundcube webmail' }).then(onChange)
