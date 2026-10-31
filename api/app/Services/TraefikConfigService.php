@@ -196,6 +196,9 @@ class TraefikConfigService implements HandlesCommandResults
         }
 
         $http = ['routers' => (object) $routers];
+        if (collect($routers)->contains(fn ($r) => ($r['service'] ?? null) === 'dmp-panel-wake')) {
+            $services['dmp-panel-wake'] = ['loadBalancer' => ['passHostHeader' => false, 'servers' => [['url' => rtrim((string) config('app.url'), '/')]]]];
+        }
         if ($services) {
             $http['services'] = $services;
         }

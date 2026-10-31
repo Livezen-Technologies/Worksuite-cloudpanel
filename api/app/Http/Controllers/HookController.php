@@ -38,6 +38,27 @@ class HookController extends Controller
         if (in_array($request->header('X-GitHub-Event', $request->header('X-Gitea-Event')), ['ping'], true)) {
             return response()->json(['data' => ['pong' => true]]);
         }
+        $tenant->set($p->organization_id);
+        // ENV: pull / merge requests open, update and close preview environments.
+        $event = (string) ($request->header('X-GitHub-Event') ?? $request->header('X-Gitea-Event') ?? $request->header('X-Gitlab-Event'));
+        if ($event === 'pull_request' || $event === 'Merge Request Hook') {
+            $gitlab = $event === 'Merge Request Hook';
+            $number = (int) ($gitlab ? $request->input('object_attributes.iid') : $request->input('number', $request->input('pull_request.number')));
+            $action = (string) ($gitlab ? $request->input('object_attributes.action') : $request->input('action'));
+            $branch = (string) ($gitlab ? $request->input('object_attributes.source_branch') : $request->input('pull_request.head.ref'));
+            if ($number < 1) {
+                return response()->json(['data' => ['ignored' => 'no pull request number']]);
+            }
+            if (in_array($action, ['closed', 'close', 'merge'], true)) {
+                return response()->json(['data' => ['closed' => $envs->closePreview($p, $number)]]);
+            }
+            if (! in_array($action, ['opened', 'reopened', 'synchronize', 'open', 'reopen', 'update'], true) || ! preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]*$#', $branch)) {
+                return response()->json(['data' => ['ignored' => $action]]);
+            }
+            $r = $envs->openPreview($p, $number, $branch);
+
+            return response()->json(['data' => ['environment_id' => $r['environment']->id, 'deployments' => $r['deployments'], 'urls' => $r['urls']]], 202);
+        }
         $ref = (string) $request->input('ref', '');
         if (! str_starts_with($ref, 'refs/heads/') || $request->input('deleted')) {
             return response()->json(['data' => ['deployments' => [], 'ignored' => 'not a branch push']]);
@@ -46,5 +67,23 @@ class HookController extends Controller
         $tenant->set($p->organization_id);
 
         return response()->json(['data' => ['deployments' => $envs->onPush($p, $repo, substr($ref, 11))]], 202);
+    }
+
+    /**
+     * ENV-7: the sleeping page's request, forwarded by the app server's Traefik with the
+     * site's host. It can only start an app that is asleep, which a visit is meant to do.
+     */
+    public function wake(Request $request, EnvironmentService $envs)
+    {
+        $host = strtolower((string) ($request->header('X-Forwarded-Host') ?: $request->input('host', '')));
+        $host = explode(',', $host)[0];
+        $domain = \App\Models\Domain::allTenants()->where('name', trim($host))->first();
+        $app = $domain?->application_id ? \App\Models\Application::allTenants()->find($domain->application_id) : null;
+        if (! $app?->asleep_at) {
+            return response()->json(['data' => ['woken' => false]], 202);
+        }
+        app(Tenant::class)->as($app->organization_id, fn () => $envs->wakeApp($app));
+
+        return response()->json(['data' => ['woken' => true]], 202);
     }
 }

@@ -146,4 +146,62 @@ class EnvironmentsTest extends TestCase
         $this->assertSame('running', Application::allTenants()->find($appId)->status);
         Carbon::setTestNow();
     }
+
+    public function test_pull_requests_open_update_and_close_preview_environments(): void
+    {
+        [$token, $agentSecret, $project, $server] = $this->setUpProject();
+        $staging = $this->env($project, 'staging');
+        $appId = $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'environment_id' => $staging['id'], 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 8080,
+            'env' => [['key' => 'MODE', 'value' => 'staging']]])->assertCreated()->json('data.id');
+        $this->api($token)->patchJson("/api/v1/projects/{$project['id']}", ['preview_environment_id' => $staging['id']])->assertOk()->assertJsonPath('data.preview_environment_id', $staging['id']);
+        $secret = Project::allTenants()->find($project['id'])->webhook_secret;
+        $send = function (array $body) use ($project, $secret) {
+            $json = json_encode($body);
+
+            return $this->call('POST', "/api/v1/hooks/git/{$project['id']}", [], [], [], ['HTTP_X_GITHUB_EVENT' => 'pull_request', 'CONTENT_TYPE' => 'application/json',
+                'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $json, $secret)], $json);
+        };
+
+        $r = $send(['action' => 'opened', 'number' => 7, 'pull_request' => ['number' => 7, 'head' => ['ref' => 'feature/cart']]])->assertStatus(202)->json('data');
+        $env = \App\Models\Environment::allTenants()->find($r['environment_id']);
+        $this->assertSame(['PR #7', 'pr-7', 'preview', 'feature/cart', 7], [$env->name, $env->slug, $env->kind, $env->branch, $env->preview_number]);
+        $preview = Application::allTenants()->where('environment_id', $env->id)->sole();
+        $this->assertSame(['web-pr-7', 'web'], [$preview->name, $preview->service]);
+        $this->assertSame(['https://web-pr-7.'.config('platform.domain')], $r['urls']);
+        $this->assertCount(1, $r['deployments']);
+
+        $again = $send(['action' => 'synchronize', 'number' => 7, 'pull_request' => ['number' => 7, 'head' => ['ref' => 'feature/cart']]])->assertStatus(202)->json('data');
+        $this->assertSame($env->id, $again['environment_id'], 'a push redeploys the same preview');
+        $send(['action' => 'labeled', 'number' => 7, 'pull_request' => ['number' => 7, 'head' => ['ref' => 'feature/cart']]])->assertOk()->assertJsonPath('data.ignored', 'labeled');
+
+        $send(['action' => 'closed', 'number' => 7, 'pull_request' => ['number' => 7, 'head' => ['ref' => 'feature/cart']]])->assertOk()->assertJsonPath('data.closed', true);
+        $this->assertNull(\App\Models\Environment::allTenants()->find($env->id));
+        $this->assertSoftDeleted('applications', ['id' => $preview->id]);
+        $this->assertFalse(\App\Models\Domain::allTenants()->where('name', 'web-pr-7.'.config('platform.domain'))->exists());
+        $this->assertNotNull(Application::allTenants()->find($appId), 'the source environment is untouched');
+    }
+
+    public function test_a_request_to_a_sleeping_app_wakes_it(): void
+    {
+        config(['platform.drivers.certificates' => 'traefik']);
+        [$token, $secret, $project, $server] = $this->setUpProject();
+        $staging = $this->env($project, 'staging');
+        $appId = $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'environment_id' => $staging['id'], 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated()->json('data.id');
+        $this->api($token)->postJson('/api/v1/domains', ['name' => 'web.acme.test', 'application_id' => $appId, 'target_port' => 8080])->assertCreated();
+        \App\Models\Domain::allTenants()->where('name', 'web.acme.test')->update(['dns_status' => 'verified']);
+        $this->deploy($token, $secret, $appId);
+        $this->heartbeat($secret);
+        Application::allTenants()->whereKey($appId)->update(['asleep_at' => now(), 'status' => 'sleeping']);
+        $pages = app(\App\Services\PublicPagesService::class);
+        $this->assertSame('sleeping', $pages->takeover(\App\Models\Domain::allTenants()->where('name', 'web.acme.test')->first()));
+        $this->assertStringContainsString('<img src="/__wake"', $pages->render('sleeping'));
+        $this->assertStringContainsString('location = /__page/sleeping', $pages->nginxConf());
+
+        $this->call('GET', '/api/v1/hooks/wake', [], [], [], ['HTTP_X_FORWARDED_HOST' => 'web.acme.test'])->assertStatus(202)->assertJsonPath('data.woken', true);
+        $app = Application::allTenants()->find($appId);
+        $this->assertSame(['running', null], [$app->status, $app->asleep_at]);
+        $this->assertContains('container.start', array_column($this->heartbeat($secret)['commands'], 'type'));
+        $this->call('POST', '/api/v1/hooks/wake', [], [], [], ['HTTP_X_FORWARDED_HOST' => 'web.acme.test'])->assertStatus(202)->assertJsonPath('data.woken', false);
+        $this->call('POST', '/api/v1/hooks/wake', [], [], [], ['HTTP_X_FORWARDED_HOST' => 'nope.example'])->assertJsonPath('data.woken', false);
+    }
 }
