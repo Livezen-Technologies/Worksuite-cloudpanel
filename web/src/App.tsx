@@ -23,6 +23,7 @@ import DnsZones from './pages/admin/DnsZones'
 import WordPress from './pages/admin/WordPress'
 import Migrations from './pages/admin/Migrations'
 import Status from './pages/public/Status'
+import Uptime from './pages/admin/Uptime'
 import Mail from './pages/admin/Mail'
 import PublicPages from './pages/admin/PublicPages'
 import { CronManager } from './components/CronManager'
@@ -100,6 +101,7 @@ export function AppRoutes() {
         <Route path="databases" element={<Databases />} />
         <Route path="backups" element={<Backups />} />
         <Route path="monitoring" element={<Monitoring />} />
+        <Route path="uptime" element={<Uptime />} />
         <Route path="logs" element={<Logs />} />
         <Route path="automation" element={<Automation />} />
         <Route path="users" element={<Users />} />
