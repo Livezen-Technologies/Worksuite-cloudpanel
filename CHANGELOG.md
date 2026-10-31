@@ -67,6 +67,17 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- `TestRunLoop` failed on any machine that actually runs the agent. The test
+  never set `PolicyPath`, so `ApplyDefaults` pointed the policy store at the
+  real `/etc/dockermgr/policy.json`. On an agent host that directory is
+  `0700 root`, so `os.Stat` returns `EACCES` rather than `ENOENT`; the store
+  fails closed (correctly) and rejected every command with
+  `rejected: stat /etc/dockermgr/policy.json: permission denied`, three times
+  over as the fake panel redelivered. The test now keeps its policy file in
+  its own temp directory. No production code was involved: command
+  de-duplication was working, and the repeated attempts were a consequence of
+  the rejection, not a failure to de-duplicate.
+
 - `wordpress:detect` failed every night, and `wp.inventory` was never queued.
   Four `Container` queries filtered on a `status` column that does not exist —
   `containers` has `state` (created in `create_core_tables`, and
