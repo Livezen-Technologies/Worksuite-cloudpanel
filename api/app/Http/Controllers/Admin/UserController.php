@@ -68,6 +68,9 @@ class UserController extends Controller
     public function update(Request $request, string $id)
     {
         $data = $request->validate(['role' => 'required|exists:roles,name']);
+        if ($id === $request->user()->id) {
+            throw ApiException::conflict('You cannot change your own role; ask another owner.');
+        }
         $membership = Membership::where('user_id', $id)->firstOrFail();
         if ($data['role'] === 'super_admin' && $request->user()->roleName() !== 'super_admin') {
             throw ApiException::forbidden('Only a Super Admin can grant Super Admin.');

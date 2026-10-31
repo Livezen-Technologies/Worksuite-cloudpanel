@@ -48,15 +48,15 @@ export function Users() {
           <DataTable label="Members" rows={shown} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
-              { key: 'role', header: 'Role', render: (r) => (
+              { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{pretty(String(r.role))}</Badge> : (
                 <Select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => run({ method: 'PATCH', path: `/users/${r.id}`, body: { role: e.target.value }, label: 'Change role', success: `${r.name} is now ${pretty(e.target.value)}` }).catch(() => {})}>
                   {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{pretty(String(x))}</option>)}
                 </Select>) },
-              { key: 'auth', header: 'Sign-in', value: (r) => r.sign_in_method ?? (r.mfa_enabled ? 'MFA' : 'Password') },
+              { key: 'auth', header: 'Sign-in', value: (r) => signIn(r) },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
               { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status === 'suspended' ? 'suspended' : r.invited ? 'invited' : (r.status ?? 'active')} /> },
-              { key: 'manage', header: '', sortable: false, render: (r) => r.id === me?.user?.id ? <a className="btn btn-sm" href="/admin/account" onClick={(e) => e.stopPropagation()}>Your account</a> : <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setManage(r) }}>Manage</button> },
+              { key: 'manage', header: '', sortable: false, render: (r) => r.id === me?.user?.id ? <a className="btn btn-sm btn-ghost" href="/admin/account" title="Manage your own account" onClick={(e) => e.stopPropagation()}>You</a> : <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setManage(r) }}>Manage</button> },
             ]} />
         </div>
         <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<Select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</Select>}>
@@ -97,6 +97,14 @@ export function Users() {
       </ConfirmDialog>
     </>
   )
+}
+
+/** "password+mfa" → "Password + 2FA", "passkey" → "Passkey". */
+function signIn(r: R): string {
+  const m = String(r.sign_in_method ?? 'password').toLowerCase()
+  const base = m.split('+')[0]
+  const label = base === 'passkey' ? 'Passkey' : base === 'sso' || base === 'oidc' ? 'SSO' : 'Password'
+  return r.mfa_enabled || m.includes('mfa') ? `${label} + 2FA` : label
 }
 
 function MemberAction({ title, text, button, onClick, busy, danger }: { title: string; text: string; button: string; onClick: () => void; busy: boolean; danger?: boolean }) {

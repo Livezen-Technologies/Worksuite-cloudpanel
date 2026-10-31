@@ -81,6 +81,7 @@ class AccountManagementTest extends TestCase
         $this->api($token)->postJson("/api/v1/users/{$dev->id}/status", ['status' => 'active'])->assertOk()->assertJsonPath('data.status', 'active');
 
         $this->api($token)->postJson("/api/v1/users/{$owner->id}/status", ['status' => 'suspended'])->assertStatus(409);
+        $this->api($token)->patchJson("/api/v1/users/{$owner->id}", ['role' => 'viewer'])->assertStatus(409);
         [, $viewerToken] = $this->member($org, 'viewer');
         $this->api($viewerToken)->postJson("/api/v1/users/{$dev->id}/password-reset")->assertForbidden();
     }
