@@ -5,7 +5,7 @@ import { api, isApiError } from '../../api/client'
 import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
 import { Field } from '../../components/Card'
-import { OtpInput } from '../../components/TwoFactorSetup'
+import { SecondFactorInput, secondFactorReady } from '../../components/TwoFactorSetup'
 import { Captcha, type CaptchaConfig, type CaptchaHandle } from '../../components/Captcha'
 
 type Side = 'login' | 'signup' | 'forgot' | 'reset' | 'invite' | 'verify'
@@ -127,8 +127,8 @@ export function SsoCallback() {
       {err && <div role="alert" className="px-3 py-2.5 rounded-lg bg-r-bg text-r-fg text-[13px]">{err}</div>}
       {ticket && (
         <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); finish({ ticket, otp }) }}>
-          <OtpInput value={otp} onChange={setOtp} onComplete={(v) => finish({ ticket, otp: v })} />
-          <button className="btn btn-primary min-h-11" disabled={otp.length !== 6}>Verify and sign in</button>
+          <SecondFactorInput value={otp} onChange={setOtp} onComplete={(v) => finish({ ticket, otp: v })} />
+          <button className="btn btn-primary min-h-11" disabled={!secondFactorReady(otp)}>Verify and sign in</button>
         </form>
       )}
       {!err && !ticket && <p className="m-0 text-sm text-muted">One moment while we finish signing you in.</p>}
@@ -159,7 +159,7 @@ export function Login() {
       if (isApiError(ex)) {
         if (ex.fields.otp || /otp|two-factor|mfa/i.test(ex.message)) setNeedOtp(true)
         setFields(Object.fromEntries(Object.entries(ex.fields).map(([k, v]) => [k, v[0]])))
-        setErr(ex.status === 401 || ex.status === 422 ? (ex.fields.otp ? 'Enter the 6-digit code from your authenticator app.' : ex.message) : ex.message)
+        setErr(ex.status === 401 || ex.status === 422 ? (ex.fields.otp ? (otp ? 'That code did not work. Try the current code, or a recovery code you have not used.' : 'Enter the 6-digit code from your authenticator app.') : ex.message) : ex.message)
       } else setErr('Could not sign in. Try again.')
       captcha.current?.reset()
     } finally { setBusy(false) }
@@ -188,12 +188,12 @@ export function Login() {
           <div className="flex flex-col gap-2">
             <span className="text-[13px] font-semibold">Two-step verification</span>
             <span className="text-[13px] text-muted -mt-1">Enter the 6-digit code from your authenticator app.</span>
-            <OtpInput value={otp} onChange={setOtp} invalid={!!fields.otp} />
+            <SecondFactorInput value={otp} onChange={setOtp} invalid={!!fields.otp} />
           </div>
         )}
         {!needOtp && <Captcha ref={captcha} config={cfg.captcha} action="login" />}
         {fields.captcha && <span className="text-xs text-danger -mt-2">{fields.captcha}</span>}
-        <button className="btn btn-primary min-h-11" disabled={busy || (needOtp && otp.length !== 6)}>{busy ? 'Signing in…' : needOtp ? 'Verify and sign in' : 'Sign in'}</button>
+        <button className="btn btn-primary min-h-11" disabled={busy || (needOtp && !secondFactorReady(otp))}>{busy ? 'Signing in…' : needOtp ? 'Verify and sign in' : 'Sign in'}</button>
         {needOtp && <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(true)}>Use a passkey instead of a code</button>}
       </form>
       <div className="flex items-center gap-3 text-xs text-muted" aria-hidden="true"><span className="flex-1 border-t border-line" />or<span className="flex-1 border-t border-line" /></div>

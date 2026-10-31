@@ -15,7 +15,7 @@ class User extends Authenticatable
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['password', 'remember_token', 'mfa_secret'];
+    protected $hidden = ['password', 'remember_token', 'mfa_secret', 'mfa_recovery_codes'];
 
     protected function casts(): array
     {
@@ -27,6 +27,7 @@ class User extends Authenticatable
             'email_preferences' => 'array',
             'mfa_secret' => 'encrypted',
             'mfa_enabled' => 'boolean',
+            'mfa_recovery_codes' => 'array',
         ];
     }
 

@@ -96,3 +96,43 @@ export function TwoFactorSetupModal({ setup, onClose, onConfirm }: { setup: { se
     </Modal>
   )
 }
+
+/** MFA-REC: shows freshly issued recovery codes once, with copy and download. */
+export function RecoveryCodesDialog({ codes, onClose }: { codes: string[] | null; onClose: () => void }) {
+  const text = (codes ?? []).join('\n')
+  const download = () => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([`WorkSuite Cloud recovery codes\nEach code works once.\n\n${text}\n`], { type: 'text/plain' }))
+    a.download = 'worksuite-recovery-codes.txt'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  return (
+    <Modal open={!!codes} onClose={onClose} title="Save your recovery codes" width={520}
+      footer={<><button type="button" className="btn" onClick={download}>Download .txt</button><CopyButton value={text} label="Copy all" /><button type="button" className="btn btn-primary" onClick={onClose}>I’ve saved them</button></>}>
+      <p className="m-0 mb-3">If you lose your phone, sign in with one of these instead of a code. Each works once. Keep them somewhere safe, like a password manager; they won’t be shown again.</p>
+      <ol className="m-0 p-3 list-none grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg bg-head font-mono text-[14px] tracking-wide" aria-label="Recovery codes">
+        {(codes ?? []).map((c) => <li key={c}>{c}</li>)}
+      </ol>
+    </Modal>
+  )
+}
+
+/** A 6-digit code, or a recovery code (10 letters and digits, dash optional). */
+export const secondFactorReady = (v: string) => /^\d{6}$/.test(v) || v.replace(/[^A-Za-z0-9]/g, '').length === 10
+
+/** The sign-in second step: the 6-digit boxes, or a recovery code for a lost phone. */
+export function SecondFactorInput({ value, onChange, onComplete, invalid }: { value: string; onChange: (v: string) => void; onComplete?: (v: string) => void; invalid?: boolean }) {
+  const [recovery, setRecovery] = useState(false)
+  return (
+    <div className="flex flex-col gap-2">
+      {recovery
+        ? <input className="input min-h-11 font-mono tracking-wider" autoFocus autoComplete="one-time-code" spellCheck={false} placeholder="xxxxx-xxxxx" aria-label="Recovery code" aria-invalid={invalid || undefined}
+            value={value} onChange={(e) => onChange(e.target.value.trim())} />
+        : <OtpInput value={value} onChange={onChange} onComplete={onComplete} invalid={invalid} />}
+      <button type="button" className="self-start text-[13px] font-semibold text-accent-fg bg-transparent border-0 p-0 cursor-pointer" onClick={() => { setRecovery(!recovery); onChange('') }}>
+        {recovery ? 'Use the code from my app' : 'Lost your phone? Use a recovery code'}
+      </button>
+    </div>
+  )
+}
