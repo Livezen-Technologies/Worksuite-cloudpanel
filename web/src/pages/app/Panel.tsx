@@ -1,3 +1,4 @@
+import { TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
@@ -297,7 +298,6 @@ export function Account() {
   const toast = useToast()
   const [p, setP] = useState<R>({})
   const [mfa, setMfa] = useState<{ secret: string; otpauth_url: string } | null>(null)
-  const [otp, setOtp] = useState('')
   const [invite, setInvite] = useState(false)
   const [inv, setInv] = useState({ email: '', role: 'developer' })
   useEffect(() => { if (acct) setP({ name: acct.name ?? acct.user?.name, email: acct.email ?? acct.user?.email, organization: acct.organization?.name ?? acct.organization ?? '', photo_url: acct.photo_url }) }, [acct])
@@ -305,9 +305,8 @@ export function Account() {
   const mfaOn = !!(acct?.mfa_enabled ?? acct?.user?.mfa_enabled ?? me?.user?.mfa_enabled)
   const team = (acct?.team ?? acct?.members ?? []) as R[]
   const startMfa = async () => { try { setMfa(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
-  const confirmMfa = async () => {
-    try { await api.post('/me/mfa/confirm', { otp }); toast.success('Two-factor authentication is on'); setMfa(null); setOtp(''); refresh() }
-    catch (e) { toast.error(e, 'That code did not work. Check your authenticator app and try again.') }
+  const confirmMfa = async (otp: string) => {
+    try { await api.post('/me/mfa/confirm', { otp }); toast.success('Two-factor authentication is on'); setMfa(null); refresh(); return true } catch { return false }
   }
   return (
     <>
@@ -348,16 +347,7 @@ export function Account() {
           <ApiTokens path="/app/account/tokens" abilities={['deploy']} />
         </div>
       </div>
-      <Modal open={!!mfa} onClose={() => setMfa(null)} title="Turn on two-factor authentication"
-        footer={<><button type="button" className="btn" onClick={() => setMfa(null)}>Cancel</button><button type="button" className="btn btn-primary" disabled={otp.length !== 6} onClick={confirmMfa}>Turn on</button></>}>
-        <ol className="m-0 pl-5 flex flex-col gap-3">
-          <li>Open your authenticator app and add an account with this key, or open the setup link on your phone.
-            <div className="flex gap-2 mt-2 items-center"><code className="font-mono text-xs p-2 rounded bg-head break-all flex-1">{mfa?.secret}</code><CopyButton value={mfa?.secret ?? ''} label="Copy key" /></div>
-            {mfa?.otpauth_url && <a href={mfa.otpauth_url} className="inline-flex min-h-[44px] items-center font-semibold">Open in authenticator app</a>}
-          </li>
-          <li><Field label="Enter the 6-digit code it shows"><input className="input font-mono tracking-widest" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} /></Field></li>
-        </ol>
-      </Modal>
+      <TwoFactorSetupModal setup={mfa} onClose={() => setMfa(null)} onConfirm={confirmMfa} />
       <Modal open={invite} onClose={() => setInvite(false)} title="Invite a team member"
         footer={<><button type="button" className="btn" onClick={() => setInvite(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={!/^\S+@\S+\.\S+$/.test(inv.email) || busy} onClick={() => run({ path: '/app/account/team', body: inv, label: 'Invite', success: `Invite sent to ${inv.email}` }).then(() => { setInvite(false); setInv({ email: '', role: 'developer' }) }).catch(() => {})}>Send invite</button></>}>
         <div className="flex flex-col gap-4">

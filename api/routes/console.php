@@ -117,6 +117,10 @@ Artisan::command('tunnels:sync', function (\App\Services\CloudflareTunnelService
     $this->info('Tunnels synced: '.$tunnels->syncAll());
 })->purpose('CFT-3..5: refresh Cloudflare Tunnel hostnames, DNS and health');
 
+Artisan::command('services:check', function (\App\Services\SystemServiceService $svc) {
+    $this->info('System services checked on '.$svc->checkAll().' servers');
+})->purpose('SVC-4: refresh watched systemd services and alert when one is down');
+
 Artisan::command('mesh:status', function (\App\Services\MeshService $mesh) {
     $this->info('Mesh status requested from '.$mesh->refreshStatus().' servers');
 })->purpose('PNET-5: WireGuard handshakes and traffic per server');
@@ -286,6 +290,7 @@ Schedule::command('registry:gc')->dailyAt('03:30');
 Schedule::command('cron:sync-runners')->hourly()->withoutOverlapping();
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('services:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('edge:failover')->everyMinute()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).

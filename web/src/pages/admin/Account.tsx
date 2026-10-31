@@ -4,6 +4,8 @@ import { useAction, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { PasskeyManager } from '../../components/Passkeys'
+import { Icon } from '../../components/Icon'
+import { OtpInput, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useToast } from '../../components/Toasts'
 import { useAuth } from '../../lib/auth'
 import { ago, unwrap } from '../../lib/format'
@@ -93,27 +95,28 @@ function TwoFactor({ on, onChange }: { on: boolean; onChange: () => unknown }) {
   const [otp, setOtp] = useState('')
   const [off, setOff] = useState(false)
   const start = async () => { try { setSetup(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
-  const confirm = async () => {
-    try { await api.post(off ? '/me/mfa/disable' : '/me/mfa/confirm', { otp }); toast.success(off ? 'Two-factor is off' : 'Two-factor is on'); setSetup(null); setOff(false); setOtp(''); onChange() }
+  const confirm = async (code: string) => {
+    try { await api.post('/me/mfa/confirm', { otp: code }); toast.success('Two-factor is on'); setSetup(null); onChange(); return true } catch { return false }
+  }
+  const turnOff = async () => {
+    try { await api.post('/me/mfa/disable', { otp }); toast.success('Two-factor is off'); setOff(false); setOtp(''); onChange() }
     catch (e) { toast.error(e, 'That code did not work. Check your authenticator app and try again.') }
   }
   return (
     <Card title="Two-factor authentication" actions={on ? <Badge tone="g">on</Badge> : <Badge tone="n">off</Badge>}>
-      {!setup && !off && <p className="m-0 mb-3 text-sm text-muted">{on ? 'Sign-in asks for a code from your authenticator app.' : 'Add a code from an authenticator app to every sign-in.'}</p>}
-      {setup && (
-        <div className="flex flex-col gap-2 text-sm mb-3">
-          <p className="m-0">Add this key to your authenticator app, then enter the 6-digit code it shows.</p>
-          <code className="font-mono text-xs break-all p-2 rounded bg-head">{setup.secret}</code>
-          {setup.otpauth_url && <a href={setup.otpauth_url} className="font-semibold">Open in authenticator app</a>}
-        </div>
-      )}
-      {(setup || off) ? (
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label={off ? 'Code to turn it off' : 'Code from the app'}><input className="input w-40 font-mono" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} /></Field>
-          <button type="button" className={off ? 'btn btn-danger' : 'btn btn-primary'} disabled={otp.length !== 6} onClick={confirm}>{off ? 'Turn off' : 'Confirm'}</button>
-          <button type="button" className="btn btn-ghost" onClick={() => { setSetup(null); setOff(false); setOtp('') }}>Cancel</button>
+      <div className="flex items-start gap-3 mb-4">
+        <span aria-hidden="true" className={`grid place-items-center w-10 h-10 rounded-xl flex-none ${on ? 'bg-g-bg text-g-fg' : 'bg-head text-muted'}`}><Icon name="shield" size={18} /></span>
+        <p className="m-0 text-sm text-muted">{on ? 'Every sign-in asks for a code from your authenticator app.' : 'Protect your account with a code from an authenticator app on your phone, as well as your password.'}</p>
+      </div>
+      {off ? (
+        <div className="flex flex-col gap-3">
+          <span className="text-sm">Enter a code from your app to turn two-factor off.</span>
+          <OtpInput value={otp} onChange={setOtp} />
+          <div className="flex gap-2"><button type="button" className="btn btn-danger" disabled={otp.length !== 6} onClick={turnOff}>Turn off</button>
+            <button type="button" className="btn btn-ghost" onClick={() => { setOff(false); setOtp('') }}>Cancel</button></div>
         </div>
       ) : on ? <button type="button" className="btn" onClick={() => setOff(true)}>Turn off…</button> : <button type="button" className="btn btn-primary" onClick={start}>Set up two-factor</button>}
+      <TwoFactorSetupModal setup={setup} onClose={() => setSetup(null)} onConfirm={confirm} />
     </Card>
   )
 }
