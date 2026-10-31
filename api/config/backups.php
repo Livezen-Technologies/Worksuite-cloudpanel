@@ -11,6 +11,9 @@ return [
     'recovery_key' => env('BACKUP_RECOVERY_KEY'),
     // restic check --read-data-subset after each run.
     'check_subset' => env('BACKUP_CHECK_SUBSET', '5%'),
+    // BKM-009: restore tests also start what they restored in a sandbox with no network.
+    'sandbox' => (bool) env('BACKUP_SANDBOX_TESTS', true),
+    'sandbox_images' => ['postgres' => 'postgres:16-alpine', 'mysql' => 'mysql:8.4', 'mariadb' => 'mariadb:11'],
     // Scheduled restore tests (BAK-005) for app backups without a policy.
     'restore_test_schedule' => env('BACKUP_RESTORE_TEST_SCHEDULE', '0 4 * * 0'),
     // Exports (download, UBAK-002).
