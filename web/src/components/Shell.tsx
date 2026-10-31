@@ -68,7 +68,7 @@ function Rail({ items }: { items: RailItem[] }) {
   )
 }
 
-export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
   const [menu, setMenu] = useState(false)
   const [acct, setAcct] = useState(false)
   const [palette, setPalette] = useState(false)
@@ -100,9 +100,6 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
             {/* The header is dark in both themes, per the canvas, so the
                 light-on-dark lockup is always the right one. */}
             <img src="/worksuite-logo-dark.png" alt="WorkSuite" className="h-7 w-auto flex-none" />
-            {brand.subtitle && (
-              <span className="rounded-md bg-n-bg px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-n-fg">{brand.subtitle}</span>
-            )}
           </div>
 
           {/* Which tenant the session is acting as - the canvas puts this next
