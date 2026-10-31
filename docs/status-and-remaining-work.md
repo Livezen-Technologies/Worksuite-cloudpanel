@@ -71,18 +71,17 @@ Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
                           in plain words), Security (score, threats, scan
                           now), Scheduled jobs (app command or URL, run log,
                           plan limits), Move a site here (request + steps)
-Email templates    ~97%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
+Email templates    100%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
                           validated variables, HTML + text, 600/360 px and
-                          dark mode, tests, user opt-outs; 17 of 20 wired to
-                          their events (welcome, new sign-in, 2FA off, deploy
-                          ok/failed incl. rollback, domain connected, cert
-                          expiring, backup failed, restore done, server
-                          unreachable, malware, invoice, payment failed, plan
-                          limit, alert, invite, verify_email, password_reset).
-                          Not wired: preview_ready and wordpress_updates
-                          (no event yet)
-Overall            ~70%   up from ~40%: file manager, firewall enforcement,
-                          antivirus, DNS zones, WordPress, migrations
+                          dark mode, tests, user opt-outs; all 20 wired to
+                          their events. preview_ready goes out when a pull-
+                          request preview finishes deploying (instead of the
+                          usual deployment email); wordpress_updates when an
+                          inventory finds updates waiting, again only when
+                          the number changes
+Overall            ~99%   every feature area is complete; Infrastructure
+                          (~95%) waits on operations on the live servers
+                          (section 3: restores, adopting the live sites)
 ```
 
 ## Coverage against the SRS (re-audited after the SRS added sections 4.30–4.36)
