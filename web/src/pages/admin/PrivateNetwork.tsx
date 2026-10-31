@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAction, useOne } from '../../api/hooks'
-import { Card, Empty, Field, PageHeader } from '../../components/Card'
+import { Card, Empty, Field, PageHeader, Loading } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -21,7 +21,7 @@ export default function PrivateNetwork() {
   const [config, setConfig] = useState<string | null>(null)
   const [leave, setLeave] = useState<Member | null>(null)
   const p = page.item
-  if (!p) return <><PageHeader title="Private network" /><Card>Loading…</Card></>
+  if (!p) return <><PageHeader title="Private network" /><Loading label="Loading…" /></>
 
   const state = (m: Member) => !m.public_key ? <Badge tone="y">waiting for key</Badge> : m.status?.error ? <Badge tone="r">error</Badge> : m.status?.up ? <Badge tone="g">up</Badge> : <Badge tone="n">unknown</Badge>
   const handshakes = (m: Member) => (m.status?.peers ?? []).filter((x) => x.last_handshake).length

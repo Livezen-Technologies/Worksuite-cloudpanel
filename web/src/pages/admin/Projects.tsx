@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Empty, Field, PageHeader, Toggle } from '../../components/Card'
+import { Card, Empty, Field, PageHeader, Toggle, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { Modal } from '../../components/Overlay'
 import { Icon } from '../../components/Icon'
@@ -95,7 +95,7 @@ export default function Projects() {
       <PageHeader title="Projects" subtitle="Environments per project, shared variables, branch deploys, promotion and sleep"
         actions={<button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>New project</button>} />
       {secret && <div role="status" className="card p-4 mb-4 text-sm">Webhook secret (shown once): <code className="font-mono break-all">{secret}</code></div>}
-      {isLoading ? <Card>Loading projects…</Card> : rows.length === 0 ? <Card><Empty icon="grid" action={<button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>New project</button>}>No projects yet. A project groups production, staging and preview environments of one product.</Empty></Card> : rows.map((p) => (
+      {isLoading ? <Loading label="Loading projects…" /> : rows.length === 0 ? <Card><Empty icon="grid" action={<button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>New project</button>}>No projects yet. A project groups production, staging and preview environments of one product.</Empty></Card> : rows.map((p) => (
         <section key={p.id} className="mb-6" aria-label={p.name}>
           <div className="flex flex-wrap items-baseline gap-3 mb-2">
             <h2 className="text-base font-semibold m-0">{p.name}</h2>

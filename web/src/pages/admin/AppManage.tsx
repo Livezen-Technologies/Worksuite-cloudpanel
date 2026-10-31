@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ScalingPanel } from '../../components/ScalingPanel'
@@ -34,7 +34,7 @@ export default function AppManage() {
         ))}
       </div>
 
-      {!row && <Card>Loading…</Card>}
+      {!row && <Loading label="Loading…" />}
       {row && tab === 'Settings' && <SettingsTab app={row} />}
       {row && tab === 'Scaling' && <ScalingPanel path={`/applications/${row.id}/scaling`} />}
       {row && tab === 'Databases' && <DatabasesTab app={row} />}

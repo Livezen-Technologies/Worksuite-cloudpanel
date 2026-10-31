@@ -1,7 +1,7 @@
 import EmailTemplates from './EmailTemplates'
 import { useEffect, useState } from 'react'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -171,7 +171,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
   const [g, setG] = useState<R>({})
   const [testTo, setTestTo] = useState('')
   useEffect(() => { if (item) setG({ ...(item.general ?? item), ...(item.security ?? {}), ...(item.smtp ?? {}) }) }, [item])
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
   const nested = !!item?.general || !!item?.security || !!item?.smtp
   const save = (keys: string[], section: 'general' | 'security' | 'smtp') => {
     // API shape: {name, general:{default_region, audit_retention_days, heartbeat_interval, refresh_interval}, security:{<policy>: bool}}

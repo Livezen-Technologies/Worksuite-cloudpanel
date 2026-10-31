@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useJob, useList, useOne, useServerName } from '../../api/hooks'
 import type { JobStage, Server } from '../../api/types'
-import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -331,7 +331,7 @@ export function Compose() {
     <>
       <PageHeader title="Compose Stacks" subtitle="One Compose project per target server · versioned revisions with rollback"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New stack</button>} />
-      {isLoading ? <Card>Loading stacks…</Card> : rows.length === 0 ? <Card><Empty>No stacks yet.</Empty></Card> : (
+      {isLoading ? <Loading label="Loading stacks…" /> : rows.length === 0 ? <Card><Empty>No stacks yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
           {rows.map((s) => (
             <li key={s.id}>

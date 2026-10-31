@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { CopyButton } from '../../components/CopyButton'
@@ -214,7 +214,7 @@ export function Billing() {
       if (r.url) window.location.assign(r.url)
     } catch (e) { toast.error(e, 'Could not open the payment portal') } finally { setPortalBusy(false) }
   }
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
   const plan = (typeof b?.plan === 'string' ? { name: b.plan } : b?.plan ?? {}) as R
   const planList = (Array.isArray(plans.item) ? plans.item : (plans.item as R | undefined)?.plans ?? []) as R[]
   const bars = ([['Apps', 'apps', ''], ['RAM', 'ram_mb', 'GB'], ['Storage', 'storage_gb', 'GB'], ['Bandwidth', 'bandwidth_gb', 'GB']] as const).map(([label, key, unit]) => {
@@ -301,7 +301,7 @@ export function Account() {
   const [invite, setInvite] = useState(false)
   const [inv, setInv] = useState({ email: '', role: 'developer' })
   useEffect(() => { if (acct) setP({ name: acct.name ?? acct.user?.name, email: acct.email ?? acct.user?.email, organization: acct.organization?.name ?? acct.organization ?? '', photo_url: acct.photo_url }) }, [acct])
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
   const mfaOn = !!(acct?.mfa_enabled ?? acct?.user?.mfa_enabled ?? me?.user?.mfa_enabled)
   const team = (acct?.team ?? acct?.members ?? []) as R[]
   const startMfa = async () => { try { setMfa(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
