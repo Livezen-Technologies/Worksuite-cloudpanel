@@ -113,7 +113,8 @@ class ScalingTest extends TestCase
             $plan->update(['limits' => array_merge($plan->limits ?? [], ['max_replicas' => 2, 'autoscale' => 0])]);
         });
         $page = $this->api($token)->getJson("/api/v1/app/apps/{$appId}/scaling")->assertOk()->json('data');
-        $this->assertSame(['max_replicas' => 2, 'autoscale' => false, 'schedule' => false, 'placement' => false, 'canary' => false], $page['limits']);
+        $this->assertSame(['max_replicas' => 2, 'autoscale' => false, 'schedule' => false, 'placement' => false, 'canary' => false, 'routing' => false], $page['limits']);
+        $this->assertNull($page['rps']);
         $this->assertNotEmpty(array_filter($page['warnings'], fn ($w) => str_contains($w, '/var/www/html/uploads')));
 
         $this->api($token)->patchJson("/api/v1/app/apps/{$appId}/scaling", ['replicas' => 3])->assertStatus(402);
@@ -122,6 +123,37 @@ class ScalingTest extends TestCase
 
         [, , $other] = $this->org();
         $this->api($other)->getJson("/api/v1/app/apps/{$appId}/scaling")->assertNotFound();
+    }
+
+    public function test_customers_see_requests_and_copies_routing_is_read_only_and_splitting_needs_the_plan(): void
+    {
+        [$org, $token, , $appId] = $this->deployed();
+        Application::allTenants()->whereKey($appId)->update(['kind' => 'customer']);
+        config(['platform.drivers.metrics' => 'prometheus', 'platform.prometheus.url' => 'http://prom:9090']);
+        \Illuminate\Support\Facades\Http::fake(fn () => \Illuminate\Support\Facades\Http::response(['status' => 'success', 'data' => ['result' => [['value' => [0, '42.5']]]]]));
+
+        // USCL-1: the app list and the scaling page carry copies and requests/s.
+        $row = collect($this->api($token)->getJson('/api/v1/app/apps')->assertOk()->json('data'))->firstWhere('id', $appId);
+        $this->assertSame(1, $row['replicas']);
+        $this->assertEquals(42.5, $row['rps']);
+        $page = $this->api($token)->getJson("/api/v1/app/apps/{$appId}/scaling")->assertOk()->json('data');
+        $this->assertEquals(42.5, $page['rps']);
+        $this->assertArrayHasKey('health', $page['copies'][0]);
+
+        // USCL-3: health checks, sessions and spreading are shown, not changed.
+        foreach ([['sticky' => true], ['health' => ['path' => '/up']], ['strategy' => 'least_connections']] as $body) {
+            $this->api($token)->patchJson("/api/v1/app/apps/{$appId}/scaling", $body)->assertStatus(422);
+        }
+        $this->api($token)->patchJson("/api/v1/app/apps/{$appId}/scaling", ['replicas' => 2])->assertOk();
+
+        // Traffic splitting only on packages that include it.
+        $this->api($token)->postJson("/api/v1/app/apps/{$appId}/canary", ['image' => 'acme/shop:2'])->assertForbidden();
+        $this->api($token)->deleteJson("/api/v1/app/apps/{$appId}/canary")->assertStatus(409); // aborting stays open, so a downgrade can remove one
+        app(Tenant::class)->as($org->id, function () {
+            $plan = app(\App\Services\BillingService::class)->plan();
+            $plan->update(['limits' => array_merge($plan->limits ?? [], ['traffic_splitting' => 1])]);
+        });
+        $this->assertTrue($this->api($token)->getJson("/api/v1/app/apps/{$appId}/scaling")->json('data.limits.canary'));
     }
 
     public function test_autoscale_on_requests_per_second_per_copy_from_traefik_metrics(): void

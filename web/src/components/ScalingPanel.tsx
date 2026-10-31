@@ -36,6 +36,7 @@ export function ScalingPanel({ path }: { path: string }) {
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
         <StatTile label="Copies" value={replicas} delta={`up to ${max} on this plan`} />
         <StatTile label="Healthy" value={`${num(w.healthy)} / ${((w.copies as R[]) ?? []).length}`} deltaTone={num(w.healthy) < ((w.copies as R[]) ?? []).length ? 'r' : undefined} />
+        <StatTile label="Requests/s" value={w.rps == null ? '—' : num(w.rps) < 10 ? num(w.rps).toFixed(1) : Math.round(num(w.rps))} delta={w.rps == null ? 'needs request metrics' : 'last 3 minutes, all copies'} />
         <StatTile label="Scaling" value={MODE[String(s.mode)]?.[0] ?? String(s.mode)} delta={s.mode === 'autoscale' ? `${s.min}–${s.max} copies at ${s.metric === 'rps' ? `${s.rps_target} req/s per copy` : `${s.cpu_target}% CPU`}` : undefined} />
       </div>
 
@@ -59,7 +60,8 @@ export function ScalingPanel({ path }: { path: string }) {
       </Card>
 
       {lim.placement ? <PlacementCard path={path} settings={s} placement={(w.placement as R[]) ?? []} busy={busy} save={save} /> : null}
-      {lim.canary ? <CanaryCard path={path.replace(/\/scaling$/, '/canary')} canary={(s.canary as R | null) ?? null} onDone={() => page.refetch()} /> : null}
+      {lim.canary ? <CanaryCard path={path.replace(/\/scaling$/, '/canary')} canary={(s.canary as R | null) ?? null} onDone={() => page.refetch()} />
+        : lim.routing === false ? <Card title="Traffic splitting"><p className="m-0 text-sm text-muted">Send a share of visitors to a new version before rolling it out. Available on higher plans.</p></Card> : null}
 
       <Card title="How it scales">
         <div className="flex flex-wrap gap-2 mb-4" role="radiogroup" aria-label="Scaling mode">
@@ -93,6 +95,7 @@ export function ScalingPanel({ path }: { path: string }) {
           </div>)}
           <button type="button" className="btn btn-sm self-start" onClick={() => setF({ ...f, schedule: [...((f.schedule as R[]) ?? []), { days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00', replicas: 2 }] })}>Add a window</button>
         </div>}
+        {lim.routing === false ? <RoutingSummary settings={s} health={health} /> : <>
         <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
           <Field label="Health check path"><input className="input font-mono" value={String(health.path ?? '/')} onChange={(e) => setF({ ...f, health: { ...health, path: e.target.value } })} /></Field>
           <Field label="Check every (s)"><input className="input" type="number" min={2} value={String(health.interval ?? 10)} onChange={(e) => setF({ ...f, health: { ...health, interval: Number(e.target.value) } })} /></Field>
@@ -109,8 +112,9 @@ export function ScalingPanel({ path }: { path: string }) {
             </Select>
           </Field>
         </div>
+        </>}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, ...(f.mode === 'autoscale' ? { metric: f.metric ?? 'cpu', rps_target: f.rps_target ?? 50 } : {}), schedule: f.schedule ?? [], sticky: !!f.sticky, strategy: f.strategy ?? 'round_robin', health: { path: health.path, interval: health.interval, timeout: health.timeout } }, 'Save scaling', 'Scaling saved')}>Save</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => save({ mode: f.mode, min: f.min, max: f.max, cpu_target: f.cpu_target, ...(f.mode === 'autoscale' ? { metric: f.metric ?? 'cpu', rps_target: f.rps_target ?? 50 } : {}), schedule: f.schedule ?? [], ...(lim.routing === false ? {} : { sticky: !!f.sticky, strategy: f.strategy ?? 'round_robin', health: { path: health.path, interval: health.interval, timeout: health.timeout } }) }, 'Save scaling', 'Scaling saved')}>Save</button>
           <span className="text-xs text-muted">{((w.notes as string[]) ?? []).join(' ')}</span>
         </div>
       </Card>
@@ -126,6 +130,21 @@ export function ScalingPanel({ path }: { path: string }) {
         </ul>}
       </Card>
     </div>
+  )
+}
+
+/** USCL-3: what the platform manages for the customer, shown read-only. */
+function RoutingSummary({ settings, health }: { settings: R; health: R }) {
+  const rows: [string, string][] = [
+    ['Health check', `${String(health.path ?? '/')} every ${num(health.interval) || 10} s, ${num(health.timeout) || 5} s timeout`],
+    ['Deploys', 'Zero downtime: copies are replaced one at a time, each only after the new one is healthy'],
+    ['Sessions', settings.sticky ? 'Sticky: each visitor stays on one copy' : 'Shared: any copy can serve any visitor (keep sessions in Redis or the database)'],
+    ['Spread', settings.strategy === 'least_connections' ? 'To the least busy copy' : 'Evenly, in turn'],
+  ]
+  return (
+    <dl className="mt-4 m-0 grid gap-x-4 gap-y-2 text-sm [grid-template-columns:max-content_1fr]" aria-label="Managed by the platform">
+      {rows.map(([k, v]) => <div key={k} className="contents"><dt className="font-semibold">{k}</dt><dd className="m-0 text-muted">{v}</dd></div>)}
+    </dl>
   )
 }
 

@@ -40,7 +40,7 @@ export function MyApps() {
                 <StatusBadge status={appState(a.state ?? a.status)} />
               </div>
               {appDomain(a) && <a href={`https://${appDomain(a)}`} target="_blank" rel="noreferrer" className="font-mono text-xs truncate">{appDomain(a)}</a>}
-              <div className="flex flex-wrap gap-4 text-xs text-muted"><span>CPU {a.cpu_pct != null ? `${Math.round(a.cpu_pct)}%` : '—'}</span><span>RAM {mb(a.mem_mb ?? a.ram_mb)}</span><span>Updated {ago(a.last_deploy_at ?? a.updated_at)}</span></div>
+              <div className="flex flex-wrap gap-4 text-xs text-muted"><span>CPU {a.cpu_pct != null ? `${Math.round(a.cpu_pct)}%` : '—'}</span><span>RAM {mb(a.mem_mb ?? a.ram_mb)}</span><span>{a.replicas ?? 1} {(a.replicas ?? 1) === 1 ? 'copy' : 'copies'}</span>{a.rps != null ? <span>{a.rps < 10 ? Number(a.rps).toFixed(1) : Math.round(a.rps)} req/s</span> : null}<span>Updated {ago(a.last_deploy_at ?? a.updated_at)}</span></div>
               <div className="flex gap-2 flex-wrap">
                 <button type="button" className="btn btn-primary flex-1" onClick={() => nav(`/app/apps/${a.id}`)}>Manage</button>
                 <button type="button" className="btn flex-1" onClick={() => nav(`/app/apps/${a.id}?tab=logs`)}>Logs</button>

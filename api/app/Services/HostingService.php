@@ -199,6 +199,8 @@ class HostingService
             'volume_path' => $app->volume_path,
             'health_path' => $app->health_path ?: '/',
             'auto_deploy' => $app->auto_deploy,
+            'replicas' => (int) ($app->replicas ?: 1),
+            'rps' => app(ScalingService::class)->rps($app),
             'auto_restart' => $app->auto_restart,
             'last_deploy_at' => $app->last_deployed_at?->toIso8601ZuluString(),
             'created_at' => $app->created_at?->toIso8601ZuluString(),
