@@ -2,15 +2,22 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 
 function useEscapeAndFocus(open: boolean, onClose: () => void, ref: React.RefObject<HTMLElement | null>) {
+  // Callers pass a new onClose on every render; read it through a ref so the effect below runs only
+  // when the overlay opens. Re-running it moved focus back to the first button on every keystroke.
+  const close = useRef(onClose)
+  useEffect(() => { close.current = onClose }, [onClose])
   useEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
     const el = ref.current
     const focusables = () => Array.from(el?.querySelectorAll<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])') ?? []).filter((x) => !x.hasAttribute('disabled'))
-    const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? focusables()[0]
+    // Start in the first field, not on the close button.
+    const first = el?.querySelector<HTMLElement>('[data-autofocus]')
+      ?? el?.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]):not([readonly]),select:not([disabled]),textarea:not([disabled])')
+      ?? focusables()[0]
     first?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+      if (e.key === 'Escape') { e.stopPropagation(); close.current() }
       if (e.key === 'Tab') {
         const f = focusables(); if (!f.length) return
         const a = f[0], b = f[f.length - 1]
@@ -34,7 +41,7 @@ function useEscapeAndFocus(open: boolean, onClose: () => void, ref: React.RefObj
       if (left <= 0) { body.style.overflow = prevOverflow; delete body.dataset.overlayDepth }
       prev?.focus?.()
     }
-  }, [open, onClose, ref])
+  }, [open, ref])
 }
 
 export function Drawer({ open, onClose, title, children, side = 'right', width = 440, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; side?: 'right' | 'left'; width?: number; footer?: ReactNode }) {
