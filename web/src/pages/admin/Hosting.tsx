@@ -97,6 +97,10 @@ export function Packages() {
 
       {!plans.isLoading && plans.rows.length === 0 && <Empty>No packages yet. Create one to start selling hosting.</Empty>}
       <DataTable label="Packages" rows={plans.rows} loading={plans.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => edit(r) },
+          { label: r.subscribers > 0 ? 'Delete (move its customers first)' : 'Delete', icon: 'trash', danger: true, disabled: busy || r.subscribers > 0, confirm: `The package ${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/plans/${r.id}`, label: `Delete ${r.name}`, success: 'Package deleted' }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Package', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'code', header: 'Code', render: (r) => <span className="font-mono text-xs text-muted">{r.code}</span> },
@@ -106,18 +110,6 @@ export function Packages() {
           { key: 'storage_gb', header: 'Storage', render: (r) => <span className="tabular-nums">{r.storage_gb} GB</span> },
           { key: 'apps', header: 'Apps', value: (r) => r.limits?.apps ?? 0 },
           { key: 'subscribers', header: 'Customers', render: (r) => <Badge tone={r.subscribers ? 'b' : 'n'}>{r.subscribers}</Badge> },
-          {
-            key: 'actions', header: '', sortable: false, render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm" onClick={() => edit(r)}>Edit</button>
-                <button type="button" className="btn btn-sm" disabled={busy || r.subscribers > 0}
-                        title={r.subscribers > 0 ? 'Move its customers to another package first' : 'Delete package'}
-                        onClick={() => run({ method: 'DELETE', path: `/plans/${r.id}`, label: `Delete ${r.name}`, success: 'Package deleted' }).catch(() => {})}>
-                  Delete
-                </button>
-              </span>
-            ),
-          },
         ]} />
     </>
   )

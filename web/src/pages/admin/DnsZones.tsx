@@ -59,14 +59,13 @@ export default function DnsZones() {
       {providers.rows.length > 0 && (
         <Card title="Provider accounts" pad={false}>
           <DataTable label="Provider accounts" rows={providers.rows} rowKey={(r) => r.id}
+            actions={(r) => [
+            { label: `Disconnect ${r.name}`, icon: 'trash', danger: true, confirm: `${r.name} is disconnected. Zones it manages stop syncing.`, disabled: busy, onClick: () => run({ path: `/dns/providers/${r.id}`, method: 'DELETE', label: `Disconnect ${r.name}` }).catch(() => {}) },
+          ]}
             columns={[
               { key: 'name', header: 'Name' },
               { key: 'type', header: 'Provider', render: (r) => PROVIDER_NAMES[String(r.type)] ?? String(r.type) },
               { key: 'account', header: 'Account' },
-              { key: 'actions', header: '', sortable: false, render: (r) => (
-                <button type="button" className="btn btn-sm btn-danger" disabled={busy}
-                  onClick={() => run({ path: `/dns/providers/${r.id}`, method: 'DELETE', label: `Disconnect ${r.name}` })}>Disconnect</button>
-              ) },
             ]} />
         </Card>
       )}
@@ -200,18 +199,16 @@ function ZoneDetail({ id, onRemoved }: { id: string; onRemoved: () => void }) {
         </div>
       )}
       <DataTable label="Records" rows={records} loading={zone.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Edit ${r.name ?? 'record'}`, icon: 'pencil', onClick: () => open(r) },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setConfirm(r) },
+        ]}
         columns={[
           { key: 'type', header: 'Type', render: (r) => <Badge tone="n">{String(r.type)}</Badge> },
           { key: 'name', header: 'Name', render: (r) => <span className="font-mono text-xs">{String(r.name)}</span> },
           { key: 'content', header: 'Content', render: (r) => <span className="font-mono text-xs break-all">{r.priority != null ? `${r.priority} ` : ''}{String(r.content)}</span> },
           { key: 'ttl', header: 'TTL', render: (r) => TTLS.find(([v]) => v === r.ttl)?.[1] ?? `${r.ttl}s` },
           { key: 'proxied', header: 'Proxy', render: (r) => canProxy && PROXIABLE.includes(String(r.type)) ? <Badge tone={r.proxied ? 'g' : 'n'}>{r.proxied ? 'proxied' : 'DNS only'}</Badge> : '' },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-1 justify-end">
-              <button type="button" className="btn btn-sm" onClick={() => open(r)}>Edit</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setConfirm(r)}>Delete</button>
-            </span>
-          ) },
         ]} />
       <div className="p-4 flex justify-between text-xs text-muted">
         <span>{z.last_synced_at ? `Synced ${ago(String(z.last_synced_at))}` : ''}</span>

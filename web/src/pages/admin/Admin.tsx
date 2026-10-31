@@ -58,6 +58,9 @@ export function Users() {
         <div className="flex-[2_1_520px] min-w-0">
           <input className="input mb-3" type="search" aria-label="Search members" placeholder="Search by name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
           <DataTable label="Members" rows={shown} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
+            actions={(r) => r.id === me?.user?.id
+            ? [{ label: 'Manage your own account', icon: 'user', onClick: () => { location.href = '/admin/account' } }]
+            : [{ label: `Manage ${r.name}`, icon: 'adjust', onClick: () => setManage(r) }]}
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
               { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{roleLabel(String(r.role))}</Badge> : (
@@ -68,7 +71,6 @@ export function Users() {
               { key: 'auth', header: 'Sign-in', value: (r) => signIn(r) },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
               { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status === 'suspended' ? 'suspended' : r.invited ? 'invited' : (r.status ?? 'active')} /> },
-              { key: 'manage', header: '', sortable: false, render: (r) => r.id === me?.user?.id ? <a className="btn btn-sm btn-ghost" href="/admin/account" title="Manage your own account" onClick={(e) => e.stopPropagation()}>You</a> : <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setManage(r) }}>Manage</button> },
             ]} />
         </div>
         <Card className="flex-[1_1_320px]" title="Roles" subtitle="Who can do what"
