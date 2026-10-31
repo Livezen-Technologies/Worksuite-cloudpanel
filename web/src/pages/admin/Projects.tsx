@@ -10,7 +10,7 @@ import { type R } from '../../lib/util'
 
 type App = { id: string; name: string; service: string; status: string; asleep: boolean; image: string | null; last_deployed_at: string | null; url: string | null }
 type Env = { id: string; name: string; slug: string; kind: string; branch: string | null; requires_approval: boolean; sleep_after_minutes: number | null; variables: string[]; apps: App[] }
-type Project = { id: string; name: string; description: string | null; webhook_url: string; preview_environment_id: string | null; environments: Env[] }
+type Project = { id: string; name: string; description: string | null; webhook_url: string; preview_environment_id: string | null; preview_comments: boolean; environments: Env[] }
 
 const KIND_TONE: Record<string, 'g' | 'b' | 'y' | 'n'> = { production: 'g', staging: 'b', development: 'n', preview: 'y' }
 
@@ -103,6 +103,12 @@ export default function Projects() {
                 <option value="">staging (default)</option>{p.environments.filter((e) => e.kind !== 'preview').map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
               </Select>
             </label>
+            <span className="text-xs text-muted flex items-center gap-2">Preview links on pull requests: {p.preview_comments ? 'commented' : 'off'}
+              <button type="button" className="btn btn-sm" onClick={() => {
+                const t = window.prompt('Git token that may comment on pull requests (GitHub, Gitea or GitLab). Leave empty to turn comments off.')
+                if (t !== null) run({ path: `/projects/${p.id}`, method: 'PATCH', body: { preview_comment_token: t || null }, label: 'Preview comments', success: t ? 'Preview links will be commented on pull requests' : 'Preview comments off' }).catch(() => {})
+              }}>{p.preview_comments ? 'Change token' : 'Set token'}</button>
+            </span>
           </div>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">{p.environments.map((e) => <EnvCard key={e.id} project={p} env={e} />)}</div>
         </section>

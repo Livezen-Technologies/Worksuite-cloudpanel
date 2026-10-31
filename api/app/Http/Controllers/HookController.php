@@ -56,8 +56,11 @@ class HookController extends Controller
                 return response()->json(['data' => ['ignored' => $action]]);
             }
             $r = $envs->openPreview($p, $number, $branch);
+            // Comment the addresses once, when the pull request opens or reopens.
+            $commented = in_array($action, ['opened', 'reopened', 'open', 'reopen'], true)
+                && app(\App\Services\PreviewCommentService::class)->post($p, \App\Services\PreviewCommentService::target($request, $number), $number, $r['urls']);
 
-            return response()->json(['data' => ['environment_id' => $r['environment']->id, 'deployments' => $r['deployments'], 'urls' => $r['urls']]], 202);
+            return response()->json(['data' => ['environment_id' => $r['environment']->id, 'deployments' => $r['deployments'], 'urls' => $r['urls'], 'commented' => $commented]], 202);
         }
         $ref = (string) $request->input('ref', '');
         if (! str_starts_with($ref, 'refs/heads/') || $request->input('deleted')) {
