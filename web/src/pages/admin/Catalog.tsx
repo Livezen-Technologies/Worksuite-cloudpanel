@@ -1,3 +1,4 @@
+import appIcons from '../../lib/appIcons.json'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useAction, useList } from '../../api/hooks'
@@ -12,11 +13,22 @@ type Template = {
 }
 type Install = { id: string; template_id: string; name: string; version: number; latest_version: number | null; update_available: boolean; resource_type: string; resource_id: string }
 
-function Logo({ t }: { t: Template }): ReactNode {
+const ICONS = appIcons as Record<string, string>
+
+/** The app's own logo on a white tile (public/app-icons, see NOTICE.md); its initials when there is none. */
+export function Logo({ t, size = 48 }: { t: Pick<Template, 'id' | 'name' | 'accent'>; size?: number }): ReactNode {
+  const [broken, setBroken] = useState(false)
+  const file = ICONS[t.id]
+  if (file && !broken) {
+    return (
+      <span className="flex flex-none items-center justify-center rounded-xl bg-white ring-1 ring-inset ring-[var(--line)]" style={{ width: size, height: size }} aria-hidden="true">
+        <img src={`/app-icons/${file}`} alt="" loading="lazy" decoding="async" className="object-contain" style={{ width: size * 0.66, height: size * 0.66 }} onError={() => setBroken(true)} />
+      </span>
+    )
+  }
   return (
-    <span className="flex size-12 flex-none items-center justify-center rounded-xl text-base font-bold text-white"
-          style={{ background: t.accent ?? 'var(--accent)' }} aria-hidden="true">
-      {t.name.slice(0, 2)}
+    <span className="flex flex-none items-center justify-center rounded-xl font-bold text-white" style={{ width: size, height: size, fontSize: size * 0.33, background: t.accent ?? 'var(--accent)' }} aria-hidden="true">
+      {t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2)}
     </span>
   )
 }
@@ -121,36 +133,44 @@ export default function Catalog() {
           </ul>
         </Card>
       )}
-      <Card>
+      <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <input className="input !w-auto grow" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search templates…" aria-label="Search templates" />
-          <Select className="input !w-auto" value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category">
-            <option value="">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Select className="input !w-auto" value={type} onChange={(e) => setType(e.target.value)} aria-label="Type">
-            <option value="">Images and stacks</option><option value="image">Single image</option><option value="compose">Stack</option>
-          </Select>
+          <label className="relative grow min-w-[240px]">
+            <span className="sr-only">Search templates</span>
+            <svg aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input className="input pl-9" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${templates.length} apps by name or description…`} />
+          </label>
+          <span className="btn-group" role="group" aria-label="Type">
+            {([['', 'All'], ['image', 'Single image'], ['compose', 'Stack']] as const).map(([v, l]) => <button key={v} type="button" className={`btn ${type === v ? 'btn-primary' : ''}`} aria-pressed={type === v} onClick={() => setType(v)}>{l}</button>)}
+          </span>
         </div>
-      </Card>
-      <Card>
-        {isLoading && <p className="m-0 text-sm text-muted">Loading templates…</p>}
-        {!isLoading && shown.length === 0 && <p className="m-0 text-sm text-muted">Nothing matches “{q}”.</p>}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((t) => (
-            <div key={t.id} className="flex flex-col gap-3 rounded-xl border border-line p-4 transition-colors hover:border-accent">
-              <div className="flex items-start gap-3">
-                <Logo t={t} />
-                <div className="min-w-0">
-                  <p className="m-0 font-semibold flex items-center gap-2">{t.name}{t.type === 'compose' && <Badge tone="b">stack</Badge>}</p>
-                  <p className="m-0 text-sm text-muted">{t.description}</p>
-                </div>
-              </div>
-              <p className="m-0 truncate font-mono text-xs text-muted">{t.type === 'compose' ? t.services?.join(' + ') : t.image}</p>
-              <button type="button" className="btn mt-auto" onClick={() => choose(t)}>Install</button>
-            </div>
-          ))}
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Category">
+          {['', ...categories].map((c) => {
+            const n = c ? templates.filter((t) => t.category === c).length : templates.length
+            return <button key={c || 'all'} type="button" aria-pressed={cat === c} onClick={() => setCat(c)} className="chip !min-h-8 !text-xs flex-none whitespace-nowrap">{c || 'All'} <span className="opacity-70 tabular-nums">{n}</span></button>
+          })}
         </div>
-      </Card>
+        <p className="m-0 text-sm text-muted" aria-live="polite">{isLoading ? 'Loading templates…' : `Showing ${shown.length} of ${templates.length}`}</p>
+      </div>
+      {!isLoading && shown.length === 0 && <Card><p className="m-0 text-sm text-muted">Nothing matches “{q}”. Try another word or category.</p></Card>}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
+        {shown.map((t) => (
+          <button key={t.id} type="button" onClick={() => choose(t)} className="card group text-left flex flex-col gap-3 p-4 cursor-pointer transition-[border-color,box-shadow] hover:border-accent hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <span className="flex items-start gap-3">
+              <Logo t={t} />
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold truncate">{t.name}</span>
+                <span className="block text-xs text-muted">{t.category ?? 'Other'}</span>
+              </span>
+            </span>
+            <span className="text-sm text-muted line-clamp-2 min-h-10">{t.description}</span>
+            <span className="mt-auto flex items-center gap-2 pt-1">
+              {t.type === 'compose' ? <Badge tone="b">Stack · {t.services?.length ?? 1} services</Badge> : <Badge tone="n">Single image</Badge>}
+              <span className="ml-auto text-sm font-semibold text-accent-fg opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">Install →</span>
+            </span>
+          </button>
+        ))}
+      </div>
     </>
   )
 }
