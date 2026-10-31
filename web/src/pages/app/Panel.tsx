@@ -354,7 +354,7 @@ export function Account() {
           <Field label="Email"><input className="input" type="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} /></Field>
           <fieldset className="border-0 p-0 m-0"><legend className="text-[13px] font-semibold mb-2">Role</legend>
             {([['owner', 'Owner', 'Everything, including billing and deleting apps'], ['developer', 'Developer', 'Deploy and manage apps and domains'], ['billing', 'Billing', 'Plans, invoices and payment only']] as const).map(([v, l, s]) => (
-              <label key={v} className="flex gap-3 items-start py-2 min-h-[44px] cursor-pointer"><input type="radio" name="role" checked={inv.role === v} onChange={() => setInv({ ...inv, role: v })} className="mt-1" /><span><span className="block font-semibold text-sm">{l}</span><span className="block text-xs text-muted">{s}</span></span></label>
+              <label key={v} className="choice mb-2"><input type="radio" name="role" checked={inv.role === v} onChange={() => setInv({ ...inv, role: v })} /><span><span className="choice-title">{l}</span><span className="choice-hint">{s}</span></span></label>
             ))}
           </fieldset>
         </div>

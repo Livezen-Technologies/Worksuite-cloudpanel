@@ -143,9 +143,9 @@ export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () 
         <fieldset className="border-0 p-0 m-0 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <legend className="text-sm text-muted mb-3">How should the portal reach this server?</legend>
           {([['agent', 'Agent-based connection (recommended)', 'Outbound HTTPS from the agent; no inbound ports or Docker socket exposed.'], ['ssh', 'SSH-assisted installation', 'We show the same one-line command; run it over your own SSH session.']] as const).map(([v, t, s]) => (
-            <label key={v} className="card p-4 flex gap-3 cursor-pointer" style={method === v ? { border: '2px solid var(--accent)', background: 'var(--sel)' } : undefined}>
+            <label key={v} className="choice">
               <input type="radio" name="method" checked={method === v} onChange={() => setMethod(v)} />
-              <span><span className="block font-semibold text-sm">{t}</span><span className="block text-xs text-muted mt-1">{s}</span></span>
+              <span><span className="choice-title">{t}</span><span className="choice-hint">{s}</span></span>
             </label>
           ))}
         </fieldset>
