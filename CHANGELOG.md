@@ -67,6 +67,22 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- `wordpress:detect` failed every night, and `wp.inventory` was never queued.
+  Four `Container` queries filtered on a `status` column that does not exist —
+  `containers` has `state` (created in `create_core_tables`, and
+  `UptimeService` already queried it correctly). PostgreSQL rejected the query
+  outright, so the scheduled command exited 1 before dispatching anything:
+
+      SQLSTATE[42703]: column "status" does not exist
+      HINT: Perhaps you meant to reference the column "containers.state".
+
+  Fixed in `WordPressService::dispatchStep` and `::containerFor`,
+  `MigrationService` and `ScheduledJobService`, so WordPress inventory, site
+  migrations and container-scoped scheduled jobs can resolve a running
+  container again. Each call site has an `?? $app->containerName()` fallback,
+  which is why the failure surfaced as a hard error rather than a wrong
+  container name.
+
 - The agent segfaulted on the first command that shells out. `Executor.Run` is
   a `Runner` func field, and `newAgent` never set it, so it was a nil func
   value. `handlers.go` has an `e.run` wrapper that falls back to `ExecRunner`

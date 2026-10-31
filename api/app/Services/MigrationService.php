@@ -337,7 +337,7 @@ class MigrationService implements HandlesCommandResults
                 'engine' => $db->engine, 'container' => $this->dbContainer($db), 'database' => $this->dbName($s), 'user' => 'root',
             ], 'password_of' => $db->id]];
             if ($s['wordpress']) {
-                $container = Container::allTenants()->where('application_id', $app->id)->where('status', 'running')->value('name') ?? $app->containerName();
+                $container = Container::allTenants()->where('application_id', $app->id)->where('state', 'running')->value('name') ?? $app->containerName();
                 foreach (['DB_HOST' => $this->dbContainer($db), 'DB_NAME' => $this->dbName($s), 'DB_USER' => 'root', 'DB_PASSWORD' => self::PASSWORD] as $k => $v) {
                     $steps[] = ['wp.cli', ['container' => $container, 'url' => '', 'args' => ['config', 'set', $k, $v], 'password_of' => $db->id]];
                 }
