@@ -26,6 +26,8 @@ export default function CustomerProfile() {
   useEffect(() => { history.replaceState(null, '', `#${tab}`) }, [tab])
   const [suspend, setSuspend] = useState(false)
   const [asCustomer, setAsCustomer] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [closeForm, setCloseForm] = useState({ reason: '', confirm: '' })
   const [why, setWhy] = useState('')
   const [asErr, setAsErr] = useState<string | null>(null)
   const [reason, setReason] = useState('')
@@ -34,6 +36,7 @@ export default function CustomerProfile() {
   if (isLoading || !c) return <Card>{isLoading ? 'Loading customer…' : <Empty>Customer not found.</Empty>}</Card>
   const n = (c.counts ?? {}) as R
   const suspended = c.status === 'suspended'
+  const closed = c.status === 'closed'
   const act = (path: string, label: string, body?: R) => run({ path: `/customers/${id}/${path}`, body, label, success: `${label} done` }).then(() => refetch()).catch(() => {})
   const initials = String(c.name).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
@@ -41,7 +44,7 @@ export default function CustomerProfile() {
     <>
       <Link to="/admin/customers" className="inline-flex items-center gap-1 text-sm font-semibold no-underline mb-2"><Icon name="left" size={15} />Hosting customers</Link>
       <PageHeader title={String(c.name)} subtitle={<span className="inline-flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{c.slug}</span>·<span>customer since {ago(String(c.created_at))}</span></span>}
-        actions={<>
+        actions={closed ? undefined : <>
           <button type="button" className="btn" onClick={() => { setAsErr(null); setAsCustomer(true) }}><Icon name="eye" size={16} />Sign in as customer…</button>
           <Select className="input !w-auto min-w-40" aria-label="Package" value={String(c.plan?.id ?? '')} onChange={(e) => act('plan', 'Change package', { plan_id: e.target.value })}>
             {!c.plan && <option value="">No package</option>}
@@ -50,12 +53,14 @@ export default function CustomerProfile() {
           {suspended
             ? <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act('reactivate', 'Reactivate')}>Reactivate</button>
             : <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setSuspend(true)}>Suspend…</button>}
+          <button type="button" className="btn btn-ghost text-danger" disabled={busy} onClick={() => { setCloseForm({ reason: '', confirm: '' }); setClosing(true) }}>Close account…</button>
         </>} />
       <div className="card p-4 mb-5 flex flex-wrap items-center gap-4">
         <span aria-hidden="true" className="w-12 h-12 rounded-xl bg-sel text-accent font-bold text-lg grid place-items-center">{initials}</span>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{c.billing_email || 'No billing email'}</span>
-            <Badge tone={suspended ? 'r' : 'g'}>{suspended ? 'suspended' : 'active'}</Badge>{c.plan && <Badge tone="b">{String(c.plan.name)}</Badge>}</div>
+            <Badge tone={closed ? 'n' : suspended ? 'r' : 'g'}>{closed ? 'closed' : suspended ? 'suspended' : 'active'}</Badge>{c.plan && <Badge tone="b">{String(c.plan.name)}</Badge>}</div>
+          {closed && c.closed && <div className="text-sm text-muted mt-1">Closed {ago(String(c.closed.at))} by {String(c.closed.by)}: {String(c.closed.reason)}. Apps were retired and members signed out; backups are kept for the retention period.</div>}
           {suspended && c.suspension && <div className="text-sm text-[var(--r-fg)] mt-1">Suspended {ago(String(c.suspension.at))} by {String(c.suspension.by)}: {String(c.suspension.reason)}</div>}
         </div>
         <button type="button" className="btn btn-sm" onClick={() => nav('/admin/users')}>Users & Teams</button>
@@ -82,6 +87,7 @@ export default function CustomerProfile() {
           </Card>
         </>}
         {tab === 'members' && <DataTable label="Members" tableId="customer-members" rows={(c.members ?? []) as R[]} rowKey={(r) => String(r.id)}
+          actions={(r) => closed ? [] : [{ label: 'Send password reset', icon: 'refresh', onClick: () => run({ path: `/customers/${id}/members/${r.id}/password-reset`, label: 'Send password reset', success: `Reset link sent to ${r.email}` }).catch(() => {}) }]}
           columns={[
             { key: 'name', header: 'Name', render: (r) => <div><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div> },
             { key: 'role', header: 'Role', render: (r) => <Badge tone="n">{String(r.role).replace(/_/g, ' ')}</Badge> },
@@ -137,6 +143,15 @@ export default function CustomerProfile() {
           <p className="m-0">You’ll see their panel exactly as they do, for up to an hour. Their owner gets an email, it’s recorded in their activity, and you can’t change their password, two-factor or passkeys.</p>
           <Field label="Reason (sent to the customer)" required><input className="input" autoFocus maxLength={300} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Ticket 4411: help with a failed deploy" /></Field>
           {asErr && <div role="alert" className="text-sm text-danger">{asErr}</div>}
+        </div>
+      </Modal>
+      <Modal open={closing} onClose={() => setClosing(false)} title={`Close ${c.name}?`}
+        footer={<><button type="button" className="btn" onClick={() => setClosing(false)}>Cancel</button>
+          <button type="button" className="btn btn-danger" disabled={busy || closeForm.reason.trim().length < 3 || closeForm.confirm !== c.name} onClick={() => act('close', 'Close account', closeForm).then(() => setClosing(false))}>Close account</button></>}>
+        <div className="flex flex-col gap-4">
+          <p className="m-0">This retires all {String(n.apps ?? 0)} apps (their containers are removed), removes their {String(n.domains ?? 0)} domains, cancels the subscription and signs every member out. Backups and volumes are kept for the retention period. It can’t be undone from here.</p>
+          <Field label="Reason" required><input className="input" maxLength={300} value={closeForm.reason} onChange={(e) => setCloseForm({ ...closeForm, reason: e.target.value })} placeholder="Customer asked to leave" /></Field>
+          <Field label={`Type ${c.name} to confirm`} required><input className="input" autoComplete="off" value={closeForm.confirm} onChange={(e) => setCloseForm({ ...closeForm, confirm: e.target.value })} /></Field>
         </div>
       </Modal>
       <Modal open={suspend} onClose={() => setSuspend(false)} title={`Suspend ${c.name}?`}

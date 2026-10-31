@@ -102,7 +102,8 @@ class CustomerController extends Controller
 
         return $this->data([
             'id' => $org->id, 'name' => $org->name, 'slug' => $org->slug, 'billing_email' => $org->billing_email, 'created_at' => $org->created_at,
-            'status' => ($sub->status ?? null) === 'suspended' ? 'suspended' : 'active',
+            'status' => ! empty($settings['closed']) ? 'closed' : (($sub->status ?? null) === 'suspended' ? 'suspended' : 'active'),
+            'closed' => $settings['closed'] ?? null,
             'suspension' => $settings['suspension'] ?? null,
             'notes' => $settings['admin_notes'] ?? '',
             'plan' => $plan ? ['id' => $plan->id, 'code' => $plan->code, 'name' => $plan->name, 'limits' => $plan->limits] : null,
@@ -126,6 +127,9 @@ class CustomerController extends Controller
     {
         $this->staffOnly($request);
         $org = Organization::findOrFail($id);
+        if (! empty(($org->settings ?? [])['closed'])) {
+            throw \App\Exceptions\ApiException::conflict('This account is closed. Closed accounts cannot be changed here.');
+        }
         $d = $request->validate(['reason' => 'required|string|max:300']);
         DB::transaction(function () use ($org, $d, $request) {
             $apps = \App\Models\Application::allTenants()->where('organization_id', $org->id)->where('status', '!=', 'suspended')->get(['id', 'status']);
@@ -146,6 +150,9 @@ class CustomerController extends Controller
     {
         $this->staffOnly($request);
         $org = Organization::findOrFail($id);
+        if (! empty(($org->settings ?? [])['closed'])) {
+            throw \App\Exceptions\ApiException::conflict('This account is closed. Closed accounts cannot be changed here.');
+        }
         DB::transaction(function () use ($org) {
             $settings = $org->settings ?? [];
             foreach ($settings['suspension']['previous'] ?? [] as $appId => $status) {
@@ -201,6 +208,64 @@ class CustomerController extends Controller
     }
 
     /** Customer profiles span tenants: platform staff only. */
+    /** CUS-4: email a member of the customer a password-reset link (when they are locked out and ask support). */
+    public function sendPasswordReset(Request $request, string $id, string $userId)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $isMember = \App\Models\Membership::allTenants()->where('organization_id', $org->id)->where('user_id', $userId)->exists();
+        $user = $isMember ? \App\Models\User::find($userId) : null;
+        if (! $user) {
+            throw new \App\Exceptions\ApiException('not_found', 'That person is not a member of this customer.', 404);
+        }
+        app(\App\Http\Controllers\AccountRecoveryController::class)->sendReset($user);
+        app(\App\Services\AuditLogger::class)->log('customer.password_reset_sent', 'users', $user->id, ['to' => $user->email, 'by' => $request->user()->email], $org->id);
+
+        return $this->data(['sent' => true, 'email' => $user->email]);
+    }
+
+    /**
+     * CUS-5: close a customer account. Their apps are retired (containers removed, volumes and backups
+     * kept for the retention period), domains removed, the subscription cancelled and members signed out.
+     * The name must be typed to confirm; a closed account cannot be reactivated from here.
+     */
+    public function close(Request $request, string $id)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $d = $request->validate(['reason' => 'required|string|min:3|max:300', 'confirm' => 'required|string']);
+        if (trim($d['confirm']) !== $org->name) {
+            throw \App\Exceptions\ApiException::validation(['confirm' => ["Type the customer name exactly: {$org->name}"]]);
+        }
+        if (! empty(($org->settings ?? [])['closed'])) {
+            throw \App\Exceptions\ApiException::conflict('This account is already closed.');
+        }
+        if ($org->id === $request->user()->current_organization_id) {
+            throw \App\Exceptions\ApiException::conflict('You cannot close your own organisation.');
+        }
+        $retired = app(\App\Support\Tenant::class)->as($org->id, function () use ($org) {
+            $apps = \App\Models\Application::allTenants()->where('organization_id', $org->id)->get();
+            foreach ($apps as $app) {
+                $app->retire();
+            }
+            \App\Models\Domain::allTenants()->where('organization_id', $org->id)->get()->each->delete();
+
+            return $apps->count();
+        });
+        DB::transaction(function () use ($org, $d, $request) {
+            Subscription::withoutGlobalScopes()->where('organization_id', $org->id)->update(['status' => 'canceled']);
+            \App\Models\Membership::allTenants()->where('organization_id', $org->id)->update(['status' => 'suspended']);
+            \App\Models\AccessToken::where('organization_id', $org->id)->delete();
+            $settings = $org->settings ?? [];
+            $settings['closed'] = ['reason' => $d['reason'], 'at' => now()->toIso8601ZuluString(), 'by' => $request->user()->email];
+            $org->forceFill(['settings' => $settings])->save();
+        });
+        app(\App\Services\AuditLogger::class)->log('customer.close', 'organizations', $org->id, ['reason' => $d['reason'], 'apps_retired' => $retired], $org->id);
+        rescue(fn () => app(\App\Services\TraefikConfigService::class)->push(), report: true);
+
+        return $this->show($request, $org->id);
+    }
+
     /**
      * CUS-3: platform staff sign in as the customer's owner to see what they see. Needs a reason, lasts an
      * hour, is audited on both sides, emails the owner, and cannot touch the owner's sign-in settings.
