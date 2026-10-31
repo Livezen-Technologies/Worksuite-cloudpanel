@@ -76,6 +76,7 @@ class AccountRecoveryController extends Controller
         // Reaching the inbox proves the address too.
         $user->forceFill(['password' => $data['password'], 'email_verified_at' => $user->email_verified_at ?? now()])->save();
         $user->tokens()->delete();
+        \App\Support\SignInLock::clear($user->email);
         $this->audit->log('auth.password_reset', 'users', $user->id, [], $user->current_organization_id, $user->id, $user->email);
 
         return $this->data(['reset' => true]);

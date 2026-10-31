@@ -47,8 +47,10 @@ class AuthController extends Controller
         }
         $data = $request->validate(['email' => 'required|email', 'password' => 'required|string', 'otp' => 'nullable|string',
             'passkey' => 'nullable|array', 'passkey.challenge_id' => 'required_with:passkey|string', 'passkey.credential' => 'required_with:passkey|array']);
+        \App\Support\SignInLock::guard($data['email']);
         $user = User::where('email', strtolower($data['email']))->first();
         if (! $user || ! Hash::check($data['password'], $user->password)) {
+            \App\Support\SignInLock::fail($data['email'], $user);
             throw new ApiException('unauthenticated', 'The email or password is incorrect.', 401);
         }
         // Second factor: TOTP code or a passkey assertion for this user (UACC-002).
@@ -57,6 +59,9 @@ class AuthController extends Controller
         } elseif ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)) {
             // MFA-REC: a one-time recovery code stands in for a lost authenticator.
             if (! \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null)) {
+                if (! empty($data['otp'])) {
+                    \App\Support\SignInLock::fail($user->email, $user);
+                }
                 throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app, a recovery code, or use a passkey.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']],
                     ['mfa_required' => true, 'passkey_available' => \App\Models\Passkey::where('user_id', $user->id)->exists()]);
             }
@@ -94,9 +99,13 @@ class AuthController extends Controller
         } else {
             $user = app(\App\Services\Auth\SsoService::class)->finish($data['state'], $data['code']);
         }
+        \App\Support\SignInLock::guard($user->email);
         $viaRecovery = false;
         if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)
             && ! ($viaRecovery = \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null))) {
+            if (! empty($data['otp'])) {
+                \App\Support\SignInLock::fail($user->email, $user);
+            }
             $ticket = $data['ticket'] ?? \Illuminate\Support\Str::random(40);
             \Illuminate\Support\Facades\Cache::put('sso:ticket:'.$ticket, $user->id, now()->addMinutes(5));
             throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']], ['mfa_required' => true, 'ticket' => $ticket]);
@@ -111,6 +120,7 @@ class AuthController extends Controller
     /** Issues the session token after a successful sign-in (password(+2FA) or passkey). */
     public function completeLogin(User $user, string $method)
     {
+        \App\Support\SignInLock::clear($user->email);
         if (! $user->current_organization_id || ! $user->membership()) {
             $user->current_organization_id = $user->memberships()->where('status', 'active')->value('organization_id');
         }
