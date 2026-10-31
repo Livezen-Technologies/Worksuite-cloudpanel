@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: grocy
+name: Grocy
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Grocy is a web-based household management and grocery list application.
+port: 80
+source: coolify
+documentation: https://github.com/grocy/grocy
+compose: "services:\n  grocy:\n    image: lscr.io/linuxserver/grocy:4.7.1\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: Europe/Madrid\n    volumes:\n    - grocy-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  grocy-config: {}\n"

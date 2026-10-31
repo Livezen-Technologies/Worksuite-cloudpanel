@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: leantime
+name: Leantime
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Leantime is a goals focused project management system for non-project managers.
+port: 8080
+source: coolify
+documentation: https://leantime.io
+compose: "services:\n  leantime:\n    image: leantime/leantime:latest\n    environment:\n      LEAN_APP_URL: ${SERVICE_URL}\n      LEAN_DB_HOST: mysql\n      LEAN_DB_USER: ${SERVICE_USER_MYSQLDB}\n      LEAN_DB_PASSWORD: ${SERVICE_PASSWORD_MYSQLDB}\n      LEAN_DB_DATABASE: ${DB_NAME:-leantime-db}\n      LEAN_SESSION_PASSWORD: ${SERVICE_PASSWORD_SALT}\n      LEAN_SESSION_EXPIRATION: ${SESSION_EXPIRATION:-28800}\n      LEAN_USE_REDIS: ${USE_REDIS:-true}\n      LEAN_REDIS_HOST: redis\n      LEAN_REDIS_PORT: ${REDIS_PORT:-6379}\n      LEAN_REDIS_SCHEME: ${REDIS_SCHEME:-tcp}\n    depends_on:\n      mysql:\n        condition: service_healthy\n      redis:\n        condition: service_started\n    volumes:\n    - public-userfiles:/var/www/html/public/userfiles\n    - userfiles:/var/www/html/userfiles\n    - plugins:/var/www/html/app/Plugins\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8080\n      interval: 5s\n      timeout: 20s\n      retries:\
+  \ 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  mysql:\n    image: mysql:8.4\n    volumes:\n    - leantime_mysql_data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n      MYSQL_USER: ${SERVICE_USER_MYSQLDB}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQLDB}\n      MYSQL_DATABASE: ${DB_NAME:-leantime-db}\n    command: --character-set-server=UTF8MB4 --collation-server=UTF8MB4_unicode_ci\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - localhost\n      interval: 30s\n      timeout: 10s\n      retries: 3\n  redis:\n    image: redis:7-alpine\n    command: redis-server --appendonly yes\n    volumes:\n    - leantime_redis_data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 5s\n      retries:\
+  \ 3\nvolumes:\n  public-userfiles: {}\n  userfiles: {}\n  plugins: {}\n  leantime_mysql_data: {}\n  leantime_redis_data: {}\n"

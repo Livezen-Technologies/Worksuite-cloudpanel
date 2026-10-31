@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: sftpgo
+name: Sftpgo
+category: Storage
+version: 1
+type: compose
+accent: '#6B16ED'
+description: SFTPGo is an event-driven SFTP, FTP/S, HTTP/S and WebDAV server.
+port: 8080
+source: coolify
+documentation: https://docs.sftpgo.com/2.7/
+compose: "services:\n  sftpgo:\n    image: ghcr.io/drakkan/sftpgo:v2.7-alpine\n    environment:\n      SFTPGO_DATA_PROVIDER__DRIVER: postgresql\n      SFTPGO_DATA_PROVIDER__CONNECTION_STRING: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/${POSTGRES_DATABASE:-sftpgo-db}\n      SFTPGO_SFTPD__BINDINGS__0__PORT: ${PORT_SFTPGO:-2222}\n      SFTPGO_LOG_LEVEL: ${LOG_LEVEL:-info}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    volumes:\n    - sftpgo-data:/srv/sftpgo/data\n    - sftpgo-keys:/var/lib/sftpgo\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  postgresql:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n\
+  \      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DATABASE:-sftpgo-db}\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 10s\n      retries: 20\nvolumes:\n  sftpgo-data: {}\n  sftpgo-keys: {}\n  postgresql-data: {}\n"

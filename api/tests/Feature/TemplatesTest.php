@@ -15,7 +15,25 @@ class TemplatesTest extends TestCase
     public function test_every_bundled_template_renders_and_validates(): void
     {
         $this->artisan('templates:validate')->assertSuccessful();
-        $this->assertGreaterThanOrEqual(50, count(app(\App\Services\TemplateService::class)->bundled()));
+        $this->assertGreaterThanOrEqual(280, count(app(\App\Services\TemplateService::class)->bundled()), 'SRS 4.36: 280+ templates');
+    }
+
+    public function test_imported_coolify_templates_render_with_our_secrets_routing_and_no_host_ports(): void
+    {
+        $t = app(\App\Services\TemplateService::class);
+        $imported = collect($t->bundled())->where('source', 'coolify');
+        $this->assertGreaterThanOrEqual(200, $imported->count());
+        foreach ($imported as $m) {
+            $r = $t->render($m, 'demo', 'demo.example.com', []);
+            $doc = \Symfony\Component\Yaml\Yaml::parse($r['compose']);
+            $this->assertStringNotContainsString('$SERVICE_', $r['compose'], $m['id'].': a Coolify variable was left unfilled');
+            $routed = collect($doc['services'])->filter(fn ($s) => ($s['labels']['traefik.http.routers.demo.rule'] ?? null) === 'Host(`demo.example.com`)');
+            $this->assertCount(1, $routed, $m['id'].': exactly one service is routed');
+            $this->assertSame((string) $m['port'], $routed->first()['labels']['traefik.http.services.demo.loadbalancer.server.port']);
+            foreach ($doc['services'] as $name => $svc) {
+                $this->assertArrayNotHasKey('ports', $svc, "{$m['id']}/{$name}: imported templates publish no host ports");
+            }
+        }
     }
 
     public function test_image_template_installs_with_generated_secrets_and_required_variables(): void

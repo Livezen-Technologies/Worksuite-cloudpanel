@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: cloudbeaver
+name: Cloudbeaver
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: CloudBeaver is a lightweight web application designed for comprehensive data management.
+port: 8978
+source: coolify
+documentation: https://dbeaver.com/docs/cloudbeaver/
+compose: "services:\n  cloudbeaver:\n    image: dbeaver/cloudbeaver:24\n    volumes:\n    - cloudbeaver-data:/opt/cloudbeaver/workspace\n    environment: {}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8978/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8978'\nvolumes:\n  cloudbeaver-data: {}\n"

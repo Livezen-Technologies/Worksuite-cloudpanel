@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: checkmate
+name: Checkmate
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An open source server and websites monitoring application
+port: 52345
+source: coolify
+documentation: https://docs.checkmate.so/
+compose: "services:\n  checkmate:\n    image: ghcr.io/bluewave-labs/checkmate-backend-mono-multiarch:v3.2.0\n    environment:\n      UPTIME_APP_API_BASE_URL: ${SERVICE_URL}/api/v1\n      UPTIME_APP_CLIENT_HOST: ${SERVICE_URL}\n      DB_CONNECTION_STRING: mongodb://mongodb:27017/uptime_db\n      CLIENT_HOST: ${SERVICE_URL}\n      JWT_SECRET: ${SERVICE_PASSWORD_JWT}\n    depends_on:\n    - mongodb\n    healthcheck:\n      test:\n      - CMD\n      - node\n      - -e\n      - 'require(''http'').get(''http://127.0.0.1:52345/health'', r => process.exit(r.statusCode === 200 ? 0 : 1)).on(''error'', () => process.exit(1))'\n      interval: 30s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '52345'\n  mongodb:\n    image: ghcr.io/bluewave-labs/checkmate-mongo:v3.2.0\n    command:\n    - mongod\n    - --quiet\n    - --bind_ip_all\n    volumes:\n\
+  \    - checkmate-mongo:/data/db\n    healthcheck:\n      test:\n      - CMD\n      - mongosh\n      - --eval\n      - db.adminCommand('ping')\n      - --quiet\n      interval: 5s\n      timeout: 30s\n      start_period: 10s\nvolumes:\n  checkmate-mongo: {}\n"

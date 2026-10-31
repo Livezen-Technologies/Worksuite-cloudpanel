@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: imgcompress
+name: Imgcompress
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Offline image compression, conversion, and AI background removal for Docker homelabs.
+port: 5000
+source: coolify
+documentation: https://imgcompress.karimzouine.com
+compose: "services:\n  imgcompress:\n    image: karimz1/imgcompress:0.6.0\n    environment:\n      DISABLE_LOGO: ${DISABLE_LOGO:-false}\n      DISABLE_STORAGE_MANAGEMENT: ${DISABLE_STORAGE_MANAGEMENT:-false}\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:5000\n      interval: 30s\n      timeout: 10s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5000'\n"

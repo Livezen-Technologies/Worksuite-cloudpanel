@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: siyuan
+name: Siyuan
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A privacy-first, self-hosted, fully open source personal knowledge management software, written in typescript and golang.
+port: 6806
+source: coolify
+documentation: https://github.com/siyuan-note/siyuan
+compose: "services:\n  siyuan:\n    image: b3log/siyuan:v3.3.5\n    volumes:\n    - siyuan_workspace:/siyuan/workspace\n    environment:\n      TZ: ${TZ:-UTC}\n      PUID: '1000'\n      PGID: '1000'\n      SIYUAN_ACCESS_AUTH_CODE: ${SERVICE_PASSWORD_SIYUAN}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --spider\n      - --quiet\n      - http://127.0.0.1:6806/api/system/version\n      interval: 15s\n      timeout: 10s\n      retries: 5\n      start_period: 20s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6806'\nvolumes:\n  siyuan_workspace: {}\n"

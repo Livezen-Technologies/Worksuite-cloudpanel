@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: plex
+name: Plex
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Plex organizes video, music and photos from personal media libraries and streams them to smart TVs, streaming boxes and mobile devices.
+port: 32400
+source: coolify
+documentation: https://docs.linuxserver.io/images/docker-plex/
+compose: "services:\n  plex:\n    image: lscr.io/linuxserver/plex:latest\n    environment:\n      _APP_URL: ${SERVICE_URL}\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-America/Toronto}\n      PLEX_CLAIM: ${PLEX_CLAIM}\n    volumes:\n    - plex-config:/config\n    - plex-tv:/tv\n    - plex-movies:/movies\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:32400/identity\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '32400'\nvolumes:\n  plex-config: {}\n  plex-tv: {}\n  plex-movies: {}\n"

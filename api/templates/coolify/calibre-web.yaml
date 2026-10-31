@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: calibre-web
+name: Calibre Web
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Calibre-web is a web app providing a clean interface for browsing, reading and downloading eBooks.
+port: 8083
+source: coolify
+documentation: https://github.com/linuxserver/docker-calibre-web
+compose: "services:\n  calibre-web:\n    image: lscr.io/linuxserver/calibre-web:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-Etc/UTC}\n      DOCKER_MODS: ${DOCKER_MODS:-linuxserver/mods:universal-calibre}\n    volumes:\n    - calibre_web_data:/config\n    - calibre_library:/books\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8083\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8083'\nvolumes:\n  calibre_web_data: {}\n  calibre_library: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: grimmory
+name: Grimmory
+category: Other
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Grimmory is a self-hosted application for managing your entire book collection in one place. Organize, read, annotate, sync across devices, and share without relying on third-party services.
+port: 80
+source: coolify
+documentation: https://github.com/grimmory-tools/grimmory
+compose: "services:\n  grimmory:\n    image: grimmory/grimmory:nightly-20260403-3a371f7\n    environment:\n      USER_ID: ${GRIMMORY_USER_ID:-0}\n      GROUP_ID: ${GRIMMORY_GROUP_ID:-0}\n      TZ: ${TZ:-UTC}\n      DATABASE_URL: jdbc:mariadb://mariadb:3306/${MARIADB_DATABASE:-grimmory-db}\n      DATABASE_USERNAME: ${SERVICE_USER_MARIADB}\n      DATABASE_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n      BOOKLORE_PORT: '80'\n    volumes:\n    - grimmory-data:/app/data\n    - grimmory-books:/books\n    - grimmory-bookdrop:/bookdrop\n    healthcheck:\n      test: wget --no-verbose --tries=1 --spider http://127.0.0.1/health || exit 1\n      interval: 10s\n      timeout: 5s\n      retries: 10\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:12\n    environment:\n      MARIADB_USER:\
+  \ ${SERVICE_USER_MARIADB}\n      MARIADB_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n      MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_MARIADBROOT}\n      MARIADB_DATABASE: ${MARIADB_DATABASE:-grimmory-db}\n    volumes:\n    - mariadb-data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 10s\n      timeout: 5s\n      retries: 10\nvolumes:\n  grimmory-data: {}\n  grimmory-books: {}\n  grimmory-bookdrop: {}\n  mariadb-data: {}\n"

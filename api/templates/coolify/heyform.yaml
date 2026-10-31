@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: heyform
+name: Heyform
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Allows anyone to create engaging conversational forms for surveys, questionnaires, quizzes, and polls. No coding skills required.
+port: 9157
+source: coolify
+documentation: https://docs.heyform.net/open-source/self-hosting
+compose: "services:\n  heyform:\n    image: heyform/community-edition:latest\n    volumes:\n    - heyform-assets:/app/static/upload\n    depends_on:\n      mongo:\n        condition: service_healthy\n      keydb:\n        condition: service_healthy\n    environment:\n      APP_HOMEPAGE_URL: ${SERVICE_URL}\n      SESSION_KEY: ${SERVICE_BASE64_SESSION}\n      FORM_ENCRYPTION_KEY: ${SERVICE_BASE64_FORM}\n      MONGO_URI: mongodb://mongo:27017/heyform\n      REDIS_HOST: keydb\n      REDIS_PORT: '6379'\n      REDIS_PASSWORD: ${SERVICE_PASSWORD_KEYDB}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:9157 || exit 1\n      interval: 5s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '9157'\n  mongo:\n    image: percona/percona-server-mongodb:latest\n    volumes:\n    - heyform-mongo-data:/data/db\n\
+  \    healthcheck:\n      test:\n      - CMD-SHELL\n      - echo 'ok' > /dev/null 2>&1\n      interval: 5s\n      timeout: 5s\n      retries: 10\n      start_period: 5s\n  keydb:\n    image: eqalpha/keydb:latest\n    command: keydb-server --appendonly yes\n    environment:\n      KEYDB_PASSWORD: ${SERVICE_PASSWORD_KEYDB}\n    volumes:\n    - heyform-keydb-data:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - keydb-cli\n      - --pass\n      - ${SERVICE_PASSWORD_KEYDB}\n      - ping\n      interval: 5s\n      timeout: 5s\n      retries: 10\n      start_period: 5s\nvolumes:\n  heyform-assets: {}\n  heyform-mongo-data: {}\n  heyform-keydb-data: {}\n"

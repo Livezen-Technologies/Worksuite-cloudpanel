@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: activepieces
+name: Activepieces
+category: Automation
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open source no-code business automation.
+port: 80
+source: coolify
+documentation: https://www.activepieces.com/docs/getting-started/introduction
+compose: "services:\n  activepieces:\n    image: ghcr.io/activepieces/activepieces:0.75.0\n    environment:\n      AP_API_KEY: ${SERVICE_PASSWORD_APIKEY}\n      AP_ENCRYPTION_KEY: ${SERVICE_PASSWORD_ENCRYPTIONKEY}\n      AP_ENGINE_EXECUTABLE_PATH: ${AP_ENGINE_EXECUTABLE_PATH:-dist/packages/engine/main.js}\n      AP_ENVIRONMENT: ${AP_ENVIRONMENT:-prod}\n      AP_EXECUTION_MODE: ${AP_EXECUTION_MODE:-UNSANDBOXED}\n      AP_FRONTEND_URL: ${SERVICE_URL}\n      AP_JWT_SECRET: ${SERVICE_PASSWORD_JWT}\n      AP_POSTGRES_DATABASE: ${POSTGRES_DB:-activepieces}\n      AP_POSTGRES_HOST: ${POSTGRES_HOST:-postgres}\n      AP_POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      AP_POSTGRES_PORT: ${POSTGRES_PORT:-5432}\n      AP_POSTGRES_USERNAME: ${SERVICE_USER_POSTGRES}\n      AP_REDIS_HOST: ${REDIS_HOST:-redis}\n      AP_REDIS_PORT: ${REDIS_PORT:-6379}\n      AP_SANDBOX_RUN_TIME_SECONDS: ${AP_SANDBOX_RUN_TIME_SECONDS:-600}\n      AP_TELEMETRY_ENABLED: ${AP_TELEMETRY_ENABLED:-false}\n      AP_TEMPLATES_SOURCE_URL:\
+  \ ${AP_TEMPLATES_SOURCE_URL:-https://cloud.activepieces.com/api/v1/flow-templates}\n      AP_TRIGGER_DEFAULT_POLL_INTERVAL: ${AP_TRIGGER_DEFAULT_POLL_INTERVAL:-5}\n      AP_SIGN_UP_ENABLED: ${AP_SIGN_UP_ENABLED:-true}\n      AP_WEBHOOK_TIMEOUT_SECONDS: ${AP_WEBHOOK_TIMEOUT_SECONDS:-30}\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_started\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  postgres:\n    image: postgres:18-alpine\n    environment:\n      POSTGRES_DB: ${POSTGRES_DB:-activepieces}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PORT: ${POSTGRES_PORT:-5432}\n\
+  \    volumes:\n    - pg-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $activepieces\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:7-alpine\n    volumes:\n    - redis_data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  pg-data: {}\n  redis_data: {}\n"

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: silverbullet
+name: Silverbullet
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: SilverBullet is a tool to develop, organize, and structure your personal knowledge and to make it universally accessible across all your devices.
+port: 3000
+source: coolify
+documentation: https://v2.silverbullet.md/Install/Configuration
+compose: "services:\n  silverbullet:\n    image: ghcr.io/silverbulletmd/silverbullet:v2\n    environment:\n      SB_USER: ${SERVICE_USER_SILVERBULLET}:${SERVICE_PASSWORD_SILVERBULLET}\n    volumes:\n    - silverbullet-space:/space\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --spider\n      - --quiet\n      - http://127.0.0.1:3000\n      interval: 2s\n      timeout: 10s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  silverbullet-space: {}\n"

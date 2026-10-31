@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: strapi
+name: Strapi
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open-source headless CMS to build powerful APIs with built-in content management.
+port: 1337
+source: coolify
+documentation: https://docs.strapi.io/
+compose: "services:\n  strapi:\n    image: elestio/strapi-production:v5.33.4\n    entrypoint: /bin/sh\n    command:\n    - -c\n    - \"cat > /opt/app/src/admin/vite.config.js << 'EOFVITE'\\nconst { mergeConfig } = require('vite');\\nmodule.exports = (config) => {\\n  return mergeConfig(config, {\\n    resolve: {\\n      alias: {\\n        '@': '/src',\\n      },\\n    },\\n    server: {\\n      allowedHosts: ['${SERVICE_FQDN}']\\n    }\\n  });\\n};\\nEOFVITE\\nexec npm run develop\\n\"\n    environment:\n      DATABASE_CLIENT: postgres\n      DATABASE_HOST: postgresql\n      DATABASE_PORT: '5432'\n      DATABASE_NAME: ${POSTGRESQL_DATABASE:-strapi}\n      DATABASE_USERNAME: ${SERVICE_USER_POSTGRESQL}\n      DATABASE_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      JWT_SECRET: ${SERVICE_BASE64_SECRET}\n      ADMIN_JWT_SECRET: ${SERVICE_BASE64_SECRET}\n      APP_KEYS: ${SERVICE_BASE64_KEY}\n      STRAPI_TELEMETRY_DISABLED: ${STRAPI_TELEMETRY_DISABLED:-true}\n      STRAPI_LICENSE: ${STRAPI_LICENSE}\n\
+  \      NODE_ENV: ${NODE_ENV:-development}\n      BROWSER: ${BROWSER:-true}\n      STRAPI_PLUGIN_I18N_INIT_LOCALE_CODE: ${STRAPI_PLUGIN_I18N_INIT_LOCALE_CODE:-en}\n      STRAPI_ENFORCE_SOURCEMAPS: ${STRAPI_ENFORCE_SOURCEMAPS:-false}\n      FAST_REFRESH: ${FAST_REFRESH:-true}\n    volumes:\n    - strapi-config:/opt/app/config\n    - strapi-src:/opt/app/src\n    - strapi-uploads:/opt/app/public/uploads\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:1337/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '1337'\n  postgresql:\n    image: elestio/postgres:latest\n    environment:\n      POSTGRES_DB: ${POSTGRESQL_DATABASE:-strapi}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n\
+  \      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      PGDATA: /var/lib/postgresql/data\n    volumes:\n    - strapi-postgresql-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  strapi-config: {}\n  strapi-src: {}\n  strapi-uploads: {}\n  strapi-postgresql-data: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: supertokens-with-postgresql
+name: Supertokens With Postgresql
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An open-source authentication solution that simplifies the implementation of secure user authentication and session management for web and mobile applications.
+port: 3567
+source: coolify
+documentation: https://supertokens.com/docs/guides
+compose: "services:\n  supertokens:\n    image: registry.supertokens.io/supertokens/supertokens-postgresql:latest\n    depends_on:\n      postgres:\n        condition: service_healthy\n    environment:\n      API_KEYS: ${API_KEYS:-}\n      POSTGRESQL_CONNECTION_URI: '\"postgresql://${SERVICE_USER_POSTGRESQL}:${SERVICE_PASSWORD_POSTGRESQL}@postgres:5432/${POSTGRES_DB:-supertokens}\"'\n    healthcheck:\n      test: 'bash -c ''exec 3<>/dev/tcp/127.0.0.1/3567 && echo -e \"GET /hello HTTP/1.1\\r\\nhost: 127.0.0.1:3567\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep \"Hello\"''\n\n        '\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3567'\n  postgres:\n    image: postgres:16\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n\
+  \      POSTGRES_DB: ${POSTGRES_DB:-supertokens}\n    volumes:\n    - supertokens-postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD\n      - pg_isready\n      - -U\n      - ${SERVICE_USER_POSTGRESQL}\n      - -d\n      - ${POSTGRES_DB:-supertokens}\n      interval: 5s\n      timeout: 5s\n      retries: 5\nvolumes:\n  supertokens-postgres-data: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: bookstack
+name: Bookstack
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: BookStack is a simple, self-hosted, easy-to-use platform for organising and storing information
+port: 80
+source: coolify
+documentation: https://www.bookstackapp.com/docs/
+compose: "services:\n  bookstack:\n    image: lscr.io/linuxserver/bookstack:latest\n    environment:\n      APP_URL: ${SERVICE_URL}\n      APP_KEY: ${SERVICE_PASSWORD_APPKEY}\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-Europe/Berlin}\n      DB_HOST: mariadb\n      DB_PORT: '3306'\n      DB_USERNAME: ${SERVICE_USER_MYSQL}\n      DB_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      DB_DATABASE: ${MYSQL_DATABASE:-bookstack}\n      QUEUE_CONNECTION: ${QUEUE_CONNECTION}\n      GITHUB_APP_ID: ${GITHUB_APP_ID}\n      GITHUB_APP_SECRET: ${GITHUB_APP_SECRET}\n      MAIL_DRIVER: ${MAIL_DRIVER:-smtp}\n      MAIL_HOST: ${MAIL_HOST}\n      MAIL_PORT: ${MAIL_PORT:-587}\n      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-tls}\n      MAIL_USERNAME: ${MAIL_USERNAME}\n      MAIL_PASSWORD: ${MAIL_PASSWORD}\n      MAIL_FROM: ${MAIL_FROM}\n      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-BookStack}\n    volumes:\n    - bookstack-data:/config\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -f http://127.0.0.1:80/\n\
+  \      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: lscr.io/linuxserver/mariadb:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-Europe/Berlin}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-bookstack}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n    volumes:\n    - bookstack-mariadb-data:/config\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  bookstack-data: {}\n  bookstack-mariadb-data: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: listmonk
+name: Listmonk
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Self-hosted newsletter and mailing list manager
+port: 9000
+source: coolify
+documentation: https://listmonk.app/
+compose: "services:\n  listmonk:\n    image: listmonk/listmonk:v6.0.0\n    environment:\n      LISTMONK_app__address: 0.0.0.0:9000\n      LISTMONK_db__host: postgres\n      LISTMONK_db__database: listmonk\n      LISTMONK_db__user: ${SERVICE_USER_POSTGRES}\n      LISTMONK_db__password: ${SERVICE_PASSWORD_POSTGRES}\n      LISTMONK_db__port: '5432'\n      TZ: Etc/UTC\n    volumes:\n    - listmonk-data:/listmonk/uploads\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:9000\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgres:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '9000'\n  listmonk-initial-database-setup:\n    image: listmonk/listmonk:v6.0.0\n    command: ./listmonk --install --yes --idempotent\n    restart: 'no'\n    depends_on:\n\
+  \      postgres:\n        condition: service_healthy\n    environment:\n      LISTMONK_db__host: postgres\n      LISTMONK_db__database: listmonk\n      LISTMONK_db__user: ${SERVICE_USER_POSTGRES}\n      LISTMONK_db__password: ${SERVICE_PASSWORD_POSTGRES}\n      LISTMONK_db__port: '5432'\n  postgres:\n    image: postgres:18-alpine\n    environment:\n      POSTGRES_DB: listmonk\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  listmonk-data: {}\n  postgres-data: {}\n"

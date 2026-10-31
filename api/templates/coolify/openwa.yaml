@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: openwa
+name: Openwa
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Free, open source, self-hosted WhatsApp API gateway with bundled dashboard.
+port: 2785
+source: coolify
+documentation: https://github.com/rmyndharis/OpenWA
+compose: "services:\n  openwa:\n    image: ghcr.io/rmyndharis/openwa:0.23.1\n    security_opt:\n    - no-new-privileges:true\n    cap_drop:\n    - ALL\n    cap_add:\n    - CHOWN\n    - DAC_OVERRIDE\n    - FOWNER\n    - SETGID\n    - SETUID\n    read_only: true\n    tmpfs:\n    - /tmp\n    pids_limit: ${OPENWA_PIDS_LIMIT:-2048}\n    mem_limit: ${OPENWA_MEM_LIMIT:-2g}\n    environment:\n      NODE_ENV: production\n      HOME: /tmp\n      XDG_CONFIG_HOME: /tmp/.config\n      XDG_CACHE_HOME: /tmp/.cache\n      PORT: '2785'\n      LOG_LEVEL: ${LOG_LEVEL:-info}\n      BASE_URL: ${SERVICE_URL}\n      DASHBOARD_URL: ${SERVICE_URL}\n      API_MASTER_KEY: ${SERVICE_PASSWORD_OPENWA}\n      DATABASE_TYPE: sqlite\n      DATABASE_NAME: ./data/openwa.sqlite\n      DATABASE_SYNCHRONIZE: 'true'\n      DATABASE_LOGGING: 'false'\n      ENGINE_TYPE: ${ENGINE_TYPE:-whatsapp-web.js}\n      SESSION_DATA_PATH: ./data/sessions\n      PUPPETEER_HEADLESS: 'true'\n      PUPPETEER_ARGS: --no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage\n\
+  \      PUPPETEER_EXECUTABLE_PATH: /usr/local/bin/puppeteer-chrome\n      STORAGE_TYPE: local\n      STORAGE_LOCAL_PATH: ./data/media\n      REDIS_ENABLED: 'false'\n      QUEUE_ENABLED: 'false'\n      CACHE_ENABLED: 'false'\n      AUTO_START_SESSIONS: ${AUTO_START_SESSIONS:-false}\n    volumes:\n    - openwa-data:/app/data\n    healthcheck:\n      test:\n      - CMD\n      - node\n      - -e\n      - 'require(''http'').get(''http://localhost:2785/api/health/ready'', (r) => process.exit(r.statusCode === 200 ? 0 : 1))'\n      interval: 30s\n      timeout: 10s\n      retries: 3\n      start_period: 30s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '2785'\nvolumes:\n  openwa-data: {}\n"

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: statusnook
+name: Statusnook
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Effortlessly deploy a status page and start monitoring endpoints in minutes
+port: 8000
+source: coolify
+documentation: https://statusnook.com
+compose: "services:\n  statusnook:\n    environment: {}\n    volumes:\n    - statusnook-data:/app/statusnook-data\n    image: goksan/statusnook\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\nvolumes:\n  statusnook-data: {}\n"

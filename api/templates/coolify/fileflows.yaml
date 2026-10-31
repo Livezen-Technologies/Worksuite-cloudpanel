@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: fileflows
+name: Fileflows
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: FileFlows can drastically reduce your files, up to 90%, saving you space and money. No need to buy more hard drives, just shrink your files and start saving.
+port: 5000
+source: coolify
+documentation: https://fileflows.com/docs/
+compose: "services:\n  fileflows:\n    image: revenz/fileflows\n    environment:\n      _APP_URL: ${SERVICE_URL}\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-America/Toronto}\n    volumes:\n    - fileflows_temp:/temp\n    - fileflows_configs:/app/Data\n    - fileflows_logs:/app/Logs\n    - fileflows_common:/app/common\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:5000/api/system/version\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5000'\nvolumes:\n  fileflows_temp: {}\n  fileflows_configs: {}\n  fileflows_logs: {}\n  fileflows_common: {}\n"

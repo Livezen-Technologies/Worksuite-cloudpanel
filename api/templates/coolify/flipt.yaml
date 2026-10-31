@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: flipt
+name: Flipt
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Flipt is a fully managed feature flag solution that enables you to keep your feature flags and remote config next to your code in Git.
+port: 8080
+source: coolify
+documentation: https://docs.flipt.io/cloud/overview
+compose: "services:\n  flipt:\n    image: docker.flipt.io/flipt/flipt:latest\n    volumes:\n    - flipt-data:/var/opt/flipt\n    environment: {}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --spider\n      - --quiet\n      - http://127.0.0.1:8080\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  flipt-data: {}\n"

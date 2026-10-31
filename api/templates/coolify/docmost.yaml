@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: docmost
+name: Docmost
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open-source collaborative wiki and documentation software
+port: 3000
+source: coolify
+documentation: https://docmost.com/docs/
+compose: "services:\n  docmost:\n    image: docmost/docmost:latest\n    depends_on:\n      postgresql:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    environment:\n      APP_SECRET: ${SERVICE_BASE64_APPKEY}\n      APP_URL: ${SERVICE_URL}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql/docmost?schema=public\n      REDIS_URL: redis://redis:6379\n      MAIL_DRIVER: ${MAIL_DRIVER:?}\n      SMTP_HOST: ${SMTP_HOST}\n      SMTP_PORT: ${SMTP_PORT}\n      SMTP_USERNAME: ${SMTP_USERNAME}\n      SMTP_PASSWORD: ${SMTP_PASSWORD}\n      SMTP_SECURE: ${SMTP_SECURE}\n      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS}\n      MAIL_FROM_NAME: ${MAIL_FROM_NAME}\n      POSTMARK_TOKEN: ${POSTMARK_TOKEN}\n    volumes:\n    - docmost:/app/data/storage\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000\n      interval: 2s\n      timeout: 10s\n      retries: 20\n    labels:\n\
+  \      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: docmost\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 10s\n      retries: 20\n  redis:\n    image: redis:7.2-alpine\n    volumes:\n    - redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - PING\n      interval: 5s\n      timeout: 10s\n      retries: 20\nvolumes:\n  docmost: {}\n  postgresql-data: {}\n  redis-data: {}\n"

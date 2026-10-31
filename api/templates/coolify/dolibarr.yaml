@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: dolibarr
+name: Dolibarr
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Dolibarr is a modern software package to manage your organization's activity (contacts, quotes, invoices, orders, stocks, agenda, hr, expense reports, accountancy, ecm, manufacturing, ...).
+port: 80
+source: coolify
+documentation: https://www.dolibarr.org/documentation-home.php
+compose: "services:\n  dolibarr:\n    image: dolibarr/dolibarr:latest\n    environment:\n      WWW_USER_ID: ${WWW_USER_ID:-1000}\n      WWW_GROUP_ID: ${WWW_GROUP_ID:-1000}\n      DOLI_DB_HOST: mariadb\n      DOLI_DB_NAME: ${MYSQL_DATABASE:-dolibarr-db}\n      DOLI_DB_USER: ${SERVICE_USER_MYSQL}\n      DOLI_DB_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      DOLI_URL_ROOT: ${SERVICE_URL}\n      DOLI_ADMIN_LOGIN: ${SERVICE_USER_DOLIBARR}\n      DOLI_ADMIN_PASSWORD: ${SERVICE_PASSWORD_DOLIBARR}\n      DOLI_CRON: ${DOLI_CRON:-0}\n      DOLI_INIT_DEMO: ${DOLI_INIT_DEMO:-0}\n      DOLI_COMPANY_NAME: ${DOLI_COMPANY_NAME:-MyBigCompany}\n    volumes:\n    - dolibarr_docs:/var/www/documents\n    - dolibarr_custom:/var/www/html/custom\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      start_period: 120s\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:latest\n    environment:\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-dolibarr-db}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n    volumes:\n    - dolibarr_mariadb_data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  dolibarr_docs: {}\n  dolibarr_custom: {}\n  dolibarr_mariadb_data: {}\n"

@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: peertube
+name: Peertube
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Free, open-source and decentralized video platform.
+port: 9000
+source: coolify
+documentation: https://docs.joinpeertube.org/install/docker
+compose: "services:\n  peertube:\n    image: chocobozzz/peertube:v8.2.4\n    environment:\n      PEERTUBE_WEBSERVER_HOSTNAME: ${SERVICE_FQDN}\n      PEERTUBE_WEBSERVER_PORT: ${PEERTUBE_WEBSERVER_PORT:-443}\n      PEERTUBE_WEBSERVER_HTTPS: ${PEERTUBE_WEBSERVER_HTTPS:-true}\n      PEERTUBE_TRUST_PROXY: '[\"127.0.0.1\", \"loopback\", \"172.16.0.0/12\"]'\n      PEERTUBE_SECRET: ${SERVICE_HEX_PEERTUBESECRET}\n      PEERTUBE_DB_HOSTNAME: postgres\n      PEERTUBE_DB_USERNAME: ${SERVICE_USER_POSTGRESQL}\n      PEERTUBE_DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      PEERTUBE_DB_NAME: ${POSTGRES_DB:-peertube}\n      PEERTUBE_DB_SSL: 'false'\n      PEERTUBE_REDIS_HOSTNAME: redis\n      PEERTUBE_SMTP_HOSTNAME: postfix\n      PEERTUBE_SMTP_PORT: '25'\n      PEERTUBE_SMTP_FROM: noreply@${SERVICE_FQDN}\n      PEERTUBE_SMTP_TLS: 'false'\n      PEERTUBE_SMTP_DISABLE_STARTTLS: 'false'\n      PEERTUBE_ADMIN_EMAIL: ${PEERTUBE_ADMIN_EMAIL:?}\n    volumes:\n    - peertube-data:/data\n    - peertube-config:/config\n\
+  \    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:9000/api/v1/ping\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    restart: always\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '9000'\n  postgres:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      POSTGRES_DB: ${POSTGRES_DB:-peertube}\n    volumes:\n    - db-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB:-peertube}\n      interval: 5s\n      timeout: 5s\n      retries: 10\n    restart: always\n  redis:\n    image: redis:8-alpine\n  \
+  \  volumes:\n    - redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 5s\n      retries: 10\n    restart: always\n  postfix:\n    image: mwader/postfix-relay:1.2.17\n    environment:\n      POSTFIX_myhostname: ${SERVICE_FQDN}\n    restart: always\nvolumes:\n  peertube-data: {}\n  peertube-config: {}\n  db-data: {}\n  redis-data: {}\n"

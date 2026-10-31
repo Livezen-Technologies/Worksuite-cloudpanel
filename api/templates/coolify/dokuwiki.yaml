@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: dokuwiki
+name: Dokuwiki
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A lightweight and easy-to-use wiki platform for creating and managing documentation and knowledge bases.
+port: 80
+source: coolify
+documentation: https://www.dokuwiki.org/
+compose: "services:\n  dokuwiki:\n    image: lscr.io/linuxserver/dokuwiki:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: Europe/Madrid\n    volumes:\n    - dokuwiki-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  dokuwiki-config: {}\n"

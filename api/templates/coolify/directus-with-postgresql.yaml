@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: directus-with-postgresql
+name: Directus With Postgresql
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Directus wraps databases with a dynamic API, and provides an intuitive app for managing its content.
+port: 8055
+source: coolify
+documentation: https://directus.io
+compose: "services:\n  directus:\n    image: directus/directus:11\n    volumes:\n    - directus-uploads:/directus/uploads\n    - directus-extensions:/directus/extensions\n    - directus-templates:/directus/templates\n    environment:\n      KEY: ${SERVICE_BASE64_KEY}\n      SECRET: ${SERVICE_BASE64_SECRET}\n      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}\n      ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}\n      DB_CLIENT: postgres\n      DB_HOST: postgresql\n      DB_PORT: '5432'\n      DB_DATABASE: ${POSTGRESQL_DATABASE:-directus}\n      DB_USER: ${SERVICE_USER_POSTGRESQL}\n      DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      REDIS_HOST: redis\n      REDIS_PORT: '6379'\n      WEBSOCKETS_ENABLED: 'true'\n      CORS_ENABLED: ${CORS_ENABLED:-true}\n      CORS_ORIGIN: ${CORS_ORIGIN}\n      CORS_METHODS: ${CORS_METHODS:-GET,POST,PATCH,DELETE,OPTIONS}\n      CORS_ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS:-Content-Type,Authorization}\n      CORS_CREDENTIALS: ${CORS_CREDENTIALS:-true}\n  \
+  \  healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8055/admin/login\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgresql:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8055'\n  postgresql:\n    image: postgis/postgis:16-3.4-alpine\n    platform: linux/amd64\n    volumes:\n    - directus-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      POSTGRES_DB: ${POSTGRESQL_DATABASE:-directus}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n\
+  \    image: redis:7-alpine\n    command: redis-server --appendonly yes\n    volumes:\n    - directus-redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  directus-uploads: {}\n  directus-extensions: {}\n  directus-templates: {}\n  directus-postgresql-data: {}\n  directus-redis-data: {}\n"

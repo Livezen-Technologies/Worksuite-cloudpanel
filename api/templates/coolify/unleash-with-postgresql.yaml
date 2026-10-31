@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: unleash-with-postgresql
+name: Unleash With Postgresql
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open source feature flag management for enterprises.
+port: 4242
+source: coolify
+documentation: https://docs.getunleash.io
+compose: "services:\n  unleash:\n    image: unleashorg/unleash-server:latest\n    environment:\n      UNLEASH_URL: ${SERVICE_URL}\n      UNLEASH_DEFAULT_ADMIN_PASSWORD: ${SERVICE_PASSWORD_UNLEASH}\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres/db\n      DATABASE_SSL: 'false'\n      LOG_LEVEL: warn\n      INIT_FRONTEND_API_TOKENS: default:default:development.unleash-insecure-frontend-api-token\n      INIT_CLIENT_API_TOKENS: default:development.unleash-insecure-api-token\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test: wget --no-verbose --tries=1 --spider http://127.0.0.1:4242/health || exit 1\n      interval: 1s\n      timeout: 1m\n      retries: 5\n      start_period: 15s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4242'\n  postgres:\n    image: postgres:15\n \
+  \   volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: db\n    healthcheck:\n      test:\n      - CMD\n      - pg_isready\n      - --username=${SERVICE_USER_POSTGRES}\n      - --host=127.0.0.1\n      - --port=5432\n      - --dbname=db\n      interval: 2s\n      timeout: 1m\n      retries: 5\n      start_period: 10s\nvolumes:\n  postgresql-data: {}\n"

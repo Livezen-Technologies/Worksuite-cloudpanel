@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: rallly
+name: Rallly
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Rallly is an open-source scheduling and collaboration tool designed to make organizing events and meetings easier.
+port: 3000
+source: coolify
+documentation: https://support.rallly.co/self-hosting/introduction
+compose: "services:\n  rallly_db:\n    image: postgres:18\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    environment:\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-rallly}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -d $rallly -U $${POSTGRES_USER}\n      interval: 2s\n      timeout: 10s\n      retries: 15\n  rallly:\n    image: lukevella/rallly:latest\n    platform: linux/amd64\n    environment:\n      PROXY_MODE: external\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@rallly_db:5432/${POSTGRES_DB:-rallly}\n      SECRET_PASSWORD: ${SERVICE_PASSWORD_RALLLY}\n      NEXT_PUBLIC_BASE_URL: ${SERVICE_URL}\n      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}\n      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:?}\n      ALLOWED_EMAILS: ${ALLOWED_EMAILS}\n      SUPPORT_EMAIL: ${SUPPORT_EMAIL:?}\n      SMTP_HOST: ${SMTP_HOST}\n\
+  \      SMTP_PORT: ${SMTP_PORT}\n      SMTP_SECURE: ${SMTP_SECURE:-false}\n      SMTP_USER: ${SMTP_USER}\n      SMTP_PWD: ${SMTP_PWD}\n      SMTP_TLS_ENABLED: ${SMTP_TLS_ENABLED:-false}\n      BETTER_AUTH_TRUSTED_ORIGINS: ${SERVICE_URL}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/3000' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      rallly_db:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  postgres-data: {}\n"
