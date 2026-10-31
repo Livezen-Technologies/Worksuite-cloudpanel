@@ -1,3 +1,4 @@
+import { Empty, splitEmpty } from './Card'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Menu, MenuButton, MenuItem, MenuItems, MenuSeparator } from '@headlessui/react'
 import { api } from '../api/client'
@@ -17,6 +18,13 @@ import { exportTable, rowsFor } from './table/exporting'
  * CSV / Excel / PDF export and saved views (personal or shared, synced via the API).
  * Every existing prop keeps its meaning, so older call sites work unchanged.
  */
+
+/** Table empty text: a bold first sentence and a muted explanation. */
+function EmptyText({ children }: { children: ReactNode }) {
+  if (typeof children !== 'string') return <div className="text-sm text-muted">{children}</div>
+  const [t, b] = splitEmpty(children)
+  return <><div className="text-sm font-semibold">{t}</div>{b && <div className="text-sm text-muted mt-0.5 max-w-md mx-auto">{b}</div>}</>
+}
 
 export interface Column<T> {
   key: string
@@ -414,8 +422,8 @@ export function DataTable<T>(p: DataTableProps<T>) {
               ))}
               {!p.loading && shown.length === 0 && (
                 <tr><td colSpan={span} className="p-10 text-center">
-                  <span className="inline-grid place-items-center w-11 h-11 rounded-full bg-head text-muted mb-2"><Icon name="inbox" size={22} /></span>
-                  <div className="text-sm text-muted">{rows.length && (q || condChips.length || filter !== 'all') ? 'No rows match these filters.' : p.empty ?? 'Nothing to show.'}</div>
+                  {(typeof p.empty === 'string' || p.empty == null || rows.length > 0) && <span className="inline-grid place-items-center w-11 h-11 rounded-full bg-head text-muted mb-2"><Icon name="inbox" size={22} /></span>}
+                  {rows.length && (q || condChips.length || filter !== 'all') ? <div className="text-sm text-muted">No rows match these filters.</div> : <EmptyText>{p.empty ?? 'Nothing to show.'}</EmptyText>}
                   {rows.length > 0 && (q || condChips.length > 0 || filter !== 'all') && <button type="button" className="btn btn-sm mt-3" onClick={() => { setQ(''); setConds([]); setFilter('all') }}>Clear filters</button>}
                 </td></tr>
               )}
@@ -441,7 +449,7 @@ export function DataTable<T>(p: DataTableProps<T>) {
       ) : (
         <div className={layout === 'grid' ? 'grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]' : 'flex flex-col'}>
           {p.loading && Array.from({ length: 4 }, (_, i) => <div key={i} className="m-3 h-20 rounded-xl bg-head animate-pulse" aria-hidden="true" />)}
-          {!p.loading && shown.length === 0 && <div className="p-10 text-center text-sm text-muted">{p.empty ?? 'Nothing to show.'}</div>}
+          {!p.loading && shown.length === 0 && <Empty>{p.empty ?? 'Nothing to show.'}</Empty>}
           {!p.loading && shown.map((r) => {
             const id = rowKey(r)
             const [head, ...rest] = visible.filter((c) => c.header)

@@ -234,7 +234,7 @@ export default function Servers() {
           <button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>
         </>} />
       {isLoading && <Card>Loading servers…</Card>}
-      {!isLoading && rows.length === 0 && <Card><Empty>No servers yet. Add your first server to start managing containers.</Empty></Card>}
+      {!isLoading && rows.length === 0 && <Card><Empty icon="server" action={<button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>}>No servers yet. Add your first server to start managing containers.</Empty></Card>}
       {groups.map(([g, list]) => (
         <div key={g} className="flex flex-col gap-3">
           {g && <h2 className="m-0 text-sm font-semibold text-muted">{g}</h2>}
