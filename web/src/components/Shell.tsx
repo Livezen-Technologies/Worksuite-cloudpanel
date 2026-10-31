@@ -53,15 +53,17 @@ export function Brand({ title, subtitle }: { title: string; subtitle?: string })
 /** The narrow icon rail: one entry per major area of the product. */
 function Rail({ items }: { items: RailItem[] }) {
   return (
-    <nav aria-label="Areas" className="hidden lg:flex w-[76px] flex-none flex-col items-center gap-1 px-1.5 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
+    <nav aria-label="Areas" className="hidden lg:flex w-[92px] flex-none flex-col items-center gap-1.5 px-2 border-r border-line bg-side py-3 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
-          className={({ isActive }) => `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg ring-2 ring-inset ring-accent' : 'text-muted hover:text-fg hover:bg-head'}`}>
-          <Icon name={r.icon} size={20} />
-          <span className="w-full truncate text-center text-[10px] font-semibold leading-tight">{r.label}</span>
+          className={({ isActive }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          {({ isActive }) => (<>
+            <Icon name={r.icon} size={20} />
+            <span className={`w-full truncate text-center text-[11px] leading-tight ${isActive ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
           )}
+          </>)}
         </NavLink>
       ))}
     </nav>
