@@ -186,6 +186,7 @@ class MailService implements HandlesCommandResults
             }
             $attrs = ['mail_domain_id' => $domain->id, 'local_part' => $local];
         }
+        $this->checkDomainLimits($domain, $box, array_key_exists('quota_mb', $data) ? (int) $data['quota_mb'] : ($box ? null : 1024));
         if (isset($data['password'])) {
             $attrs['password_hash'] = self::hash($data['password']);
         }
@@ -217,6 +218,9 @@ class MailService implements HandlesCommandResults
         }
         if (Mailbox::allTenants()->where('mail_domain_id', $domain->id)->where('local_part', $local)->exists()) {
             throw ApiException::conflict("{$local}@{$domain->name} is a mailbox.");
+        }
+        if (! MailAlias::allTenants()->where('mail_domain_id', $domain->id)->where('local_part', $local)->exists()) {
+            $this->checkDomainLimits($domain, null, null, true);
         }
         $alias = MailAlias::allTenants()->updateOrCreate(['mail_domain_id' => $domain->id, 'local_part' => $local], ['organization_id' => $domain->organization_id, 'destinations' => $destinations]);
         $this->audit->log('mail.alias_save', 'mail_aliases', $alias->id, ['address' => $local.'@'.$domain->name, 'destinations' => $destinations]);
@@ -272,10 +276,23 @@ class MailService implements HandlesCommandResults
         $extra['postfix-sasl-password.cf'] = $relay ? "[{$relay['host']}]:{$relay['port']} {$relay['username']}:{$mail->relay_password}\n" : '';
         // MAIL-012: auto-replies as per-user Sieve scripts, which docker-mailserver installs.
         foreach ($domains as $d) {
-            foreach (Mailbox::allTenants()->where('mail_domain_id', $d->id)->whereNotNull('autoresponder')->get() as $b) {
-                $extra[$b->local_part.'@'.$d->name.'.dovecot.sieve'] = self::sieve($b->autoresponder);
+            foreach (Mailbox::allTenants()->where('mail_domain_id', $d->id)->where(fn ($q) => $q->whereNotNull('autoresponder')->orWhereNotNull('spam'))->get() as $b) {
+                $extra[$b->local_part.'@'.$d->name.'.dovecot.sieve'] = self::sieve($b->autoresponder, $b->spam);
             }
         }
+        // MCL: Rspamd's score header for the Sieve spam levels.
+        $extra['rspamd/override.d/milter_headers.conf'] = "extended_spam_headers = true;\n";
+        // MCL: held mailboxes and domains cannot send (docker-mailserver's sender access map).
+        $held = [];
+        foreach ($domains as $d) {
+            if ($d->held_at) {
+                $held[] = $d->name.' REJECT Sending from this domain is on hold; contact your provider';
+            }
+            foreach (Mailbox::allTenants()->where('mail_domain_id', $d->id)->whereNotNull('held_at')->orderBy('local_part')->get() as $b) {
+                $held[] = $b->local_part.'@'.$d->name.' REJECT Sending from this mailbox is on hold; contact your provider';
+            }
+        }
+        $extra['postfix-send-access.cf'] = $lines($held);
 
         // MCL-10: imports sign in as a master user, so mailbox passwords are never needed.
         $extra['dovecot-masters.cf'] = self::MASTER_USER.'|'.self::hash($this->masterPassword($mail))."\n";
@@ -398,21 +415,94 @@ class MailService implements HandlesCommandResults
     }
 
     /** A vacation script; quotes and backslashes are escaped for Sieve strings. */
-    public static function sieve(?array $reply): string
+    /** MCL: Rspamd score at which each per-mailbox spam level files mail into Junk. */
+    public const SPAM_LEVELS = ['off' => null, 'relaxed' => 10, 'normal' => 6, 'strict' => 3];
+
+    /** One Sieve script per mailbox: spam rules (MCL) first, then the auto-reply (MAIL-012). */
+    public static function sieve(?array $reply, ?array $spam = null): string
     {
+        $q = fn (string $v) => '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], $v).'"';
+        $list = fn (array $v) => '['.implode(', ', array_map($q, $v)).']';
+        $require = [];
+        $body = [];
+        $allow = array_values(array_filter((array) ($spam['allow'] ?? [])));
+        $block = array_values(array_filter((array) ($spam['block'] ?? [])));
+        $threshold = self::SPAM_LEVELS[$spam['level'] ?? 'off'] ?? null;
+        $tests = fn (array $entries) => array_filter([
+            ($a = array_values(array_filter($entries, fn ($e) => str_contains($e, '@')))) ? 'address :is "from" '.$list($a) : null,
+            ($d = array_values(array_filter($entries, fn ($e) => ! str_contains($e, '@')))) ? 'address :domain :is "from" '.$list($d) : null,
+        ]);
+        if ($allow) {
+            $body[] = 'if anyof('.implode(', ', $tests($allow)).') { keep; stop; }';
+        }
+        if ($block || $threshold) {
+            array_push($require, 'fileinto', 'mailbox');
+        }
+        if ($block) {
+            $body[] = 'if anyof('.implode(', ', $tests($block)).') { fileinto :create "Junk"; stop; }';
+        }
+        if ($threshold) {
+            array_push($require, 'relational', 'comparator-i;ascii-numeric');
+            // Negative scores are not numbers to i;ascii-numeric, so they are excluded first.
+            $body[] = 'if allof(header :matches "X-Rspamd-Score" "*", not header :matches "X-Rspamd-Score" "-*", header :value "ge" :comparator "i;ascii-numeric" "X-Rspamd-Score" "'.$threshold.'") { fileinto :create "Junk"; stop; }';
+        }
         $active = ($reply['enabled'] ?? false) && (empty($reply['until']) || now()->lt(\Carbon\Carbon::parse($reply['until'])->endOfDay()));
-        if (! $active) {
+        if ($active) {
+            $require[] = 'vacation';
+            $cond = '';
+            if (! empty($reply['until'])) {
+                array_push($require, 'date', 'relational');
+                $cond = 'if currentdate :value "le" "date" '.$q(\Carbon\Carbon::parse($reply['until'])->toDateString()).' { ';
+            }
+            $body[] = $cond.'vacation :days 1 :subject '.$q((string) $reply['subject']).' '.$q((string) $reply['body']).';'.($cond ? ' }' : '');
+        }
+        if (! $body) {
             return "# Auto-reply is off.\n";
         }
-        $q = fn (string $v) => '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], $v).'"';
-        $script = "require [\"vacation\"";
-        $cond = '';
-        if (! empty($reply['until'])) {
-            $script .= ', "date", "relational"';
-            $cond = 'if currentdate :value "le" "date" '.$q(\Carbon\Carbon::parse($reply['until'])->toDateString()).' { ';
-        }
+        $require = array_values(array_unique($require));
 
-        return $script."];\n".$cond.'vacation :days 1 :subject '.$q((string) $reply['subject']).' '.$q((string) $reply['body']).';'.($cond ? ' }' : '')."\n";
+        return ($require ? 'require '.$list($require).";\n" : '').implode("\n", $body)."\n";
+    }
+
+    /** MCL: per-mailbox spam level and sender allow/block lists. */
+    public function setSpam(Mailbox $box, array $spam, ?string $userId): Mailbox
+    {
+        $clean = fn ($l) => array_values(array_unique(array_filter(array_map(fn ($v) => strtolower(trim((string) $v)), (array) $l))));
+        $box->update(['spam' => ['level' => $spam['level'] ?? 'normal', 'allow' => $clean($spam['allow'] ?? []), 'block' => $clean($spam['block'] ?? [])]]);
+        $this->audit->log('mail.mailbox_spam', 'mailboxes', $box->id, $box->spam);
+        $this->sync(MailServer::allTenants()->find(MailDomain::allTenants()->find($box->mail_domain_id)->mail_server_id), $userId);
+
+        return $box;
+    }
+
+    /** MCL: per-domain caps; null removes a cap. */
+    public function setDomainLimits(MailDomain $domain, array $limits): MailDomain
+    {
+        $domain->update(['limits' => array_filter(array_intersect_key($limits, array_flip(['max_mailboxes', 'max_aliases', 'quota_total_mb', 'send_per_hour'])), fn ($v) => $v !== null)]);
+        $this->audit->log('mail.domain_limits', 'mail_domains', $domain->id, $domain->limits ?? []);
+
+        return $domain;
+    }
+
+    private function checkDomainLimits(MailDomain $domain, ?Mailbox $box, ?int $quota, bool $alias = false): void
+    {
+        $l = $domain->limits ?? [];
+        if ($alias) {
+            if (isset($l['max_aliases']) && MailAlias::allTenants()->where('mail_domain_id', $domain->id)->count() >= $l['max_aliases']) {
+                throw ApiException::quota("{$domain->name} allows {$l['max_aliases']} forwarding addresses.");
+            }
+
+            return;
+        }
+        if (! $box && isset($l['max_mailboxes']) && Mailbox::allTenants()->where('mail_domain_id', $domain->id)->count() >= $l['max_mailboxes']) {
+            throw ApiException::quota("{$domain->name} allows {$l['max_mailboxes']} mailboxes.");
+        }
+        if ($quota !== null && isset($l['quota_total_mb'])) {
+            $used = (int) Mailbox::allTenants()->where('mail_domain_id', $domain->id)->when($box, fn ($q) => $q->where('id', '!=', $box->id))->sum('quota_mb');
+            if ($used + $quota > $l['quota_total_mb']) {
+                throw ApiException::quota("{$domain->name} has ".max(0, $l['quota_total_mb'] - $used)." MB of mailbox space left.");
+            }
+        }
     }
 
     /**

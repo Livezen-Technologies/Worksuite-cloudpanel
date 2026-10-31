@@ -109,6 +109,10 @@ Artisan::command('mesh:status', function (\App\Services\MeshService $mesh) {
     $this->info('Mesh status requested from '.$mesh->refreshStatus().' servers');
 })->purpose('PNET-5: WireGuard handshakes and traffic per server');
 
+Artisan::command('mail:watch', function (\App\Services\MailGuardService $guard) {
+    $this->info('Mail servers checked: '.$guard->watchAll());
+})->purpose('MCL: delivery log, and holds for mailboxes or domains sending too much or bouncing');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -259,6 +263,7 @@ Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('templates:sync')->daily();
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

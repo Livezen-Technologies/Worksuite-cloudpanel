@@ -228,7 +228,7 @@ class MailController extends Controller
 
     private function presentBox(Mailbox $b): array
     {
-        return ['id' => $b->id, 'local_part' => $b->local_part, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled, 'autoresponder' => $b->autoresponder, 'created_at' => $b->created_at?->toIso8601ZuluString()];
+        return ['id' => $b->id, 'local_part' => $b->local_part, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled, 'autoresponder' => $b->autoresponder, 'spam' => $b->spam, 'held_at' => $b->held_at, 'held_reason' => $b->held_reason, 'created_at' => $b->created_at?->toIso8601ZuluString()];
     }
 
     /** MCL-10: start an IMAP import into a mailbox. */

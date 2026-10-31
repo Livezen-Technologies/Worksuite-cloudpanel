@@ -313,6 +313,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
     Route::post('mail/domains/{id}/mailboxes/{box}/import', [Admin\MailController::class, 'startImport'])->middleware(['perm:deploy', 'throttle:10,1'])->name('mail.import');
     Route::get('mail/domains/{id}/imports', [Admin\MailController::class, 'imports'])->middleware('perm:resources.view|servers.view')->name('mail.imports');
     Route::post('mail/servers/{id}/webmail', [Admin\MailController::class, 'webmail'])->middleware('perm:servers.manage')->name('mail.webmail');
+    Route::get('mail/holds', [Admin\MailGuardController::class, 'holds'])->middleware('perm:resources.view|servers.view')->name('mail.holds');
+    Route::get('mail/log', [Admin\MailGuardController::class, 'search'])->middleware('perm:logs.view|servers.view')->name('mail.log');
+    Route::delete('mail/domains/{id}/hold', [Admin\MailGuardController::class, 'releaseDomain'])->middleware('perm:deploy')->name('mail.domains.release');
+    Route::delete('mail/domains/{id}/mailboxes/{box}/hold', [Admin\MailGuardController::class, 'releaseMailbox'])->middleware('perm:deploy')->name('mail.mailboxes.release');
+    Route::patch('mail/domains/{id}/limits', [Admin\MailGuardController::class, 'limits'])->middleware('perm:deploy')->name('mail.domains.limits');
+    Route::patch('mail/domains/{id}/mailboxes/{box}/spam', [Admin\MailGuardController::class, 'spam'])->middleware('perm:deploy')->name('mail.mailboxes.spam');
     Route::post('mail/domains', [Admin\MailController::class, 'storeDomain'])->middleware('perm:deploy')->name('mail.domains.store');
     Route::get('mail/domains/{id}', [Admin\MailController::class, 'showDomain'])->middleware('perm:resources.view|servers.view')->name('mail.domains.show');
     Route::patch('mail/domains/{id}', [Admin\MailController::class, 'updateDomain'])->middleware('perm:deploy')->name('mail.domains.update');
@@ -449,6 +455,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'throttle:api', 'idempotent', 'audi
             Route::post('mail/domains/{id}/mailboxes/{box}/import', [Customer\MailController::class, 'startImport'])->middleware('throttle:10,1')->name('mail.import');
             Route::get('mail/domains/{id}/imports', [Customer\MailController::class, 'imports'])->name('mail.imports');
             Route::post('mail/domains/{id}/aliases', [Customer\MailController::class, 'storeAlias'])->name('mail.aliases.store');
+            Route::get('mail/holds', [Customer\MailGuardController::class, 'holds'])->name('mail.holds');
+            Route::get('mail/log', [Customer\MailGuardController::class, 'search'])->name('mail.log');
+            Route::patch('mail/domains/{id}/mailboxes/{box}/spam', [Customer\MailGuardController::class, 'spam'])->name('mail.mailboxes.spam');
             Route::delete('mail/domains/{id}/aliases/{alias}', [Customer\MailController::class, 'destroyAlias'])->name('mail.aliases.destroy');
             // UMIG: migration requests; an administrator approves and runs them.
             Route::get('migrations', [Customer\MigrationController::class, 'index'])->name('migrations.index');

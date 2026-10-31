@@ -17,6 +17,6 @@ class Mailbox extends Model
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'autoresponder' => 'array'];
+        return ['enabled' => 'boolean', 'autoresponder' => 'array', 'spam' => 'array', 'held_at' => 'datetime'];
     }
 }

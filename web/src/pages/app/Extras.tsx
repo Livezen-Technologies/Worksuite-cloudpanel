@@ -7,6 +7,7 @@ import { ago } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { CronManager } from '../../components/CronManager'
 import { ImportDialog, ImportList } from '../../components/MailImport'
+import { MailHolds, MailLog, SpamLevel } from '../../components/MailGuard'
 
 
 /** UCRON-1..4, CRON-1..8: scheduled jobs in the customer's apps or calling a URL. */
@@ -101,6 +102,8 @@ export function UserMail() {
                   {(d.mailboxes as R[]).map((b) => <li key={String(b.id)} className="flex flex-wrap items-center gap-2">
                     <span className="flex-1 font-mono text-xs">{String(b.address)}</span>
                     {(b.autoresponder as R)?.enabled ? <Badge tone="b">auto-reply</Badge> : null}
+                    {b.held_reason ? <Badge tone="r">sending on hold</Badge> : null}
+                    <SpamLevel path={`/app/mail/domains/${d.id}/mailboxes/${b.id}`} spam={b.spam as R | null} onSaved={refetch} />
                     {(b.client as R)?.webmail_url ? <a className="btn btn-sm" href={String((b.client as R).webmail_url)} target="_blank" rel="noopener noreferrer">Webmail</a> : null}
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setImporting({ domain: String(d.id), box: b })}>Import mail</button>
                     <button type="button" className="btn btn-sm" disabled={busy} onClick={() => { const p = window.prompt(`New password for ${b.address} (10+ characters):`); if (p) run({ path: `/app/mail/domains/${d.id}/mailboxes/${b.id}`, method: 'PATCH', body: { password: p }, label: 'Reset password', success: 'Password changed' }) }}>Reset password</button>
@@ -131,6 +134,8 @@ export function UserMail() {
           </Card>
         )
       })}
+      <MailHolds base="/app" canRelease={false} />
+      <MailLog base="/app" />
       <ImportDialog base="/app" domainId={importing?.domain ?? ''} box={importing ? String(importing.box.id) : null} address={String(importing?.box.address ?? '')} onClose={() => { setImporting(null); refetch() }} />
     </>
   )
