@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAction, useOne } from '../../api/hooks'
-import { Card, PageHeader, Toggle } from '../../components/Card'
+import { Card, PageHeader, Toggle, FormActions } from '../../components/Card'
 import { Badge, type Tone } from '../../components/Badge'
 import { useToast } from '../../components/Toasts'
 import { ago } from '../../lib/format'
@@ -169,7 +169,7 @@ export function UserMigrations() {
           <label className="flex flex-col gap-1">Link to a full backup (cPanel, Plesk or HestiaCP)<input className="input font-mono text-xs" placeholder="https://…/cpmove-user.tar.gz" value={f.archive_url} onChange={(e) => setF({ ...f, archive_url: e.target.value })} /></label>
           <label className="flex flex-col gap-1">Anything we should know? (optional)<textarea className="input min-h-20" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
           <p className="m-0 text-xs text-muted">cPanel: Backup → Download a Full Account Backup. Plesk: Backup Manager → Back Up, then download it. HestiaCP: Backups → download. Share a download link to the file. Your old site keeps running while we copy. A busy site is copied again just before the switch, and you can switch back for a while if anything looks wrong.</p>
-          <button type="button" className="btn btn-primary self-start" disabled={busy || !f.archive_url} onClick={() => run({ path: '/app/migrations', body: { archive_url: f.archive_url, notes: f.notes || null }, label: 'Request a move', success: 'Request sent; we will review it shortly' }).then(() => { setF({ archive_url: '', notes: '' }); page.refetch() })}>Send request</button>
+          <FormActions><button type="button" className="btn btn-primary" disabled={busy || !f.archive_url} onClick={() => run({ path: '/app/migrations', body: { archive_url: f.archive_url, notes: f.notes || null }, label: 'Request a move', success: 'Request sent; we will review it shortly' }).then(() => { setF({ archive_url: '', notes: '' }); page.refetch() })}>Send request</button></FormActions>
         </div>
       </Card>
       {((page.item as R[]) ?? []).map((m) => {

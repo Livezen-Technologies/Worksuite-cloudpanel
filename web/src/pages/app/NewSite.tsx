@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useAction, useList } from '../../api/hooks'
-import { Card, Field } from '../../components/Card'
+import { Card, Field, PageHeader, FormActions } from '../../components/Card'
 import Select from '../../components/Select'
 
 type Kind = 'wordpress' | 'php' | 'node' | 'static' | 'python' | 'proxy'
@@ -91,9 +91,7 @@ export default function NewSite() {
   if (!picked) {
     return (
       <>
-        <h1 className="m-0 text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          What kind of site would you like to create?
-        </h1>
+        <PageHeader title="What kind of site would you like to create?" subtitle="Pick a starting point; you can change everything later." />
         <Card>
           <div className="grid gap-4 sm:grid-cols-2">
             {TEMPLATES.map((t) => (
@@ -121,10 +119,7 @@ export default function NewSite() {
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        <button type="button" className="btn !rounded-full" onClick={() => setPicked(null)}>← Back</button>
-        <h1 className="m-0 text-xl font-semibold tracking-tight">New {picked.title}</h1>
-      </div>
+      <PageHeader title={`New ${picked.title}`} back={<button type="button" className="link-action bg-transparent border-0 p-0 cursor-pointer" onClick={() => setPicked(null)}>← All site types</button>} />
       <Card>
         <form className="flex max-w-xl flex-col gap-4" onSubmit={(e) => { e.preventDefault(); create() }}>
           <Field label="Site name" hint="Lowercase letters, numbers and dashes.">
@@ -158,9 +153,9 @@ export default function NewSite() {
           <p className="m-0 text-sm text-muted">
             Image <code className="font-mono">{picked.image}</code> · port {picked.port}
           </p>
-          <button className="btn btn-primary !rounded-full min-h-11 self-start shadow-md" disabled={busy}>
+          <FormActions><button className="btn btn-primary min-h-11" disabled={busy}>
             {busy ? 'Creating…' : `Create ${picked.title}`}
-          </button>
+          </button></FormActions>
         </form>
       </Card>
     </>

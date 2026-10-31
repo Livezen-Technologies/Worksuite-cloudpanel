@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
-import { Card, Field, Meter, StatTile, Toggle } from '../../components/Card'
+import { Card, Field, Meter, StatTile, Toggle, PageHeader } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { DataTable, type Column } from '../../components/DataTable'
@@ -39,18 +39,14 @@ export default function ServerDetail() {
 
   return (
     <>
-      <Link to="/admin/servers" className="link-action self-start">← Servers</Link>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="m-0 text-[28px] font-bold tracking-tight">{s.name}</h1>
-        <Badge tone={toneFor(s.status)}>{s.status}</Badge>
-        <span className="font-mono text-sm text-muted">{s.ip}</span>
-        <div className="ml-auto flex gap-2 flex-wrap">
+      <PageHeader title={s.name} back={<Link to="/admin/servers" className="link-action">← Servers</Link>}
+        badge={<><Badge tone={toneFor(s.status)}>{s.status}</Badge><span className="font-mono text-sm text-muted">{s.ip}</span></>}
+        actions={<>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/maintenance`, body: { enabled: s.status !== 'maintenance' }, label: s.status === 'maintenance' ? 'Leave maintenance' : 'Enter maintenance' })}>
             {s.status === 'maintenance' ? 'End maintenance' : 'Maintenance mode'}
           </button>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/agent/restart`, label: `Restart agent on ${s.name}` })}>Restart agent</button>
-        </div>
-      </div>
+        </>} />
       {s.status === 'maintenance' && <div className="card p-3 text-sm" style={{ background: 'var(--b-bg)', color: 'var(--b-fg)' }}>Maintenance mode is on: new deployments to this server are blocked.</div>}
       <Tabs tabs={TABS.map((t) => ({ id: t, label: t }))} value={tab} onChange={setTab} label="Server sections" />
 

@@ -284,7 +284,7 @@ export function DataTable<T>(p: DataTableProps<T>) {
   const span = visible.length + (p.selectable ? 1 : 0) + (hasActions ? 1 : 0)
 
   return (
-    <div className="card overflow-hidden min-w-0">
+    <div className="card dt overflow-hidden min-w-0">
       {p.filters && p.filters.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pt-4" role="group" aria-label={`${p.label} filters`}>
           {[{ id: 'all', label: 'All' }, ...p.filters].map((f) => {

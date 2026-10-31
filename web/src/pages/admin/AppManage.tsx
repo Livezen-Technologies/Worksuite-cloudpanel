@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ScalingPanel } from '../../components/ScalingPanel'
@@ -90,9 +90,9 @@ function SettingsTab({ app }: { app: R }) {
             </label>
           ))}
         </div>
-        <div className="col-span-full flex justify-end">
+        <FormActions className="col-span-full">
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button>
-        </div>
+        </FormActions>
       </form>
     </Card>
   )
@@ -127,9 +127,9 @@ function DatabasesTab({ app }: { app: R }) {
                    onChange={(e) => setF({ ...f, version: e.target.value })} /></Field>
           <Field label="Memory (MB)"><input className="input" type="number" min={64} value={f.memory_mb}
                    onChange={(e) => setF({ ...f, memory_mb: Number(e.target.value) })} /></Field>
-          <div className="col-span-full flex justify-end">
+          <FormActions className="col-span-full">
             <button className="btn btn-primary" disabled={busy || !app.server_id}>Create database</button>
-          </div>
+          </FormActions>
         </form>
       </Card>
       {!dbs.isLoading && mine.length === 0 && <Empty>No databases on this server yet.</Empty>}
@@ -214,9 +214,9 @@ function CronTab({ app }: { app: R }) {
               {ACTIONS.map((a) => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
             </Select>
           </Field>
-          <div className="col-span-full flex justify-end">
+          <FormActions className="col-span-full">
             <button className="btn btn-primary" disabled={busy}>Add cron job</button>
-          </div>
+          </FormActions>
         </form>
       </Card>
       {!jobs.isLoading && jobs.rows.length === 0 && <Empty>No cron jobs found.</Empty>}

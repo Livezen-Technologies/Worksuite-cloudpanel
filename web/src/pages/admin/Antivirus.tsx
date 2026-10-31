@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, PageHeader, StatTile } from '../../components/Card'
+import { Card, PageHeader, StatTile, Field } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -180,17 +180,17 @@ export default function Antivirus() {
           onClick={() => schedule && run({ path: '/settings', method: 'PATCH', body: { antivirus: { schedule: schedule.schedule, day: Number(schedule.day), time: schedule.time, notify: !!schedule.notify } }, label: 'Scan schedule', success: 'Scan schedule saved' })
             .then(() => { setScheduleOpen(false); summary.refetch(); score.refetch() })}>Save</button>}>
         {schedule && <div className="flex flex-col gap-3">
-          <label className="label">Full scans
+          <Field label="Full scans">
             <Select className="input" value={String(schedule.schedule)} onChange={(e) => setSchedule({ ...schedule, schedule: e.target.value })}>
               <option value="weekly">Weekly</option><option value="daily">Daily</option><option value="off">Off</option>
             </Select>
-          </label>
-          {schedule.schedule === 'weekly' && <label className="label">Day
+          </Field>
+          {schedule.schedule === 'weekly' && <Field label="Day">
             <Select className="input" value={String(schedule.day)} onChange={(e) => setSchedule({ ...schedule, day: Number(e.target.value) })}>
               {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
             </Select>
-          </label>}
-          {schedule.schedule !== 'off' && <label className="label">Time (server time)<input className="input" type="time" value={String(schedule.time)} onChange={(e) => setSchedule({ ...schedule, time: e.target.value })} /></label>}
+          </Field>}
+          {schedule.schedule !== 'off' && <Field label="Time (server time)"><input className="input" type="time" value={String(schedule.time)} onChange={(e) => setSchedule({ ...schedule, time: e.target.value })} /></Field>}
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!schedule.notify} onChange={(e) => setSchedule({ ...schedule, notify: e.target.checked })} />Send new detections to the notification channels</label>
         </div>}
       </Modal>

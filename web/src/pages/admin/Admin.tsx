@@ -1,7 +1,7 @@
 import EmailTemplates from './EmailTemplates'
 import { useEffect, useState } from 'react'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, FormActions } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -42,13 +42,12 @@ export function Users() {
   const [invite, setInvite] = useState(false)
   const [remove, setRemove] = useState<R | null>(null)
   const [manage, setManage] = useState<R | null>(null)
-  const [q, setQ] = useState('')
   const [editor, setEditor] = useState<{ mode: 'new' | 'edit' | 'copy'; from: string | null } | null>(null)
   const [delRole, setDelRole] = useState<string | null>(null)
   const roleRows = roles.rows.length ? roles.rows.map((r) => typeof r === 'string' ? { name: r, label: pretty(r), custom: false, members: 0 } : { name: String(r.name), label: String(r.label ?? pretty(String(r.name))), custom: !!r.custom, members: Number(r.members ?? 0) }) : roleNames.map((n) => ({ name: n, label: pretty(n), custom: false, members: 0 }))
   const roleLabel = (n: string) => roleRows.find((x) => x.name === n)?.label ?? pretty(n)
   const { me } = useAuth()
-  const shown = users.rows.filter((r) => !q || `${r.name} ${r.email} ${r.role}`.toLowerCase().includes(q.toLowerCase()))
+  const shown = users.rows
   const act = (r: R, path: string, label: string, success: string, body?: R) => run({ path: `/users/${r.id}/${path}`, body: body ?? {}, label, success }).then(() => { users.refetch(); setManage(null) }).catch(() => {})
   return (
     <>
@@ -56,7 +55,6 @@ export function Users() {
         actions={<button type="button" className="btn btn-primary" onClick={() => setInvite(true)}>Invite user</button>} />
       <div className="flex flex-wrap gap-4 items-start">
         <div className="flex-[2_1_520px] min-w-0">
-          <input className="input mb-3" type="search" aria-label="Search members" placeholder="Search by name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
           <DataTable label="Members" rows={shown} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
             actions={(r) => r.id === me?.user?.id
             ? [{ label: 'Manage your own account', icon: 'user', onClick: () => { location.href = '/admin/account' } }]
@@ -196,7 +194,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
                   : <input className="input" type={t} value={g[k] ?? ''} onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
               </Field>
             ))}
-            <div className="col-span-full flex justify-end gap-2"><button type="button" className="btn" onClick={() => setG({ ...(item?.general ?? item), ...(item?.security ?? {}) })}>Cancel</button><button className="btn btn-primary" disabled={busy}>Save changes</button></div>
+            <FormActions className="col-span-full"><button type="button" className="btn" onClick={() => setG({ ...(item?.general ?? item), ...(item?.security ?? {}) })}>Cancel</button><button className="btn btn-primary" disabled={busy}>Save changes</button></FormActions>
           </form>
         </Card>
       )}
@@ -221,9 +219,9 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
                            onChange={(e) => setG({ ...g, [k]: t === 'number' ? Number(e.target.value) : e.target.value })} />}
               </Field>
             ))}
-            <div className="col-span-full flex justify-end gap-2">
+            <FormActions className="col-span-full">
               <button className="btn btn-primary" disabled={busy}>Save changes</button>
-            </div>
+            </FormActions>
           </form>
           <div className="mt-4 pt-4 border-t border-[var(--line)]">
             <label htmlFor="smtp-test-to" className="block text-sm font-medium mb-1.5">Send a test email to</label>
@@ -248,7 +246,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
               </li>
             ))}
           </ul>
-          <div className="flex justify-end gap-2 mt-3"><button type="button" className="btn btn-primary" disabled={busy} onClick={() => save(POLICIES.map((p) => p[0]), 'security')}>Save changes</button></div>
+          <FormActions className="mt-3"><button type="button" className="btn btn-primary" disabled={busy} onClick={() => save(POLICIES.map((p) => p[0]), 'security')}>Save changes</button></FormActions>
         </Card>
       )}
     </>
