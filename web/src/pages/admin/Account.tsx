@@ -27,7 +27,7 @@ export function AdminAccount() {
   return (
     <>
       <PageHeader title="Account" subtitle="Your profile and how you sign in" />
-      <div className="card p-5 mb-5 flex flex-wrap items-center gap-4">
+      <div className="card p-5 flex flex-wrap items-center gap-4">
         <span aria-hidden="true" className="w-14 h-14 rounded-full bg-accent text-white text-lg font-bold grid place-items-center flex-none">{initials}</span>
         <div className="min-w-0 flex-1">
           <div className="text-lg font-semibold truncate">{name}</div>
@@ -40,7 +40,7 @@ export function AdminAccount() {
         </div>
       </div>
       <Tabs label="Account sections" value={tab} onChange={setTab} tabs={[{ id: 'profile', label: 'Profile' }, { id: 'security', label: 'Security' }, { id: 'sessions', label: 'Sessions' }]} />
-      <div className="mt-5 max-w-3xl flex flex-col gap-4">
+      <div className="-mt-1 grid gap-4 lg:grid-cols-2 items-start">
         {tab === 'profile' && <Profile name={name} email={email} onSaved={refresh} />}
         {tab === 'security' && <>
           <ChangePassword />

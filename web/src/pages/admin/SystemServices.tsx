@@ -79,7 +79,7 @@ export default function SystemServices() {
               </span>
             </>}>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="tbl">
                 <thead><tr className="text-left text-xs text-muted bg-head">
                   <th className="px-5 py-2.5 font-medium">Service</th><th className="px-3 py-2.5 font-medium">Status</th><th className="px-3 py-2.5 font-medium">Boot</th>
                   <th className="px-3 py-2.5 font-medium text-right">Memory</th><th className="px-3 py-2.5 font-medium text-right">Restarts</th><th className="px-3 py-2.5 font-medium">Watch</th><th className="px-5 py-2.5 font-medium text-right">Actions</th>

@@ -651,7 +651,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
                     ))}
                   </div>
                   {!scan.findings.length ? <Empty>No problems found in {scan.files.toLocaleString()} files.</Empty> : (
-                    <table className="w-full border-collapse text-[15px]">
+                    <table className="tbl text-[15px]">
                       <thead><tr className="bg-[var(--head)] text-left"><th className="px-4 py-3 font-medium text-muted w-28">Severity</th><th className="px-4 py-3 font-semibold">Finding</th></tr></thead>
                       <tbody>{scan.findings.map((f, i) => (
                         <tr key={f.path + f.rule + i} className="group border-t border-line hover:bg-[var(--head)] align-top">
@@ -679,7 +679,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               : loading || !hits ? <Empty>Searching {dir || 'the whole site'}…</Empty>
               : !hits.items.length ? <Empty>Nothing matches. Searched {dir || 'the whole site'} and everything below it.</Empty>
               : (
-                <table className="w-full border-collapse text-[15px]">
+                <table className="tbl text-[15px]">
                   <thead><tr className="bg-[var(--head)] text-left">
                     <th className="px-4 py-3 font-semibold">Found in {dir || volume?.name}</th>
                     <th className="px-4 py-3 font-medium text-muted">Modified</th>
@@ -706,7 +706,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               : loading && !shares ? <Empty>Loading…</Empty>
               : !shares?.length ? <Empty>No shared links yet. Select files and choose Share.</Empty>
               : (
-                <table className="w-full border-collapse text-[15px]">
+                <table className="tbl text-[15px]">
                   <thead><tr className="text-left text-muted text-sm"><th className="px-4 py-2">Shared</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Downloads</th><th className="px-4 py-2">Expires</th><th className="px-4 py-2" /></tr></thead>
                   <tbody>{shares.map((sh) => (
                     <tr key={sh.id} className="border-t border-line">
@@ -725,7 +725,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               : loading && !transfers ? <Empty>Loading…</Empty>
               : !transfers?.length ? <Empty>No transfers yet. Uploads, downloads, copies, moves and archives appear here.</Empty>
               : (
-                <table className="w-full border-collapse text-[15px]">
+                <table className="tbl text-[15px]">
                   <thead><tr className="text-left text-muted text-sm"><th className="px-4 py-2">Transfer</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Started</th><th className="px-4 py-2" /></tr></thead>
                   <tbody>{transfers.map((t) => (
                     <tr key={t.id} className="border-t border-line">
@@ -746,7 +746,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
               : loading && !trash ? <Empty>Loading…</Empty>
               : !trash?.length ? <Empty>Trash is empty. Deleted items stay here for 7 days.</Empty>
               : (
-                <table className="w-full border-collapse text-[15px]">
+                <table className="tbl text-[15px]">
                   <thead><tr className="bg-[var(--head)] text-left">
                     <th className="w-10 pl-4"><input type="checkbox" aria-label="Select all in Trash" checked={trash.every((t) => trashSel.has(t.id))} onChange={(e) => setTrashSel(e.target.checked ? new Set(trash.map((t) => t.id)) : new Set())} /></th>
                     <th className="px-4 py-3 font-semibold">Original location</th>
@@ -785,7 +785,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
                   {entries && shown.length === 0 && <div className="col-span-full"><Empty>{filter ? 'Nothing here matches that name.' : 'This folder is empty.'}</Empty></div>}
                 </div>
               ) : (
-                <table className="w-full border-collapse text-[13px] min-w-[640px]">
+                <table className="tbl text-[13px] min-w-[640px]">
                   <thead><tr className="bg-head text-left text-xs text-muted">
                     <th className="w-10 pl-3 py-2.5"><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => selected.has(r.name))} onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((r) => r.name)) : new Set())} /></th>
                     <th className="px-3 py-2.5 font-semibold">Name</th>
@@ -979,7 +979,7 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
         </>}>
         {perm && (
           <div className="flex flex-col gap-4">
-            <table className="w-full border-collapse text-sm">
+            <table className="tbl">
               <thead><tr className="text-left text-muted"><th className="py-2 font-medium"></th>{['Read', 'Write', 'Execute'].map((h) => <th key={h} className="py-2 font-medium text-center">{h}</th>)}</tr></thead>
               <tbody>{(['Owner', 'Group', 'Others'] as const).map((who, row) => (
                 <tr key={who} className="border-t border-line">
