@@ -1,0 +1,38 @@
+id: bookstack-mariadb
+name: BookStack + MariaDB
+category: Productivity
+version: 1
+type: compose
+accent: "#0288D1"
+description: BookStack documentation wiki on MariaDB 11, credentials and app key generated.
+port: 80
+compose: |
+  services:
+    bookstack:
+      image: lscr.io/linuxserver/bookstack:24.10.20241031
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        APP_URL: ${SERVICE_URL}
+        APP_KEY: base64:${SERVICE_BASE64_APPKEY}
+        DB_HOST: db
+        DB_DATABASE: bookstack
+        DB_USERNAME: ${SERVICE_USER_BOOKSTACK}
+        DB_PASSWORD: ${SERVICE_PASSWORD_BOOKSTACK}
+      volumes: [config:/config]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "80"
+    db:
+      image: mariadb:11.4
+      restart: unless-stopped
+      environment:
+        MARIADB_DATABASE: bookstack
+        MARIADB_USER: ${SERVICE_USER_BOOKSTACK}
+        MARIADB_PASSWORD: ${SERVICE_PASSWORD_BOOKSTACK}
+        MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}
+      volumes: [db:/var/lib/mysql]
+  volumes:
+    config: {}
+    db: {}

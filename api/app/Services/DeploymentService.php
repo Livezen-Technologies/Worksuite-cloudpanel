@@ -312,7 +312,7 @@ class DeploymentService implements HandlesCommandResults
         $this->dispatchDeploy($deployment, $app, $server, $config, $job);
     }
 
-    private function placement(Application $app): Server
+    public function placement(Application $app): Server
     {
         if ($app->server_id && ($server = $app->server)) {
             if ($server->maintenance) {

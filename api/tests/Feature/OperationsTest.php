@@ -131,7 +131,7 @@ class OperationsTest extends TestCase
             $this->assertContains($id, $ids);
         }
         $this->assertNotContains('portainer', $ids, 'admin-only templates are hidden');
-        $this->assertNotContains('wordpress-mariadb', $ids, 'stacks need a server, so they stay admin-only');
+        $this->assertContains('wordpress-mariadb', $ids, 'stacks are placed on a server like any customer app');
         $this->assertGreaterThanOrEqual(35, count($ids));
     }
 

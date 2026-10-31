@@ -1,0 +1,35 @@
+id: wikijs-postgres
+name: Wiki.js + PostgreSQL
+category: Productivity
+version: 1
+type: compose
+accent: "#1976D2"
+description: Wiki.js on PostgreSQL 16, credentials generated.
+port: 3000
+compose: |
+  services:
+    wiki:
+      image: ghcr.io/requarks/wiki:2.5
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        DB_TYPE: postgres
+        DB_HOST: db
+        DB_PORT: "5432"
+        DB_USER: ${SERVICE_USER_WIKI}
+        DB_PASS: ${SERVICE_PASSWORD_WIKI}
+        DB_NAME: wiki
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "3000"
+    db:
+      image: postgres:16-alpine
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: wiki
+        POSTGRES_USER: ${SERVICE_USER_WIKI}
+        POSTGRES_PASSWORD: ${SERVICE_PASSWORD_WIKI}
+      volumes: [db:/var/lib/postgresql/data]
+  volumes:
+    db: {}

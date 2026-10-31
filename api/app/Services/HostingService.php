@@ -41,6 +41,9 @@ class HostingService
         $rendered = null;
         if ($source['type'] === 'template') {
             $template = self::template((string) $source['template']) ?? throw ApiException::validation(['source.template' => ['Unknown template.']]);
+            if (($template['type'] ?? 'image') === 'compose') {
+                return $this->hostStack($user, $input, \App\Models\Template::findOrFail($source['template']));
+            }
             $source['image'] = $template['image'];
             $input['port'] ??= $template['port'];
             $input['volume_path'] ??= $template['volume_path'];
@@ -104,6 +107,40 @@ class HostingService
         });
     }
 
+    /** TPL: a Compose stack template hosted by a customer: an app record fronting a stack on a placed server. */
+    private function hostStack(User $user, array $input, \App\Models\Template $tpl): array
+    {
+        $name = $input['name'];
+        $subdomain = $name.'.'.config('platform.domain');
+        $r = app(TemplateService::class)->render($tpl->manifest, $name, $subdomain, (array) ($input['source']['variables'] ?? []));
+        if ($r['unresolved']) {
+            throw ApiException::validation(['source.variables' => ['Fill in: '.implode(', ', $r['unresolved'])]]);
+        }
+        if (Application::withTrashed()->where('name', $name)->exists() || \App\Models\ComposeProject::where('name', $name)->exists()) {
+            throw ApiException::validation(['name' => ['You already have an app with this name.']]);
+        }
+        $this->billing->assertQuota($input['size']);
+        $this->domains->assertAvailable($subdomain, null, true);
+
+        return DB::transaction(function () use ($user, $input, $tpl, $name, $r) {
+            $app = Application::create([
+                'name' => $name, 'kind' => 'customer', 'source_type' => 'compose', 'source' => ['template' => $tpl->id],
+                'strategy' => 'recreate', 'environment' => 'production', 'region' => $input['region'] ?? null, 'size' => $input['size'],
+                'port' => $tpl->manifest['port'] ?? 80, 'status' => 'deploying',
+            ]);
+            $server = $this->deployments->placement($app);
+            $compose = app(ComposeService::class);
+            $project = \App\Models\ComposeProject::create(['name' => $name, 'server_id' => $server->id, 'environment' => 'production', 'source' => 'editor']);
+            $compose->addRevision($project, $r['compose']);
+            $job = $compose->deploy($project);
+            $app->update(['source' => ['template' => $tpl->id, 'compose_project_id' => $project->id]]);
+            \App\Models\TemplateInstall::create(['template_id' => $tpl->id, 'version' => $tpl->version, 'name' => $name,
+                'resource_type' => 'compose_project', 'resource_id' => $project->id, 'values' => $r['values'], 'user_id' => $user->id]);
+
+            return ['app' => $this->toApi($app->fresh()), 'job_id' => $job->id, 'deployment_id' => null];
+        });
+    }
+
     /**
      * TPL: a template customers can host: a single-image catalogue entry (not marked
      * `customer: false`), or one of the older built-in entries.
@@ -117,6 +154,10 @@ class HostingService
             app(TemplateService::class)->sync();
         }
         $t = \App\Models\Template::find($id);
+        if ($t && $t->type === 'compose' && ($t->manifest['customer'] ?? true) !== false) {
+            return ['type' => 'compose', 'image' => null, 'port' => $t->manifest['port'] ?? 80, 'volume_path' => null, 'health_path' => null,
+                'size' => $t->manifest['size'] ?? 'standard', 'name' => $t->name, 'description' => $t->manifest['description'] ?? ''];
+        }
         if ($t && $t->type === 'image' && ($t->manifest['customer'] ?? true) !== false) {
             $m = $t->manifest;
 

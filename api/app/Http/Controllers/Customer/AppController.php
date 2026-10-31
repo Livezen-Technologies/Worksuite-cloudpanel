@@ -111,6 +111,10 @@ class AppController extends Controller
     public function destroy(string $id)
     {
         $app = $this->find($id);
+        // A stack template: stop its containers; volumes stay for the retention window.
+        if ($stack = $this->stack($app)) {
+            app(\App\Services\ComposeService::class)->action($stack, 'stop');
+        }
         // UDET-005: data kept 7 days, then purged.
         $app->retire();
 
@@ -120,13 +124,26 @@ class AppController extends Controller
     public function restart(string $id, ContainerService $containers)
     {
         $app = $this->find($id);
+        if ($stack = $this->stack($app)) {
+            return $this->accepted(app(\App\Services\ComposeService::class)->action($stack, 'restart'));
+        }
         $container = Container::where('application_id', $app->id)->firstOrFail();
 
         return $this->accepted($containers->perform($container, 'restart'));
     }
 
+    private function stack(\App\Models\Application $app): ?\App\Models\ComposeProject
+    {
+        $id = $app->source_type === 'compose' ? ($app->source['compose_project_id'] ?? null) : null;
+
+        return $id ? \App\Models\ComposeProject::find($id) : null;
+    }
+
     public function redeploy(Request $request, string $id)
     {
+        if ($stack = $this->stack($this->find($id))) {
+            return $this->accepted(app(\App\Services\ComposeService::class)->deploy($stack, null, true));
+        }
         $deployment = $this->deployments->start($this->find($id), $request->user(), 'redeploy');
 
         return $this->accepted($deployment->job, ['deployment_id' => $deployment->id]);
