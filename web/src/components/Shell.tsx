@@ -107,7 +107,9 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
 
           {/* Which tenant the session is acting as - the canvas puts this next
               to the brand, and the panel spans tenants for staff. */}
-          {me?.organization?.name && (
+          {/* Admin-only header items: the organisation settings link and the catalogue shortcut
+              point into /admin, so the customer portal (no area rail) does not show them. */}
+          {rail && me?.organization?.name && (
             <Link to="/admin/settings" title="Organisation settings"
               className="hidden xl:flex flex-none items-center gap-2 rounded-lg bg-white/10 px-2 py-1.5 text-sm font-semibold no-underline text-[var(--header-fg)] hover:bg-white/15">
               <span className="grid h-[26px] w-[26px] place-content-center rounded-md bg-accent text-[13px] text-white" aria-hidden="true">
@@ -133,10 +135,12 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
                 {status.label}
               </span>
             )}
+            {rail && (
             <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
               className="!min-h-11 !min-w-11 hidden sm:grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </Link>
+            )}
             {headerExtra}
             <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" onClick={toggle}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>

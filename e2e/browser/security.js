@@ -4,7 +4,7 @@
 const { execFileSync, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
-const { test, run, login, settle, shot, assert, apiCall, apiLogin, WEB, API, OUT } = require('./lib')
+const { test, run, login, settle, shot, assert, apiCall, apiLogin, WEB, API, OUT, choose } = require('./lib')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 
@@ -66,7 +66,7 @@ async function openTerminal(page) {
   const c = await ensureTermContainer()
   await page.goto(WEB + '/admin/logs'); await settle(page)
   await page.getByRole('tab', { name: 'Terminal' }).click()
-  await page.getByLabel('Container').first().selectOption(c.id)
+  await choose(page.getByLabel('Container').first(), c.id)
   await page.getByRole('button', { name: 'Open terminal in e2e-term' }).click()
   const dialog = page.getByRole('dialog')
   const gated = await Promise.race([

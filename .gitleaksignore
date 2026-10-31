@@ -1,0 +1,6 @@
+# Test fixtures reviewed in docs/security-audit.md (public WireGuard keys, a placeholder SSH key, a test-only relay secret).
+85cbb1437e2f55ed588da102350381f7d7925102:api/tests/Feature/PrivateNetworkTest.php:generic-api-key:12
+85cbb1437e2f55ed588da102350381f7d7925102:api/tests/Feature/PrivateNetworkTest.php:generic-api-key:14
+005bbad0c47b45bf9d75e9598a42e1e9aba1c9ae:api/tests/Feature/BackupManagerTest.php:private-key:149
+11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:14
+11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:49

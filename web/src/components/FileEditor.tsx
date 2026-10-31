@@ -82,6 +82,7 @@ export function FileEditor({ value, onChange, path, label }: { value: string; on
 
   return (
     <div className="relative rounded-lg border border-line bg-[var(--surface)] min-h-[60vh]" data-lang={lang}>
+      {/* nosemgrep: react-dangerously-set-inner-html -- highlight() escapes &, < and > in every segment */}
       {!plain && <pre ref={pre} aria-hidden="true" className={`code-hl absolute inset-0 pointer-events-none ${shared}`} dangerouslySetInnerHTML={{ __html: html }} />}
       <textarea aria-label={label} spellCheck={false} value={value}
         className={`relative block w-full min-h-[60vh] resize-y bg-transparent outline-none ${shared} ${plain ? 'text-[var(--text)]' : 'text-transparent caret-[var(--text)] selection:bg-[var(--sel)]'}`}

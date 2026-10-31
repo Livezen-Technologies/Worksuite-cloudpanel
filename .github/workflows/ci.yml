@@ -77,3 +77,43 @@ jobs:
       - name: Typecheck and build
         run: npm run build
       - run: npm test
+
+  # Security audit, phase 15 (docs/security-audit.md): secrets, dependencies and static analysis on every PR.
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans the whole history
+      - name: Secret scan (full history)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks git . --redact --no-banner
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - name: PHP dependencies (composer audit)
+        working-directory: api
+        run: composer audit --locked --no-interaction
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Web dependencies (npm audit, shipped code)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=moderate
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Go vulnerabilities (govulncheck)
+        working-directory: agent
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Static analysis (Semgrep, local rules; blocking)
+        run: |
+          pipx install semgrep==1.95.0
+          semgrep scan --error --metrics=off --config .semgrep/rules.yml --exclude '*_test.go' api/app api/routes api/resources agent/internal agent/cmd web/src
+      - name: Static analysis (Semgrep OWASP Top 10 registry rules; report-only until triaged)
+        continue-on-error: true
+        run: semgrep scan --metrics=off --config p/owasp-top-ten api/app api/routes api/resources agent/internal agent/cmd web/src

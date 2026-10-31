@@ -67,6 +67,7 @@ run_suite browser-security node "$HERE/browser/security.js"   # terminal relay +
 run_suite api-checks node "$HERE/api-checks.js"
 run_suite backups "$HERE/backups.sh"
 run_suite build "$HERE/build.sh"
+run_suite security-audit node "$HERE/security-audit.js"   # last: it rate-limits this client's logins
 
 if [ "${UNIT:-0}" = 1 ]; then
   # Unit suites run without the e2e environment overrides (env.sh), exactly as a developer would.

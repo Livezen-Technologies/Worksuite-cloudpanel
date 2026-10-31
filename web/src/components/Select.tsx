@@ -80,7 +80,7 @@ export default function Select({
         {opts.length === 0 && <div className="px-3 py-2 text-sm text-muted">No options</div>}
         {opts.map((o, i) => (
           <ListboxOption
-            key={`${o.value}-${i}`} value={o.value} disabled={o.disabled}
+            key={`${o.value}-${i}`} value={o.value} disabled={o.disabled} data-value={String(o.value)}
             className="group flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm
                        data-focus:bg-accent data-focus:text-white
                        data-disabled:cursor-not-allowed data-disabled:opacity-40"
