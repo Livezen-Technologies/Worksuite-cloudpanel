@@ -23,7 +23,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="flex-1 min-w-[220px]">
-        <h1 className="m-0 text-[28px] font-bold tracking-tight">{title}</h1>
+        <h1 className="m-0 text-[26px] leading-8 font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1.5 mb-0 text-sm text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -42,17 +42,21 @@ export function Meter({ value, label, color, thick = false }: { value: number; l
   )
 }
 
-export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string }) {
+const TONE_CHIP = { g: 'bg-g-bg text-g-fg', y: 'bg-y-bg text-y-fg', r: 'bg-r-bg text-r-fg', b: 'bg-b-bg text-b-fg', n: 'bg-n-bg text-n-fg' } as const
+
+/** A KPI card (WorkSuite family): optional tinted icon chip + label, the figure, a grey line under it. */
+export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor, icon, iconTone = 'b' }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string; icon?: ReactNode; iconTone?: keyof typeof TONE_CHIP }) {
   // A figure that is its own status needs no separate badge.
   const tone = valueTone && valueTone !== 'n' ? { g: 'text-g-fg', y: 'text-y-fg', r: 'text-r-fg' }[valueTone] : ''
   return (
-    <div className="card p-5">
-      <div className="text-[13px] text-muted font-medium">{label}</div>
-      <div className="flex items-baseline gap-2 mt-2 flex-wrap">
-        <span className={`text-[30px] font-bold tracking-tight ${tone}`}>{value}</span>
-        {delta && <span className="text-[13px] font-semibold" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</span>}
+    <div className="card px-4 py-4">
+      <div className="flex items-center gap-2.5 text-sm text-muted font-medium">
+        {icon && <span aria-hidden="true" className={`w-7 h-7 rounded-md flex items-center justify-center flex-none ${TONE_CHIP[iconTone]}`}>{icon}</span>}
+        <span className="min-w-0 truncate">{label}</span>
       </div>
-      {pct !== undefined && <div className="mt-3.5"><Meter value={pct} label={label} color={barColor} /></div>}
+      <div className={`mt-2.5 text-[28px] leading-8 font-bold tracking-tight tabular-nums ${tone}`}>{value}</div>
+      {delta && <div className="mt-1 text-[13px]" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</div>}
+      {pct !== undefined && <div className="mt-3"><Meter value={pct} label={label} color={barColor} /></div>}
     </div>
   )
 }

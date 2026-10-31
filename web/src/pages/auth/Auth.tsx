@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, isApiError } from '../../api/client'
 import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
@@ -177,6 +177,48 @@ export function ResetPassword() {
         <Field label="Repeat it" error={mismatch ? 'The passwords do not match.' : undefined}><input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
         {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
         <button className="btn btn-primary min-h-11" disabled={busy || !email || !token || password.length < 8 || confirm !== password}>{busy ? 'Saving…' : 'Set new password'}</button>
+      </form>
+    </AuthCard>
+  )
+}
+
+/** The link in an invitation email: set a name and password (new people), or just join (existing accounts). */
+export function InviteAccept() {
+  const { token = '' } = useParams()
+  const nav = useNavigate()
+  const [info, setInfo] = useState<{ email: string; name: string; organization: string; role: string; has_account: boolean } | null>(null)
+  const [bad, setBad] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api.get<{ data: { email: string; name: string; organization: string; role: string; has_account: boolean } }>(`/auth/invite/${encodeURIComponent(token)}`)
+      .then((r) => { setInfo(r.data); setName(r.data.name ?? '') })
+      .catch((ex) => setBad(isApiError(ex) ? (ex.field('token') ?? ex.message) : 'This invitation could not be opened.'))
+  }, [token])
+  const mismatch = confirm.length > 0 && confirm !== password
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(null)
+    try {
+      await api.post(`/auth/invite/${encodeURIComponent(token)}`, info?.has_account ? {} : { name, password, password_confirmation: confirm })
+      nav('/login', { replace: true, state: { email: info?.email } })
+    } catch (ex) { setErr(isApiError(ex) ? (ex.field('password') ?? ex.field('name') ?? ex.field('token') ?? ex.message) : 'Could not accept the invitation.') } finally { setBusy(false) }
+  }
+  if (bad) return <AuthCard title="Invitation" subtitle={bad} footer={<Link to="/login" className="font-medium">Go to sign in</Link>}>{null}</AuthCard>
+  if (!info) return <AuthCard title="Invitation" subtitle="Opening your invitation…">{null}</AuthCard>
+  return (
+    <AuthCard title={`Join ${info.organization}`} subtitle={`You were invited as ${info.role.replace(/_/g, ' ')} with ${info.email}.`}>
+      <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        {info.has_account ? <p className="m-0 text-sm">You already have an account. Accept, then sign in with your usual password.</p> : <>
+          <Field label="Your name"><input className="input" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <input type="email" className="sr-only" tabIndex={-1} aria-hidden="true" autoComplete="username" value={info.email} readOnly />
+          <Field label="Choose a password" hint="At least 10 characters"><input className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+          <Field label="Repeat it" error={mismatch ? 'The passwords do not match.' : undefined}><input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
+        </>}
+        {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
+        <button className="btn btn-primary min-h-11" disabled={busy || (!info.has_account && (!name.trim() || password.length < 10 || confirm !== password))}>{busy ? 'Saving…' : 'Accept invitation'}</button>
       </form>
     </AuthCard>
   )

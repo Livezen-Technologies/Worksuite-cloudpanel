@@ -40,16 +40,23 @@ class AccountRecoveryController extends Controller
         $email = strtolower($data['email']);
         $user = User::where('email', $email)->first();
         if ($user) {
-            $token = Str::random(64);
-            DB::table('password_reset_tokens')->updateOrInsert(['email' => $email], ['token' => Hash::make($token), 'created_at' => now()]);
-            $this->emails->notify('password_reset', $user, [
-                'reset_url' => self::panel('/reset-password', ['email' => $email, 'token' => $token]),
-                'expires_minutes' => (string) self::RESET_MINUTES,
-            ]);
+            $this->sendReset($user);
             $this->audit->log('auth.password_reset_requested', 'users', $user->id, [], $user->current_organization_id, $user->id, $user->email);
         }
 
         return $this->data(['sent' => true, 'message' => 'If an account uses that address, a reset link is on its way.']);
+    }
+
+    /** Emails a one-hour reset link (also sent by an administrator from Users & Teams). */
+    public function sendReset(User $user): void
+    {
+        $email = strtolower($user->email);
+        $token = Str::random(64);
+        DB::table('password_reset_tokens')->updateOrInsert(['email' => $email], ['token' => Hash::make($token), 'created_at' => now()]);
+        $this->emails->notify('password_reset', $user, [
+            'reset_url' => self::panel('/reset-password', ['email' => $email, 'token' => $token]),
+            'expires_minutes' => (string) self::RESET_MINUTES,
+        ]);
     }
 
     public function reset(Request $request)

@@ -56,7 +56,7 @@ function Rail({ items }: { items: RailItem[] }) {
     <nav aria-label="Areas" className="hidden lg:flex w-[76px] flex-none flex-col items-center gap-1 px-1.5 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
-          className={({ isActive }) => `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          className={({ isActive }) => `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg ring-2 ring-inset ring-accent' : 'text-muted hover:text-fg hover:bg-head'}`}>
           <Icon name={r.icon} size={20} />
           <span className="w-full truncate text-center text-[10px] font-semibold leading-tight">{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
@@ -100,6 +100,8 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
             {/* The header is dark in both themes, per the canvas, so the
                 light-on-dark lockup is always the right one. */}
             <img src="/worksuite-logo-dark.png" alt="WorkSuite" className="h-7 w-auto flex-none" />
+            {/* The product within the WorkSuite family, as WorkSuite IoT shows "IoT". */}
+            <span className="rounded px-1.5 py-0.5 text-xs font-semibold text-[#93C5FD] bg-[rgb(59_130_246/.15)] ring-1 ring-inset ring-[rgb(96_165_250/.3)]">Cloud</span>
           </div>
 
           {/* Which tenant the session is acting as - the canvas puts this next
