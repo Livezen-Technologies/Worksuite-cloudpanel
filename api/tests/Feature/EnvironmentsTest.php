@@ -181,6 +181,46 @@ class EnvironmentsTest extends TestCase
         $this->assertNotNull(Application::allTenants()->find($appId), 'the source environment is untouched');
     }
 
+    public function test_preview_addresses_are_commented_on_the_pull_request(): void
+    {
+        [$token, , $project, $server] = $this->setUpProject();
+        $staging = $this->env($project, 'staging');
+        $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'environment_id' => $staging['id'], 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated();
+        $res = $this->api($token)->patchJson("/api/v1/projects/{$project['id']}", ['preview_environment_id' => $staging['id'], 'preview_comment_token' => 'ghp_secret'])
+            ->assertOk()->assertJsonPath('data.preview_comments', true);
+        $this->assertStringNotContainsString('ghp_secret', $res->getContent());
+        $posted = [];
+        \Illuminate\Support\Facades\Http::fake(function ($r) use (&$posted) {
+            $posted[] = [$r->url(), $r->header('Authorization')[0] ?? ($r->header('PRIVATE-TOKEN')[0] ?? null), $r['body']];
+
+            return \Illuminate\Support\Facades\Http::response(['id' => 1], 201);
+        });
+        $secret = Project::allTenants()->find($project['id'])->webhook_secret;
+        $send = function (array $body, array $headers) use ($project, $secret) {
+            $json = json_encode($body);
+
+            return $this->call('POST', "/api/v1/hooks/git/{$project['id']}", [], [], [], $headers + ['CONTENT_TYPE' => 'application/json',
+                'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $json, $secret)], $json);
+        };
+        $gh = ['HTTP_X_GITHUB_EVENT' => 'pull_request'];
+        $pr = ['number' => 9, 'pull_request' => ['number' => 9, 'head' => ['ref' => 'feature/x']], 'repository' => ['full_name' => 'acme/web', 'html_url' => 'https://github.com/acme/web']];
+
+        $send(['action' => 'opened'] + $pr, $gh)->assertStatus(202)->assertJsonPath('data.commented', true);
+        $this->assertSame('https://api.github.com/repos/acme/web/issues/9/comments', $posted[0][0]);
+        $this->assertSame('Bearer ghp_secret', $posted[0][1]);
+        $this->assertStringContainsString('https://web-pr-9.'.config('platform.domain'), $posted[0][2]);
+        $send(['action' => 'synchronize'] + $pr, $gh)->assertStatus(202)->assertJsonPath('data.commented', false);
+        $this->assertCount(1, $posted, 'one comment per opened pull request, not one per push');
+        $this->api($token)->patchJson("/api/v1/projects/{$project['id']}", ['preview_comment_token' => null])->assertOk()->assertJsonPath('data.preview_comments', false);
+        $this->assertSame(0, \App\Models\Secret::allTenants()->where('name', 'like', 'preview-comments-%')->count());
+
+        // Gitea and GitLab address their own APIs.
+        $gitea = \App\Services\PreviewCommentService::target(\Illuminate\Http\Request::create('/', 'POST', ['repository' => ['full_name' => 'acme/web', 'html_url' => 'https://git.acme.test/acme/web']], [], [], ['HTTP_X_GITEA_EVENT' => 'pull_request']), 4);
+        $this->assertSame('https://git.acme.test/api/v1/repos/acme/web/issues/4/comments', $gitea['url']);
+        $gitlab = \App\Services\PreviewCommentService::target(\Illuminate\Http\Request::create('/', 'POST', ['project' => ['id' => 42, 'web_url' => 'https://gitlab.acme.test/acme/web']], [], [], ['HTTP_X_GITLAB_EVENT' => 'Merge Request Hook']), 3);
+        $this->assertSame('https://gitlab.acme.test/api/v4/projects/42/merge_requests/3/notes', $gitlab['url']);
+    }
+
     public function test_a_request_to_a_sleeping_app_wakes_it(): void
     {
         config(['platform.drivers.certificates' => 'traefik']);

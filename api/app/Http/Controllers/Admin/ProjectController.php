@@ -19,7 +19,7 @@ class ProjectController extends Controller
     {
         return [
             'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
-            'webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'preview_environment_id' => $p->preview_environment_id,
+            'webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'preview_environment_id' => $p->preview_environment_id, 'preview_comments' => (bool) $p->preview_comment_secret_id,
             'environments' => Environment::where('project_id', $p->id)->orderByRaw("case kind when 'production' then 0 when 'staging' then 1 else 2 end")->orderBy('name')->get()
                 ->map(fn ($e) => $this->envs->present($e))->values(),
         ];
@@ -128,9 +128,22 @@ class ProjectController extends Controller
     public function update(Request $request, string $id)
     {
         $project = Project::findOrFail($id);
-        $v = $request->validate(['name' => 'sometimes|string|max:80', 'description' => 'nullable|string|max:255', 'preview_environment_id' => 'nullable|uuid']);
+        $v = $request->validate(['name' => 'sometimes|string|max:80', 'description' => 'nullable|string|max:255', 'preview_environment_id' => 'nullable|uuid', 'preview_comment_token' => 'sometimes|nullable|string|max:500']);
         if (! empty($v['preview_environment_id'])) {
             Environment::where('project_id', $project->id)->findOrFail($v['preview_environment_id']);
+        }
+        // ENV: the Git token that comments preview links, kept encrypted as a Secret and never returned.
+        if (array_key_exists('preview_comment_token', $v)) {
+            $old = $project->preview_comment_secret_id ? \App\Models\Secret::find($project->preview_comment_secret_id) : null;
+            if ($v['preview_comment_token']) {
+                $secret = $old ?? new \App\Models\Secret(['name' => 'preview-comments-'.substr(str_replace('-', '', $project->id), 0, 8)]);
+                $secret->fill(['value' => $v['preview_comment_token']])->save();
+                $v['preview_comment_secret_id'] = $secret->id;
+            } else {
+                $old?->delete();
+                $v['preview_comment_secret_id'] = null;
+            }
+            unset($v['preview_comment_token']);
         }
         $project->update($v);
 
