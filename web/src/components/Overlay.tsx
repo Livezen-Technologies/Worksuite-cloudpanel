@@ -75,12 +75,12 @@ export function Modal({ open, onClose, title, children, footer, width = 520 }: {
     <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'var(--z-modal)' }}>
       <div className="absolute inset-0 bg-black/45 animate-[ovl-fade_var(--dur-base)_var(--ease-out)]" onClick={onClose} aria-hidden="true" />
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className="relative card w-full max-h-[90vh] flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)]" style={{ maxWidth: width }}>
-        <div className="flex items-center justify-between px-5 pt-4">
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line">
           <h2 id={id} className="m-0 text-base font-semibold">{title}</h2>
           <button type="button" aria-label="Close dialog" onClick={onClose} className="btn btn-sm border-0"><Icon name="close" /></button>
         </div>
         <div className="p-5 overflow-y-auto text-sm">{children}</div>
-        {footer && <div className="px-5 pb-5 flex flex-wrap gap-2 justify-end">{footer}</div>}
+        {footer && <div className="px-5 py-3.5 border-t border-line bg-head/40 rounded-b-[inherit] flex flex-wrap gap-2 justify-end">{footer}</div>}
       </div>
     </div>
   )
