@@ -21,6 +21,8 @@ class Server extends Model
             'security' => 'array',
             'roles' => 'array',
             'cleanup' => 'array',
+            'mesh_status' => 'array',
+            'mesh_joined_at' => 'datetime',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',

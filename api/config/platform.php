@@ -185,6 +185,9 @@ return [
     // One-click customer templates (UHOST source "template").
     'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL')],
 
+    // PNET: the WireGuard private network between an organisation's servers and its admins' devices.
+    'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
+
     // CFT: cloudflared connector image and the Traefik entry point it forwards to on the proxy network.
     'tunnels' => ['image' => env('CLOUDFLARED_IMAGE', 'cloudflare/cloudflared:2024.10.1'), 'origin' => env('TUNNEL_ORIGIN', 'http://traefik:80')],
 

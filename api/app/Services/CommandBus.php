@@ -24,7 +24,7 @@ class CommandBus
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
         'container.remove', 'container.create', 'container.logs', 'container.prune',
-        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'network.create', 'network.remove',
+        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'mesh.status', 'network.create', 'network.remove',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
@@ -58,6 +58,7 @@ class CommandBus
         'mail' => MailService::class,
         'scheduled.app_command' => ScheduledJobService::class,
         'cleanup' => CleanupService::class,
+        'mesh' => MeshService::class,
     ];
 
     public function __construct(private JobService $jobs) {}

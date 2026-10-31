@@ -30,6 +30,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'File manager', to: '/admin/files', icon: 'file' },
     { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
     { label: 'Networks', to: '/admin/networks', icon: 'share' },
+    { label: 'Private network', to: '/admin/private-network', icon: 'shield' },
   ] },
   { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, firewall, antivirus, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },

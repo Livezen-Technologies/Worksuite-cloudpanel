@@ -33,6 +33,7 @@ import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from '
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
 import Projects from './pages/admin/Projects'
+import PrivateNetwork from './pages/admin/PrivateNetwork'
 import { Packages, Customers } from './pages/admin/Hosting'
 import AppManage from './pages/admin/AppManage'
 
@@ -84,6 +85,7 @@ export function AppRoutes() {
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="projects" element={<Projects />} />
+        <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="packages" element={<Packages />} />
         <Route path="customers" element={<Customers />} />
