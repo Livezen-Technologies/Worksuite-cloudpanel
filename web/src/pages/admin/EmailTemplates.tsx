@@ -7,7 +7,7 @@ import { useToast } from '../../components/Toasts'
 import type { R } from '../../lib/util'
 
 const FIELDS: [string, string, boolean][] = [
-  ['subject', 'Subject', false], ['preview', 'Preview text', false], ['heading', 'Heading', false], ['body', 'Body', true],
+  ['subject', 'Subject', false], ['preview', 'Preview text', false], ['eyebrow', 'Eyebrow', false], ['heading', 'Heading', false], ['body', 'Body', true], ['code', 'Code block', true],
   ['button_label', 'Button label', false], ['button_url', 'Button link', false], ['secondary_label', 'Secondary link label', false], ['secondary_url', 'Secondary link', false],
 ]
 
@@ -122,8 +122,10 @@ function Editor({ id, onSaved }: { id: string; onSaved: () => void }) {
               ))}
             </div>
           </>}
+          {field('eyebrow', 'Eyebrow (small line above the heading)')}
           {field('heading', 'Heading')}
           {field('body', 'Body', { multi: true })}
+          {field('code', 'Code block (log lines; leave empty for none)', { multi: true, mono: true })}
           <div className="grid gap-2.5 sm:grid-cols-2">
             {field('button_label', 'Button label')}
             {field('button_url', 'Button link', { mono: true })}

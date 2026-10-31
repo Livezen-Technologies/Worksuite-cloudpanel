@@ -9,6 +9,7 @@ use App\Models\FirewallEvent;
 use App\Models\FirewallProtectedPath;
 use App\Models\FirewallRule;
 use App\Models\Job;
+use App\Services\EmailTemplateService;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -45,17 +46,43 @@ class FirewallEventService implements HandlesCommandResults
             return;
         }
         $recorded = 0;
+        $fresh = [];
         foreach ((array) ($command->output['alerts'] ?? []) as $alert) {
             // Each poll overlaps the last; record an alert once per ingress.
             $seen = 'crowdsec-alert:'.$command->server_id.':'.($alert['id'] ?? '');
             if (empty($alert['id']) || ! Cache::add($seen, 1, now()->addDay())) {
                 continue;
             }
+            $fresh[] = $alert;
             if ($this->record($alert)) {
                 $recorded++;
             }
         }
+        $this->maybeAlertStaff($fresh);
         $this->jobs->succeed($job, ['recorded' => $recorded]);
+    }
+
+    /**
+     * EML: one "CrowdSec bot alert" email to staff when a poll brings at least the configured
+     * number of blocked or challenged requests; at most one an hour.
+     */
+    public function maybeAlertStaff(array $alerts): void
+    {
+        $hits = array_values(array_filter($alerts, fn ($a) => in_array($a['decision'] ?? null, ['ban', 'captcha'], true)));
+        if (count($hits) < (int) config('platform.crowdsec.alert_threshold', 50)) {
+            return;
+        }
+        $top = fn (string $k, int $n) => collect($hits)->countBy(fn ($a) => (string) ($a[$k] ?? '') ?: '?')->sortDesc()->take($n);
+        $total = count($hits);
+        $origins = $top('country', 3)->map(fn ($c, $k) => $k.' '.round($c / $total * 100).'%')->values()->implode(' · ');
+        $scenario = (string) $top('scenario', 1)->keys()->first();
+        $hosts = collect($hits)->pluck('host')->filter()->unique();
+        $paths = $top('path', 2)->keys()->filter(fn ($p) => $p !== '?')->implode(', ');
+        app(EmailTemplateService::class)->notifyStaff('crowdsec_alert', [
+            'count' => number_format($total), 'scenario' => $scenario, 'origins' => $origins ?: 'unknown',
+            'targets' => $hosts->count().' sites'.($paths ? ' · '.$paths : ''), 'window' => '5 minutes',
+            'log' => $top('scenario', 5)->map(fn ($c, $k) => str_pad((string) $c, 6).' '.$k)->values()->implode("\n"),
+        ], 'hourly', 60);
     }
 
     /** One CrowdSec alert as a firewall event; false when it belongs to no organisation. */
