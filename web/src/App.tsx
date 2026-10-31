@@ -1,4 +1,5 @@
 import CustomerProfile from './pages/admin/CustomerProfile'
+import { NotFound } from './components/ErrorStates'
 import { Home as CustomerHome } from './pages/app/Home'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
@@ -134,7 +135,7 @@ export function AppRoutes() {
         <Route path="billing" element={<Billing />} />
         <Route path="account" element={<Account />} />
       </Route>
-      <Route path="*" element={<div className="p-8"><h1>Page not found</h1><a href="/">Go home</a></div>} />
+      <Route path="*" element={<main id="main" className="min-h-screen flex"><NotFound /></main>} />
     </Routes>
   )
 }

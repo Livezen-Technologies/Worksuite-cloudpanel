@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, Link } from 'react-router'
 import { Icon } from './Icon'
+import { PageErrorBoundary } from './ErrorStates'
 import { Drawer } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
 import { useTheme } from '../lib/theme'
@@ -207,7 +208,7 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
       <div className="flex-1 min-w-0 flex flex-col">
         <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full min-w-0 box-border">
           {me && !me.user.email_verified_at && <VerifyBanner email={String(me.user.email)} />}
-          <Outlet />
+          <PageErrorBoundary key={loc.pathname}><Outlet /></PageErrorBoundary>
         </main>
       </div>
       </div>
