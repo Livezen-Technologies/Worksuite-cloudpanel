@@ -258,3 +258,12 @@ html, body { background: var(--bg); color: var(--text); font-family: var(--font-
 #main > :empty { display: none; }
 /* A table placed inside a titled card joins it instead of drawing a box inside a box. */
 .card .card.dt { border-width: 1px 0 0; border-radius: 0; box-shadow: none; }
+/* Phones: stat cards sit two to a row and tighten up, so the numbers fit on one screen. */
+@media (max-width: 640px) {
+  :has(> .stat-tile) { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+  .stat-tile { padding: 12px !important; }
+  .stat-tile .text-\[28px\], .stat-tile .text-\[26px\] { font-size: 22px; line-height: 28px; }
+}
+@media (max-width: 640px) {
+  #main .card.p-5 { padding: 16px; }
+}
