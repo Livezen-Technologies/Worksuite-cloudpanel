@@ -67,6 +67,17 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- `crowdsec.apply` refused its own payload on an installation with no firewall
+  rules, so a fresh CrowdSec install never received its `profiles.yaml`. The
+  panel dispatches `'scenarios' => (object) $cs['scenarios']` to force a JSON
+  object, but `AgentCommand` casts `payload` to `encrypted:array`: Laravel
+  decodes it with `assoc=true` and re-encodes an empty PHP array as `[]`,
+  undoing the cast. The agent's `map[string]string` then failed with
+  `cannot unmarshal array into Go struct field crowdsecApply.scenarios`.
+  The agent now accepts an empty array as "no scenarios" while still rejecting
+  a populated one, so the fix needs no panel-side change and works with the
+  panel as it stands.
+
 - `Lists::paginate` treated any filter column as a callable, and
   `is_callable()` is true for every string naming a global function — a filter
   called `action` invoked Laravel's `action()` helper and returned a 500.
