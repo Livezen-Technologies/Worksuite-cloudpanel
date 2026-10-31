@@ -20,11 +20,11 @@
 - { id: prometheus, name: Prometheus, category: Monitoring, version: 1, image: "prom/prometheus:v2.55.0", port: 9090, health: /-/healthy, volume: /prometheus, accent: "#E6522C", description: "Metrics database and alerting." }
 - { id: gitea, name: Gitea, category: Development, version: 1, image: "gitea/gitea:1.22", port: 3000, health: /api/healthz, volume: /data, accent: "#609926", description: "Lightweight Git hosting (SQLite).",
     env: { GITEA__server__ROOT_URL: "${SERVICE_URL}/", GITEA__server__DOMAIN: "${SERVICE_FQDN}", GITEA__security__SECRET_KEY: "${SERVICE_HEX_GITEA}" } }
-- { id: jenkins, name: Jenkins, category: Development, version: 1, image: "jenkins/jenkins:lts-jdk17", port: 8080, health: /login, volume: /var/jenkins_home, accent: "#D24939", description: "Automation server for CI/CD." }
+- { id: jenkins, customer: false, name: Jenkins, category: Development, version: 1, image: "jenkins/jenkins:lts-jdk17", port: 8080, health: /login, volume: /var/jenkins_home, accent: "#D24939", description: "Automation server for CI/CD." }
 - { id: code-server, name: code-server, category: Development, version: 1, image: "codercom/code-server:4.95.3", port: 8080, health: /healthz, volume: /home/coder, accent: "#007ACC", description: "VS Code in the browser.",
     env: { PASSWORD: "${SERVICE_PASSWORD_CODE}" } }
-- { id: registry, name: Docker Registry, category: Development, version: 1, image: "registry:2", port: 5000, health: /v2/, volume: /var/lib/registry, accent: "#2496ED", description: "Private image registry." }
-- { id: sonarqube, name: SonarQube, category: Development, version: 1, image: "sonarqube:10-community", port: 9000, health: /api/system/status, volume: /opt/sonarqube/data, accent: "#4E9BCD", description: "Code quality and security analysis." }
+- { id: registry, customer: false, name: Docker Registry, category: Development, version: 1, image: "registry:2", port: 5000, health: /v2/, volume: /var/lib/registry, accent: "#2496ED", description: "Private image registry." }
+- { id: sonarqube, customer: false, name: SonarQube, category: Development, version: 1, image: "sonarqube:10-community", port: 9000, health: /api/system/status, volume: /opt/sonarqube/data, accent: "#4E9BCD", description: "Code quality and security analysis." }
 - { id: vaultwarden, name: Vaultwarden, category: Security, version: 1, image: "vaultwarden/server:1.32.5", port: 80, health: /alive, volume: /data, accent: "#175DDC", description: "Bitwarden-compatible password manager.",
     env: { DOMAIN: "${SERVICE_URL}", ADMIN_TOKEN: "${SERVICE_BASE64_ADMIN}", SIGNUPS_ALLOWED: "false" } }
 - { id: adminer, name: Adminer, category: Database tools, version: 1, image: "adminer:4", port: 8080, health: /, accent: "#34567C", description: "Database management in one page." }
@@ -61,7 +61,7 @@
 - { id: filebrowser, name: File Browser, category: Productivity, version: 1, image: "filebrowser/filebrowser:v2", port: 80, health: /health, volume: /srv, accent: "#40C4FF", description: "Web file manager." }
 - { id: jellyfin, name: Jellyfin, category: Media, version: 1, image: "jellyfin/jellyfin:10.10.3", port: 8096, health: /health, volume: /config, accent: "#AA5CC3", description: "Media server." }
 - { id: home-assistant, name: Home Assistant, category: Automation, version: 1, image: "ghcr.io/home-assistant/home-assistant:stable", port: 8123, health: /, volume: /config, accent: "#18BCF2", description: "Home automation hub." }
-- { id: portainer, name: Portainer, category: Development, version: 1, image: "portainer/portainer-ce:2.21.4", port: 9000, health: /, volume: /data, accent: "#13BEF9", description: "Container management UI (no Docker socket is mounted)." }
+- { id: portainer, customer: false, name: Portainer, category: Development, version: 1, image: "portainer/portainer-ce:2.21.4", port: 9000, health: /, volume: /data, accent: "#13BEF9", description: "Container management UI (no Docker socket is mounted)." }
 - { id: nginx, name: Nginx static site, category: Web servers, version: 1, image: "nginx:1.27-alpine", port: 80, health: /, volume: /usr/share/nginx/html, accent: "#009639", description: "Serve static files." }
 - { id: apache, name: Apache httpd, category: Web servers, version: 1, image: "httpd:2.4-alpine", port: 80, health: /, volume: /usr/local/apache2/htdocs, accent: "#D22128", description: "Serve static files." }
 - { id: whoami, name: whoami, category: Web servers, version: 1, image: "traefik/whoami:v1.10", port: 80, health: /, accent: "#24A1C1", description: "Tiny HTTP echo service for testing routing." }

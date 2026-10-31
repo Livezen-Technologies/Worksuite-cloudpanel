@@ -29,8 +29,8 @@ class HostingService
 
                 return ['ok' => $r['valid'], 'message' => $r['valid'] ? 'Compose file is valid.' : implode(' ', array_column($r['errors'], 'message')), 'services' => $r['services']];
             })(),
-            'template' => isset(config('platform.app_templates')[$source['template'] ?? ''])
-                ? ['ok' => true, 'message' => 'Template available.', 'template' => config('platform.app_templates')[$source['template']]]
+            'template' => ($t = self::template((string) ($source['template'] ?? '')))
+                ? ['ok' => true, 'message' => 'Template available.', 'template' => $t]
                 : ['ok' => false, 'message' => 'Unknown template.'],
         };
     }
@@ -38,11 +38,33 @@ class HostingService
     public function host(User $user, array $input): array
     {
         $source = $input['source'];
+        $rendered = null;
         if ($source['type'] === 'template') {
-            $template = config('platform.app_templates')[$source['template']] ?? throw ApiException::validation(['source.template' => ['Unknown template.']]);
+            $template = self::template((string) $source['template']) ?? throw ApiException::validation(['source.template' => ['Unknown template.']]);
             $source['image'] = $template['image'];
             $input['port'] ??= $template['port'];
             $input['volume_path'] ??= $template['volume_path'];
+            $input['health_path'] ??= $template['health_path'] ?? null;
+            // TPL-3: catalogue templates generate their secrets and fill in the app's address.
+            if ($model = \App\Models\Template::find($source['template'])) {
+                $rendered = app(TemplateService::class)->render($model->manifest, $input['name'], $input['name'].'.'.config('platform.domain'), (array) ($source['variables'] ?? []));
+                if ($rendered['unresolved']) {
+                    throw ApiException::validation(['source.variables' => ['Fill in: '.implode(', ', $rendered['unresolved'])]]);
+                }
+                $given = collect($input['env'] ?? [])->pluck('key')->all();
+                $secretKeys = app(TemplateService::class)->generatedKeys($model->manifest);
+                $secretVars = collect($model->manifest['variables'] ?? [])->where('secret', true)->pluck('key')->all();
+                foreach ($rendered['env'] as $k => $v) {
+                    if (in_array($k, $given, true)) {
+                        continue;
+                    }
+                    $template = (string) ($model->manifest['env'][$k] ?? '');
+                    $generated = (bool) array_filter($secretKeys, fn ($g) => str_contains($template, '${'.$g.'}'));
+                    $input['env'][] = ['key' => $k, 'value' => $v, 'secret' => $generated || in_array($k, $secretVars, true)];
+                }
+                $rendered['template'] = $model;
+            }
+            unset($source['variables']); // never stored on the app; secrets live in env vars and the encrypted install record
         }
         if (Application::withTrashed()->where('name', $input['name'])->exists()) {
             throw ApiException::validation(['name' => ['You already have an app with this name.']]);
@@ -56,7 +78,7 @@ class HostingService
         $subdomain = $input['name'].'.'.config('platform.domain');
         $this->domains->assertAvailable($subdomain, null, true);
 
-        return DB::transaction(function () use ($user, $input, $source, $check, $subdomain) {
+        return DB::transaction(function () use ($user, $input, $source, $check, $subdomain, $rendered) {
             $image = $source['type'] === 'git'
                 ? 'registry.'.config('platform.domain').'/'.\App\Support\Tenant::current()->slug.'/'.$input['name'].':'.substr($check['commit'] ?? 'latest', 0, 12)
                 : ($source['image'] ?? null);
@@ -70,12 +92,39 @@ class HostingService
             foreach ($input['env'] ?? [] as $var) {
                 EnvVar::create(['application_id' => $app->id, 'key' => $var['key'], 'value' => (string) ($var['value'] ?? ''), 'secret' => (bool) ($var['secret'] ?? false)]);
             }
+            if ($rendered) {
+                \App\Models\TemplateInstall::create(['template_id' => $rendered['template']->id, 'version' => $rendered['template']->version, 'name' => $app->name,
+                    'resource_type' => 'application', 'resource_id' => $app->id, 'values' => $rendered['values'], 'user_id' => $user->id]);
+            }
             // UHOST-005: free subdomain with HTTPS on first deploy.
             $this->domains->create(['name' => $subdomain, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => true], true);
             $deployment = $this->deployments->start($app, $user, 'manual');
 
             return ['app' => $this->toApi($app->fresh()), 'job_id' => $deployment->job_id, 'deployment_id' => $deployment->id];
         });
+    }
+
+    /**
+     * TPL: a template customers can host: a single-image catalogue entry (not marked
+     * `customer: false`), or one of the older built-in entries.
+     */
+    public static function template(string $id): ?array
+    {
+        if ($id === '') {
+            return null;
+        }
+        if (! \App\Models\Template::query()->exists()) {
+            app(TemplateService::class)->sync();
+        }
+        $t = \App\Models\Template::find($id);
+        if ($t && $t->type === 'image' && ($t->manifest['customer'] ?? true) !== false) {
+            $m = $t->manifest;
+
+            return ['image' => $m['image'], 'port' => $m['port'] ?? 80, 'volume_path' => $m['volume'] ?? null, 'health_path' => $m['health'] ?? null,
+                'size' => $m['size'] ?? 'small', 'name' => $t->name, 'description' => $m['description'] ?? ''];
+        }
+
+        return config('platform.app_templates')[$id] ?? null;
     }
 
     public function toApi(Application $app, bool $detail = false): array
