@@ -181,6 +181,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.meshApply(ctx, c.Payload, progress)
 	case "mesh.status":
 		return e.meshStatus(ctx)
+	case "tunnel.lockdown":
+		return e.tunnelLock(ctx, c.Payload)
 	case "mesh.confirm":
 		return e.meshConfirm()
 	case "server.cleanup":

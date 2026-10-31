@@ -83,4 +83,41 @@ class CloudflareTunnelTest extends TestCase
         $this->assertSame('container.remove', $this->heartbeat($secret)['commands'][0]['type']);
         $this->assertSame(0, CloudflareTunnel::allTenants()->count());
     }
+
+    public function test_ports_close_only_while_every_domain_rides_a_healthy_tunnel(): void
+    {
+        $this->fakeCloudflare();
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $provider = app(Tenant::class)->as($org->id, fn () => DnsProviderAccount::create(['name' => 'cf', 'type' => 'cloudflare', 'credentials' => ['token' => 'cf-token', 'account_id' => 'acc1']]));
+        $appId = $this->api($token)->postJson('/api/v1/applications', ['name' => 'shop', 'source_type' => 'image', 'image' => 'acme/shop:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated()->json('data.id');
+        $this->api($token)->postJson('/api/v1/domains', ['name' => 'shop.acme.test', 'application_id' => $appId, 'target_port' => 8080])->assertCreated();
+        $this->api($token)->postJson("/api/v1/servers/{$server->id}/tunnel", ['dns_provider_id' => $provider->id])->assertCreated();
+        $this->heartbeat($secret);
+        $lock = fn () => collect($this->heartbeat($secret)['commands'])->where('type', 'tunnel.lockdown')->pluck('payload.enabled')->all();
+
+        $t = $this->api($token)->patchJson("/api/v1/servers/{$server->id}/tunnel", ['close_ports' => true])->assertOk()->json('data');
+        $this->assertSame([true, true], [$t['close_ports'], $t['ports_closed']]);
+        $this->assertSame([true], $lock());
+
+        // A domain Cloudflare can't route reopens the ports at once.
+        $this->calls = [];
+        $other = $this->api($token)->postJson('/api/v1/domains', ['name' => 'shop.other.test', 'application_id' => $appId, 'target_port' => 8080])->assertCreated()->json('data.id');
+        $this->assertNotEmpty($this->calls, 'adding a domain syncs the tunnel');
+        $this->assertSame([false], $lock());
+        $this->api($token)->deleteJson("/api/v1/domains/{$other}")->assertSuccessful();
+        $this->assertSame([true], $lock());
+
+        // A down tunnel reopens; disabling the tunnel reopens.
+        $this->health = 'down';
+        $this->artisan('tunnels:sync')->assertSuccessful();
+        $this->assertSame([false], $lock());
+        $this->health = 'healthy';
+        $this->artisan('tunnels:sync')->assertSuccessful();
+        $this->assertSame([true], $lock());
+        $this->api($token)->deleteJson("/api/v1/servers/{$server->id}/tunnel")->assertNoContent();
+        $this->assertSame([false], $lock());
+    }
 }

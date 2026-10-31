@@ -42,6 +42,16 @@ class TunnelController extends Controller
         return $this->data($this->tunnels->present($this->tunnels->sync($tunnel)));
     }
 
+    public function update(Request $request, string $id)
+    {
+        $v = $request->validate(['close_ports' => 'required|boolean']);
+        $tunnel = CloudflareTunnel::where('server_id', Server::findOrFail($id)->id)->firstOrFail();
+        $tunnel->update(['close_ports' => $v['close_ports']]);
+        $this->tunnels->lockdown($tunnel);
+
+        return $this->data($this->tunnels->present($tunnel));
+    }
+
     public function restart(string $id)
     {
         $tunnel = CloudflareTunnel::where('server_id', Server::findOrFail($id)->id)->firstOrFail();

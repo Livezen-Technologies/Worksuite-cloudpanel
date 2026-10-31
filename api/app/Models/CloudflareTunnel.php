@@ -17,7 +17,7 @@ class CloudflareTunnel extends Model
 
     protected function casts(): array
     {
-        return ['token' => 'encrypted', 'hostnames' => 'array', 'last_synced_at' => 'datetime', 'connections' => 'integer'];
+        return ['token' => 'encrypted', 'hostnames' => 'array', 'last_synced_at' => 'datetime', 'connections' => 'integer', 'close_ports' => 'boolean', 'ports_closed' => 'boolean'];
     }
 
     public function server() { return $this->belongsTo(Server::class); }

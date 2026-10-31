@@ -92,6 +92,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::delete('mesh/vpn-peers/{id}', [Admin\MeshController::class, 'revokePeer'])->name('mesh.vpn-peers.destroy');
         Route::post('servers/{id}/tunnel/sync', [Admin\TunnelController::class, 'sync'])->name('servers.tunnel.sync');
         Route::post('servers/{id}/tunnel/restart', [Admin\TunnelController::class, 'restart'])->name('servers.tunnel.restart');
+        Route::patch('servers/{id}/tunnel', [Admin\TunnelController::class, 'update'])->name('servers.tunnel.update');
         Route::delete('servers/{id}/tunnel', [Admin\TunnelController::class, 'disable'])->name('servers.tunnel.disable');
         Route::post('servers/{id}/maintenance', [Admin\ServerController::class, 'maintenance'])->name('servers.maintenance');
         Route::post('servers/{id}/agent/{action}', [Admin\ServerController::class, 'agent'])->whereIn('action', ['restart', 'update'])->name('servers.agent');

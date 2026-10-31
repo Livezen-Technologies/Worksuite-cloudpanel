@@ -6,7 +6,7 @@ import { ConfirmDialog } from './Overlay'
 import Select from './Select'
 import { ago } from '../lib/format'
 
-type Tunnel = { id: string; tunnel_id: string; name: string; status: string; connections: number; hostnames: string[]; cname_target: string; error: string | null; last_synced_at: string | null }
+type Tunnel = { id: string; tunnel_id: string; name: string; status: string; connections: number; hostnames: string[]; cname_target: string; error: string | null; close_ports: boolean; ports_closed: boolean; last_synced_at: string | null }
 type Page = { tunnel: Tunnel | null; hostnames: string[]; providers: { id: string; name: string; has_account_id: boolean }[] }
 
 /** CFT-1..6: publish this server's apps through a Cloudflare Tunnel. */
@@ -48,6 +48,12 @@ export function TunnelPanel({ serverId }: { serverId: string }) {
         {t.hostnames.map((h) => <li key={h} className="py-1.5 border-t border-line text-sm font-mono">{h}</li>)}
         {t.hostnames.length === 0 && <li className="text-sm text-muted">No hostnames yet. Add domains to apps on this server, then sync.</li>}
       </ul>
+      <label className="flex items-center gap-2 mt-3 text-sm">
+        <input type="checkbox" checked={t.close_ports} disabled={busy}
+          onChange={(e) => run({ path, method: 'PATCH', body: { close_ports: e.target.checked }, label: 'Port lockdown', success: e.target.checked ? 'Ports close while the tunnel is healthy' : 'Ports 80/443 open' }).catch(() => {})} />
+        Close ports 80/443 while the tunnel is healthy
+        <span className="text-xs text-muted">({t.ports_closed ? 'closed now' : 'open now'})</span>
+      </label>
       {t.error && <pre role="alert" className="mt-3 mb-0 text-xs text-danger whitespace-pre-wrap">{t.error}</pre>}
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} danger confirmLabel="Remove tunnel" title="Remove the Cloudflare Tunnel?"
         onConfirm={() => { setConfirm(false); run({ path, method: 'DELETE', label: 'Remove tunnel', success: 'Tunnel removed' }).catch(() => {}) }}>

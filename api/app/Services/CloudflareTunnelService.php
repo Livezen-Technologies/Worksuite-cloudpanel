@@ -138,8 +138,36 @@ class CloudflareTunnelService
         if ($wasUp && $health['status'] === 'down') {
             $this->alert($tunnel);
         }
+        $this->lockdown($tunnel);
 
         return $tunnel;
+    }
+
+    /** Close 80/443 on the host only while every hostname is routed through a live tunnel; reopen otherwise. */
+    public function lockdown(CloudflareTunnel $tunnel, ?bool $force = null): void
+    {
+        $locked = $force ?? ($tunnel->close_ports && in_array($tunnel->status, ['healthy', 'degraded'], true) && ! $tunnel->error
+            && count($tunnel->hostnames ?? []) === count($this->hostnames($tunnel->server)));
+        if ($locked === (bool) $tunnel->ports_closed || ! $tunnel->server?->isOnline()) {
+            return;
+        }
+        $this->bus->dispatch($tunnel->server, 'tunnel.lockdown', ['enabled' => $locked, 'ports' => [80, 443]]);
+        $tunnel->update(['ports_closed' => $locked]);
+    }
+
+    /** Domain added or removed: re-sync the tunnel of the app's server at once. */
+    public function domainChanged(Domain $domain): void
+    {
+        $serverId = Application::allTenants()->whereKey($domain->application_id)->value('server_id');
+        $tunnel = $serverId ? CloudflareTunnel::allTenants()->where('server_id', $serverId)->first() : null;
+        if (! $tunnel) {
+            return;
+        }
+        try {
+            app(\App\Support\Tenant::class)->as($tunnel->organization_id, fn () => $this->sync($tunnel));
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     private function zoneFor($driver, string $host): ?string
@@ -163,6 +191,9 @@ class CloudflareTunnelService
                 $driver->deleteRecord($entry['zone_id'], $entry['record_id']);
             } catch (ApiException) {
             }
+        }
+        if ($tunnel->ports_closed) {
+            $this->lockdown($tunnel, false);
         }
         if ($tunnel->server?->isOnline()) {
             $this->bus->dispatch($tunnel->server, 'container.remove', ['container_id' => self::CONTAINER, 'force' => true]);
@@ -204,7 +235,7 @@ class CloudflareTunnelService
         return [
             'id' => $t->id, 'server_id' => $t->server_id, 'dns_provider_id' => $t->dns_provider_id, 'tunnel_id' => $t->tunnel_id, 'name' => $t->name,
             'status' => $t->status, 'connections' => $t->connections, 'hostnames' => array_column($t->hostnames ?? [], 'hostname'),
-            'cname_target' => $t->tunnel_id.'.cfargotunnel.com', 'error' => $t->error, 'last_synced_at' => $t->last_synced_at,
+            'cname_target' => $t->tunnel_id.'.cfargotunnel.com', 'error' => $t->error, 'close_ports' => (bool) $t->close_ports, 'ports_closed' => (bool) $t->ports_closed, 'last_synced_at' => $t->last_synced_at,
         ];
     }
 }

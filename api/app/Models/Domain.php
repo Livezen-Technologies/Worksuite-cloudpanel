@@ -16,6 +16,13 @@ class Domain extends Model
 
     protected $hidden = [];
 
+    protected static function booted(): void
+    {
+        $sync = fn (Domain $d) => app(\App\Services\CloudflareTunnelService::class)->domainChanged($d);
+        static::created($sync);
+        static::deleted($sync);
+    }
+
     protected function casts(): array
     {
         return [
