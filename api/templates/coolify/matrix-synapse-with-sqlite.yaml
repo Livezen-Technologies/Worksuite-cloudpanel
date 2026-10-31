@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: matrix-synapse-with-sqlite
+name: Matrix Synapse With Sqlite
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Chat securely with your family, friends, community, or build great apps with Matrix!
+port: 8008
+source: coolify
+documentation: https://element-hq.github.io/synapse/latest/welcome_and_overview.html
+compose: "services:\n  synapse:\n    image: matrixdotorg/synapse:latest\n    environment:\n      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:?}\n      SYNAPSE_REPORT_STATS: ${SYNAPSE_REPORT_STATS:-no}\n      ENABLE_REGISTRATION: ${ENABLE_REGISTRATION:-false}\n      SERVICE_USER_ADMIN: ${SERVICE_USER_ADMIN}\n      SERVICE_PASSWORD_ADMIN: ${SERVICE_PASSWORD_ADMIN}\n    volumes:\n    - synapse-data:/data\n    entrypoint: /bin/bash\n    command:\n    - -c\n    - \"# Generate config on first run\\nif [ ! -f /data/homeserver.yaml ]; then\\n  # Generate default config using SYNAPSE_SERVER_NAME (permanent, used in user IDs)\\n  /start.py generate\\n\\n  # Set public_baseurl to actual deployment URL (may differ from server_name)\\n  # This allows hosting at matrix.example.org while server_name is example.org\\n  if ! grep -q \\\"public_baseurl\\\" /data/homeserver.yaml; then\\n    sed -i \\\"/^server_name:/a public_baseurl: ${SERVICE_URL}/\\\" /data/homeserver.yaml\\n  fi\\n\\n  # Configure listener\
+  \ for reverse proxy\\n  sed -i 's/bind_addresses: \\\\[.*\\\\]/bind_addresses: [\\\"0.0.0.0\\\"]/' /data/homeserver.yaml\\n  sed -i '/x_forwarded:/d' /data/homeserver.yaml\\n  sed -i '/type: http/a \\\\    x_forwarded: true' /data/homeserver.yaml\\n\\n  # Enable registration if requested\\n  if [ \\\"false\\\" = \\\"true\\\" ] && ! grep -q \\\"enable_registration\\\" /data/homeserver.yaml; then\\n    echo \\\"enable_registration: true\\\" >> /data/homeserver.yaml\\n  fi\\nfi\\n\\n# Register admin user if credentials\\\n      \\ provided\\nif [ -n \\\"${SERVICE_USER_ADMIN}\\\" ] && [ -n \\\"${SERVICE_PASSWORD_ADMIN}\\\" ]; then\\n  (\\n    while ! curl -sf http://localhost:8008/health > /dev/null 2>&1; do\\n      sleep 2\\n    done\\n    register_new_matrix_user -a \\\\\\n      -u \\\"${SERVICE_USER_ADMIN}\\\" \\\\\\n      -p \\\"${SERVICE_PASSWORD_ADMIN}\\\" \\\\\\n      -c /data/homeserver.yaml \\\\\\n      http://localhost:8008 2>/dev/null || true\\n  ) &\\nfi\\n\\nexec /start.py\\n\"\
+  \n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:8008/health\n      interval: 30s\n      timeout: 10s\n      retries: 5\n      start_period: 20s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8008'\nvolumes:\n  synapse-data: {}\n"

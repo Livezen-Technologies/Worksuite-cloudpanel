@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: keycloak
+name: Keycloak
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Keycloak is an open-source Identity and Access Management tool.
+port: 8080
+source: coolify
+documentation: https://www.keycloak.org
+compose: "services:\n  keycloak:\n    image: quay.io/keycloak/keycloak:26.1\n    command:\n    - start\n    environment:\n      TZ: ${TIMEZONE:-UTC}\n      KC_BOOTSTRAP_ADMIN_USERNAME: ${SERVICE_USER_ADMIN}\n      KC_BOOTSTRAP_ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}\n      KC_HOSTNAME: ${SERVICE_URL}\n      KC_HTTP_ENABLED: ${KC_HTTP_ENABLED:-true}\n      KC_HEALTH_ENABLED: ${KC_HEALTH_ENABLED:-true}\n      KC_PROXY_HEADERS: ${KC_PROXY_HEADERS:-xforwarded}\n    volumes:\n    - keycloak-data:/opt/keycloak/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - \"exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost:9000\\r\\nConnection: close\\r\\n\\r\\n' >&3;cat <&3 | grep -q '\\\"status\\\": \\\"UP\\\"' && exit 0 || exit 1\"\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port:\
+  \ '8080'\nvolumes:\n  keycloak-data: {}\n"

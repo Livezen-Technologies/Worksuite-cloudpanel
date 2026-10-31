@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: sessy
+name: Sessy
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Email observability platform for monitoring and analyzing email systems.
+port: 80
+source: coolify
+documentation: https://github.com/marckohlbrugge/sessy/blob/main/docs/docker-deployment.md
+compose: "services:\n  sessy:\n    image: ghcr.io/marckohlbrugge/sessy:main\n    environment:\n      SECRET_KEY_BASE: ${SERVICE_HEX_SESSYSECRET}\n      HTTP_AUTH_USERNAME: ${SERVICE_USER_SESSY}\n      HTTP_AUTH_PASSWORD: ${SERVICE_PASSWORD_SESSY}\n    volumes:\n    - sessy-data:/rails/storage\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -sf http://127.0.0.1:80 || [ $? -eq 22 ]\n      interval: 5s\n      timeout: 10s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  sessy-data: {}\n"

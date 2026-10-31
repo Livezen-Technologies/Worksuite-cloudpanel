@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: jean
+name: Jean
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open-source desktop and server client for orchestrating AI coding agents.
+port: 3456
+source: coolify
+documentation: https://github.com/coollabsio/jean/blob/main/docs/headless-server.md
+compose: "services:\n  jean:\n    image: ghcr.io/coollabsio/jean-server:${JEAN_VERSION:-latest}\n    environment:\n      JEAN_HEADLESS: ${JEAN_HEADLESS:-1}\n      JEAN_HOST: ${JEAN_HOST:-0.0.0.0}\n      JEAN_PORT: ${JEAN_PORT:-3456}\n      JEAN_TOKEN: ${SERVICE_PASSWORD_JEAN}\n      JEAN_NO_TOKEN: ${JEAN_NO_TOKEN:-0}\n      JEAN_ALLOW_UNSAFE_NO_TOKEN: ${JEAN_ALLOW_UNSAFE_NO_TOKEN:-0}\n      JEAN_ALLOW_NATIVE_OPEN: ${JEAN_ALLOW_NATIVE_OPEN:-0}\n      JEAN_ALLOWED_ORIGINS: ${JEAN_ALLOWED_ORIGINS:-}\n      JEAN_DATA_DIR: /home/jean/.local/share/com.jean.desktop\n    volumes:\n    - jean-data:/home/jean/.local/share/com.jean.desktop\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -fsS http://127.0.0.1:3456/readyz >/dev/null || exit 1\n      interval: 10s\n      timeout: 5s\n      retries: 12\n      start_period: 15s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port:\
+  \ '3456'\nvolumes:\n  jean-data: {}\n"

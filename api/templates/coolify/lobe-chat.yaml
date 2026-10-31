@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: lobe-chat
+name: Lobe Chat
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An open-source, modern-design AI chat framework.
+port: 3210
+source: coolify
+documentation: https://github.com/lobehub/lobe-chat?tab=readme-ov-file#b-deploying-with-docker
+compose: "services:\n  lobe-chat:\n    image: lobehub/lobe-chat:1.135.5\n    environment:\n      OPENAI_API_KEY: ${OPENAI_API_KEY}\n      OPENAI_PROXY_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}\n      ACCESS_CODE: ${SERVICE_PASSWORD_ACCESSCODE}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://localhost:3210/ || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3210'\n"

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: bulwark
+name: Bulwark
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Modern webmail platform
+port: 3000
+source: coolify
+documentation: https://bulwarkmail.org/docs
+compose: "services:\n  bulwark:\n    image: ghcr.io/bulwarkmail/webmail:v1.8.1\n    environment:\n      JMAP_SERVER_URL: ${JMAP_SERVER_URL:?}\n      SESSION_SECRET: ${SERVICE_HEX_BULWARK}\n    volumes:\n    - bulwark-config:/app/data/admin\n    - bulwark-state:/app/data/admin-state\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --no-verbose\n      - --tries=1\n      - --spider\n      - http://127.0.0.1:3000/api/health\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  bulwark-config: {}\n  bulwark-state: {}\n"

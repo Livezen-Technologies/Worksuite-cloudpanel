@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: electricsql
+name: Electricsql
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Sync shape-based subsets of your Postgres data over HTTP.
+port: 3000
+source: coolify
+documentation: https://electric-sql.com/docs/guides/deployment
+compose: "services:\n  electric:\n    image: electricsql/electric:1.4.2\n    environment:\n      DATABASE_URL: ${DATABASE_URL:?}\n      ELECTRIC_SECRET: ${SERVICE_PASSWORD_ELECTRIC}\n      ELECTRIC_STORAGE_DIR: /app/persistent\n      ELECTRIC_USAGE_REPORTING: ${ELECTRIC_USAGE_REPORTING:-false}\n    volumes:\n    - electric_data:/app/persistent\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/v1/health\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  electric_data: {}\n"

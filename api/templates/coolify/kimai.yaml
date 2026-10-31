@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: kimai
+name: Kimai
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open source time-tracking app.
+port: 8001
+source: coolify
+documentation: https://www.kimai.org/
+compose: "services:\n  mysql:\n    image: mysql:8\n    volumes:\n    - kimai-mysql-data:/var/lib/mysql\n    environment:\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-kimai}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n    command: --default-storage-engine innodb\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  kimai:\n    image: kimai/kimai2:apache\n    container_name: kimai\n    depends_on:\n      mysql:\n        condition: service_healthy\n    volumes:\n    - kimai-data:/opt/kimai/var/data\n    environment:\n      APP_SECRET: ${SERVICE_PASSWORD_APPSECRET}\n      MAILER_FROM: ${MAILER_FROM:-kimai@example.com}\n      MAILER_URL: ${MAILER_URL:-null://null}\n      ADMINMAIL: ${ADMINMAIL:-admin@kimai.local}\n      ADMINPASS: ${SERVICE_PASSWORD_ADMINPASS}\n      DATABASE_URL: mysql://${SERVICE_USER_MYSQL}:${SERVICE_PASSWORD_MYSQL}@mysql/${MYSQL_DATABASE:-kimai}?charset=utf8mb4&serverVersion=8.3.0\n\
+  \      TRUSTED_HOSTS: ${TRUSTED_HOSTS}|localhost|127.0.0.1\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8001\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8001'\nvolumes:\n  kimai-mysql-data: {}\n  kimai-data: {}\n"

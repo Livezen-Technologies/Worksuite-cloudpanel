@@ -42,7 +42,8 @@ class TemplateService
     {
         $dir = base_path('templates');
         $out = array_map(fn ($m) => $m + ['type' => 'image'], (array) Yaml::parseFile($dir.'/images.yaml'));
-        foreach (glob($dir.'/compose/*.yaml') ?: [] as $file) {
+        // TPL: our stacks, then services imported from Coolify's catalogue (Apache-2.0, templates/coolify).
+        foreach (array_merge(glob($dir.'/compose/*.yaml') ?: [], glob($dir.'/coolify/*.yaml') ?: []) as $file) {
             $out[] = Yaml::parseFile($file) + ['type' => 'compose'];
         }
 

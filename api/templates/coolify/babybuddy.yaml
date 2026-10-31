@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: babybuddy
+name: Babybuddy
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: It helps parents track their baby's daily activities, growth, and health with ease.
+port: 8000
+source: coolify
+documentation: https://docs.baby-buddy.net
+compose: "services:\n  babybuddy:\n    image: lscr.io/linuxserver/babybuddy:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: Europe/Madrid\n      CSRF_TRUSTED_ORIGINS: ${SERVICE_URL}\n    volumes:\n    - babybuddy-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\nvolumes:\n  babybuddy-config: {}\n"

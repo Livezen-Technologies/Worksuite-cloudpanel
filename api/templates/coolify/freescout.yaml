@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: freescout
+name: Freescout
+category: Business
+version: 1
+type: compose
+accent: '#6B16ED'
+description: FreeScout is the super lightweight and powerful free open source help desk and shared inbox written in PHP (Laravel framework).
+port: 80
+source: coolify
+documentation: https://github.com/freescout-help-desk/freescout/wiki/
+compose: "services:\n  freescout:\n    image: nfrastack/freescout:2.2.21\n    volumes:\n    - freescout-data:/data\n    - freescout-logs:/logs\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    environment:\n      DB_TYPE: mariadb\n      DB_HOST: mariadb\n      DB_PORT: '3306'\n      DB_NAME: ${MARIADB_DATABASE:-freescout}\n      DB_USER: ${SERVICE_USER_MARIADB:-freescout}\n      DB_PASS: ${SERVICE_PASSWORD_MARIADB}\n      APP_URL: ${SERVICE_URL}\n      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}\n      ADMIN_PASS: ${SERVICE_PASSWORD_ADMIN}\n      FREESCOUT_APP_DEBUG: ${FREESCOUT_APP_DEBUG:-false}\n      TIMEZONE: ${TIMEZONE:-UTC}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - 'busybox wget -qO /dev/null --header ''X-Forwarded-Proto: https'' http://127.0.0.1/login || exit 1'\n      start_period: 60s\n      interval: 5s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb\n    volumes:\n    - mariadb-data:/var/lib/mysql\n    environment:\n      MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MARIADB_DATABASE: ${MARIADB_DATABASE:-freescout}\n      MARIADB_USER: ${SERVICE_USER_MARIADB}\n      MARIADB_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      start_period: 10s\n      interval: 5s\n      timeout: 10s\n      retries: 15\nvolumes:\n  freescout-data: {}\n  freescout-logs: {}\n  mariadb-data: {}\n"

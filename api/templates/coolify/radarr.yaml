@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: radarr
+name: Radarr
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Radarr⁠ - A fork of Sonarr to work with movies à la Couchpotato.
+port: 7878
+source: coolify
+documentation: https://hub.docker.com/r/linuxserver/radarr
+compose: "services:\n  radarr:\n    image: lscr.io/linuxserver/radarr:latest\n    environment:\n      _APP_URL: ${SERVICE_URL}\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-America/Toronto}\n    volumes:\n    - radarr-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:7878/ping\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '7878'\nvolumes:\n  radarr-config: {}\n"

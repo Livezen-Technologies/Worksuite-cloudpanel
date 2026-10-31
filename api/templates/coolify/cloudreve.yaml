@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: cloudreve
+name: Cloudreve
+category: Storage
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A self-hosted file management and sharing system.
+port: 5212
+source: coolify
+documentation: https://docs.cloudreve.org/
+compose: "services:\n  cloudreve:\n    image: cloudreve/cloudreve:4.10.1\n    environment:\n      CR_CONF_Database.Type: postgres\n      CR_CONF_Database.Host: postgres\n      CR_CONF_Database.User: ${SERVICE_USER_POSTGRES}\n      CR_CONF_Database.Password: ${SERVICE_PASSWORD_POSTGRES}\n      CR_CONF_Database.Name: ${POSTGRES_DB:-cloudreve-db}\n      CR_CONF_Database.Port: '5432'\n      CR_CONF_Redis.Server: redis:6379\n      CR_CONF_Redis.Password: ${SERVICE_PASSWORD_REDIS}\n    volumes:\n    - cloudreve-data:/cloudreve/data\n    healthcheck:\n      test:\n      - CMD\n      - nc\n      - -z\n      - localhost\n      - '5212'\n      interval: 20s\n      timeout: 10s\n      retries: 3\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5212'\n  postgres:\n\
+  \    image: postgres:18-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-cloudreve-db}\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $cloudreve-db\n      interval: 10s\n      timeout: 5s\n      retries: 5\n  redis:\n    image: redis:7-alpine\n    command: redis-server --requirepass ${SERVICE_PASSWORD_REDIS}\n    volumes:\n    - redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - -a\n      - ${SERVICE_PASSWORD_REDIS}\n      - ping\n      interval: 10s\n      timeout: 5s\n      retries: 5\nvolumes:\n  cloudreve-data: {}\n  postgres-data: {}\n  redis-data: {}\n"

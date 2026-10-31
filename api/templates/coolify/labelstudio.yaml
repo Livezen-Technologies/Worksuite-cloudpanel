@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: labelstudio
+name: Labelstudio
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Label Studio is a multi-type data labeling and annotation tool with standardized output format
+port: 8080
+source: coolify
+documentation: https://labelstud.io/guide/
+compose: "services:\n  labelstudio:\n    image: heartexlabs/label-studio:latest\n    depends_on:\n      postgres:\n        condition: service_healthy\n    environment:\n      CSRF_TRUSTED_ORIGINS: ${SERVICE_URL}\n      EXPERIMENTAL_FEATURES: ${EXPERIMENTAL_FEATURES:-false}\n      DJANGO_DB: ${DJANGO_DB:-default}\n      POSTGRE_NAME: ${POSTGRES_DB:-labelstudio}\n      POSTGRE_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRE_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRE_PORT: '5432'\n      POSTGRE_HOST: postgres\n      LABEL_STUDIO_HOST: ${SERVICE_URL}\n      SSRF_PROTECTION_ENABLED: ${SSRF_PROTECTION_ENABLED:-true}\n      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: ${LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK:-true}\n      DATA_UPLOAD_MAX_NUMBER_FILES: ${DATA_UPLOAD_MAX_NUMBER_FILES:-10000}\n      LABEL_STUDIO_USERNAME: ${LABEL_STUDIO_USERNAME:-admin@example.com}\n      LABEL_STUDIO_PASSWORD: ${SERVICE_PASSWORD_LABELSTUDIO}\n    volumes:\n    - labelstudio-data:/label-studio/data\n    healthcheck:\n\
+  \      test:\n      - CMD-SHELL\n      - curl -f http://localhost:8080/health || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  postgres:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-labelstudio}\n    volumes:\n    - pg-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -h localhost -U $${POSTGRES_USER} -d $labelstudio\n      interval: 5s\n      timeout: 20s\n      retries: 3\nvolumes:\n  labelstudio-data: {}\n  pg-data: {}\n"

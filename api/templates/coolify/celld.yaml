@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: celld
+name: Celld
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Self-hosted, distributed Durable Objects powered by Deno.
+port: 8080
+source: coolify
+documentation: https://celld.dev/docs
+compose: "services:\n  celld:\n    image: ghcr.io/denoland/celld:${CELLD_VERSION:-latest}\n    environment:\n      CELLD_BUCKET: ${CELLD_BUCKET:?}\n      S3_ENDPOINT: ${S3_ENDPOINT:-}\n      AWS_REGION: ${AWS_REGION:-us-east-1}\n      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?}\n      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?}\n      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}\n      CELLD_ADDR: 0.0.0.0:8080\n      CELLD_ADVERTISE: celld:8080\n      CELLD_WATCH: /var/lib/celld/state\n      RUST_LOG: ${RUST_LOG:-info}\n    volumes:\n    - celld-data:/var/lib/celld\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  celld-data: {}\n"

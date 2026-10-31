@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: umami
+name: Umami
+category: Analytics
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Umami is web analytics platform which provides insights into visitor behavior without compromising user privacy.
+port: 3000
+source: coolify
+documentation: https://umami.is
+compose: "services:\n  umami:\n    image: ghcr.io/umami-software/umami:3.0.3\n    environment:\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/$POSTGRES_DB\n      DATABASE_TYPE: postgres\n      APP_SECRET: ${SERVICE_PASSWORD_UMAMI}\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/api/heartbeat\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-umami}\n    healthcheck:\n\
+  \      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $umami\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  postgresql-data: {}\n"

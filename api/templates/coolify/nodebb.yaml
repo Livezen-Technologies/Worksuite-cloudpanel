@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nodebb
+name: Nodebb
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A next-generation discussion platform.
+port: 4567
+source: coolify
+documentation: https://docs.nodebb.org/
+compose: "services:\n  nodebb:\n    image: ghcr.io/nodebb/nodebb:latest\n    environment: {}\n    volumes:\n    - nodebb_build:/usr/src/app/build\n    - nodebb_uploads:/usr/src/app/public/uploads\n    - nodebb_config:/opt/config\n    command: \"/bin/bash -c \\\" cat > /usr/src/app/setup.json <<EOL {\\n    \\\\\\\"defaults\\\\\\\": {\\n        \\\\\\\"postgres\\\\\\\": {\\n            \\\\\\\"host\\\\\\\": \\\\\\\"postgres\\\\\\\",\\n            \\\\\\\"port\\\\\\\": 5432,\\n            \\\\\\\"database\\\\\\\": \\\\\\\"nodebb\\\\\\\",\\n            \\\\\\\"username\\\\\\\": \\\\\\\"${SERVICE_USER_POSTGRES}\\\\\\\",\\n            \\\\\\\"password\\\\\\\": \\\\\\\"${SERVICE_PASSWORD_POSTGRES}\\\\\\\"\\n        }\\n    }\\n} EOL && tini -- entrypoint.sh \\\"\\n\"\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/4567' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries:\
+  \ 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4567'\n  postgres:\n    image: postgres:17.2-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: nodebb\n    volumes:\n    - nodebb_postgres_data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  nodebb_build: {}\n  nodebb_uploads: {}\n  nodebb_config: {}\n  nodebb_postgres_data: {}\n"

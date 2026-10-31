@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: soketi
+name: Soketi
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Soketi is your simple, fast, and resilient open-source WebSockets server.
+port: 6001
+source: coolify
+documentation: https://docs.soketi.app
+compose: "services:\n  soketi:\n    image: quay.io/soketi/soketi:1.6-16-debian\n    environment:\n      SOKETI_DEBUG: ${DEBUG:-0}\n      SOKETI_DEFAULT_APP_ID: ${SERVICE_USER_SOKETI}\n      SOKETI_DEFAULT_APP_KEY: ${SERVICE_BASE64_SOKETIKEY}\n      SOKETI_DEFAULT_APP_SECRET: ${SERVICE_BASE64_SOKETISECRET}\n      SOKETI_PUSHER_SCHEME: ${SOKETI_PUSHER_SCHEME:-https}\n      SOKETI_DEFAULT_APP_ENABLE_CLIENT_MESSAGES: ${DEFAULT_APP_ENABLE_CLIENT_MESSAGES}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/6001' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6001'\n"

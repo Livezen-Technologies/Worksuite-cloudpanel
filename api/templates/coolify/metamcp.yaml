@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: metamcp
+name: Metamcp
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: MCP Aggregator, Orchestrator, Middleware, Gateway in one app
+port: 12008
+source: coolify
+documentation: https://github.com/metatool-ai/metamcp
+compose: "services:\n  app:\n    image: ghcr.io/metatool-ai/metamcp:2.4\n    environment:\n      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}\n      POSTGRES_PORT: ${POSTGRES_PORT:-5432}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-metamcp_db}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-metamcp_db}\n      APP_URL: ${SERVICE_URL}\n      NEXT_PUBLIC_APP_URL: ${SERVICE_URL}\n      BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_AUTH}\n      TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL: ${TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL:-true}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:12008/health\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n \
+  \     traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '12008'\n  postgres:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_DB: ${POSTGRES_DB:-metamcp_db}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - postgres_data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U ${SERVICE_USER_POSTGRES} -d ${POSTGRES_DB:-metamcp_db}\n      interval: 10s\n      timeout: 5s\n      retries: 5\nvolumes:\n  postgres_data: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: castopod
+name: Castopod
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Castopod is a free & open-source hosting platform made for podcasters who want engage and interact with their audience.
+port: 8080
+source: coolify
+documentation: https://docs.castopod.org/main/en/
+compose: "services:\n  castopod:\n    image: castopod/castopod:1.15.6\n    volumes:\n    - castopod-media:/var/www/castopod/public/media\n    environment:\n      MYSQL_DATABASE: castopod\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      CP_DISABLE_HTTPS: ${CP_DISABLE_HTTPS:-1}\n      CP_BASEURL: ${SERVICE_URL}\n      CP_ANALYTICS_SALT: ${SERVICE_BASE64_SALT}\n      CP_CACHE_HANDLER: redis\n      CP_REDIS_HOST: redis\n      CP_REDIS_PASSWORD: ${SERVICE_PASSWORD_REDIS}\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:8080/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      mariadb:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  mariadb:\n  \
+  \  image: mariadb:11.2\n    volumes:\n    - castopod-db:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_DATABASE: castopod\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:7.2-alpine\n    command: --requirepass ${SERVICE_PASSWORD_REDIS}\n    volumes:\n    - castopod-cache:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli -a ${SERVICE_PASSWORD_REDIS} ping | grep PONG\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  castopod-media: {}\n  castopod-db: {}\n  castopod-cache: {}\n"

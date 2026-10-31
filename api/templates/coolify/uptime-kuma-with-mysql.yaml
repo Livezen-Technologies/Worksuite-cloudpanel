@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: uptime-kuma-with-mysql
+name: Uptime Kuma With Mysql
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Uptime Kuma is a monitoring tool for tracking the status and performance of your applications in real-time.
+port: 3001
+source: coolify
+documentation: https://github.com/louislam/uptime-kuma?tab=readme-ov-file
+compose: "services:\n  uptime-kuma:\n    image: louislam/uptime-kuma:2\n    environment:\n      TZ: ${TZ:-Etc/UTC}\n    volumes:\n    - uptime-kuma-data:/app/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - extra/healthcheck\n      interval: 5s\n      timeout: 5s\n      retries: 10\n    depends_on:\n      mysql:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3001'\n  mysql:\n    image: mysql:8\n    environment:\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-uptime-kuma-db}\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    volumes:\n    - mysql-data:/var/lib/mysql\n\
+  volumes:\n  uptime-kuma-data: {}\n  mysql-data: {}\n"

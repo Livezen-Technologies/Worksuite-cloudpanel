@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: forgejo
+name: Forgejo
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Forgejo is a self-hosted lightweight software forge. Easy to install and low maintenance, it just does the job.
+port: 3000
+source: coolify
+documentation: https://forgejo.org/docs
+compose: "services:\n  forgejo:\n    image: codeberg.org/forgejo/forgejo:15\n    environment:\n      FORGEJO__server__ROOT_URL: ${SERVICE_URL}\n      FORGEJO__migrations__ALLOWED_DOMAINS: ${FORGEJO__migrations__ALLOWED_DOMAINS}\n      FORGEJO__migrations__ALLOW_LOCALNETWORKS: ${FORGEJO__migrations__ALLOW_LOCALNETWORKS-false}\n      FORGEJO__server__DOMAIN: ${SERVICE_FQDN}\n      FORGEJO__server__SSH_DOMAIN: ${SERVICE_FQDN}\n      FORGEJO__server__SSH_PORT: ${FORGEJO_SSH_PORT:-22222}\n      USER_UID: '1000'\n      USER_GID: '1000'\n    volumes:\n    - forgejo-data:/data\n    - forgejo-timezone:/etc/timezone\n    - forgejo-localtime:/etc/localtime\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n\
+  \  forgejo-data: {}\n  forgejo-timezone: {}\n  forgejo-localtime: {}\n"

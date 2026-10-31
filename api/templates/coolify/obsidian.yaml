@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: obsidian
+name: Obsidian
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Note-taking app with linking, organizing, and hundreds of plugins - runs in your browser via remote desktop
+port: 3000
+source: coolify
+documentation: https://docs.linuxserver.io/images/docker-obsidian
+compose: "services:\n  obsidian:\n    image: lscr.io/linuxserver/obsidian:latest\n    environment:\n      PUID: ${PUID:-1000}\n      PGID: ${PGID:-1000}\n      TZ: ${TZ:-Etc/UTC}\n      CUSTOM_USER: ${SERVICE_USER_OBSIDIAN}\n      PASSWORD: ${SERVICE_PASSWORD_OBSIDIAN}\n    volumes:\n    - obsidian-config:/config\n    shm_size: 1gb\n    security_opt:\n    - seccomp=unconfined\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -s\n      - -o\n      - /dev/null\n      - http://127.0.0.1:3000/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n      start_period: 90s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  obsidian-config: {}\n"

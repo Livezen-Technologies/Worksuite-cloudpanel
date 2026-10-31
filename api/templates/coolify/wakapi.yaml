@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: wakapi
+name: Wakapi
+category: Analytics
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A minimalist, self-hosted WakaTime-compatible backend for coding statistics
+port: 3000
+source: coolify
+documentation: https://wakapi.dev/
+compose: "services:\n  wakapi:\n    image: ghcr.io/muety/wakapi:latest\n    environment:\n      TZ: ${TIMEZONE:-Europe/Berlin}\n      WAKAPI_SERVER_LISTEN_IPV6: '\"-\"'\n      WAKAPI_ENV: ${WAKAPI_ENVIRONMENT:-production}\n      WAKAPI_SECURITY_PASSWORD_SALT: ${SERVICE_BASE64_PASSWORDSALT}\n      WAKAPI_SECURITY_EXPOSE_METRICS: ${WAKAPI_SECURITY_EXPOSE_METRICS:-false}\n      WAKAPI_DB_TYPE: postgres\n      WAKAPI_DB_NAME: ${WAKAPI_DB_NAME:-wakapi}\n      WAKAPI_DB_USER: ${SERVICE_USER_DATABASE}\n      WAKAPI_DB_PASSWORD: ${SERVICE_PASSWORD_DATABASE}\n      WAKAPI_DB_HOST: ${WAKAPI_DB_HOST:-postgres}\n      WAKAPI_DB_PORT: ${WAKAPI_DB_PORT:-5432}\n      WAKAPI_MAIL_ENABLED: ${WAKAPI_MAIL_ENABLED:-false}\n      WAKAPI_MAIL_PROVIDER: smtp\n      WAKAPI_MAIL_SENDER: ${WAKAPI_MAIL_SENDER}\n      WAKAPI_MAIL_SMTP_HOST: ${WAKAPI_MAIL_SMTP_HOST}\n      WAKAPI_MAIL_SMTP_PORT: ${WAKAPI_MAIL_SMTP_PORT:-587}\n      WAKAPI_MAIL_SMTP_USER: ${WAKAPI_MAIL_SMTP_USERNAME}\n      WAKAPI_MAIL_SMTP_PASS: ${WAKAPI_MAIL_SMTP_PASSWORD}\n\
+  \      WAKAPI_MAIL_SMTP_TLS: ${WAKAPI_MAIL_SMTP_TLS:-true}\n      WAKAPI_ALLOW_SIGNUP: ${WAKAPI_ALLOW_SIGNUP:-true}\n      WAKAPI_LEADERBOARD_ENABLED: ${WAKAPI_LEADERBOARD_ENABLED:-true}\n      WAKAPI_DISABLE_FRONTPAGE: ${WAKAPI_DISABLE_FRONTPAGE:-true}\n      WAKAPI_PUBLIC_URL: ${WAKAPI_PUBLIC_URL}\n    volumes:\n    - wakapi-data:/data\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:3000/\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgres:\n    image: postgres:16-alpine\n    volumes:\n    - wakapi-postgres-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_DATABASE}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_DATABASE}\n      POSTGRES_DB: ${WAKAPI_DB_NAME:-wakapi}\n\
+  \      POSTGRES_PORT: ${WAKAPI_DB_PORT:-5432}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  wakapi-data: {}\n  wakapi-postgres-data: {}\n"

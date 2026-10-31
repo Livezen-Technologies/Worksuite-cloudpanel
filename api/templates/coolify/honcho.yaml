@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: honcho
+name: Honcho
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Honcho is a developer tool to build personalized AI agents with production-ready memory, dialectic reasoning, and stateful dialogue.
+port: 8000
+source: coolify
+documentation: https://honcho.dev/docs/v3/contributing/self-hosting
+compose: "services:\n  api:\n    image: ghcr.io/plastic-labs/honcho:v3.0.12\n    entrypoint:\n    - sh\n    - docker/entrypoint.sh\n    environment:\n      DB_CONNECTION_URI: postgresql+psycopg://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database:5432/postgres\n      CACHE_URL: redis://redis:6379/0?suppress=true\n      CACHE_ENABLED: 'true'\n      LOG_LEVEL: ${LOG_LEVEL:-INFO}\n      AUTH_USE_AUTH: 'false'\n      LLM_OPENAI_API_KEY: ${LLM_OPENAI_API_KEY}\n      VECTOR_STORE_TYPE: pgvector\n    healthcheck:\n      test:\n      - CMD\n      - /app/.venv/bin/python\n      - -c\n      - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n    depends_on:\n      database:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\n  deriver:\n    image: ghcr.io/plastic-labs/honcho:v3.0.12\n    entrypoint:\n    - /app/.venv/bin/python\n    - -m\n    - src.deriver\n    environment:\n      DB_CONNECTION_URI: postgresql+psycopg://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database:5432/postgres\n      CACHE_URL: redis://redis:6379/0?suppress=true\n      CACHE_ENABLED: 'true'\n      LOG_LEVEL: ${LOG_LEVEL:-INFO}\n      AUTH_USE_AUTH: 'false'\n      LLM_OPENAI_API_KEY: ${LLM_OPENAI_API_KEY}\n      VECTOR_STORE_TYPE: pgvector\n    depends_on:\n      api:\n        condition: service_healthy\n      database:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n  database:\n    image: pgvector/pgvector:pg15\n    environment:\n      POSTGRES_DB: postgres\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - honcho_pgdata:/var/lib/postgresql/data/\n\
+  \    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 5s\n      retries: 5\n  redis:\n    image: redis:8.2\n    volumes:\n    - honcho_redis_data:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli ping\n      interval: 5s\n      timeout: 5s\n      retries: 5\nvolumes:\n  honcho_pgdata: {}\n  honcho_redis_data: {}\n"

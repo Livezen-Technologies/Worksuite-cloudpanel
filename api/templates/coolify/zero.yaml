@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: zero
+name: Zero
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Query-driven sync engine for TypeScript apps backed by Postgres.
+port: 4848
+source: coolify
+documentation: https://zero.rocicorp.dev/docs/deployment
+compose: "services:\n  zero:\n    image: rocicorp/zero:1.6.2\n    environment:\n      ZERO_UPSTREAM_DB: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/zero-db\n      ZERO_CVR_DB: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/zero-db\n      ZERO_CHANGE_DB: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/zero-db\n      ZERO_REPLICA_FILE: /data/replica.db\n      ZERO_ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}\n      ZERO_QUERY_URL: ${ZERO_QUERY_URL:?Set the URL of your API /query endpoint}\n      ZERO_MUTATE_URL: ${ZERO_MUTATE_URL:?Set the URL of your API /mutate endpoint}\n      ZERO_ENABLE_CRUD_MUTATIONS: ${ZERO_ENABLE_CRUD_MUTATIONS:-false}\n      ZERO_NUM_SYNC_WORKERS: ${ZERO_NUM_SYNC_WORKERS:-1}\n      ZERO_APP_ID: ${ZERO_APP_ID:-zero}\n      ZERO_LOG_LEVEL: ${ZERO_LOG_LEVEL:-info}\n      ZERO_ENABLE_TELEMETRY: ${ZERO_ENABLE_TELEMETRY:-true}\n      ZERO_LAZY_STARTUP: ${ZERO_LAZY_STARTUP:-false}\n\
+  \      ZERO_QUERY_API_KEY: ${ZERO_QUERY_API_KEY:-}\n      ZERO_MUTATE_API_KEY: ${ZERO_MUTATE_API_KEY:-}\n    volumes:\n    - zero-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:4848/keepalive\n      interval: 5s\n      timeout: 20s\n      retries: 10\n      start_period: 60s\n    depends_on:\n      postgres:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4848'\n  postgres:\n    image: postgres:18-alpine\n    command:\n    - postgres\n    - -c\n    - wal_level=logical\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-zero-db}\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER}\
+  \ -d $zero-db\n      interval: 10s\n      timeout: 20s\n      retries: 10\nvolumes:\n  zero-data: {}\n  postgres-data: {}\n"

@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: hermes-agent-with-webui
+name: Hermes Agent With Webui
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Hermes Agent - autonomous AI agent with persistent memory, scheduling, and a self-hosted web chat UI.
+port: 8787
+source: coolify
+documentation: https://github.com/nesquena/hermes-webui
+compose: "services:\n  hermes-agent:\n    image: nousresearch/hermes-agent:v2026.9.24\n    command: gateway run\n    environment:\n      HERMES_HOME: /home/hermes/.hermes\n      WIKI_PATH: /home/hermes/.hermes/wiki\n      GATEWAY_ALLOW_ALL_USERS: 'true'\n      HERMES_REDACT_SECRETS: 'true'\n      HERMES_UID: '1000'\n      HERMES_GID: '1000'\n      HERMES_ENABLE_PROJECT_PLUGINS: ${HERMES_ENABLE_PROJECT_PLUGINS:-true}\n      HERMES_OPTIONAL_SKILLS: ${HERMES_OPTIONAL_SKILLS:-}\n      HERMES_ALLOW_PRIVATE_URLS: ${HERMES_ALLOW_PRIVATE_URLS:-false}\n      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}\n      FIRECRAWL_API_URL: ${FIRECRAWL_API_URL:-https://api.firecrawl.dev}\n      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}\n      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}\n      OPENAI_API_KEY: ${OPENAI_API_KEY:-}\n      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}\n      API_SERVER_ENABLED: 'true'\n      API_SERVER_HOST: 0.0.0.0\n      API_SERVER_KEY: ${SERVICE_PASSWORD_HERMESAPI}\n    volumes:\n    - hermes-home:/home/hermes/.hermes\n\
+  \    - hermes-skills:/home/hermes/.hermes/skills\n    - hermes-agent-src:/opt/hermes\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - test -d /home/hermes/.hermes || exit 1\n      interval: 10s\n      timeout: 5s\n      retries: 5\n  hermes-webui:\n    image: ghcr.io/nesquena/hermes-webui:0.52.458\n    depends_on:\n    - hermes-agent\n    environment:\n      SERVICE_USER_HERMESWEBUI: null\n      SERVICE_PASSWORD_HERMESWEBUI: null\n      HERMES_WEBUI_HOST: 0.0.0.0\n      HERMES_WEBUI_PORT: '8787'\n      HERMES_WEBUI_STATE_DIR: /home/hermeswebui/.hermes/webui\n      WANTED_UID: '1000'\n      WANTED_GID: '1000'\n      HERMES_WEBUI_USERNAME: ${SERVICE_USER_HERMESWEBUI}\n      HERMES_WEBUI_PASSWORD: ${SERVICE_PASSWORD_HERMESWEBUI}\n      HERMES_API_URL: http://hermes-agent:8642\n      HERMES_WEBUI_GATEWAY_API_KEY: ${SERVICE_PASSWORD_HERMESAPI}\n    volumes:\n    - hermes-home:/home/hermeswebui/.hermes\n    - hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent\n    - hermes-workspace:/workspace\n\
+  \    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8787/health\n      interval: 30s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8787'\nvolumes:\n  hermes-home: {}\n  hermes-skills: {}\n  hermes-agent-src: {}\n  hermes-workspace: {}\n"

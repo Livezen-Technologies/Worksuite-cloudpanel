@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: joplin
+name: Joplin
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Self-hosted sync server for Joplin
+port: 22300
+source: coolify
+documentation: https://github.com/laurent22/joplin/blob/dev/packages/server/README.md
+compose: "services:\n  postgres:\n    image: postgres:16\n    volumes:\n    - joplin-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_DB: joplin\n    healthcheck:\n      test:\n      - CMD\n      - pg_isready\n      - -d\n      - joplin\n      interval: 10s\n      timeout: 5s\n      retries: 5\n  joplin:\n    image: joplin/server:latest\n    platform: linux/amd64\n    depends_on:\n      postgres:\n        condition: service_healthy\n    environment:\n      APP_BASE_URL: ${SERVICE_URL}\n      DB_CLIENT: pg\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DATABASE: joplin\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PORT: '5432'\n      POSTGRES_HOST: postgres\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/22300' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 3\n \
+  \   labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '22300'\nvolumes:\n  joplin-postgresql-data: {}\n"

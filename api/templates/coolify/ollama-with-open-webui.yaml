@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: ollama-with-open-webui
+name: Ollama With Open Webui
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Ollama with Open Web UI integrates AI model deployment with a user-friendly interface.
+port: 8080
+source: coolify
+documentation: https://docs.openwebui.com
+compose: "services:\n  ollama-api:\n    image: ollama/ollama:latest\n    volumes:\n    - ollama:/root/.ollama\n    healthcheck:\n      test:\n      - CMD\n      - ollama\n      - list\n      interval: 5s\n      timeout: 30s\n      retries: 10\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:main\n    volumes:\n    - open-webui:/app/backend/data\n    depends_on:\n    - ollama-api\n    environment:\n      OLLAMA_BASE_URL: http://ollama-api:11434\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8080\n      interval: 5s\n      timeout: 30s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  ollama: {}\n  open-webui: {}\n"

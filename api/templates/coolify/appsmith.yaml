@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: appsmith
+name: Appsmith
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A low-code application platform for building internal tools.
+port: 80
+source: coolify
+documentation: https://appsmith.com
+compose: "services:\n  appsmith:\n    image: index.docker.io/appsmith/appsmith-ce:latest\n    environment:\n      APPSMITH_MAIL_ENABLED: ${APPSMITH_MAIL_ENABLED:-false}\n      APPSMITH_DISABLE_TELEMETRY: ${APPSMITH_DISABLE_TELEMETRY:-false}\n      APPSMITH_DISABLE_INTERCOM: ${APPSMITH_DISABLE_INTERCOM:-true}\n      APPSMITH_SENTRY_DSN: ${APPSMITH_SENTRY_DSN}\n      APPSMITH_SMART_LOOK_ID: ${APPSMITH_SMART_LOOK_ID}\n    volumes:\n    - stacks-data:/appsmith-stacks\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  stacks-data: {}\n"

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: dashy
+name: Dashy
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A self-hostable personal dashboard built for you. Includes status-checking, widgets, themes, icon packs, a UI editor and tons more!
+port: 8080
+source: coolify
+documentation: https://dashy.to/docs
+compose: "services:\n  dashy:\n    image: lissy93/dashy\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TIMEZONE:-UTC}\n    volumes:\n    - dashy-dashy-conf-yml:/app/public/conf.yml\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  dashy-dashy-conf-yml: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: miniflux
+name: Miniflux
+category: Personal
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Miniflux is a minimalist and opinionated feed reader.
+port: 8080
+source: coolify
+documentation: https://miniflux.app/docs/index.html
+compose: "services:\n  miniflux:\n    image: ghcr.io/miniflux/miniflux:latest\n    environment:\n      BASE_URL: ${SERVICE_URL}\n      PORT: ${PORT:-8080}\n      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-1}\n      CREATE_ADMIN: ${CREATE_ADMIN:-1}\n      ADMIN_USERNAME: ${SERVICE_USER_ADMIN}\n      ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-miniflux-db}?sslmode=disable\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgres:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  postgres:\n    image: postgres:16-alpine\n    volumes:\n    - miniflux-postgres-data:/var/lib/postgresql/data\n    environment:\n\
+  \      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-miniflux-db}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $miniflux-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  miniflux-postgres-data: {}\n"

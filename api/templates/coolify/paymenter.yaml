@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: paymenter
+name: Paymenter
+category: Business
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open-Source Billing, Built for Hosting
+port: 80
+source: coolify
+documentation: https://paymenter.org/docs/guides/docker
+compose: "services:\n  paymenter:\n    image: ghcr.io/paymenter/paymenter:v1.5.9\n    volumes:\n    - app_logs:/app/storage/logs\n    - extenstions:/app/extensions\n    - themes:/app/themes\n    - app_storage:/app/storage/app\n    - app_public_storage:/app/storage/app/public\n    environment:\n      DB_DATABASE: ${MYSQL_DATABASE:-paymenter-db}\n      DB_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      DB_USERNAME: ${SERVICE_USER_MYSQL}\n      APP_ENV: production\n      CACHE_STORE: redis\n      SESSION_DRIVER: redis\n      QUEUE_CONNECTION: redis\n      REDIS_HOST: redis\n      REDIS_USERNAME: default\n      REDIS_PASSWORD: ${SERVICE_PASSWORD_REDIS}\n      DB_CONNECTION: mariadb\n      DB_HOST: mariadb\n      DB_PORT: '3306'\n      APP_KEY: ${SERVICE_BASE64_KEY}\n    depends_on:\n      mariadb:\n        condition: service_healthy\n      redis:\n        condition: service_started\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -sf http://localhost:80 || exit 1\n      interval: 10s\n\
+  \      timeout: 1s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11.8\n    volumes:\n    - paymenter_mariadb_data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-paymenter-db}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:alpine\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli ping || exit 1\n      interval: 10s\n      timeout: 1s\n      retries: 3\nvolumes:\n  app_logs: {}\n  extenstions: {}\n  themes: {}\n  app_storage: {}\n  app_public_storage: {}\n  paymenter_mariadb_data:\
+  \ {}\n"

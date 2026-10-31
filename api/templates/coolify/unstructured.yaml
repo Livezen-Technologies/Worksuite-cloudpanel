@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: unstructured
+name: Unstructured
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Unstructured provides a platform and tools to ingest and process unstructured documents for Retrieval Augmented Generation (RAG) and model fine-tuning.
+port: 8000
+source: coolify
+documentation: https://github.com/Unstructured-IO/unstructured-api?tab=readme-ov-file#--general-pre-processing-pipeline-for-documents
+compose: "services:\n  unstructured:\n    image: downloads.unstructured.io/unstructured-io/unstructured-api:latest\n    environment:\n      UNSTRUCTURED_API_KEY: ${SERVICE_PASSWORD_APIKEY}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -qO-\n      - http://0.0.0.0:8000/healthcheck\n      interval: 5s\n      timeout: 30s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\n"

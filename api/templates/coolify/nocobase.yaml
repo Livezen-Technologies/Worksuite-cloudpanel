@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nocobase
+name: Nocobase
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: NocoBase is the most extensible AI-powered no-code/low-code platform.
+port: 13000
+source: coolify
+documentation: https://docs.nocobase.com/
+compose: "services:\n  nocobase:\n    image: nocobase/nocobase:1.9.33\n    environment:\n      APP_KEY: ${SERVICE_BASE64_APPKEY}\n      DB_DIALECT: postgres\n      DB_HOST: postgres\n      DB_PORT: '5432'\n      DB_DATABASE: ${POSTGRES_DB:-nocobase-db}\n      DB_USER: ${SERVICE_USER_POSTGRES}\n      DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - nocobase-storage:/app/nocobase/storage\n    depends_on:\n      postgres:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '13000'\n  postgres:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-nocobase-db}\n    volumes:\n    - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER}\
+  \ -d $nocobase-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  nocobase-storage: {}\n  postgres-data: {}\n"

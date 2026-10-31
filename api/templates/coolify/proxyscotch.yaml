@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: proxyscotch
+name: Proxyscotch
+category: Network
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A simple proxy server created for https://hoppscotch.io - CORS proxy
+port: 9159
+source: coolify
+documentation: https://github.com/hoppscotch/proxyscotch
+compose: "services:\n  proxyscotch:\n    image: hoppscotch/proxyscotch:v0.1.4\n    environment:\n      PROXYSCOTCH_TOKEN: ${SERVICE_PASSWORD_TOKEN}\n      PROXYSCOTCH_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}\n      PROXYSCOTCH_BANNED_OUTPUTS: ${BANNED_OUTPUTS}\n      PROXYSCOTCH_BANNED_DESTS: ${BANNED_DESTS}\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '9159'\n"

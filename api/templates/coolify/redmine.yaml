@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: redmine
+name: Redmine
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Redmine is a flexible project management web application.
+port: 3000
+source: coolify
+documentation: https://www.redmine.org/
+compose: "services:\n  redmine:\n    image: redmine:6-alpine\n    environment:\n      SECRET_KEY_BASE: ${SERVICE_PASSWORD_REDMINE}\n      REDMINE_DB_POSTGRES: postgresql\n      REDMINE_DB_PORT: '5432'\n      REDMINE_DB_USERNAME: ${SERVICE_USER_POSTGRES}\n      REDMINE_DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      REDMINE_DB_DATABASE: ${POSTGRES_DATABASE:-redmine-db}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:3000/\n      interval: 5s\n      timeout: 5s\n      retries: 5\n    volumes:\n    - redmine-config:/usr/src/redmine/config\n    - redmine-files:/usr/src/redmine/files\n    - redmine-themes:/usr/src/redmine/themes\n    - redmine-plugins:/usr/src/redmine/plugins\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:17-alpine\n\
+  \    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DATABASE:-redmine-db}\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 5s\n      retries: 5\nvolumes:\n  redmine-config: {}\n  redmine-files: {}\n  redmine-themes: {}\n  redmine-plugins: {}\n  postgresql-data: {}\n"

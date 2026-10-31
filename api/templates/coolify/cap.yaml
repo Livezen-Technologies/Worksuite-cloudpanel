@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: cap
+name: Cap
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Cap is the open source alternative to Loom. Lightweight, powerful, and cross-platform. Record and share in seconds.
+port: 5679
+source: coolify
+documentation: https://cap.so
+compose: "services:\n  cap-web:\n    image: ghcr.io/capsoftware/cap-web:latest\n    environment:\n      DATABASE_URL: mysql://${SERVICE_USER_MYSQL}:${SERVICE_PASSWORD_MYSQL}@cap-db:3306/${MYSQL_DATABASE:-planetscale}\n      WEB_URL: ${SERVICE_URL}\n      NEXTAUTH_URL: ${SERVICE_URL}\n      DATABASE_ENCRYPTION_KEY: ${SERVICE_PASSWORD_DATABASEENCRYPTIONKEY}\n      NEXTAUTH_SECRET: ${SERVICE_PASSWORD_NEXTAUTHSECRET}\n      CAP_AWS_ACCESS_KEY: ${CAP_AWS_ACCESS_KEY:?}\n      CAP_AWS_SECRET_KEY: ${CAP_AWS_SECRET_KEY:?}\n      CAP_AWS_BUCKET: ${CAP_AWS_BUCKET:?}\n      CAP_AWS_REGION: ${CAP_AWS_REGION:?}\n      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}\n      S3_INTERNAL_ENDPOINT: ${S3_INTERNAL_ENDPOINT:?}\n      NEXT_RUNTIME: nodejs\n      S3_PATH_STYLE: ${S3_PATH_STYLE:-true}\n      CAP_AWS_ENDPOINT: ${CAP_AWS_ENDPOINT:?}\n    depends_on:\n      cap-db:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '5679'\n  cap-db:\n    image: mysql:8.0\n    environment:\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-planetscale}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n      MYSQL_ALLOW_EMPTY_PASSWORD: ${MYSQL_ALLOW_EMPTY_PASSWORD:-yes}\n    command:\n    - --max_connections=1000\n    - --default-authentication-plugin=mysql_native_password\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 10s\n      timeout: 10s\n      retries: 5\n    volumes:\n    - cap_db:/var/lib/mysql\nvolumes:\n  cap_db: {}\n"

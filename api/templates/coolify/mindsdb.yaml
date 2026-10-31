@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: mindsdb
+name: Mindsdb
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: MindsDB is the platform for building AI from enterprise data, enabling smarter organizations.
+port: 47334
+source: coolify
+documentation: https://docs.mindsdb.com/what-is-mindsdb
+compose: "services:\n  mindsdb:\n    image: mindsdb/mindsdb:latest\n    environment:\n      MINDSDB_DOCKER_ENV: 'true'\n      MINDSDB_STORAGE_DIR: /mindsdb/var\n      FLASK_DEBUG: ${FLASK_DEBUG:-1}\n      OPENAI_API_KEY: ${OPENAI_API_KEY}\n      LANGFUSE_HOST: ${LANGFUSE_HOST}\n      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}\n      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}\n      LANGFUSE_RELEASE: ${LANGFUSE_RELEASE:-local}\n      LANGFUSE_DEBUG: ${LANGFUSE_DEBUG:-False}\n      LANGFUSE_TIMEOUT: ${LANGFUSE_TIMEOUT:-10}\n      LANGFUSE_SAMPLE_RATE: ${LANGFUSE_SAMPLE_RATE:-1.0}\n      MINDSDB_DB_CON: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql/${POSTGRES_DB:-mindsdb-db}\n    volumes:\n    - mindsdb-data:/mindsdb/var\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost:47334/api/util/ping\n      interval: 30s\n      timeout: 5s\n      retries:\
+  \ 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '47334'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - mindsdb-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-mindsdb-db}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $mindsdb-db\n      interval: 10s\n      timeout: 5s\n      retries: 15\nvolumes:\n  mindsdb-data: {}\n  mindsdb-postgresql-data: {}\n"

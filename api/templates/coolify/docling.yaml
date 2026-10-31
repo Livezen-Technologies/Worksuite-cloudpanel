@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: docling
+name: Docling
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Convert documents (PDF, DOCX, PPTX, images, HTML) to Markdown, JSON, and more using AI-powered document processing.
+port: 5001
+source: coolify
+documentation: https://github.com/DS4SD/docling-serve
+compose: "services:\n  docling-serve:\n    image: ghcr.io/docling-project/docling-serve-cpu:latest\n    environment:\n      DOCLING_SERVE_ENABLE_UI: ${DOCLING_SERVE_ENABLE_UI:-true}\n      DOCLING_SERVE_LOG_LEVEL: ${DOCLING_SERVE_LOG_LEVEL:-WARNING}\n      DOCLING_NUM_THREADS: ${DOCLING_NUM_THREADS:-4}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -qO-\n      - http://127.0.0.1:5001/health\n      interval: 30s\n      timeout: 30s\n      retries: 10\n      start_period: 120s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5001'\n"

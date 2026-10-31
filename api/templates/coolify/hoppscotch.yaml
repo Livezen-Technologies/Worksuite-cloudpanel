@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: hoppscotch
+name: Hoppscotch
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The Open Source API Development Platform
+port: 80
+source: coolify
+documentation: https://docs.hoppscotch.io
+compose: "services:\n  backend:\n    image: hoppscotch/hoppscotch:2026.2.1\n    environment:\n      VITE_ALLOWED_AUTH_PROVIDERS: ${VITE_ALLOWED_AUTH_PROVIDERS:-GOOGLE,GITHUB,MICROSOFT,EMAIL}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@hoppscotch-db:5432/hoppscotch\n      DATA_ENCRYPTION_KEY: ${SERVICE_BASE64_DATAENCRYPTIONKEY}\n      WHITELISTED_ORIGINS: ${SERVICE_URL}/backend,${SERVICE_URL},${SERVICE_URL}/admin\n      MAILER_USE_CUSTOM_CONFIGS: ${MAILER_USE_CUSTOM_CONFIGS:-true}\n      VITE_BASE_URL: ${SERVICE_URL}\n      VITE_SHORTCODE_BASE_URL: ${SERVICE_URL}\n      VITE_ADMIN_URL: ${SERVICE_URL}/admin\n      VITE_BACKEND_GQL_URL: ${SERVICE_URL}/backend/graphql\n      VITE_BACKEND_WS_URL: wss://${SERVICE_FQDN}/backend/graphql\n      VITE_BACKEND_API_URL: ${SERVICE_URL}/backend/v1\n      VITE_APP_TOS_LINK: https://docs.hoppscotch.io/support/terms\n      VITE_APP_PRIVACY_POLICY_LINK: https://docs.hoppscotch.io/support/privacy\n      ENABLE_SUBPATH_BASED_ACCESS:\
+  \ 'true'\n    depends_on:\n      db-migration:\n        condition: service_completed_successfully\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:80/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  hoppscotch-db:\n    image: postgres:15\n    volumes:\n    - postgres_data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-hoppscotch}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -h localhost -U $${POSTGRES_USER} -d $hoppscotch\n      interval: 5s\n      timeout: 10s\n      retries: 10\n  db-migration:\n    image: hoppscotch/hoppscotch:2026.2.1\n    depends_on:\n      hoppscotch-db:\n        condition: service_healthy\n\
+  \    command: pnpx prisma migrate deploy\n    restart: on-failure\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-hoppscotch}\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@hoppscotch-db:5432/${POSTGRES_DB:-hoppscotch}\nvolumes:\n  postgres_data: {}\n"

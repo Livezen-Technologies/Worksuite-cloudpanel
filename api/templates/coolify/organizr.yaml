@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: organizr
+name: Organizr
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Homelab Services Organizer
+port: 80
+source: coolify
+documentation: https://docs.organizr.app/
+compose: "services:\n  organizr:\n    image: organizr/organizr:latest\n    environment:\n      branch: ${branch:-v2-master}\n    volumes:\n    - organizr-data:/config\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -sf http://localhost:80 || exit 1\n      interval: 10s\n      timeout: 1s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  organizr-data: {}\n"

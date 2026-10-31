@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: infisical
+name: Infisical
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Infisical is the open source secret management platform that developers use to centralize their application configuration and secrets like API keys and database credentials.
+port: 8080
+source: coolify
+documentation: https://infisical.com/docs/documentation/getting-started/introduction
+compose: "services:\n  backend:\n    image: infisical/infisical:v0.154.6\n    environment:\n      SITE_URL: ${SERVICE_URL}\n      NODE_ENV: ${NODE_ENV:-production}\n      ENCRYPTION_KEY: ${SERVICE_PASSWORD_ENCRYPTIONKEY}\n      AUTH_SECRET: ${SERVICE_BASE64_AUTHSECRET}\n      SMTP_HOST: ${SMTP_HOST}\n      SMTP_USERNAME: ${SMTP_USERNAME}\n      SMTP_PASSWORD: ${SMTP_PASSWORD}\n      SMTP_PORT: ${SMTP_PORT}\n      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS}\n      SMTP_FROM_NAME: ${SMTP_FROM_NAME}\n      INF_APP_CONNECTION_GITHUB_APP_CLIENT_ID: ${INF_APP_CONNECTION_GITHUB_APP_CLIENT_ID}\n      INF_APP_CONNECTION_GITHUB_APP_CLIENT_SECRET: ${INF_APP_CONNECTION_GITHUB_APP_CLIENT_SECRET}\n      INF_APP_CONNECTION_GITHUB_APP_SLUG: ${INF_APP_CONNECTION_GITHUB_APP_SLUG}\n      INF_APP_CONNECTION_GITHUB_APP_ID: ${INF_APP_CONNECTION_GITHUB_APP_ID}\n      INF_APP_CONNECTION_GITHUB_APP_PRIVATE_KEY: ${INF_APP_CONNECTION_GITHUB_APP_PRIVATE_KEY}\n      DB_CONNECTION_URI: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@db:5432/infisical\n\
+  \      REDIS_URL: redis://redis:6379\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/api/status || exit 1\n    depends_on:\n      redis:\n        condition: service_healthy\n      db:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  redis:\n    image: redis:7\n    volumes:\n    - redis-data:/data\n    environment:\n      ALLOW_EMPTY_PASSWORD: ${ALLOW_EMPTY_PASSWORD:-yes}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli -h localhost -p 6379 ping\n      interval: 5s\n      timeout: 5s\n      retries: 3\n  db:\n    image: postgres:14-alpine\n    volumes:\n    - pg_data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-infisical}\n\
+  \    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -h localhost -U $${POSTGRES_USER} -d $infisical\n      interval: 5s\n      timeout: 10s\n      retries: 10\nvolumes:\n  redis-data: {}\n  pg_data: {}\n"

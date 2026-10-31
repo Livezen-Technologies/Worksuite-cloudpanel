@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: odoo
+name: Odoo
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Odoo is a suite of open-source business apps that cover all your company needs.
+port: 8069
+source: coolify
+documentation: https://www.odoo.com/
+compose: "services:\n  odoo:\n    image: odoo:18\n    command: --proxy-mode\n    environment:\n      HOST: postgresql\n      USER: ${SERVICE_USER_POSTGRES}\n      PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - odoo-web-data:/var/lib/odoo\n    - odoo-extra-addons:/mnt/extra-addons\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8069\n      interval: 2s\n      timeout: 10s\n      retries: 30\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8069'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: postgres\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d postgres\n     \
+  \ interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  odoo-web-data: {}\n  odoo-extra-addons: {}\n  postgresql-data: {}\n"
