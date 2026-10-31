@@ -115,6 +115,7 @@ jobs:
       - name: Static analysis (Semgrep, local rules; blocking)
         run: |
           pipx install semgrep==1.95.0
+          pipx inject semgrep "setuptools<81"
           semgrep scan --error --metrics=off --config .semgrep/rules.yml --exclude '*_test.go' api/app api/routes api/resources agent/internal agent/cmd web/src
       - name: Static analysis (Semgrep OWASP Top 10 registry rules; report-only until triaged)
         continue-on-error: true
