@@ -116,7 +116,7 @@ class AppServiceProvider extends ServiceProvider
             if (! \Illuminate\Support\Facades\Schema::hasTable('organizations')) {
                 return;
             }
-            $org = \App\Models\Organization::query()->orderBy('created_at')->first();
+            $org = \App\Models\Organization::query()->orderBy('created_at')->orderBy('id')->first();
             $smtp = data_get($org?->settings, 'smtp');
             if (! $smtp || empty($smtp['host'])) {
                 return;

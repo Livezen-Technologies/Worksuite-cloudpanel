@@ -418,6 +418,6 @@ CONF;
 
     private function platform(): ?Organization
     {
-        return Organization::query()->orderBy('created_at')->first();
+        return Organization::query()->orderBy('created_at')->orderBy('id')->first();
     }
 }
