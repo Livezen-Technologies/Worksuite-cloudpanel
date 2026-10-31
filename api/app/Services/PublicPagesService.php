@@ -41,6 +41,19 @@ class PublicPagesService
         'ban' => ['status' => 403, 'title' => 'Access blocked', 'message' => 'Your address was blocked by this site\'s firewall after unusual activity. Try again later.'],
     ];
 
+    /** Eyebrow, panel gradient and icon path per page (design: Public page). */
+    public const LOOK = [
+        'maintenance' => ['Scheduled maintenance', 'linear-gradient(145deg,#fff1be 28%,#ee87cb 70%,#b060ff)', 'M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z'],
+        'busy' => ['Service busy', 'linear-gradient(145deg,#fff1be 35%,#f9a8a8 70%,#ee87cb)', 'M12 14l4-4M3.5 15a9 9 0 1 1 17 0M12 14h.01'],
+        'not_found' => ['Page not found', 'linear-gradient(145deg,#fff1be 20%,#ee87cb 65%,#b060ff)', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 2-4-4'],
+        'suspended' => ['Account suspended', 'linear-gradient(145deg,#ffe4e6 25%,#ee87cb 70%,#b060ff)', 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3'],
+        'expired' => ['Plan expired', 'linear-gradient(145deg,#fff1be 30%,#fdba74 70%,#ee87cb)', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v4l3 2'],
+        'sleeping' => ['Waking up', 'linear-gradient(145deg,#e0f2fe 25%,#c4b5fd 65%,#b060ff)', 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z'],
+        'welcome' => ['New site', 'linear-gradient(145deg,#ecfccb 20%,#99f6e4 60%,#b060ff)', 'M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2m6-11a2 2 0 1 0 0 .01M9 15l-3-3c1-4 5-9 13-9 0 8-5 12-9 13z'],
+        'captcha' => ['Security check', 'linear-gradient(145deg,#e0f2fe 25%,#c4b5fd 65%,#b060ff)', 'M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6zM9 12l2 2 4-4'],
+        'ban' => ['Access blocked', 'linear-gradient(145deg,#ffe4e6 25%,#ee87cb 70%,#b060ff)', 'M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6zM9.5 9.5l5 5m0-5-5 5'],
+    ];
+
     /** Pages the bouncer serves: one for the whole platform, never per site. */
     public const BOT_PAGES = ['captcha', 'ban'];
 
@@ -258,12 +271,10 @@ class PublicPagesService
         // Bot pages are Go templates in the bouncer: text must never open a template action.
         $e = fn ($v) => str_replace(['{{', '}}'], ['&#123;&#123;', '&#125;&#125;'], htmlspecialchars((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $brand = $this->emails->brand();
-        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : '#4F46E5';
+        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : '#030712';
         $name = $brand['sender_name'] ?: config('app.name', 'WorkSuite CloudPanel');
         $retry = (int) $s['retry_after'];
         $refresh = $key === 'busy' ? '<meta http-equiv="refresh" content="30">' : ($key === 'sleeping' ? '<meta http-equiv="refresh" content="10">' : ($key === 'maintenance' ? '<meta http-equiv="refresh" content="'.min(300, max(30, $retry)).'">' : ''));
-        $link = ! empty($text['link_url']) && preg_match('#^https?://#i', $text['link_url'])
-            ? '<p><a href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? $text['link_url']).'</a></p>' : '';
         $retryNote = $key === 'busy' ? '<p class="m">Trying again in 30 seconds…</p>' : '';
         $head = '';
         if ($key === 'captcha') {
@@ -279,18 +290,51 @@ class PublicPagesService
             $retryNote = '<p class="m">This usually takes under a minute.</p><img src="/__wake" alt="" width="1" height="1">';
         }
 
+        // PUB-4 (design: Public page): gradient panel per page, eyebrow, large title, pill buttons.
+        [$eyebrow, $grad, $icon] = self::LOOK[$key] ?? self::LOOK['maintenance'];
+        $status = (int) self::PAGES[$key]['status'];
+        $code = $key === 'not_found' ? '<div class="code">404</div>' : '';
+        $iconTile = $code === '' ? '<span class="icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'.$icon.'"/></svg></span>' : '';
+        $btn = ! empty($text['link_url']) && preg_match('#^https?://#i', $text['link_url'])
+            ? '<div class="actions"><a class="btn" href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? 'Continue').'</a></div>' : '';
+        $note = $retryNote !== '' ? '<div class="card">'.$retryNote.'</div>' : '';
+        $site = $domain?->name ? $e($domain->name) : $e($name);
+
         return <<<HTML
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">{$refresh}<title>{$e($text['title'])}</title>{$head}
 <style>
-:root{color-scheme:light dark;--fg:#111827;--bg:#f4f5f7;--card:#fff;--m:#6b7280}
-@media (prefers-color-scheme:dark){:root{--fg:#e5e7eb;--bg:#0b0d12;--card:#151922;--m:#9ca3af}}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:16px}
-main{max-width:520px;width:100%;background:var(--card);border-radius:14px;padding:36px;border-top:4px solid {$color}}
-h1{margin:0 0 12px;font-size:24px;line-height:1.3}p{margin:0 0 12px}.m{color:var(--m);font-size:14px}a{color:{$color}}
+:root{color-scheme:light dark;--page:#fff;--foot:#6b7280;--strong:#030712}
+@media (prefers-color-scheme:dark){:root{--page:#030712;--foot:#9ca3af;--strong:#f9fafb}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;padding:8px;background:var(--page);color:#030712;font:16px/1.5 "Inter Tight",Inter,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.panel{position:relative;flex:1;display:flex;flex-direction:column;border-radius:32px;overflow:hidden;background:{$grad};box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
+.panel:before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(3,7,18,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(3,7,18,.05) 1px,transparent 1px);background-size:96px 96px}
+header{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:24px 32px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:18px;letter-spacing:-.01em}
+.mark{width:30px;height:30px;border-radius:9px;background:#030712;color:#fff;display:grid;place-items:center;font-size:14px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 14px;border-radius:999px;background:rgba(255,255,255,.35);box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);font:500 12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:rgba(3,7,18,.75)}
+main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:24px 24px 56px}
+section{width:100%;max-width:640px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:20px}
+.code{font-size:clamp(96px,18vw,160px);font-weight:600;letter-spacing:-.06em;line-height:.9;color:rgba(3,7,18,.9)}
+.icon{width:72px;height:72px;border-radius:20px;display:grid;place-items:center;background:rgba(255,255,255,.55);box-shadow:inset 0 0 2px 1px rgba(255,255,255,.6),0 10px 30px -10px rgba(3,7,18,.25);color:#030712}
+.eyebrow{font:600 12px/20px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.16em;text-transform:uppercase;color:rgba(3,7,18,.6)}
+h1{margin:0;font-size:clamp(36px,6vw,60px);line-height:1;font-weight:500;letter-spacing:-.04em;text-wrap:balance}
+.lead{margin:0;font-size:clamp(17px,2.2vw,20px);line-height:1.5;font-weight:500;color:rgba(3,7,18,.75);max-width:520px}
+.card{width:100%;max-width:460px;padding:18px 20px;border-radius:24px;background:#fff;text-align:center;box-shadow:0 10px 30px -15px rgba(3,7,18,.35),0 0 0 1px rgba(3,7,18,.05);font-size:15px;color:#374151}
+.card p{margin:0}.card form{display:flex;justify-content:center}
+.actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+.btn{display:inline-flex;align-items:center;height:44px;padding:0 20px;border-radius:999px;background:#030712;color:#fff;font-weight:500;text-decoration:none;box-shadow:0 6px 16px -6px rgba(3,7,18,.5)}
+.btn:hover{background:#1f2937}
+footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 18px;padding:20px 28px 14px;font-size:13px;color:var(--foot)}
+footer b{color:var(--strong);font-weight:600}.m{color:#6b7280;font-size:14px}
+@media (max-width:560px){header{padding:18px 20px}.panel{border-radius:24px}}
 </style></head>
-<body><main><h1>{$e($text['title'])}</h1><p>{$e($text['message'])}</p>{$link}{$retryNote}<p class="m">{$e($name)}</p></main></body></html>
+<body><div class="panel">
+<header><span class="brand"><span class="mark" aria-hidden="true">{$e(mb_strtoupper(mb_substr($name, 0, 1)))}</span>{$site}</span><span class="pill">{$status} · {$e(strtolower($eyebrow))}</span></header>
+<main><section>{$code}{$iconTile}<span class="eyebrow">{$e($eyebrow)}</span><h1>{$e($text['title'])}</h1><p class="lead">{$e($text['message'])}</p>{$note}{$btn}</section></main>
+</div><footer><span>Error {$status}</span><span>Hosted on <b>{$e($name)}</b></span></footer></body></html>
 HTML;
     }
 
