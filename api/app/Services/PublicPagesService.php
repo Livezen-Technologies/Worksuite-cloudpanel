@@ -272,7 +272,12 @@ class PublicPagesService
         $e = fn ($v) => str_replace(['{{', '}}'], ['&#123;&#123;', '&#125;&#125;'], htmlspecialchars((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $brand = $this->emails->brand();
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : '#030712';
-        $name = $brand['sender_name'] ?: config('app.name', 'WorkSuite CloudPanel');
+        $name = $brand['sender_name'] ?: config('app.name');
+        // Installs from before the rename still carry the old or framework default name.
+        if (in_array($name, ['', 'Laravel', 'Docker Manager Portal'], true)) {
+            $name = (string) config('platform.hosted_by') ?: 'Livezen Cloud';
+        }
+        $hostedBy = (string) config('platform.hosted_by') ?: 'Livezen Cloud';
         $retry = (int) $s['retry_after'];
         $refresh = $key === 'busy' ? '<meta http-equiv="refresh" content="30">' : ($key === 'sleeping' ? '<meta http-equiv="refresh" content="10">' : ($key === 'maintenance' ? '<meta http-equiv="refresh" content="'.min(300, max(30, $retry)).'">' : ''));
         $retryNote = $key === 'busy' ? '<p class="m">Trying again in 30 seconds…</p>' : '';
@@ -285,6 +290,17 @@ class PublicPagesService
                 .'<script>function captchaCallback(){setTimeout(function(){document.querySelector("form").submit()},300)}</script>'
                 .'<noscript><p class="m">Turn on JavaScript to complete the check.</p></noscript>';
         }
+        if ($key === 'ban') {
+            // PUB-5: a blocked visitor learns how long it lasts, what helps, and what to tell the owner.
+            $tip = fn (string $icon, string $title, string $body) => '<li><span class="ti" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="'.$icon.'"/></svg></span><span><b>'.$title.'</b><br>'.$body.'</span></li>';
+            $retryNote = '<p class="ch">What you can do</p><ul class="tips">'
+                .$tip('M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', 'Wait a little', 'Blocks lift on their own, usually within a few hours.')
+                .$tip('M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3', 'Turn off a VPN or proxy', 'Shared addresses are flagged more often. Your normal connection may get straight in.')
+                .$tip('M4 6h16v12H4zM4 7l8 6 8-6', 'Still blocked?', 'Contact the site owner and quote the reference below.')
+                .'</ul><p class="ref">Reference <code id="ref">—</code></p>'
+                .'<script>document.getElementById("ref").textContent=new Date().toISOString().replace("T"," ").slice(0,19)+" UTC"</script>';
+            $text['link_url'] ??= null;
+        }
         if ($key === 'sleeping') {
             // No scripts on these pages: an image request is what wakes the app.
             $retryNote = '<p class="m">This usually takes under a minute.</p><img src="/__wake" alt="" width="1" height="1">';
@@ -296,7 +312,8 @@ class PublicPagesService
         $code = $key === 'not_found' ? '<div class="code">404</div>' : '';
         $iconTile = $code === '' ? '<span class="icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'.$icon.'"/></svg></span>' : '';
         $btn = ! empty($text['link_url']) && preg_match('#^https?://#i', $text['link_url'])
-            ? '<div class="actions"><a class="btn" href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? 'Continue').'</a></div>' : '';
+            ? '<div class="actions"><a class="btn" href="'.$e($text['link_url']).'">'.$e($text['link_label'] ?? 'Continue').'</a></div>'
+            : ($key === 'ban' ? '<div class="actions"><a class="btn" href="">Try again</a></div>' : '');
         $note = $retryNote !== '' ? '<div class="card">'.$retryNote.'</div>' : '';
         $site = $domain?->name ? $e($domain->name) : $e($name);
 
@@ -324,6 +341,11 @@ h1{margin:0;font-size:clamp(36px,6vw,60px);line-height:1;font-weight:500;letter-
 .lead{margin:0;font-size:clamp(17px,2.2vw,20px);line-height:1.5;font-weight:500;color:rgba(3,7,18,.75);max-width:520px}
 .card{width:100%;max-width:460px;padding:18px 20px;border-radius:24px;background:#fff;text-align:center;box-shadow:0 10px 30px -15px rgba(3,7,18,.35),0 0 0 1px rgba(3,7,18,.05);font-size:15px;color:#374151}
 .card p{margin:0}.card form{display:flex;justify-content:center}
+.ch{font:600 12px/20px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;text-align:left;margin:0 0 6px!important}
+.tips{list-style:none;margin:0;padding:0;text-align:left;display:flex;flex-direction:column;gap:12px}
+.tips li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;line-height:1.45}.tips b{color:#030712;font-weight:600}
+.ti{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:#fdf2f8;color:#be185d}
+.ref{margin-top:14px!important;padding-top:12px;border-top:1px solid #f1f1f4;font-size:12.5px;color:#6b7280;text-align:left}.ref code{font:500 12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#030712}
 .actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
 .btn{display:inline-flex;align-items:center;height:44px;padding:0 20px;border-radius:999px;background:#030712;color:#fff;font-weight:500;text-decoration:none;box-shadow:0 6px 16px -6px rgba(3,7,18,.5)}
 .btn:hover{background:#1f2937}
@@ -334,7 +356,7 @@ footer b{color:var(--strong);font-weight:600}.m{color:#6b7280;font-size:14px}
 <body><div class="panel">
 <header><span class="brand"><span class="mark" aria-hidden="true">{$e(mb_strtoupper(mb_substr($name, 0, 1)))}</span>{$site}</span><span class="pill">{$status} · {$e(strtolower($eyebrow))}</span></header>
 <main><section>{$code}{$iconTile}<span class="eyebrow">{$e($eyebrow)}</span><h1>{$e($text['title'])}</h1><p class="lead">{$e($text['message'])}</p>{$note}{$btn}</section></main>
-</div><footer><span>Error {$status}</span><span>Hosted on <b>{$e($name)}</b></span></footer></body></html>
+</div><footer><span>Error {$status}</span><span>Hosted on <b>{$e($hostedBy)}</b></span></footer></body></html>
 HTML;
     }
 
