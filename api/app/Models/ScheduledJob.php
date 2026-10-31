@@ -28,4 +28,13 @@ class ScheduledJob extends Model
             'alert_webhook' => 'boolean',
         ];
     }
+
+    /** CRON: the server's runner follows every change to its jobs. */
+    protected static function booted(): void
+    {
+        $sync = fn (ScheduledJob $j) => $j->trigger === 'cron' && in_array($j->action, \App\Services\ScheduledJobService::ENGINE, true)
+            ? app(\App\Services\ScheduledJobService::class)->syncRunnerFor($j) : null;
+        static::saved(fn (ScheduledJob $j) => $j->wasChanged(['cron', 'timezone', 'enabled', 'params', 'run_mode', 'timeout', 'server_id', 'application_id']) || $j->wasRecentlyCreated ? $sync($j) : null);
+        static::deleted($sync);
+    }
 }

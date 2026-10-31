@@ -205,4 +205,34 @@ class CronEngineTest extends TestCase
         $this->api($other)->getJson('/api/v1/cron')->assertOk()->assertJsonCount(0, 'data.jobs');
         $this->api($other)->postJson('/api/v1/cron', ['name' => 'x', 'action' => 'server_command', 'run_mode' => 'host', 'server_id' => $server->id, 'command' => 'id', 'cron' => '0 3 * * *'])->assertStatus(422);
     }
+
+    public function test_the_servers_own_runner_gets_the_schedule_and_reports_runs_made_while_the_panel_was_down(): void
+    {
+        [$org, $token, $secret, $app, $server] = $this->setUpApp();
+        $job = $this->job($token, ['application_id' => $app->id, 'command' => 'php artisan backup', 'timezone' => 'Asia/Colombo']);
+        $this->job($token, ['name' => 'Ping', 'action' => 'url', 'url' => 'https://example.com/ping']);
+        $sched = collect($this->heartbeat($secret)['commands'])->where('type', 'cron.schedule')->last()['payload'];
+        $this->assertSame([$job['id']], array_column($sched['jobs'], 'id'), 'command jobs go to the server; HTTP jobs stay with the panel');
+        $this->assertSame(['*/5 * * * *', 'Asia/Colombo', 'container', 'php artisan backup'], [$sched['jobs'][0]['cron'], $sched['jobs'][0]['timezone'], $sched['jobs'][0]['exec']['mode'], $sched['jobs'][0]['exec']['command']]);
+        $this->assertArrayNotHasKey('run_id', $sched['jobs'][0]['exec'], 'the agent names its own runs');
+
+        // While the panel was down it recorded a missed run; the server ran it and reports it.
+        $at = now()->startOfMinute()->subMinutes(10);
+        ScheduledJobRun::allTenants()->create(['organization_id' => $org->id, 'scheduled_job_id' => $job['id'], 'status' => 'missed', 'source' => 'schedule', 'started_at' => $at, 'finished_at' => $at]);
+        $result = ['job_id' => $job['id'], 'exit_code' => 0, 'output' => 'done', 'started_at' => $at->toIso8601ZuluString(), 'finished_at' => $at->copy()->addSeconds(3)->toIso8601ZuluString(), 'duration_ms' => 3000];
+        $this->heartbeat($secret, ['cron_results' => [$result, $result]]);
+        $runs = ScheduledJobRun::allTenants()->where('scheduled_job_id', $job['id'])->get();
+        $this->assertSame([['runner', 'succeeded']], $runs->map(fn ($r) => [$r->source, $r->status])->all(), 'the missed run is replaced, and a resent result is recorded once');
+        $this->assertSame('Exit 0 (ran on the server)', ScheduledJob::allTenants()->find($job['id'])->last_result);
+
+        // A result naming another organisation's job is ignored.
+        [, $token2, , $app2] = $this->setUpApp();
+        $foreign = $this->job($token2, ['application_id' => $app2->id, 'command' => 'echo theirs'])['id'];
+        $this->heartbeat($secret, ['cron_results' => [['job_id' => $foreign, 'exit_code' => 0, 'started_at' => now()->toIso8601ZuluString()]]]);
+        $this->assertSame(0, ScheduledJobRun::allTenants()->where('scheduled_job_id', $foreign)->count());
+
+        // Deleting the job updates the server's schedule.
+        $this->api($token)->deleteJson("/api/v1/app/cron/{$job['id']}")->assertNoContent();
+        $this->assertSame([], collect($this->heartbeat($secret)['commands'])->where('type', 'cron.schedule')->last()['payload']['jobs']);
+    }
 }

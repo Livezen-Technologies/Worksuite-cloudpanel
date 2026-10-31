@@ -101,6 +101,18 @@ Artisan::command('templates:validate', function (\App\Services\TemplateService $
     return $failed ? 1 : 0;
 })->purpose('TPL-6: render and check every bundled template');
 
+// CRON: refresh each server's own runner schedule (apps can move servers; a missed sync heals here).
+Artisan::command('cron:sync-runners', function (\App\Services\ScheduledJobService $cron) {
+    $n = 0;
+    foreach (\App\Models\Server::allTenants()->get() as $server) {
+        if ($server->isOnline()) {
+            app(\App\Support\Tenant::class)->as($server->organization_id, fn () => $cron->syncRunner($server));
+            $n++;
+        }
+    }
+    $this->info("Runner schedules sent: {$n}");
+})->purpose('Send each online server the schedule its agent runs while the panel is unreachable');
+
 Artisan::command('tunnels:sync', function (\App\Services\CloudflareTunnelService $tunnels) {
     $this->info('Tunnels synced: '.$tunnels->syncAll());
 })->purpose('CFT-3..5: refresh Cloudflare Tunnel hostnames, DNS and health');
@@ -271,6 +283,7 @@ Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('templates:sync')->daily();
 Schedule::command('registry:gc')->dailyAt('03:30');
+Schedule::command('cron:sync-runners')->hourly()->withoutOverlapping();
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();

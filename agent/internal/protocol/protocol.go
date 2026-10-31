@@ -105,6 +105,8 @@ type HeartbeatRequest struct {
 	// DockerError is set when the inventory could not be collected; the
 	// inventory lists are then null (unknown), not empty.
 	DockerError string `json:"docker_error,omitempty"`
+	// CronResults are runs the agent made on its own while the panel was unreachable.
+	CronResults any `json:"cron_results,omitempty"`
 }
 
 // Command as delivered by the panel. Payload is kept raw so the signature is

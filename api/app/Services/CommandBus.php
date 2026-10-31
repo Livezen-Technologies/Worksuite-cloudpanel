@@ -24,7 +24,7 @@ class CommandBus
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
         'container.remove', 'container.create', 'container.logs', 'container.prune',
-        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove',
+        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
