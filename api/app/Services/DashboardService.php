@@ -33,6 +33,9 @@ class DashboardService
                 'alerts_open' => Alert::where('status', 'open')->count(),
                 // Average health across the fleet, for the "Avg health" tile.
                 'health_avg' => $servers->isEmpty() ? null : (int) round($servers->avg(fn (Server $s) => $s->health_score)),
+                'disk_pct' => round((float) $online->avg('disk_pct'), 1),
+                'deployments_24h' => Deployment::where('created_at', '>=', now()->subDay())->count(),
+                'deployments_failed_24h' => Deployment::where('created_at', '>=', now()->subDay())->where('status', 'failed')->count(),
                 'jobs_pending' => \App\Models\Job::whereIn('status', ['queued', 'running'])->count(),
             ],
             // Fleet health: the donut counts by state, and the health-score

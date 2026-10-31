@@ -65,6 +65,10 @@ function kpiTiles(k: R | R[] | undefined) {
   const cpu = num(pick(k, 'cpu_pct', 'cpu'))
   const ram = num(pick(k, 'ram_pct', 'memory_pct', 'ram'))
   const offline = Math.max(0, total - online)
+  const disk = num(pick(k, 'disk_pct', 'disk'))
+  const dep = num(pick(k, 'deployments_24h'))
+  const depFail = num(pick(k, 'deployments_failed_24h'))
+  const jobs = num(pick(k, 'jobs_pending'))
   const alerts = num(pick(k, 'alerts_open', 'open_alerts', 'active_alerts'))
   // Each figure carries its own state, so the grid reads at a glance rather
   // than label by label.
@@ -76,6 +80,9 @@ function kpiTiles(k: R | R[] | undefined) {
     { label: 'Running containers', icon: 'box', iconTone: 'b' as const, value: String(run), delta: ctot ? `of ${ctot}` : undefined, tone: 'n' as const, pct: ctot ? (run / ctot) * 100 : 0, bar: 'var(--accent)' },
     { label: 'CPU usage', icon: 'pulse', iconTone: 'b' as const, value: `${Math.round(cpu)}%`, delta: 'fleet avg', tone: (cpu >= 85 ? 'r' : cpu >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: cpu },
     { label: 'Memory usage', icon: 'db', iconTone: 'b' as const, value: `${Math.round(ram)}%`, delta: 'fleet avg', tone: (ram >= 85 ? 'r' : ram >= 60 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: ram },
+    { label: 'Disk usage', icon: 'disk', iconTone: 'b' as const, value: `${Math.round(disk)}%`, delta: 'fleet avg', tone: (disk >= 90 ? 'r' : disk >= 75 ? 'y' : 'n') as 'r' | 'y' | 'n', pct: disk },
+    { label: 'Deployments', icon: 'rocket', iconTone: 'b' as const, value: String(dep), delta: depFail ? `${depFail} failed · 24 h` : 'last 24 h', tone: (depFail > 0 ? 'r' : 'n') as 'r' | 'n' },
+    { label: 'Jobs in queue', icon: 'clock', iconTone: 'y' as const, value: String(jobs), delta: jobs ? 'queued or running' : 'idle', tone: 'n' as const },
   ]
 }
 
