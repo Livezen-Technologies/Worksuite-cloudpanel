@@ -10,6 +10,7 @@ import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import { startImpersonation } from '../../lib/impersonation'
 
 type Tab = 'overview' | 'members' | 'apps' | 'domains' | 'billing' | 'activity' | 'settings'
 const money = (cents: unknown, cur: unknown) => new Intl.NumberFormat(undefined, { style: 'currency', currency: String(cur || 'USD') }).format(Number(cents ?? 0) / 100)
@@ -24,6 +25,9 @@ export default function CustomerProfile() {
   const [tab, setTab] = useState<Tab>(() => ((['overview', 'members', 'apps', 'domains', 'billing', 'activity', 'settings'] as Tab[]).find((t) => location.hash === `#${t}`) ?? 'overview'))
   useEffect(() => { history.replaceState(null, '', `#${tab}`) }, [tab])
   const [suspend, setSuspend] = useState(false)
+  const [asCustomer, setAsCustomer] = useState(false)
+  const [why, setWhy] = useState('')
+  const [asErr, setAsErr] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [f, setF] = useState({ name: '', billing_email: '', notes: '' })
   useEffect(() => { if (c) setF({ name: String(c.name ?? ''), billing_email: String(c.billing_email ?? ''), notes: String(c.notes ?? '') }) }, [c?.id, c?.name, c?.billing_email, c?.notes]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -38,6 +42,7 @@ export default function CustomerProfile() {
       <Link to="/admin/customers" className="inline-flex items-center gap-1 text-sm font-semibold no-underline mb-2"><Icon name="left" size={15} />Hosting customers</Link>
       <PageHeader title={String(c.name)} subtitle={<span className="inline-flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{c.slug}</span>·<span>customer since {ago(String(c.created_at))}</span></span>}
         actions={<>
+          <button type="button" className="btn" onClick={() => { setAsErr(null); setAsCustomer(true) }}><Icon name="eye" size={16} />Sign in as customer…</button>
           <Select className="input !w-auto min-w-40" aria-label="Package" value={String(c.plan?.id ?? '')} onChange={(e) => act('plan', 'Change package', { plan_id: e.target.value })}>
             {!c.plan && <option value="">No package</option>}
             {plans.rows.map((p) => <option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>)}
@@ -125,6 +130,15 @@ export default function CustomerProfile() {
           </form>
         </Card>}
       </div>
+      <Modal open={asCustomer} onClose={() => setAsCustomer(false)} title={`Sign in as ${c.name}?`}
+        footer={<><button type="button" className="btn" onClick={() => setAsCustomer(false)}>Cancel</button>
+          <button type="button" className="btn btn-primary" disabled={why.trim().length < 5} onClick={() => startImpersonation(String(c.id), why.trim()).catch((e: Error) => setAsErr(e.message))}>Sign in as customer</button></>}>
+        <div className="flex flex-col gap-4">
+          <p className="m-0">You’ll see their panel exactly as they do, for up to an hour. Their owner gets an email, it’s recorded in their activity, and you can’t change their password, two-factor or passkeys.</p>
+          <Field label="Reason (sent to the customer)" required><input className="input" autoFocus maxLength={300} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Ticket 4411: help with a failed deploy" /></Field>
+          {asErr && <div role="alert" className="text-sm text-danger">{asErr}</div>}
+        </div>
+      </Modal>
       <Modal open={suspend} onClose={() => setSuspend(false)} title={`Suspend ${c.name}?`}
         footer={<><button type="button" className="btn" onClick={() => setSuspend(false)}>Cancel</button>
           <button type="button" className="btn btn-danger" disabled={busy || reason.trim().length < 3} onClick={() => act('suspend', 'Suspend', { reason }).then(() => { setSuspend(false); setReason('') })}>Suspend customer</button></>}>
