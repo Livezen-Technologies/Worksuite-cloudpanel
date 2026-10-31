@@ -113,7 +113,7 @@ class ScalingTest extends TestCase
             $plan->update(['limits' => array_merge($plan->limits ?? [], ['max_replicas' => 2, 'autoscale' => 0])]);
         });
         $page = $this->api($token)->getJson("/api/v1/app/apps/{$appId}/scaling")->assertOk()->json('data');
-        $this->assertSame(['max_replicas' => 2, 'autoscale' => false, 'schedule' => false], $page['limits']);
+        $this->assertSame(['max_replicas' => 2, 'autoscale' => false, 'schedule' => false, 'placement' => false, 'canary' => false], $page['limits']);
         $this->assertNotEmpty(array_filter($page['warnings'], fn ($w) => str_contains($w, '/var/www/html/uploads')));
 
         $this->api($token)->patchJson("/api/v1/app/apps/{$appId}/scaling", ['replicas' => 3])->assertStatus(402);

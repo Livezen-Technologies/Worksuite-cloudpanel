@@ -18,6 +18,6 @@ class ScalingController extends AdminScaling
     {
         $billing = app(BillingService::class);
 
-        return ['max_replicas' => max(1, $billing->limit('max_replicas', 3)), 'autoscale' => (bool) $billing->limit('autoscale', 1), 'schedule' => false];
+        return ['max_replicas' => max(1, $billing->limit('max_replicas', 3)), 'autoscale' => (bool) $billing->limit('autoscale', 1), 'schedule' => false, 'placement' => false, 'canary' => false];
     }
 }

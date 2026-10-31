@@ -51,12 +51,15 @@ export function ScalingPanel({ path }: { path: string }) {
         <p className="m-0 mb-3 text-xs text-muted">Visitors are spread across every healthy copy. A copy that fails its health check stops getting traffic until it recovers. Removing a copy lets it finish its current requests for up to 30 seconds.{s.mode !== 'fixed' ? ' Switch to Fixed to change the count by hand.' : ''}</p>
         <ul className="m-0 p-0 list-none flex flex-col text-sm">
           {((w.copies as R[]) ?? []).map((c) => <li key={String(c.name)} className="flex flex-wrap items-center gap-3 py-2 border-t border-line first:border-t-0">
-            <span className="font-mono text-xs flex-1 min-w-0">{String(c.name)}</span>
+            <span className="font-mono text-xs flex-1 min-w-0">{String(c.name)}{c.server ? <span className="text-muted"> · {String(c.server)}</span> : null}</span>
             {c.cpu_pct != null ? <span className="text-xs text-muted">CPU {Math.round(num(c.cpu_pct))}%{c.mem_mb != null ? ` · ${Math.round(num(c.mem_mb))} MB` : ''}</span> : null}
             <Badge tone={c.state === 'running' && (!c.health || c.health === 'healthy') ? 'g' : c.state === 'running' ? 'y' : 'n'}>{String(c.health && c.state === 'running' ? c.health : c.state)}</Badge>
           </li>)}
         </ul>
       </Card>
+
+      {lim.placement ? <PlacementCard path={path} settings={s} placement={(w.placement as R[]) ?? []} busy={busy} save={save} /> : null}
+      {lim.canary ? <CanaryCard path={path.replace(/\/scaling$/, '/canary')} canary={(s.canary as R | null) ?? null} onDone={() => page.refetch()} /> : null}
 
       <Card title="How it scales">
         <div className="flex flex-wrap gap-2 mb-4" role="radiogroup" aria-label="Scaling mode">
@@ -110,5 +113,62 @@ export function ScalingPanel({ path }: { path: string }) {
         </ul>}
       </Card>
     </div>
+  )
+}
+
+/** SCL-6: servers that may run copies; they must be on the private network. */
+function PlacementCard({ settings, placement, busy, save }: { path: string; settings: R; placement: R[]; busy: boolean; save: (b: R, l: string, s: string) => void }) {
+  const mesh = useOne<R>('/mesh')
+  const chosen = ((settings.servers as string[]) ?? [])
+  const members = ((mesh.item?.members as R[]) ?? [])
+  const primary = placement[0]
+  const toggle = (id: string, on: boolean) => save({ servers: on ? [...chosen, id] : chosen.filter((x) => x !== id) }, 'Change placement', 'Placement saved')
+  return (
+    <Card title="Placement" subtitle="Spread copies over more servers; they talk over the private network">
+      {!primary?.mesh_ip ? <p className="m-0 text-sm text-muted">Add this app's server to the private network (Resources → Private network) to place copies on other servers.</p> : (
+        <ul className="m-0 p-0 list-none flex flex-col text-sm">
+          {members.filter((m) => m.id !== primary.id).map((m) => (
+            <li key={String(m.id)} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">
+              <span className="flex-1">{String(m.name)} <span className="font-mono text-xs text-muted">{String(m.mesh_ip)}</span></span>
+              <Toggle checked={chosen.includes(String(m.id))} disabled={busy} onChange={(v) => toggle(String(m.id), v)} label={`Run copies on ${String(m.name)}`} />
+            </li>
+          ))}
+          {members.length < 2 && <li className="text-muted">No other servers are on the private network.</li>}
+        </ul>
+      )}
+      <p className="m-0 mt-3 text-xs text-muted">Copies are dealt in turn over {placement.map((x) => String(x.name)).join(', ') || 'the app\'s server'}. Change the count above to move them.</p>
+    </Card>
+  )
+}
+
+/** SCL-7: try another image on a share of the traffic, then promote or abort it. */
+function CanaryCard({ path, canary, onDone }: { path: string; canary: R | null; onDone: () => void }) {
+  const { run, busy } = useAction()
+  const [image, setImage] = useState('')
+  const [weight, setWeight] = useState('10')
+  const act = (a: Parameters<typeof run>[0]) => run(a).then(onDone).catch(() => {})
+  if (!canary) {
+    return (
+      <Card title="Canary release" subtitle="Send a share of visitors to another image before rolling it out">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Image"><input className="input font-mono text-xs" value={image} onChange={(e) => setImage(e.target.value)} placeholder="registry/app:2.0" /></Field>
+          <Field label="Traffic"><Select className="input" value={weight} onChange={(e) => setWeight(e.target.value)}>{[1, 5, 10, 25, 50].map((n) => <option key={n} value={n}>{n}%</option>)}</Select></Field>
+          <button type="button" className="btn btn-primary" disabled={busy || !image} onClick={() => act({ path, body: { image, weight: Number(weight) }, label: 'Start canary', success: 'Canary starting' })}>Start canary</button>
+        </div>
+      </Card>
+    )
+  }
+  return (
+    <Card title={<span className="flex items-center gap-2">Canary release <Badge tone="y">{num(canary.weight)}% of traffic</Badge></span>}
+      subtitle={<span className="font-mono text-xs">{String(canary.image)}</span>}
+      actions={<>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act({ path: `${path}/promote`, label: 'Promote canary', success: 'Rolling out the canary' })}>Promote</button>
+        <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => act({ path, method: 'DELETE', label: 'Abort canary', success: 'Canary removed' })}>Abort</button>
+      </>}>
+      <div className="flex flex-wrap gap-2">
+        {[5, 10, 25, 50, 75].map((n) => <button key={n} type="button" className="btn btn-sm" aria-pressed={num(canary.weight) === n} disabled={busy} onClick={() => act({ path, method: 'PATCH', body: { weight: n }, label: `Canary at ${n}%`, success: `Canary at ${n}%` })}>{n}%</button>)}
+      </div>
+      <p className="m-0 mt-3 text-xs text-muted">Started {canary.started_at ? ago(String(canary.started_at)) : ''}. Promote deploys this image as the next release; abort removes it and sends all traffic back.</p>
+    </Card>
   )
 }

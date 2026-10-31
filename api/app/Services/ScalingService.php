@@ -20,7 +20,14 @@ use Illuminate\Support\Facades\Crypt;
  * app-<name>-r2 … app-<name>-rN, built from the current release with the same Traefik
  * service labels, so Traefik balances across all of them and drops unhealthy ones.
  * Scaling down stops a replica with a 30-second grace (connection draining) before
- * removing it. Spreading replicas over several servers or regions is not built yet.
+ * removing it.
+ *
+ * SCL-6: `servers` lists further servers for copies. Copies are dealt round-robin
+ * over the app's server and those; a copy elsewhere publishes its port on that
+ * server's private-network (mesh) address only, and the app's Traefik balances over
+ * all copies through a file-provider pool service.
+ * SCL-7: a canary (`app-<name>-canary`) runs another image and takes a weighted
+ * share of the traffic until it is promoted or aborted.
  */
 class ScalingService
 {
@@ -29,6 +36,7 @@ class ScalingService
     public const DEFAULTS = [
         'mode' => 'fixed', 'min' => 1, 'max' => 3, 'cpu_target' => 70, 'schedule' => [],
         'sticky' => false, 'health' => ['path' => '/', 'interval' => 10, 'timeout' => 5, 'threshold' => 3],
+        'servers' => [], 'canary' => null,
     ];
 
     /** Platform ceiling (SCL-1): 1–20. */
@@ -86,12 +94,13 @@ class ScalingService
         }
         if ($to !== $from) {
             for ($i = $from + 1; $i <= $to; $i++) {
-                $this->createReplica($app, $server, $i);
+                $this->createReplica($app, $this->serverFor($app, $i), $i);
             }
             for ($i = $from; $i > $to; $i--) {
                 $this->removeReplica($app, $server, $i);
             }
             $app->forceFill(['replicas' => $to])->save();
+            $this->routingChanged();
         }
         $event = ScalingEvent::allTenants()->create([
             'organization_id' => $app->organization_id, 'application_id' => $app->id, 'from' => $from, 'to' => $to,
@@ -114,20 +123,149 @@ class ScalingService
             return;
         }
         for ($i = 2; $i <= $app->replicas; $i++) {
-            $this->bus->dispatch($server, 'container.remove', ['container_id' => $this->replicaName($app, $i), 'keep_volumes' => true, 'force' => true]);
-            $this->createReplica($app, $server, $i);
+            $target = $this->serverFor($app, $i);
+            $this->bus->dispatch($target, 'container.remove', ['container_id' => $this->replicaName($app, $i), 'keep_volumes' => true, 'force' => true]);
+            $this->createReplica($app, $target, $i);
         }
+    }
+
+    /** SCL-6: the app's server first, then the extra servers that are on the private network and online. */
+    public function placement(Application $app): array
+    {
+        $primary = Server::allTenants()->find($app->server_id);
+        $extra = Server::allTenants()->whereIn('id', (array) self::settings($app)['servers'])->where('id', '!=', $app->server_id)
+            ->where('organization_id', $app->organization_id)->whereNotNull('mesh_ip')->orderBy('name')->get()
+            ->filter(fn ($s) => $s->isOnline() && ! $s->maintenance)->values()->all();
+
+        return $primary ? array_merge([$primary], ($primary->mesh_ip ? $extra : [])) : [];
+    }
+
+    public function serverFor(Application $app, int $i): Server
+    {
+        $list = $this->placement($app);
+
+        return $list[($i - 1) % count($list)];
+    }
+
+    /** Host port a remote copy publishes on its mesh address. */
+    public static function hostPort(Application $app, int $i): int
+    {
+        return 30000 + (crc32($app->id) % 1000) * 20 + $i;
+    }
+
+    /** @return list<string>|null pool URLs when copies run on other servers; null when Docker's own balancing is enough */
+    public function pool(Application $app): ?array
+    {
+        $port = Release::find($app->current_release_id)?->config['port'] ?? $app->port;
+        $copies = Container::allTenants()->where('application_id', $app->id)->whereNotIn('state', ['removing', 'removed'])->where('name', 'not like', '%-canary')->with('server')->get();
+        if (! $port || ! $copies->contains(fn ($c) => $c->server_id !== $app->server_id)) {
+            return null;
+        }
+
+        return $copies->map(function ($c) use ($app, $port) {
+            if ($c->server_id === $app->server_id) {
+                return 'http://'.$c->name.':'.$port;
+            }
+            preg_match('/-r(\d+)$/', $c->name, $m);
+
+            return 'http://'.$c->server?->mesh_ip.':'.self::hostPort($app, (int) ($m[1] ?? 0));
+        })->filter(fn ($u) => ! str_contains($u, '//:'))->sort()->values()->all();
+    }
+
+    private function routingChanged(): void
+    {
+        app(TraefikConfigService::class)->push();
+    }
+
+    /** SCL-7: run `$image` beside the live release and send it `$weight` percent of requests. */
+    public function startCanary(Application $app, string $image, int $weight, ?string $userId = null): array
+    {
+        $server = Server::allTenants()->find($app->server_id);
+        if (! $app->current_release_id || ! $server?->isOnline()) {
+            throw ApiException::conflict('Deploy the app and bring its server online before starting a canary.');
+        }
+        $config = Release::find($app->current_release_id)->config ?? [];
+        $port = $config['port'] ?? $app->port;
+        if (! $port) {
+            throw ApiException::validation(['image' => ['A canary needs the app\'s port.']]);
+        }
+        $name = $app->containerName().'-canary';
+        $service = $app->containerName().'-canary';
+        $spec = ContainerSpec::build([
+            'name' => $name, 'image' => $image,
+            'env' => ! empty($config['env_encrypted']) ? json_decode(Crypt::decryptString($config['env_encrypted']), true) : [],
+            'restart_policy' => 'unless-stopped', 'read_only_rootfs' => false,
+            'memory_mb' => $config['memory_mb'] ?? null, 'cpus' => $config['cpus'] ?? null,
+            'networks' => [['name' => 'proxy']],
+            'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.canary' => 'true'],
+            'pull' => 'missing',
+        ] + (! empty($config['registry_auth']) ? ['registry_auth' => $config['registry_auth']] : []), $app->organization,
+            ['traefik.enable' => 'true', "traefik.http.services.{$service}.loadbalancer.server.port" => (string) $port]);
+        $this->bus->dispatch($server, 'container.remove', ['container_id' => $name, 'force' => true]);
+        $this->bus->dispatch($server, 'container.create', $spec);
+        Container::allTenants()->where('application_id', $app->id)->where('name', $name)->delete();
+        Container::allTenants()->create([
+            'organization_id' => $app->organization_id, 'server_id' => $server->id, 'application_id' => $app->id, 'name' => $name,
+            'image' => $image, 'state' => 'creating', 'spec' => ContainerSpec::redact($spec), 'labels' => (array) $spec['labels'],
+        ]);
+        $canary = ['image' => $image, 'weight' => $weight, 'started_at' => now()->toIso8601String()];
+        $this->saveCanary($app, $canary, "canary {$image} at {$weight}%", $userId);
+
+        return $canary;
+    }
+
+    public function setCanaryWeight(Application $app, int $weight, ?string $userId = null): array
+    {
+        $canary = self::settings($app)['canary'] ?? throw ApiException::conflict('No canary is running.');
+        $canary['weight'] = $weight;
+        $this->saveCanary($app, $canary, "canary weight {$weight}%", $userId);
+
+        return $canary;
+    }
+
+    /** Promote: deploy the canary's image as the next release, then remove the canary. */
+    public function promoteCanary(Application $app, ?\App\Models\User $user): \App\Models\Deployment
+    {
+        $canary = self::settings($app)['canary'] ?? throw ApiException::conflict('No canary is running.');
+        $app->update(['image' => $canary['image'], 'source_type' => in_array($app->source_type, ['git', 'dockerfile'], true) ? 'image' : $app->source_type]);
+        $deployment = app(DeploymentService::class)->start($app, $user, 'canary');
+        $this->stopCanary($app, 'canary promoted', $user?->id);
+
+        return $deployment;
+    }
+
+    public function stopCanary(Application $app, string $reason = 'canary aborted', ?string $userId = null): void
+    {
+        $server = Server::allTenants()->find($app->server_id);
+        $name = $app->containerName().'-canary';
+        if ($server?->isOnline()) {
+            $this->bus->dispatch($server, 'container.remove', ['container_id' => $name, 'force' => true]);
+        }
+        Container::allTenants()->where('application_id', $app->id)->where('name', $name)->update(['state' => 'removing']);
+        $this->saveCanary($app, null, $reason, $userId);
+    }
+
+    private function saveCanary(Application $app, ?array $canary, string $reason, ?string $userId): void
+    {
+        $s = self::settings($app);
+        $s['canary'] = $canary;
+        $app->forceFill(['scaling' => $s])->save();
+        $this->audit->log('app.canary', 'applications', $app->id, ['canary' => $canary, 'reason' => $reason], $app->organization_id, $userId);
+        $this->routingChanged();
     }
 
     private function createReplica(Application $app, Server $server, int $i): void
     {
         $config = Release::find($app->current_release_id)?->config ?? [];
         $name = $this->replicaName($app, $i);
+        $remote = $server->id !== $app->server_id;
+        $port = $config['port'] ?? $app->port;
         $spec = ContainerSpec::build([
             'name' => $name,
             'image' => $config['image'] ?? $app->image,
             'env' => ! empty($config['env_encrypted']) ? json_decode(Crypt::decryptString($config['env_encrypted']), true) : [],
-            'ports' => [],
+            // A copy elsewhere is reached over the private network only.
+            'ports' => $remote && $port ? [['container_port' => (int) $port, 'host_port' => self::hostPort($app, $i), 'host_ip' => $server->mesh_ip]] : [],
             'restart_policy' => ($config['auto_restart'] ?? true) ? 'unless-stopped' : 'no',
             'read_only_rootfs' => false,
             'memory_mb' => $config['memory_mb'] ?? null, 'cpus' => $config['cpus'] ?? null,
@@ -135,7 +273,10 @@ class ScalingService
             'mounts' => ! empty($config['volume_path']) ? [['type' => 'volume', 'source' => 'app-'.$app->name.'-data', 'target' => $config['volume_path']]] : [],
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.replica' => (string) $i],
             'pull' => 'missing',
-        ] + (! empty($config['registry_auth']) ? ['registry_auth' => $config['registry_auth']] : []), $app->organization, TraefikLabels::for($app, $config['port'] ?? null));
+        ] + (! empty($config['registry_auth']) ? ['registry_auth' => $config['registry_auth']] : []), $app->organization, $remote ? [] : TraefikLabels::for($app, $config['port'] ?? null));
+        if ($remote) {
+            unset($spec['networks']);
+        }
         Container::allTenants()->where('application_id', $app->id)->where('name', $name)->delete();
         Container::allTenants()->create([
             'organization_id' => $app->organization_id, 'server_id' => $server->id, 'application_id' => $app->id, 'name' => $name,
@@ -147,6 +288,7 @@ class ScalingService
     private function removeReplica(Application $app, Server $server, int $i): void
     {
         $name = $this->replicaName($app, $i);
+        $server = Container::allTenants()->where('application_id', $app->id)->where('name', $name)->first()?->server ?? $server;
         // SCL-5: 30 seconds to finish in-flight requests once Traefik stops sending new ones.
         $this->bus->dispatch($server, 'container.stop', ['container_id' => $name, 'timeout' => 30]);
         $this->bus->dispatch($server, 'container.remove', ['container_id' => $name, 'keep_volumes' => true, 'force' => true]);
