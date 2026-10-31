@@ -71,6 +71,16 @@ const P = {
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   up: 'M12 19V5m0 0-6 6m6-6 6 6',
   shield: 'M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6zM9 12l2 2 4-4',
+  newFolder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 11v5M9.5 13.5h5',
+  newFile: 'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M12 12v6M9 15h6',
+  pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  cursor: 'M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3M9 12h6M12 9v6',
+  copy: 'M8 8h11v12H8zM5 16V4h11',
+  move: 'M5 12h14M13 6l6 6-6 6',
+  zip: 'M4 4h16v16H4zM10 4v4h2v2h-2v2h2v2h-2',
+  unzip: 'M4 4h16v16H4zM9 13l3 3 3-3M12 8v8',
+  lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
 }
 const CODE = /\.(php|js|mjs|ts|tsx|jsx|css|scss|html?|json|ya?ml|py|rb|go|sh|sql|xml|vue)$/i
 const iconFor = (e: Entry) => (e.type === 'dir' ? P.folder : e.type === 'symlink' ? P.link : CODE.test(e.name) ? P.code : P.doc)
@@ -547,23 +557,27 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
           </label>}
         </div>
 
-        <div role="toolbar" aria-label="File actions" className="card flex flex-wrap items-center gap-1.5 p-2">
-          <button type="button" className="btn btn-primary btn-sm" disabled={!entries || busy} onClick={() => fileInput.current?.click()}><IconSvg d={P.upload} size={15} />Upload</button>
+        <div role="toolbar" aria-label="File actions" className="card flex flex-wrap items-center gap-0.5 p-1.5">
+          <button type="button" className="btn btn-primary btn-sm mr-1" disabled={!entries || busy} onClick={() => fileInput.current?.click()}><IconSvg d={P.upload} size={15} />Upload</button>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.name }))) }} />
           <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; upload(f.map((file) => ({ file, rel: file.webkitRelativePath || file.name }))) }} />
-          <button type="button" className="btn btn-sm" disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })}>New folder</button>
-          <button type="button" className="btn btn-sm" disabled={!entries || busy} onClick={() => setNaming({ kind: 'file', value: '' })}>New file</button>
-          <span aria-hidden="true" className="w-px h-6 bg-line mx-1" />
-          <button type="button" className="btn btn-sm" disabled={busy || one?.type !== 'file'} onClick={() => one && open(one)}>Edit</button>
-          <button type="button" className="btn btn-sm" disabled={busy || !one} onClick={() => one && setNaming({ kind: 'rename', target: one, value: one.name })}>Rename</button>
-          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('copy', [...selected])}>Copy to…</button>
-          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('move', [...selected])}>Move to…</button>
-          <button type="button" className="btn btn-sm" disabled={none} onClick={() => opFor('compress', [...selected])}>Compress</button>
-          <button type="button" className="btn btn-sm" disabled={busy || !allArchives} onClick={() => opFor('extract', [...selected])}>Extract</button>
-          <button type="button" className="btn btn-sm" disabled={none || !sel.some((e) => e.type === 'file' || e.type === 'dir')} onClick={() => openPerms(sel.filter((e) => e.type === 'file' || e.type === 'dir'))}>Permissions</button>
-          <button type="button" className="btn btn-sm" disabled={none} onClick={() => download([...selected])}>Download{selected.size > 1 ? ' as ZIP' : ''}</button>
-          <button type="button" className="btn btn-sm" disabled={none} onClick={() => setSharing({ paths: [...selected].map((n) => join(dir, n)), hours: '72', max: '', password: '' })}>Share</button>
-          <button type="button" className="btn btn-sm btn-danger" disabled={none} onClick={() => { setPermanent(false); setDeleting(sel) }}>Delete</button>
+          <ToolBtn d={P.newFolder} label="New folder" disabled={!entries || busy} onClick={() => setNaming({ kind: 'folder', value: '' })} />
+          <ToolBtn d={P.newFile} label="New file" disabled={!entries || busy} onClick={() => setNaming({ kind: 'file', value: '' })} />
+          <Sep />
+          <ToolBtn d={P.pencil} label="Edit" disabled={busy || one?.type !== 'file'} onClick={() => one && open(one)} />
+          <ToolBtn d={P.cursor} label="Rename" disabled={busy || !one} onClick={() => one && setNaming({ kind: 'rename', target: one, value: one.name })} />
+          <Sep />
+          <ToolBtn d={P.copy} label="Copy to…" disabled={none} onClick={() => opFor('copy', [...selected])} />
+          <ToolBtn d={P.move} label="Move to…" disabled={none} onClick={() => opFor('move', [...selected])} />
+          <Sep />
+          <ToolBtn d={P.zip} label="Compress" disabled={none} onClick={() => opFor('compress', [...selected])} />
+          <ToolBtn d={P.unzip} label="Extract" disabled={busy || !allArchives} onClick={() => opFor('extract', [...selected])} />
+          <ToolBtn d={P.lock} label="Permissions" disabled={none || !sel.some((e) => e.type === 'file' || e.type === 'dir')} onClick={() => openPerms(sel.filter((e) => e.type === 'file' || e.type === 'dir'))} />
+          <Sep />
+          <ToolBtn d={P.download} label={selected.size > 1 ? 'Download ZIP' : 'Download'} disabled={none} onClick={() => download([...selected])} />
+          <ToolBtn d={P.link} label="Share" disabled={none} onClick={() => setSharing({ paths: [...selected].map((n) => join(dir, n)), hours: '72', max: '', password: '' })} />
+          <ToolBtn d={P.trash} label="Delete" danger disabled={none} onClick={() => { setPermanent(false); setDeleting(sel) }} />
+          {selected.size > 0 && <span className="text-xs text-muted px-2 tabular-nums" aria-live="polite">{selected.size} selected · <button type="button" className="bg-transparent border-0 p-0 text-xs font-semibold text-accent-fg cursor-pointer" onClick={() => setSelected(new Set())}>Clear</button></span>}
           <span className="ml-auto flex items-center gap-1.5">
             {(view === 'files' || view === 'search') && <button type="button" className="btn btn-sm btn-ghost" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!query.name && filter) setQuery({ ...query, name: filter }) }}>Search all folders</button>}
             <span className="relative">
@@ -1048,4 +1062,19 @@ export function FileManager({ customer = false }: { customer?: boolean }) {
       </Modal>
     </>
   )
+}
+
+
+/** A toolbar action: icon + label, quiet until hovered; disabled ones fade. */
+function ToolBtn({ d, label, onClick, disabled, danger }: { d: string; label: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick}
+      className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border-0 bg-transparent text-[13px] font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${danger ? 'text-danger enabled:hover:bg-r-bg' : 'text-fg enabled:hover:bg-head'}`}>
+      <IconSvg d={d} size={16} />{label}
+    </button>
+  )
+}
+
+function Sep() {
+  return <span aria-hidden="true" className="w-px h-5 bg-line mx-1" />
 }
