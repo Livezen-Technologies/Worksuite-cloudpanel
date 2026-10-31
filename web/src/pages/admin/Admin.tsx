@@ -8,6 +8,7 @@ import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { useAuth } from '../../lib/auth'
 import { FormModal } from '../../components/FormModal'
 import { Tabs } from '../../components/Tabs'
+import { RoleEditor } from './RoleEditor'
 import { TokenReveal } from '../../components/TokenReveal'
 import { ago, daysUntil, unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
@@ -15,6 +16,13 @@ import Select from '../../components/Select'
 
 const ROLE_FALLBACK = ['super_admin', 'infrastructure_admin', 'devops_engineer', 'developer', 'support_engineer', 'billing_manager', 'viewer']
 const pretty = (s: string) => s.replace(/[_.]/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+
+const REACH: Record<string, string> = { all: 'Everything', own_org: 'Own organisation', assigned: 'Assigned only', read: 'Read only' }
+function grantedRows(d: R | undefined): { label: string; v: string }[] {
+  const p = (d?.permissions ?? []) as R[]
+  if (!Array.isArray(p) || !p.length || !('granted' in p[0])) return permRows(d)
+  return p.filter((x) => x.granted).map((x) => ({ label: String(x.label), v: `${REACH[String(x.constraint)] ?? 'Allowed'}${x.requires_approval ? ' + approval' : ''}` }))
+}
 
 function permRows(d: R | undefined): { label: string; v: string }[] {
   if (!d) return []
@@ -35,6 +43,10 @@ export function Users() {
   const [remove, setRemove] = useState<R | null>(null)
   const [manage, setManage] = useState<R | null>(null)
   const [q, setQ] = useState('')
+  const [editor, setEditor] = useState<{ mode: 'new' | 'edit' | 'copy'; from: string | null } | null>(null)
+  const [delRole, setDelRole] = useState<string | null>(null)
+  const roleRows = roles.rows.length ? roles.rows.map((r) => typeof r === 'string' ? { name: r, label: pretty(r), custom: false, members: 0 } : { name: String(r.name), label: String(r.label ?? pretty(String(r.name))), custom: !!r.custom, members: Number(r.members ?? 0) }) : roleNames.map((n) => ({ name: n, label: pretty(n), custom: false, members: 0 }))
+  const roleLabel = (n: string) => roleRows.find((x) => x.name === n)?.label ?? pretty(n)
   const { me } = useAuth()
   const shown = users.rows.filter((r) => !q || `${r.name} ${r.email} ${r.role}`.toLowerCase().includes(q.toLowerCase()))
   const act = (r: R, path: string, label: string, success: string, body?: R) => run({ path: `/users/${r.id}/${path}`, body: body ?? {}, label, success }).then(() => { users.refetch(); setManage(null) }).catch(() => {})
@@ -48,10 +60,10 @@ export function Users() {
           <DataTable label="Members" rows={shown} loading={users.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setSel(r.role)} minWidth={720}
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
-              { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{pretty(String(r.role))}</Badge> : (
+              { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{roleLabel(String(r.role))}</Badge> : (
                 <Select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => run({ method: 'PATCH', path: `/users/${r.id}`, body: { role: e.target.value }, label: 'Change role', success: `${r.name} is now ${pretty(e.target.value)}` }).catch(() => {})}>
-                  {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{pretty(String(x))}</option>)}
+                  {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{roleLabel(String(x))}</option>)}
                 </Select>) },
               { key: 'auth', header: 'Sign-in', value: (r) => signIn(r) },
               { key: 'last', header: 'Last active', value: (r) => r.last_activity_at ?? r.last_login_at ?? '', render: (r) => (r.last_activity_at ?? r.last_login_at ? ago(r.last_activity_at ?? r.last_login_at) : 'never') },
@@ -59,16 +71,42 @@ export function Users() {
               { key: 'manage', header: '', sortable: false, render: (r) => r.id === me?.user?.id ? <a className="btn btn-sm btn-ghost" href="/admin/account" title="Manage your own account" onClick={(e) => e.stopPropagation()}>You</a> : <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setManage(r) }}>Manage</button> },
             ]} />
         </div>
-        <Card className="flex-[1_1_280px]" title="Permission matrix" actions={<Select className="input !w-auto !min-h-8 text-xs" aria-label="Role" value={role} onChange={(e) => setSel(e.target.value)}>{roleNames.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</Select>}>
-          {matrix.isLoading ? 'Loading…' : permRows(matrix.item).length === 0 ? <Empty>No permissions listed.</Empty> : (
-            <ul className="list-none m-0 p-0">{permRows(matrix.item).map((p) => (
-              <li key={p.label} className="flex justify-between gap-2 py-2 border-t border-line text-sm first:border-t-0"><span>{p.label}</span><Badge tone={p.v === 'No' ? 'n' : /approval/i.test(p.v) ? 'y' : 'g'}>{p.v}</Badge></li>
+        <Card className="flex-[1_1_320px]" title="Roles" subtitle="Who can do what"
+          actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEditor({ mode: 'new', from: null })}>New role</button>}>
+          <ul className="list-none m-0 p-0 -mx-1 mb-4 flex flex-col gap-1" aria-label="Roles">
+            {roleRows.map((x) => (
+              <li key={x.name}>
+                <button type="button" aria-pressed={role === x.name} onClick={() => setSel(x.name)}
+                  className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm border-0 cursor-pointer ${role === x.name ? 'bg-sel text-accent-fg' : 'bg-transparent hover:bg-head'}`}>
+                  <span className="flex-1 min-w-0 truncate font-medium">{x.label}</span>
+                  {x.custom && <Badge tone="b">custom</Badge>}
+                  <span className="text-xs text-muted tabular-nums">{x.members} {x.members === 1 ? 'person' : 'people'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex items-center justify-between gap-2 border-t border-line pt-3 mb-2">
+            <div className="min-w-0"><div className="font-semibold text-sm truncate">{roleLabel(role)}</div>{matrix.item?.description && <div className="text-xs text-muted">{String(matrix.item.description)}</div>}</div>
+            <span className="flex gap-1 flex-none">
+              <button type="button" className="btn btn-sm" onClick={() => setEditor({ mode: 'copy', from: role })}>Copy</button>
+              {matrix.item?.custom && <button type="button" className="btn btn-sm" onClick={() => setEditor({ mode: 'edit', from: role })}>Edit</button>}
+              {matrix.item?.custom && <button type="button" className="btn btn-sm btn-ghost text-[var(--r-fg)]" onClick={() => setDelRole(role)}>Delete</button>}
+            </span>
+          </div>
+          {matrix.isLoading ? 'Loading…' : grantedRows(matrix.item).length === 0 ? <Empty>This role has no permissions.</Empty> : (
+            <ul className="list-none m-0 p-0">{grantedRows(matrix.item).map((p) => (
+              <li key={p.label} className="flex justify-between gap-2 py-2 border-t border-line text-sm first:border-t-0"><span>{p.label}</span><Badge tone={/approval/i.test(p.v) ? 'y' : p.v === 'Read only' ? 'n' : 'g'}>{p.v}</Badge></li>
             ))}</ul>
           )}
         </Card>
       </div>
+      <RoleEditor open={!!editor} onClose={() => setEditor(null)} mode={editor?.mode ?? 'new'} from={editor?.from ?? null} onSaved={(n) => { roles.refetch(); setSel(n) }} />
+      <ConfirmDialog open={!!delRole} onClose={() => setDelRole(null)} danger title={`Delete ${roleLabel(delRole ?? '')}?`} confirmLabel="Delete role" busy={busy}
+        onConfirm={() => run({ method: 'DELETE', path: `/roles/${delRole}`, label: 'Delete role', success: 'Role deleted' }).then(() => { setDelRole(null); setSel(null); roles.refetch() }).catch(() => {})}>
+        <p className="m-0">People must have another role before it can be deleted.</p>
+      </ConfirmDialog>
       <FormModal open={invite} onClose={() => setInvite(false)} title="Invite user" submitLabel="Send invite" initial={{ role: 'developer' }}
-        fields={[{ name: 'email', label: 'Email', type: 'email', required: true }, { name: 'name', label: 'Name' }, { name: 'role', label: 'Role', type: 'select', required: true, options: roleNames.map((r) => ({ value: r, label: pretty(r) })) }]}
+        fields={[{ name: 'email', label: 'Email', type: 'email', required: true }, { name: 'name', label: 'Name' }, { name: 'role', label: 'Role', type: 'select', required: true, options: roleNames.map((r) => ({ value: r, label: roleLabel(r) })) }]}
         onSubmit={(v) => run({ path: '/users/invite', body: v, label: 'Invite', success: `Invite sent to ${v.email}` })} />
       <Modal open={!!manage} onClose={() => setManage(null)} title={`Manage ${manage?.name ?? ''}`}>
         {manage && (
