@@ -1,4 +1,4 @@
-import { downloadFile } from '../../api/client'
+import { api, downloadFile } from '../../api/client'
 import { useMemo, useState } from 'react'
 import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
@@ -12,7 +12,7 @@ import { LogView } from '../../components/LogView'
 import { TerminalDialog } from '../../components/Terminal'
 import { TerminalSessions } from '../../components/TerminalSessions'
 import { Tabs } from '../../components/Tabs'
-import { ago, str } from '../../lib/format'
+import { ago, str, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
@@ -490,14 +490,24 @@ export function Logs() {
   const containers = useList<Container>('/containers')
   const [cid, setCid] = useState('')
   const [term, setTerm] = useState(false)
-  const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200 })
+  // Filters run on the server, so older entries are reachable and Export gets exactly what is shown.
+  const [af, setAf] = useState({ from: '', to: '', action: '', resource_type: '' })
+  const auditQuery = Object.fromEntries(Object.entries(af).filter(([, v]) => v)) as Record<string, string>
+  const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200, ...auditQuery })
+  const facets = useOne<R>(tab === 'audit' ? '/audit-logs/facets' : null)
   const c = containers.rows.find((x) => x.id === cid) ?? containers.rows.find((x) => x.state === 'running')
   const toast = useToast()
   const [exporting, setExporting] = useState(false)
+  const [integrity, setIntegrity] = useState<{ valid: boolean; checked: number; broken_at: number | null } | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const verify = async () => {
+    setVerifying(true)
+    try { setIntegrity(unwrap(await api.get('/audit-logs/verify'))) } catch (e) { toast.error(e, 'Could not verify the audit log') } finally { setVerifying(false) }
+  }
   // The server streams the whole filtered trail (with each row's hash), not just the rows loaded here.
   const exportCsv = async () => {
     setExporting(true)
-    try { await downloadFile('/audit-logs/export', {}, 'audit-log.csv') } catch (e) { toast.error(e, 'Could not export the audit log') } finally { setExporting(false) }
+    try { await downloadFile('/audit-logs/export', auditQuery, 'audit-log.csv') } catch (e) { toast.error(e, 'Could not export the audit log') } finally { setExporting(false) }
   }
   const picker = <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</Select>
   return (
@@ -513,9 +523,25 @@ export function Logs() {
         </Card>
       )}
       {tab === 'term' && <div className="mt-4"><TerminalSessions /></div>}
+      {tab === 'audit' && integrity && (
+        <div role="status" className="card p-3 mt-4 text-sm flex items-center gap-2" style={{ background: integrity.valid ? 'var(--g-bg)' : 'var(--r-bg)', color: integrity.valid ? 'var(--g-fg)' : 'var(--r-fg)' }}>
+          <Badge tone={integrity.valid ? 'g' : 'r'}>{integrity.valid ? 'intact' : 'tampered'}</Badge>
+          {integrity.valid ? `All ${integrity.checked.toLocaleString()} entries check out: none were changed or removed.` : `The chain breaks at entry #${integrity.broken_at}: it or an earlier entry was changed or removed.`}
+        </div>
+      )}
       {tab === 'audit' && (
         <DataTable label="Audit log" rows={audit.rows} loading={audit.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
-          toolbar={<button type="button" className="btn btn-sm" disabled={exporting} onClick={exportCsv}>{exporting ? "Exporting…" : "Export CSV"}</button>}
+          toolbar={<div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-muted flex flex-col gap-1">From<input type="date" className="input h-8 text-sm" value={af.from} onChange={(e) => setAf({ ...af, from: e.target.value })} /></label>
+            <label className="text-xs text-muted flex flex-col gap-1">To<input type="date" className="input h-8 text-sm" value={af.to} onChange={(e) => setAf({ ...af, to: e.target.value })} /></label>
+            <label className="text-xs text-muted flex flex-col gap-1">Action<Select className="input h-8 text-sm" aria-label="Action" value={af.action} onChange={(e) => setAf({ ...af, action: e.target.value })}>
+              <option value="">All actions</option>{((facets.item?.action_groups ?? []) as string[]).map((g) => <option key={g} value={`${g}.*`}>{g}.*</option>)}</Select></label>
+            <label className="text-xs text-muted flex flex-col gap-1">Resource<Select className="input h-8 text-sm" aria-label="Resource type" value={af.resource_type} onChange={(e) => setAf({ ...af, resource_type: e.target.value })}>
+              <option value="">All resources</option>{((facets.item?.resource_types ?? []) as string[]).map((t) => <option key={t} value={t}>{t}</option>)}</Select></label>
+            {Object.values(af).some(Boolean) && <button type="button" className="btn btn-sm" onClick={() => setAf({ from: '', to: '', action: '', resource_type: '' })}>Clear</button>}
+            <button type="button" className="btn btn-sm" disabled={verifying} onClick={verify}>{verifying ? 'Verifying…' : 'Verify integrity'}</button>
+            <button type="button" className="btn btn-sm" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : Object.values(af).some(Boolean) ? 'Export filtered CSV' : 'Export CSV'}</button>
+          </div>}
           columns={[
             { key: 'created_at', header: 'Time', render: (r) => <span className="font-mono text-xs">{String(r.created_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
             { key: 'user', header: 'User', value: (r) => r.actor ?? r.user_name ?? r.user?.name ?? 'system' },
