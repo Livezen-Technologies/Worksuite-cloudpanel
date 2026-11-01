@@ -35,6 +35,13 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Panel assets are cached correctly** — nginx sent no `Cache-Control` for
+  the SPA, so browsers cached `index.html` heuristically and a deploy looked
+  like it had not landed until someone hard-reloaded. The shell is now
+  `no-cache` and the content-hashed `/assets/` files are `immutable`.
+  `docs/deploy/nginx-agent-mtls.conf` carries the same blocks, with a note
+  that `add_header` in a location replaces the server block's headers.
+
 - **Per-mount disk reporting** — `disk_gb` and `disk_pct` describe the root
   filesystem only, so a server whose data sits on a second array was reported
   as though that array did not exist: a node with two 1.8 TB RAID1 arrays
