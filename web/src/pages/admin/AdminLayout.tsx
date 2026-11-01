@@ -21,6 +21,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
     { label: 'Projects', to: '/admin/projects', icon: 'layers' },
     { label: 'Git sources', to: '/admin/git', icon: 'share' },
+    { label: 'AI & MCP', to: '/admin/ai', icon: 'pulse' },
     { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
     { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
     { label: 'Containers', to: '/admin/containers', icon: 'box' },

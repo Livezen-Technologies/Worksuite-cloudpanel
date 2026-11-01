@@ -30,6 +30,7 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="DNS_DRIVER" value="fake"/>
         <env name="SOURCE_VALIDATOR" value="fake"/>
+        <env name="AI_DRIVER" value="fake"/>
         <env name="PLATFORM_DOMAIN" value="livezen.app"/>
         <env name="PANEL_URL" value="https://panel.test"/>
         <env name="SESSION_DRIVER" value="array"/>
