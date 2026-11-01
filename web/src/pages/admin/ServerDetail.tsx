@@ -30,6 +30,7 @@ export default function ServerDetail() {
   const { run, busy } = useAction()
   const [confirmDel, setConfirmDel] = useState(false)
   const [drainOpen, setDrainOpen] = useState(false)
+  const [revokeOpen, setRevokeOpen] = useState(false)
   const [drained, setDrained] = useState<{ moving: { name: string }[]; kept: { name: string; reason: string }[] } | null>(null)
   // What still lives on the server: drain moves stateless apps; the rest is moved with a backup and restore.
   const residents = useOne<{ apps: { name: string; stateful: boolean }[]; databases: { name: string }[]; volumes: number }>(id ? `/servers/${id}/residents` : null, undefined, { refetchInterval: 30000 })
@@ -52,6 +53,7 @@ export default function ServerDetail() {
           </button>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/agent/restart`, label: `Restart agent on ${s.name}` })}>Restart agent</button>
           <button type="button" className="btn" disabled={busy || !left} title={left ? undefined : 'Nothing runs here'} onClick={() => setDrainOpen(true)}>Drain server</button>
+          <button type="button" className="btn btn-ghost text-danger" disabled={busy || s.status === 'pending'} onClick={() => setRevokeOpen(true)}>Revoke agent</button>
         </>} />
       {drained && (
         <div role="status" className="card p-3 text-sm flex flex-col gap-1">
@@ -150,6 +152,10 @@ export default function ServerDetail() {
         onConfirm={() => run({ method: 'DELETE', path: `/servers/${s.id}`, label: `Remove ${s.name}`, success: 'Server removed' }).then(() => nav('/admin/servers')).catch(() => {})}>
         <p className="m-0">The agent is disconnected and the server leaves the fleet. This cannot be undone.</p>
         {left > 0 && <p className="m-0 font-semibold text-danger">{left} app(s) or database(s) still run here. Drain the server and move the rest first; removing is refused until it is empty.</p>}
+      </ConfirmDialog>
+      <ConfirmDialog open={revokeOpen} onClose={() => setRevokeOpen(false)} danger confirmText={s.name} confirmLabel="Revoke agent" title={`Revoke the agent on ${s.name}?`} busy={busy}
+        onConfirm={() => run({ path: `/servers/${s.id}/agent/revoke`, body: { confirm: s.name }, label: 'Revoke agent', success: 'Agent revoked; enrol it again to reconnect' }).then(() => setRevokeOpen(false)).catch(() => {})}>
+        <p className="m-0">Use this if the server may be compromised or is being handed back. The agent's credentials and certificates stop working at once, so the panel can no longer manage it or receive its data. Apps keep running on the machine. To reconnect, enrol the agent again with a new one-time token.</p>
       </ConfirmDialog>
       <ConfirmDialog open={drainOpen} onClose={() => setDrainOpen(false)} confirmLabel="Drain server" title={`Drain ${s.name}?`} busy={busy}
         onConfirm={() => run<{ data?: { moving: { name: string }[]; kept: { name: string; reason: string }[] } }>({ path: `/servers/${s.id}/drain`, label: `Drain ${s.name}`, success: 'Drain started' }).then((r) => { setDrained(r?.data ?? null); setDrainOpen(false); residents.refetch() }).catch(() => {})}>

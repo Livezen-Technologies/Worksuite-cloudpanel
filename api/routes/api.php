@@ -134,6 +134,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::patch('servers/{id}/tunnel', [Admin\TunnelController::class, 'update'])->name('servers.tunnel.update');
         Route::delete('servers/{id}/tunnel', [Admin\TunnelController::class, 'disable'])->name('servers.tunnel.disable');
         Route::post('servers/agents/update', [Admin\ServerController::class, 'updateAllAgents'])->name('servers.agents.update');
+        Route::post('servers/{id}/agent/revoke', [Admin\ServerController::class, 'revokeAgent'])->name('servers.agent.revoke');
         Route::post('servers/{id}/drain', [Admin\ServerController::class, 'drain'])->name('servers.drain');
         Route::post('servers/{id}/maintenance', [Admin\ServerController::class, 'maintenance'])->name('servers.maintenance');
         Route::post('servers/{id}/agent/{action}', [Admin\ServerController::class, 'agent'])->whereIn('action', ['restart', 'update'])->name('servers.agent');

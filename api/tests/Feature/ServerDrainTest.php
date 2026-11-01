@@ -43,4 +43,23 @@ class ServerDrainTest extends TestCase
         $this->assertSame([], $this->api($token)->getJson("/api/v1/servers/{$old->id}/residents")->json('data.apps'));
         $this->api($token)->deleteJson("/api/v1/servers/{$old->id}")->assertNoContent();
     }
+
+    public function test_revoking_the_agent_cuts_it_off_until_it_is_enrolled_again(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org, ['name' => 'web-1']);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $this->assertSame('online', Server::find($server->id)->status);
+
+        $this->api($token)->postJson("/api/v1/servers/{$server->id}/agent/revoke", ['confirm' => 'wrong'])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/servers/{$server->id}/agent/revoke", ['confirm' => 'web-1'])->assertOk()->assertJsonPath('data.status', 'pending');
+        $this->withHeaders(['Authorization' => 'Bearer '.$secret])->postJson('/agent/v1/heartbeat', [])->assertStatus(401);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'server.agent_revoked', 'resource_id' => $server->id]);
+
+        // A fresh enrolment brings it back.
+        [$fresh] = $this->enrollAgent($server, $token);
+        $this->heartbeat($fresh);
+        $this->assertSame('online', Server::find($server->id)->status);
+    }
 }

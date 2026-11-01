@@ -129,6 +129,26 @@ class ServerController extends Controller
         return $this->data(app(\App\Services\ServerDrainService::class)->drain($server, $request->user()));
     }
 
+    /**
+     * Cut a server's agent off (compromised host, machine handed back): its secret and client
+     * certificates stop working at once. The server waits for a fresh enrolment token.
+     */
+    public function revokeAgent(Request $request, string $id)
+    {
+        $server = Server::findOrFail($id);
+        $this->authorizeFor($request, 'servers.manage');
+        $request->validate(['confirm' => 'required|in:'.$server->name]);
+        $agent = \App\Models\Agent::allTenants()->where('server_id', $server->id)->first();
+        if ($agent) {
+            \App\Models\AgentCertificate::allTenants()->where('agent_id', $agent->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+            $agent->delete();
+        }
+        $server->forceFill(['last_heartbeat_at' => null])->save();
+        app(\App\Services\AuditLogger::class)->log('server.agent_revoked', 'servers', $server->id, ['name' => $server->name, 'had_agent' => (bool) $agent]);
+
+        return $this->data($server->fresh());
+    }
+
     public function residents(string $id)
     {
         return $this->data(app(\App\Services\ServerDrainService::class)->residents(Server::findOrFail($id)));
