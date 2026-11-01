@@ -6,9 +6,11 @@ use App\Contracts\HandlesCommandResults;
 use App\Models\AgentCommand;
 use App\Models\Application;
 use App\Models\Certificate;
+use App\Models\Container;
 use App\Models\DnsZone;
 use App\Models\Domain;
 use App\Models\Job;
+use App\Models\Release;
 use App\Models\Secret;
 use App\Models\Server;
 use App\Support\Tenant;
@@ -266,8 +268,18 @@ class TraefikConfigService implements HandlesCommandResults
                 $services[$base.'-pool'] = ['loadBalancer' => $lb];
                 $live = $base.'-pool';
             }
+            // Without a docker provider there is nothing to turn the app's container labels
+            // into `<app>@docker`, so the service its routers name has to be declared here or
+            // Traefik drops every one of them. A pool already replaced it, so only the plain
+            // case needs it.
+            if ($suffix !== '@docker' && $live === $base.$suffix && $lb = $this->appService($app)) {
+                $services[$base] = $lb;
+            }
             if (! empty($s['canary']['image'])) {
                 $w = max(0, min(100, (int) $s['canary']['weight']));
+                if ($suffix !== '@docker' && $lb = $this->appService($app, '-canary')) {
+                    $services[$base.'-canary'] = $lb;
+                }
                 $services[$base.'-split'] = ['weighted' => ['services' => [['name' => $live, 'weight' => 100 - $w], ['name' => $base.'-canary'.$suffix, 'weight' => $w]]]];
                 $live = $base.'-split';
             }
@@ -277,6 +289,32 @@ class TraefikConfigService implements HandlesCommandResults
         }
 
         return [$services, $swap];
+    }
+
+    /**
+     * The app's own containers on its own server as a file-provider load balancer, for an
+     * ingress with no docker provider. Replicas on that server are all listed, as the docker
+     * provider would have done from their shared label; copies on other servers belong to
+     * `<app>-pool` instead. Falls back to the name the panel gives the container when the
+     * inventory has not reported one yet, so a fresh app still routes.
+     */
+    private function appService(Application $app, string $part = ''): ?array
+    {
+        $port = Release::find($app->current_release_id)?->config['port'] ?? $app->port;
+        if (! $port) {
+            return null;
+        }
+        $names = Container::allTenants()->where('application_id', $app->id)
+            ->where('server_id', $app->server_id)
+            ->whereNotIn('state', ['removing', 'removed'])
+            ->pluck('name')
+            ->filter(fn ($n) => str_ends_with((string) $n, '-canary') === ($part === '-canary'))
+            ->values();
+        if ($names->isEmpty()) {
+            $names = collect([$app->containerName().$part]);
+        }
+
+        return ['loadBalancer' => ['servers' => $names->map(fn ($n) => ['url' => "http://{$n}:{$port}"])->all()]];
     }
 
     public function yaml(Server $server, bool $dedicated = true): string
