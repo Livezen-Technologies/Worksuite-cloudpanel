@@ -19,6 +19,7 @@ class Server extends Model
         return [
             'tags' => 'array',
             'roles' => 'array',
+            'disks' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',

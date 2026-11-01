@@ -48,6 +48,20 @@ type Stats struct {
 	DiskPct float64 `json:"disk_pct"`
 	NetRx   uint64  `json:"net_rx"`
 	NetTx   uint64  `json:"net_tx"`
+	// Every mounted local filesystem, so a host whose data lives on a second
+	// array is not reported as if it only had its root disk. DiskPct above
+	// stays the root figure the status thresholds are written against.
+	Disks []Disk `json:"disks,omitempty"`
+}
+
+// Disk is one mounted local filesystem.
+type Disk struct {
+	Mount   string  `json:"mount"`
+	Device  string  `json:"device,omitempty"`
+	FSType  string  `json:"fstype,omitempty"`
+	SizeGB  int64   `json:"size_gb"`
+	UsedGB  int64   `json:"used_gb"`
+	UsedPct float64 `json:"used_pct"`
 }
 
 type Container struct {

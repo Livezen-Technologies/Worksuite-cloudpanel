@@ -9,11 +9,13 @@ export interface User { id: string; name: string; email: string; mfa_enabled?: b
 export interface Me { user: User; organization: { id: string; name: string; [k: string]: unknown }; role: string; permissions: string[] }
 
 export type ServerStatus = 'pending' | 'online' | 'warning' | 'maintenance' | 'offline'
+/** One mounted local filesystem. disk_gb/disk_pct describe the root one only. */
+export interface ServerDisk { mount: string; device?: string | null; fstype?: string | null; size_gb?: number; used_gb?: number; used_pct?: number }
 export interface Server {
   id: string; name: string; hostname: string; ip: string; environment: string; region: string; tags: string[]
   status: ServerStatus; os?: string; kernel?: string; docker_version?: string; cpu_cores?: number; ram_mb?: number; disk_gb?: number
   cpu_pct?: number; ram_pct?: number; disk_pct?: number; container_count?: number; agent_version?: string; last_heartbeat_at?: string | null
-  provider?: string; roles?: string[]
+  provider?: string; roles?: string[]; disks?: ServerDisk[]
 }
 export interface Container {
   id: string; name: string; image: string; server_id: string; server_name?: string; server?: { id: string; name: string }
