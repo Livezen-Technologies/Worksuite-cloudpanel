@@ -31,6 +31,23 @@ return [
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
     ],
 
+    // UVPS: customer virtual servers. Container VPS run under Sysbox on servers with the "vps" role.
+    'vps' => [
+        'limit' => (int) env('VPS_LIMIT', 5), // per organisation
+        'ssh_ports' => [22000, 22999],
+        'plans' => [
+            'ct-1' => ['label' => 'CT-1', 'type' => 'container', 'cpus' => 1, 'memory_mb' => 1024, 'price_cents' => 300, 'available' => true],
+            'ct-2' => ['label' => 'CT-2', 'type' => 'container', 'cpus' => 2, 'memory_mb' => 2048, 'price_cents' => 400, 'available' => true],
+            'ct-4' => ['label' => 'CT-4', 'type' => 'container', 'cpus' => 4, 'memory_mb' => 4096, 'price_cents' => 800, 'available' => true],
+            'vps-4' => ['label' => 'VPS-4 (KVM)', 'type' => 'kvm', 'cpus' => 2, 'memory_mb' => 4096, 'price_cents' => 1200, 'available' => false],
+            'vps-8' => ['label' => 'VPS-8 (KVM)', 'type' => 'kvm', 'cpus' => 4, 'memory_mb' => 8192, 'price_cents' => 2400, 'available' => false],
+        ],
+        'images' => [
+            'ubuntu-2404' => ['label' => 'Ubuntu 24.04 LTS', 'image' => env('VPS_IMAGE_UBUNTU', 'nestybox/ubuntu-noble-systemd-docker:latest')],
+            'debian-12' => ['label' => 'Debian 12', 'image' => env('VPS_IMAGE_DEBIAN', 'nestybox/debian-bookworm-systemd-docker:latest')],
+        ],
+    ],
+
     // Image builds (APP-001/002) and post-start health checks (UHOST-006).
     'builds' => [
         'local_repository' => env('BUILD_LOCAL_REPOSITORY', 'dmp-build'), // tag prefix when the image is not pushed

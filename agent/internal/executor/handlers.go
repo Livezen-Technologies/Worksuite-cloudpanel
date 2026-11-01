@@ -145,6 +145,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.healthCheck(ctx, c.Payload, progress)
 	case "container.create":
 		return e.createContainer(ctx, c.Payload, progress)
+	case "vps.create":
+		return e.createVPS(ctx, c.Payload, progress)
 	case "container.prune":
 		var p struct {
 			Until  string            `json:"until"`

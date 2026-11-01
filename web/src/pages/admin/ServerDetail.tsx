@@ -139,6 +139,11 @@ export default function ServerDetail() {
                 onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('app'); else { roles.delete('app'); roles.add('builder') } run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: 'Save roles', success: 'Roles saved' }).catch(() => {}) }} />
               <span className="text-sm"><span className="font-semibold">Runs applications</span> <span className="text-muted">— the scheduler may place workloads here.</span></span>
             </div>
+            <div className="flex items-center gap-3 mt-4">
+              <Toggle checked={(s.roles ?? ['app']).includes('vps')} label="Hosts customer VPS"
+                onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('vps'); else roles.delete('vps'); run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: 'Save roles', success: 'Roles saved' }).catch(() => {}) }} />
+              <span className="text-sm"><span className="font-semibold">Hosts customer VPS</span> <span className="text-muted">— container VPS with root access. Requires the Sysbox runtime (sysbox-runc) on this server; without it, creating a VPS fails.</span></span>
+            </div>
           </Card>
           <Card title="Remove server">
             <div className="flex flex-wrap gap-3 items-center justify-between rounded-lg p-4 border border-danger-line">

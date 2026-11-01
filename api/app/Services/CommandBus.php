@@ -23,7 +23,7 @@ class CommandBus
 {
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
-        'container.remove', 'container.create', 'container.logs', 'container.prune',
+        'container.remove', 'container.create', 'container.logs', 'container.prune', 'vps.create',
         'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'proxy.scan', 'proxy.retire', 'proxy.restore', 'agent.update', 'agent.restart',
@@ -193,6 +193,9 @@ class CommandBus
     private function applySideEffects(AgentCommand $command): void
     {
         if ($command->status !== 'succeeded') {
+            if ($command->type === 'vps.create') {
+                app(\App\Services\VpsService::class)->created($command, false);
+            }
             if ($command->type === 'container.create') {
                 Container::allTenants()->where('server_id', $command->server_id)->where('name', $command->payload['name'] ?? '')
                     ->whereNull('docker_id')->update(['state' => 'failed']);
@@ -212,6 +215,7 @@ class CommandBus
             'container.logs' => $container?->update(['last_logs' => is_array($command->output) ? ($command->output['logs'] ?? json_encode($command->output)) : null, 'logs_fetched_at' => now()]),
             'container.create' => Container::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'] ?? '')->whereNull('docker_id')
                 ->update(['docker_id' => $command->output['container_id'] ?? null, 'state' => ($p['start'] ?? true) ? 'running' : 'created', 'started_at' => now()]),
+            'vps.create' => app(\App\Services\VpsService::class)->created($command, true),
             'network.create' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]),
             'network.remove' => Network::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('name', $p['name'] ?? null)->orWhere('docker_id', $p['network_id'] ?? null))->delete(),
             'volume.create' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active']),

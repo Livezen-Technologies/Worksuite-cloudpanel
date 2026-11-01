@@ -32,6 +32,8 @@ type fakeDocker struct {
 	pullStatus int
 	// localImages are answered by GET /images/{ref}/json; others are 404.
 	localImages map[string]bool
+	// runtimes is answered by GET /info.
+	runtimes string
 }
 
 func (f *fakeDocker) handler(t *testing.T) http.Handler {
@@ -51,6 +53,11 @@ func (f *fakeDocker) handler(t *testing.T) http.Handler {
 				return
 			}
 			w.Write([]byte(`{"Id":"sha256:abc"}`))
+		case r.URL.Path == "/info":
+			w.Write([]byte(`{"Runtimes":{` + f.runtimes + `}}`))
+		case strings.HasSuffix(r.URL.Path, "/exec"):
+			w.WriteHeader(201)
+			w.Write([]byte(`{"Id":"ex1"}`))
 		case r.URL.Path == "/containers/create":
 			b, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
