@@ -13,6 +13,7 @@ export const PANEL_SECTIONS: PanelSection[] = [
   ] },
   { id: 'manage', label: 'Manage', icon: 'rocket', desc: 'Apps, domains, email and files', items: [
     { label: 'Apps', icon: 'rocket', to: '/app/apps' },
+    { label: 'Projects', icon: 'layers', to: '/app/projects' },
     { label: 'Host an app', icon: 'plus', to: '/app/host' },
     { label: 'Domains & DNS', icon: 'globe', to: '/app/domains' },
     { label: 'Email', icon: 'bell', to: '/app/email' },
