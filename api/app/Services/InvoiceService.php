@@ -104,7 +104,7 @@ class InvoiceService
             'amount_cents' => $subtotal + $tax, 'currency' => $currency, 'status' => 'open', 'due_at' => now()->addDays(14),
         ]);
         // The payment provider collects it (fake: paid at once; Stripe: invoice items, paid via webhook).
-        $charge = $this->payments->collect($org, $invoice);
+        $charge = app(\App\Support\Payments::class)->for($org)->collect($org, $invoice);
         $invoice->update(array_filter(['status' => $charge['status'] ?? 'open', 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
             'paid_at' => ($charge['status'] ?? null) === 'paid' ? now() : null]));
         $this->render($invoice);

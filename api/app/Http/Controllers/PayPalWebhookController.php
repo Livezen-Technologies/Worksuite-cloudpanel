@@ -9,8 +9,9 @@ use Illuminate\Http\Request;
 /** POST /api/v1/webhooks/paypal — verified with PayPal, idempotent per event id (UBIL-003). */
 class PayPalWebhookController extends Controller
 {
-    public function handle(Request $request, PaymentGateway $payments)
+    public function handle(Request $request, \App\Support\Payments $providers)
     {
+        $payments = in_array('paypal', $providers->available(), true) ? $providers->make('paypal') : null;
         if (! $payments instanceof PayPalPaymentGateway) {
             return response()->json(['error' => ['code' => 'not_found', 'message' => 'PayPal is not the active payment driver.']], 404);
         }

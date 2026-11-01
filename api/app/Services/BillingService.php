@@ -16,7 +16,37 @@ use App\Support\Tenant;
 /** UBIL-001..004 and quota enforcement (UHOST-003). */
 class BillingService
 {
-    public function __construct(private PaymentGateway $payments) {}
+    public function __construct(private PaymentGateway $payments, private \App\Support\Payments $providers) {}
+
+    /** The gateway of the current organisation (its chosen provider, or the platform default). */
+    private function gateway(?Organization $org = null): PaymentGateway
+    {
+        return $this->providers->for($org ?? Tenant::current());
+    }
+
+    /**
+     * Switch how this organisation pays. Allowed while no live subscription exists with the other
+     * provider (cancel that one first), so a customer is never billed twice.
+     */
+    public function setProvider(Organization $org, string $name): array
+    {
+        if (! in_array($name, $this->providers->available(), true)) {
+            throw ApiException::validation(['provider' => ['That payment provider is not available.']]);
+        }
+        $current = $this->gateway($org)->name();
+        if ($current !== $name) {
+            $sub = $this->subscription();
+            $owner = \App\Support\Payments::ownerOf($sub->provider_subscription_id);
+            if ($owner && $owner !== $name && in_array($sub->status, ['active', 'past_due'], true)) {
+                throw ApiException::conflict('You have an active '.(\App\Support\Payments::LABELS[$owner] ?? $owner).' subscription. Cancel it there first, or contact support to switch.');
+            }
+            // The customer record and saved method belong to the old provider.
+            $org->forceFill(['payment_provider' => $name, 'payment_customer_id' => null, 'payment_method' => null])->save();
+            app(\App\Services\AuditLogger::class)->log('billing.provider_changed', 'organizations', $org->id, ['from' => $current, 'to' => $name]);
+        }
+
+        return $this->summary();
+    }
 
     public function subscription(): Subscription
     {
@@ -114,9 +144,10 @@ class BillingService
             'month_to_date' => ['amount_cents' => $monthToDate, 'currency' => $plan->currency],
             'payment_method' => $org->payment_method,
             'billing_email' => $org->billing_email,
-            'payment_provider' => $this->payments->name(),
+            'payment_provider' => $this->gateway()->name(),
+            'payment_providers' => collect($this->providers->available())->map(fn ($p) => ['id' => $p, 'label' => \App\Support\Payments::LABELS[$p] ?? $p])->values(),
             // PayPal's link creates a subscription, so it is only made on POST billing/portal.
-            'payment_portal_url' => $this->payments->name() === 'paypal' ? null : rescue(fn () => $this->payments->portalUrl($org, $this->returnUrl()), null, report: false),
+            'payment_portal_url' => $this->gateway()->name() === 'paypal' ? null : rescue(fn () => $this->gateway()->portalUrl($org, $this->returnUrl()), null, report: false),
         ];
     }
 
@@ -138,7 +169,7 @@ class BillingService
             }
         }
         $org = Tenant::current();
-        $providerId = $this->payments->subscribe($org, $plan);
+        $providerId = $this->gateway()->subscribe($org, $plan);
         $sub = $this->subscription();
         $sub->update(['plan_id' => $plan->id, 'provider_subscription_id' => $providerId, 'status' => 'active']);
 
@@ -147,7 +178,7 @@ class BillingService
 
     public function updatePaymentMethod(Organization $org, string $token): array
     {
-        $summary = $this->payments->attachPaymentMethod($org, $token);
+        $summary = $this->gateway()->attachPaymentMethod($org, $token);
         $org->update(['payment_method' => $summary]);
 
         return $summary;
@@ -155,12 +186,12 @@ class BillingService
 
     public function portalUrl(Organization $org): string
     {
-        return $this->payments->portalUrl($org, $this->returnUrl());
+        return $this->gateway()->portalUrl($org, $this->returnUrl());
     }
 
     private function returnUrl(): string
     {
-        return (string) config('billing.'.($this->payments->name() === 'paypal' ? 'paypal' : 'stripe').'.return_url');
+        return (string) config('billing.'.($this->gateway()->name() === 'paypal' ? 'paypal' : 'stripe').'.return_url');
     }
 
     public function invoiceApi(Invoice $invoice): array

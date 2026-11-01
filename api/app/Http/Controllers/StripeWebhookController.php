@@ -9,8 +9,10 @@ use Illuminate\Http\Request;
 /** POST /api/v1/webhooks/stripe — signature-verified, idempotent per event id (UBIL-003). */
 class StripeWebhookController extends Controller
 {
-    public function handle(Request $request, PaymentGateway $payments)
+    public function handle(Request $request, \App\Support\Payments $providers)
     {
+        // Stripe events are accepted whenever Stripe is configured, even if customers default to another provider.
+        $payments = in_array('stripe', $providers->available(), true) ? $providers->make('stripe') : null;
         if (! $payments instanceof StripePaymentGateway) {
             return response()->json(['error' => ['code' => 'not_found', 'message' => 'Stripe is not the active payment driver.']], 404);
         }
