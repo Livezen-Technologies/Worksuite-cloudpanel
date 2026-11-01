@@ -621,6 +621,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::post('billing/payment-method', [Customer\BillingController::class, 'paymentMethod'])->name('billing.payment-method');
             Route::post('billing/portal', [Customer\BillingController::class, 'portal'])->name('billing.portal');
             Route::post('billing/provider', [Customer\BillingController::class, 'provider'])->middleware('perm:app.team')->name('billing.provider');
+            Route::post('billing/cancel', [Customer\BillingController::class, 'cancel'])->middleware('perm:app.team')->name('billing.cancel');
         });
         Route::get('account', [Customer\AccountController::class, 'show'])->name('account.show');
         Route::patch('account', [Customer\AccountController::class, 'update'])->name('account.update');

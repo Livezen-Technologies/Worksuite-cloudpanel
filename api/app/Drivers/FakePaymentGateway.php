@@ -44,6 +44,8 @@ class FakePaymentGateway implements PaymentGateway
         return 'https://billing.example.com/portal/'.($organization->payment_customer_id ?: 'setup');
     }
 
+    public function cancel(Organization $organization, string $subscriptionId): void {}
+
     public function collect(Organization $organization, Invoice $invoice): array
     {
         return ['status' => $organization->payment_method ? 'paid' : 'open', 'provider_invoice_id' => null];

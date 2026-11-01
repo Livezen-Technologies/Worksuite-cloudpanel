@@ -157,6 +157,13 @@ class PayPalPaymentGateway implements PaymentGateway
         return Cache::get("paypal.approve.{$organization->id}") ?? throw ApiException::conflict('PayPal returned no approval link.');
     }
 
+    public function cancel(Organization $organization, string $subscriptionId): void
+    {
+        // PayPal stops future charges; the current period is already paid.
+        $this->api('post', "/v1/billing/subscriptions/{$subscriptionId}/cancel", ['reason' => 'Cancelled by the customer in the panel']);
+        Cache::forget("paypal.approve.{$organization->id}");
+    }
+
     public function collect(Organization $organization, Invoice $invoice): array
     {
         $items = array_filter($invoice->line_items ?? [], fn ($l) => ($l['kind'] ?? '') !== 'plan' && $l['amount_cents'] > 0);

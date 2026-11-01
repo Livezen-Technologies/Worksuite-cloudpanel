@@ -23,6 +23,7 @@ class PaymentProviderChoiceTest extends TestCase
 
             return match (true) {
                 $path === '/v1/oauth2/token' => Http::response(['access_token' => 'A21']),
+                str_ends_with($path, '/cancel') => Http::response(null, 204),
                 $path === '/v1/billing/subscriptions' => Http::response(['id' => 'I-PP1', 'status' => 'APPROVAL_PENDING', 'links' => [['rel' => 'approve', 'href' => 'https://www.sandbox.paypal.com/approve/1']]], 201),
                 default => Http::response([], 404),
             };
@@ -49,7 +50,9 @@ class PaymentProviderChoiceTest extends TestCase
         // With that PayPal subscription live, switching to card is refused rather than billing twice.
         $this->api($token)->postJson('/api/v1/app/billing/provider', ['provider' => 'stripe'])->assertStatus(409)
             ->assertJsonPath('error.message', 'You have an active PayPal subscription. Cancel it there first, or contact support to switch.');
-        Subscription::allTenants()->where('organization_id', $org->id)->update(['status' => 'canceled']);
+        // Cancelling in the panel cancels it at PayPal, after which switching is allowed.
+        $this->api($token)->postJson('/api/v1/app/billing/cancel')->assertOk()->assertJsonPath('data.subscription_status', 'canceled');
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/v1/billing/subscriptions/I-PP1/cancel'));
         $this->api($token)->postJson('/api/v1/app/billing/provider', ['provider' => 'stripe'])->assertOk()->assertJsonPath('data.payment_provider', 'stripe');
         $this->assertNull(Organization::find($org->id)->payment_customer_id, 'the PayPal customer reference is not reused by Stripe');
     }

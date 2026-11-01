@@ -72,6 +72,13 @@ class BillingController extends Controller
         return $this->data($this->billing->setProvider(Tenant::current(), $data['provider']));
     }
 
+    public function cancel(Request $request)
+    {
+        $data = $request->validate(['reason' => 'nullable|string|max:500']);
+
+        return $this->data($this->billing->cancel(Tenant::current(), $data['reason'] ?? null));
+    }
+
     public function portal()
     {
         return $this->data(['url' => $this->billing->portalUrl(Tenant::current())]);

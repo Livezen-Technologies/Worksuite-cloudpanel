@@ -27,4 +27,7 @@ interface PaymentGateway
      * @return array{status: string, provider_invoice_id?: ?string}
      */
     public function collect(Organization $organization, Invoice $invoice): array;
+
+    /** Stop renewing a subscription; the period already paid for runs to its end. */
+    public function cancel(Organization $organization, string $subscriptionId): void;
 }

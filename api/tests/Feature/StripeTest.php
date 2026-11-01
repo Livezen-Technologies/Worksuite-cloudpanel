@@ -40,6 +40,7 @@ class StripeTest extends TestCase
                     $path === '/v1/checkout/sessions' => ['id' => 'cs_1', 'object' => 'checkout.session', 'url' => 'https://checkout.stripe.com/c/pay/cs_1'],
                     $path === '/v1/billing_portal/sessions' => ['id' => 'bps_1', 'object' => 'billing_portal.session', 'url' => 'https://billing.stripe.com/p/session/bps_1'],
                     $path === '/v1/subscriptions' => ['id' => 'sub_1Fixture', 'object' => 'subscription', 'status' => 'incomplete'],
+                    str_starts_with($path, '/v1/subscriptions/') => ['id' => basename($path), 'object' => 'subscription', 'status' => 'active', 'items' => ['object' => 'list', 'data' => [['id' => 'si_1', 'object' => 'subscription_item']]]],
                     str_starts_with($path, '/v1/setup_intents/') => ['id' => 'seti_1Fixture', 'object' => 'setup_intent', 'payment_method' => 'pm_456'],
                     $path === '/v1/invoiceitems' => ['id' => 'ii_'.count($this->requests), 'object' => 'invoiceitem'],
                     default => ['error' => ['message' => 'unexpected '.$path]],
@@ -146,5 +147,25 @@ class StripeTest extends TestCase
         $this->assertCount(2, $items, 'app line + tax, plan is charged by the subscription');
         $this->assertSame(Invoice::allTenants()->first()->id, $items[0][2]['metadata']['dmp_invoice_id']);
         $this->assertSame('open', Invoice::allTenants()->first()->status);
+    }
+
+    public function test_cancel_stops_renewal_at_period_end_and_a_plan_change_resumes_it(): void
+    {
+        [, $org, $token] = $this->org();
+        $this->api($token)->getJson('/api/v1/app/billing')->assertOk();
+        app(Tenant::class)->as($org->id, fn () => Subscription::latest()->first()->update(['provider_subscription_id' => 'sub_1Live', 'current_period_end' => '2026-11-30 23:59:59']));
+        app(Tenant::class)->set(null);
+
+        $res = $this->api($token)->postJson('/api/v1/app/billing/cancel', ['reason' => 'Moving on'])->assertOk()->json('data');
+        $this->assertSame(['canceled', null], [$res['subscription_status'], $res['renews_at']]);
+        $this->assertStringStartsWith('2026-11-30', $res['ends_at'], 'the paid period still runs to its end');
+        $cancel = collect($this->http->requests)->last(fn ($r) => $r[1] === '/v1/subscriptions/sub_1Live');
+        $this->assertSame('true', (string) $cancel[2]['cancel_at_period_end']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'billing.subscription_canceled', 'organization_id' => $org->id]);
+        $this->api($token)->postJson('/api/v1/app/billing/cancel')->assertStatus(409);
+
+        $this->api($token)->postJson('/api/v1/app/billing/plan', ['plan' => 'standard'])->assertOk();
+        $resume = collect($this->http->requests)->last(fn ($r) => $r[0] === 'post' && $r[1] === '/v1/subscriptions/sub_1Live');
+        $this->assertSame('false', (string) $resume[2]['cancel_at_period_end'], 'changing plan resumes the subscription');
     }
 }
