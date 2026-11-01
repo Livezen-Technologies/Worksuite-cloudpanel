@@ -115,7 +115,7 @@ class PayPalTest extends TestCase
 
         $result = $gateway->collect(Organization::find($org->id), $invoice);
         $this->assertSame(['status' => 'paid', 'provider_invoice_id' => 'TX-9'], $result);
-        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/I-NEW1/capture') && $r['amount']['value'] === '11.90' && $r->header('PayPal-Request-Id')[0] === 'dmp-'.$invoice->id);
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/I-NEW1/capture') && $r['amount']['value'] === '11.90' && $r->header('PayPal-Request-Id')[0] === 'dmp-'.$invoice->id.'-1');
     }
 
     public function test_credentials_fall_back_to_service_settings(): void

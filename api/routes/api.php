@@ -467,6 +467,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('customers/{id}/members/{userId}/password-reset', [Admin\CustomerController::class, 'sendPasswordReset'])->middleware('perm:users.manage')->name('customers.password-reset');
     Route::post('customers/{id}/impersonate', [Admin\CustomerController::class, 'impersonate'])->middleware('perm:users.manage')->name('customers.impersonate');
     Route::post('customers/{id}/reactivate', [Admin\CustomerController::class, 'reactivate'])->middleware('perm:users.manage')->name('customers.reactivate');
+    Route::post('customers/{id}/invoices/{invoiceId}/refund', [Admin\CustomerController::class, 'refund'])->middleware('perm:billing.manage')->name('customers.invoices.refund');
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
 
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');
@@ -621,6 +622,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::post('billing/payment-method', [Customer\BillingController::class, 'paymentMethod'])->name('billing.payment-method');
             Route::post('billing/portal', [Customer\BillingController::class, 'portal'])->name('billing.portal');
             Route::post('billing/provider', [Customer\BillingController::class, 'provider'])->middleware('perm:app.team')->name('billing.provider');
+            Route::post('billing/cancel', [Customer\BillingController::class, 'cancel'])->middleware('perm:app.team')->name('billing.cancel');
         });
         Route::get('account', [Customer\AccountController::class, 'show'])->name('account.show');
         Route::patch('account', [Customer\AccountController::class, 'update'])->name('account.update');

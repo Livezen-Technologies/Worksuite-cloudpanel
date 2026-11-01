@@ -76,13 +76,15 @@ class StripePaymentGateway implements PaymentGateway
             throw ApiException::conflict("No Stripe price is configured for the {$plan->name} plan (STRIPE_PRICE_".strtoupper($plan->code).').');
         }
         $customer = $this->ensureCustomer($organization);
-        $current = Subscription::where('organization_id', $organization->id)->whereNotNull('provider_subscription_id')
-            ->where('provider_subscription_id', 'like', 'sub\_%')->where('provider_subscription_id', 'not like', 'sub_fake_%')->latest()->value('provider_subscription_id');
+        // A prefix check, not LIKE 'sub\_%': SQLite has no default LIKE escape, so that never matched there
+        // and every plan change created a second Stripe subscription.
+        $current = Subscription::where('organization_id', $organization->id)->whereNotNull('provider_subscription_id')->latest()->pluck('provider_subscription_id')
+            ->first(fn ($id) => \App\Support\Payments::ownerOf($id) === 'stripe');
         if ($current) {
             $sub = $this->client()->subscriptions->retrieve($current);
             if (! in_array($sub->status, ['canceled', 'incomplete_expired'], true)) {
                 $this->client()->subscriptions->update($current, [
-                    'items' => [['id' => $sub->items->data[0]->id, 'price' => $price]],
+                    'items' => [['id' => $sub->items->data[0]->id, 'price' => $price]], 'cancel_at_period_end' => false,   // a plan change resumes a cancelled one
                     'proration_behavior' => 'create_prorations', 'metadata' => ['organization_id' => $organization->id, 'plan' => $plan->code],
                 ]);
 
@@ -110,6 +112,28 @@ class StripePaymentGateway implements PaymentGateway
             'payment_method_types' => ['card'], 'success_url' => $returnUrl.'?checkout=success', 'cancel_url' => $returnUrl,
             'metadata' => ['organization_id' => $organization->id],
         ])->url;
+    }
+
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string
+    {
+        if (! str_starts_with((string) $invoice->provider_invoice_id, 'in_')) {
+            throw ApiException::conflict('Stripe has no payment for this invoice. Refund it outside the panel and record a credit note by hand.');
+        }
+        $stripeInvoice = $this->client()->invoices->retrieve($invoice->provider_invoice_id);
+        $target = ($pi = $stripeInvoice->payment_intent ?? null) ? ['payment_intent' => is_string($pi) ? $pi : $pi->id]
+            : (($ch = $stripeInvoice->charge ?? null) ? ['charge' => is_string($ch) ? $ch : $ch->id] : null);
+        if (! $target) {
+            throw ApiException::conflict('Stripe has no payment for this invoice yet.');
+        }
+
+        return $this->client()->refunds->create($target + ['amount' => $amountCents, 'reason' => 'requested_by_customer',
+            'metadata' => ['dmp_invoice_id' => $invoice->id, 'note' => mb_substr($reason, 0, 400)]])->id;
+    }
+
+    public function cancel(Organization $organization, string $subscriptionId): void
+    {
+        // At period end: the customer keeps what they paid for; Stripe sends subscription.deleted then.
+        $this->client()->subscriptions->update($subscriptionId, ['cancel_at_period_end' => true]);
     }
 
     public function collect(Organization $organization, Invoice $invoice): array

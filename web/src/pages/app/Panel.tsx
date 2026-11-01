@@ -232,7 +232,12 @@ export function Billing() {
           <div className="text-[13px] text-muted">Current plan</div>
           <div className="text-xl font-bold mt-1.5">{plan.name ?? '—'}{planPrice(plan) != null ? ` · ${money(planPrice(plan), plan.currency)} / month` : ''}</div>
           <div className="text-sm text-muted mt-1">{b?.limits ? `${num(b.limits.apps)} apps · ${num(b.limits.ram_mb) / 1024} GB RAM · ${num(b.limits.storage_gb)} GB storage` : ''}</div>
-          <div className="flex gap-2 mt-4 flex-wrap"><button type="button" className="btn btn-primary" onClick={() => setCompare(true)}>Upgrade</button><button type="button" className="btn" onClick={() => setCompare(true)}>Compare plans</button></div>
+          {b?.subscription_status === 'canceled' && <div role="status" className="mt-3 rounded-lg border border-line p-2.5 text-sm"><Badge tone="y">cancelled</Badge> Your sites keep running until {b?.ends_at ? new Date(String(b.ends_at)).toLocaleDateString() : 'the end of this period'}. Choose a plan to start billing again.</div>}
+          <div className="flex gap-2 mt-4 flex-wrap"><button type="button" className="btn btn-primary" onClick={() => setCompare(true)}>{b?.subscription_status === 'canceled' ? 'Choose a plan' : 'Upgrade'}</button><button type="button" className="btn" onClick={() => setCompare(true)}>Compare plans</button>
+            {b?.subscription_status !== 'canceled' && <button type="button" className="btn btn-ghost text-danger" disabled={busy} onClick={() => {
+              const reason = window.prompt('Cancel your subscription? It will not renew; your sites keep running until the end of the period you paid for.\n\nWhy are you leaving? (optional)')
+              if (reason !== null) run({ path: '/app/billing/cancel', body: { reason: reason || null }, label: 'Cancel subscription', success: 'Subscription cancelled; it will not renew' }).catch(() => {})
+            }}>Cancel subscription</button>}</div>
         </Card>
         <Card>
           <div className="flex justify-between text-[13px] text-muted"><span>This month so far</span>{b?.renews_at && <span>renews {new Date(b.renews_at).toLocaleDateString()}</span>}</div>
@@ -272,7 +277,7 @@ export function Billing() {
           <ul className="list-none m-0 p-0">
             {invoices.rows.map((iv) => (
               <li key={iv.id ?? iv.number} className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-line first:border-t-0 text-sm">
-                <span className="font-mono font-semibold">{iv.number}</span>
+                <span className="font-mono font-semibold">{iv.number}{iv.kind === 'credit_note' && <Badge tone="b">credit note</Badge>}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{iv.period ?? iv.period_label}</span>
                 <span className="font-semibold" title={iv.tax_cents ? `incl. ${money(num(iv.tax_cents) / 100, iv.currency)} tax` : undefined}>{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
                 <StatusBadge status={iv.status} />

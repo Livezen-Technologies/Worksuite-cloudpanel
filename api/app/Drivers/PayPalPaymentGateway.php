@@ -157,6 +157,27 @@ class PayPalPaymentGateway implements PaymentGateway
         return Cache::get("paypal.approve.{$organization->id}") ?? throw ApiException::conflict('PayPal returned no approval link.');
     }
 
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string
+    {
+        if (! $invoice->provider_invoice_id) {
+            throw ApiException::conflict('PayPal has no payment for this invoice. Refund it in PayPal and record a credit note by hand.');
+        }
+        // A subscription capture is a "sale" in PayPal's v1 payments API.
+        $r = $this->api('post', "/v1/payments/sale/{$invoice->provider_invoice_id}/refund", [
+            'amount' => ['total' => number_format($amountCents / 100, 2, '.', ''), 'currency' => strtoupper($invoice->currency)],
+            'description' => mb_substr($reason, 0, 255),
+        ])->json();
+
+        return $r['id'] ?? null;
+    }
+
+    public function cancel(Organization $organization, string $subscriptionId): void
+    {
+        // PayPal stops future charges; the current period is already paid.
+        $this->api('post', "/v1/billing/subscriptions/{$subscriptionId}/cancel", ['reason' => 'Cancelled by the customer in the panel']);
+        Cache::forget("paypal.approve.{$organization->id}");
+    }
+
     public function collect(Organization $organization, Invoice $invoice): array
     {
         $items = array_filter($invoice->line_items ?? [], fn ($l) => ($l['kind'] ?? '') !== 'plan' && $l['amount_cents'] > 0);
@@ -169,7 +190,7 @@ class PayPalPaymentGateway implements PaymentGateway
         if (! $current) {
             return ['status' => 'open', 'provider_invoice_id' => null];
         }
-        $r = Http::withToken($this->token())->acceptJson()->timeout(20)->withHeaders(['PayPal-Request-Id' => 'dmp-'.$invoice->id])
+        $r = Http::withToken($this->token())->acceptJson()->timeout(20)->withHeaders(['PayPal-Request-Id' => 'dmp-'.$invoice->id.'-'.max(1, (int) $invoice->collection_attempts)])   // a retry is a new request
             ->post($this->base()."/v1/billing/subscriptions/{$current}/capture", [
                 'note' => 'Usage '.$invoice->number, 'capture_type' => 'OUTSTANDING_BALANCE',
                 'amount' => ['currency_code' => strtoupper($invoice->currency), 'value' => number_format($total / 100, 2, '.', '')],

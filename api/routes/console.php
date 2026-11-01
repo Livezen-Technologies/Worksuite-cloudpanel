@@ -243,6 +243,11 @@ Artisan::command('backups:recovery-key {policy : backup policy id} {--key= : BAC
     $this->warn('restic repository: '.(new \App\Support\BackupDestination($policy, $policy->organization_id))->repository());
 })->purpose('Print the escrowed restic password of a policy (BAK-004 recovery; run on the panel host only)');
 
+Artisan::command('billing:dunning', function (\App\Services\InvoiceService $invoices) {
+    [$retried, $paid] = $invoices->retryDue();
+    $this->info("Failed invoices retried: {$retried}, now paid: {$paid}");
+})->purpose('Retry failed invoice payments (3 attempts, 3 days apart)');
+
 Artisan::command('billing:meter', function (\App\Services\InvoiceService $invoices) {
     $this->info('Usage records written: '.$invoices->meter());
 })->purpose('Record one app-hour per running customer app (usage_records)');
@@ -356,6 +361,7 @@ Artisan::command('agent:publish {--from= : directory holding install.sh and dock
 
 Schedule::command('backups:restore-tests')->everyMinute()->withoutOverlapping();
 Schedule::command('billing:meter')->hourly();
+Schedule::command('billing:dunning')->dailyAt('09:10')->withoutOverlapping();
 Schedule::command('billing:invoice')->monthlyOn(1, '02:15');
 Schedule::command('proxy:push')->everyTenMinutes()->withoutOverlapping();
 Schedule::command('proxy:sync-certs')->everySixHours()->withoutOverlapping();

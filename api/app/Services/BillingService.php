@@ -138,6 +138,9 @@ class BillingService
 
         return [
             'plan' => $this->planApi($plan),
+            'subscription_status' => ($sub = $this->subscription())->status,
+            'renews_at' => $sub->status === 'canceled' ? null : $sub->current_period_end?->toIso8601ZuluString(),
+            'ends_at' => $sub->status === 'canceled' ? $sub->current_period_end?->toIso8601ZuluString() : null,
             'limits' => $plan->limits,
             'usage' => $usage,
             'usage_pct' => collect(['apps', 'ram_mb', 'storage_gb', 'bandwidth_gb'])->mapWithKeys(fn ($k) => [$k => $plan->limits[$k] ? round($usage[$k] / $plan->limits[$k] * 100, 1) : 0]),
@@ -176,6 +179,22 @@ class BillingService
         return $sub->fresh('plan');
     }
 
+    /** Cancel renewal. Sites keep running until the paid period ends (plus the grace days); a plan change restarts billing. */
+    public function cancel(Organization $org, ?string $reason): array
+    {
+        $sub = $this->subscription();
+        if (in_array($sub->status, ['canceled', 'cancelled', 'expired'], true)) {
+            throw ApiException::conflict('This subscription is already cancelled.');
+        }
+        if ($owner = \App\Support\Payments::ownerOf($sub->provider_subscription_id)) {
+            $this->providers->make($owner)->cancel($org, $sub->provider_subscription_id);
+        }
+        $sub->update(['status' => 'canceled', 'current_period_end' => $sub->current_period_end ?? now()->endOfMonth()]);
+        app(\App\Services\AuditLogger::class)->log('billing.subscription_canceled', 'subscriptions', $sub->id, array_filter(['reason' => $reason, 'provider' => $owner, 'ends' => $sub->current_period_end?->toDateString()]));
+
+        return $this->summary();
+    }
+
     public function updatePaymentMethod(Organization $org, string $token): array
     {
         $summary = $this->gateway()->attachPaymentMethod($org, $token);
@@ -201,6 +220,7 @@ class BillingService
             'period_start' => $invoice->period_start->toDateString(), 'period_end' => $invoice->period_end->toDateString(),
             'period' => $invoice->period_start->format('M Y'),
             'amount_cents' => $invoice->amount_cents, 'currency' => $invoice->currency, 'status' => $invoice->status,
+            'kind' => $invoice->kind ?? 'invoice', 'credit_for_id' => $invoice->credit_for_id, 'refunded_cents' => (int) $invoice->refunded_cents,
             'subtotal_cents' => $invoice->subtotal_cents, 'tax_cents' => $invoice->tax_cents, 'tax_rate' => (float) $invoice->tax_rate,
             'line_items' => $invoice->line_items ?? [],
             'paid_at' => $invoice->paid_at?->toIso8601ZuluString(),

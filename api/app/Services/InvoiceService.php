@@ -104,9 +104,7 @@ class InvoiceService
             'amount_cents' => $subtotal + $tax, 'currency' => $currency, 'status' => 'open', 'due_at' => now()->addDays(14),
         ]);
         // The payment provider collects it (fake: paid at once; Stripe: invoice items, paid via webhook).
-        $charge = app(\App\Support\Payments::class)->for($org)->collect($org, $invoice);
-        $invoice->update(array_filter(['status' => $charge['status'] ?? 'open', 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
-            'paid_at' => ($charge['status'] ?? null) === 'paid' ? now() : null]));
+        $charge = $this->attempt($org, $invoice);
         $this->render($invoice);
         $invoice = $invoice->fresh();
         $emails = app(EmailTemplateService::class);
@@ -117,12 +115,71 @@ class InvoiceService
             'invoice_url' => $panel.'/app/billing',
         ]);
         if (in_array($invoice->status, ['failed', 'uncollectible', 'past_due'], true)) {
-            $emails->notifyOrganization($org->id, 'payment_failed', [
-                'amount' => $amount, 'reason' => (string) ($charge['error'] ?? 'The card was declined.'), 'retry_date' => now()->addDays(3)->toFormattedDateString(),
-            ]);
+            $this->notifyFailed($org, $invoice, $charge);
         }
 
         return $invoice;
+    }
+
+    /** Automatic collection attempts before an invoice is left to the customer, and the gap between them. */
+    public const MAX_ATTEMPTS = 3;
+
+    public const RETRY_DAYS = 3;
+
+    /**
+     * One collection attempt. A failure is retried RETRY_DAYS later, up to MAX_ATTEMPTS, for gateways
+     * the panel charges itself; Stripe retries its own invoices and reports back by webhook.
+     */
+    private function attempt(Organization $org, Invoice $invoice): array
+    {
+        $gateway = app(\App\Support\Payments::class)->for($org);
+        $invoice->forceFill(['collection_attempts' => $invoice->collection_attempts + 1])->saveQuietly();
+        $charge = $gateway->collect($org, $invoice);
+        $status = $charge['status'] ?? 'open';
+        $retry = $status === 'failed' && $gateway->name() !== 'stripe' && $invoice->collection_attempts < self::MAX_ATTEMPTS;
+        $invoice->update(array_filter(['status' => $status, 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
+            'paid_at' => $status === 'paid' ? now() : null]) + ['next_attempt_at' => $retry ? now()->addDays(self::RETRY_DAYS) : null]);
+        if ($status === 'failed' && ! $retry) {
+            // No more automatic attempts: the account is past due until the customer pays.
+            \App\Models\Subscription::allTenants()->where('organization_id', $org->id)->whereIn('status', ['active'])->update(['status' => 'past_due']);
+        }
+
+        return $charge;
+    }
+
+    private function notifyFailed(Organization $org, Invoice $invoice, array $charge): void
+    {
+        $next = $invoice->next_attempt_at;
+        app(EmailTemplateService::class)->notifyOrganization($org->id, 'payment_failed', [
+            'amount' => self::money($invoice->amount_cents, $invoice->currency), 'reason' => (string) ($charge['error'] ?? 'The payment was declined.'),
+            'retry_date' => $next ? $next->toFormattedDateString() : 'no further automatic attempt',
+            'next_step' => $next ? 'We will try again on '.$next->toFormattedDateString().'.' : 'That was the last automatic attempt. Pay from your billing page to keep your sites running.',
+        ]);
+    }
+
+    /** Daily: retry failed invoices whose next attempt is due. Returns [retried, paid]. */
+    public function retryDue(): array
+    {
+        $retried = $paid = 0;
+        foreach (Invoice::allTenants()->where('status', 'failed')->whereNotNull('next_attempt_at')->where('next_attempt_at', '<=', now())->get() as $invoice) {
+            $org = Organization::find($invoice->organization_id);
+            if (! $org) {
+                continue;
+            }
+            app(\App\Support\Tenant::class)->as($org->id, function () use ($org, $invoice, &$retried, &$paid) {
+                $charge = $this->attempt($org, $invoice);
+                $retried++;
+                $invoice->refresh();
+                if ($invoice->status === 'paid') {
+                    $paid++;
+                    \App\Models\Subscription::where('status', 'past_due')->update(['status' => 'active']);
+                } elseif ($invoice->status === 'failed') {
+                    $this->notifyFailed($org, $invoice, $charge);
+                }
+            });
+        }
+
+        return [$retried, $paid];
     }
 
     /** Monthly run over every organisation that had a subscription or usage. */
@@ -138,6 +195,46 @@ class InvoiceService
         }
 
         return $count;
+    }
+
+    /**
+     * Refund part or all of a paid invoice through the provider that collected it, and issue a
+     * numbered credit note (its own PDF) for the amount. The customer is emailed; it is audited.
+     */
+    public function refund(Invoice $invoice, ?int $amountCents, string $reason, ?string $userId = null): Invoice
+    {
+        if (($invoice->kind ?? 'invoice') !== 'invoice' || $invoice->status !== 'paid') {
+            throw \App\Exceptions\ApiException::conflict('Only a paid invoice can be refunded.');
+        }
+        $left = $invoice->amount_cents - (int) $invoice->refunded_cents;
+        $amount = $amountCents ?? $left;
+        if ($amount < 1 || $amount > $left) {
+            throw \App\Exceptions\ApiException::validation(['amount_cents' => ['Refund between 0.01 and '.self::money($left, $invoice->currency).'.']]);
+        }
+        $org = Organization::findOrFail($invoice->organization_id);
+        $payments = app(\App\Support\Payments::class);
+        $gateway = str_starts_with((string) $invoice->provider_invoice_id, 'in_') && in_array('stripe', $payments->available(), true)
+            ? $payments->make('stripe') : $payments->for($org);
+        $refundId = $gateway->refund($org, $invoice, $amount, $reason);   // throws before anything is recorded
+
+        $rate = (float) $invoice->tax_rate;
+        $tax = $rate > 0 ? (int) round($amount * $rate / (1 + $rate)) : 0;
+        $n = Invoice::where('credit_for_id', $invoice->id)->count() + 1;
+        $credit = Invoice::create([
+            'number' => 'CN-'.$invoice->number.($n > 1 ? '-'.$n : ''), 'kind' => 'credit_note', 'credit_for_id' => $invoice->id,
+            'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end, 'currency' => $invoice->currency,
+            'line_items' => [['kind' => 'refund', 'description' => "Refund of {$invoice->number}: {$reason}", 'quantity' => 1, 'unit' => '', 'unit_cents' => -($amount - $tax), 'amount_cents' => -($amount - $tax)]],
+            'subtotal_cents' => -($amount - $tax), 'tax_rate' => $rate, 'tax_cents' => -$tax, 'amount_cents' => -$amount,
+            'status' => 'refunded', 'paid_at' => now(), 'provider_invoice_id' => $refundId,
+        ]);
+        $this->render($credit);
+        $invoice->update(['refunded_cents' => $invoice->refunded_cents + $amount, 'status' => $invoice->refunded_cents + $amount >= $invoice->amount_cents ? 'refunded' : 'paid']);
+        app(\App\Services\AuditLogger::class)->log('billing.refund', 'invoices', $invoice->id, ['credit_note' => $credit->number, 'amount_cents' => $amount, 'reason' => $reason], $org->id, $userId);
+        app(EmailTemplateService::class)->notifyOrganization($org->id, 'refund_issued', [
+            'number' => $invoice->number, 'credit_note' => $credit->number, 'amount' => self::money($amount, $invoice->currency), 'reason' => $reason,
+        ]);
+
+        return $credit->fresh();
     }
 
     public function render(Invoice $invoice): string

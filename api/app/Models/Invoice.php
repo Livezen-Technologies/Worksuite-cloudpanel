@@ -22,6 +22,7 @@ class Invoice extends Model
             'line_items' => 'array',
             'due_at' => 'datetime',
             'paid_at' => 'datetime',
+            'next_attempt_at' => 'datetime',
             'period_start' => 'date',
             'period_end' => 'date',
         ];
