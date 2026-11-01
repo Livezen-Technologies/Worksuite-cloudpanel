@@ -530,6 +530,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
             Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
             Route::patch('projects/{id}', [Customer\ProjectController::class, 'update'])->name('projects.update');
+            Route::get('projects/{id}/canvas', [Customer\ProjectController::class, 'canvas'])->name('projects.canvas');
             Route::delete('projects/{id}', [Customer\ProjectController::class, 'destroy'])->name('projects.destroy');
             Route::post('projects/{id}/apps', [Customer\ProjectController::class, 'assign'])->name('projects.apps.assign');
             Route::delete('projects/{id}/apps/{appId}', [Customer\ProjectController::class, 'unassign'])->name('projects.apps.unassign');
