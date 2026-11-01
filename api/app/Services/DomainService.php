@@ -156,10 +156,55 @@ class DomainService
             'https_status' => $domain->fresh()->https_status, 'zone_records' => $published ?: null], fn ($v) => $v !== null);
     }
 
+    /**
+     * RFC 8659: the closest CAA record set up the tree decides which CAs may issue. Returns why
+     * Let's Encrypt may not issue for this domain, or null when it may (or no CAA records exist).
+     */
+    public function caaBlocks(Domain $domain): ?string
+    {
+        $ca = (string) config('platform.acme_caa', 'letsencrypt.org');
+        $labels = explode('.', ltrim($domain->name, '*.'));
+        for ($i = 0; $i < count($labels) - 1; $i++) {
+            $name = implode('.', array_slice($labels, $i));
+            $records = rescue(fn () => $this->dns->lookup($name, 'CAA'), [], report: false);
+            if (! $records) {
+                continue;
+            }
+            $tags = $domain->wildcard ? ['issuewild', 'issue'] : ['issue'];
+            foreach ($tags as $tag) {
+                $values = [];
+                foreach ($records as $r) {
+                    if (preg_match('/^\d+\s+(\S+)\s+"?([^";\s]*)/', trim($r), $m) && strtolower($m[1]) === $tag) {
+                        $values[] = strtolower($m[2]);
+                    }
+                }
+                if ($values) {
+                    return in_array($ca, $values, true) ? null
+                        : "The CAA record on {$name} only allows ".(implode(', ', array_filter($values)) ?: 'no one')." to issue certificates. Add: {$name} CAA 0 {$tag} \"{$ca}\"";
+                }
+            }
+
+            return null;   // CAA exists but has no issue tags: anyone may issue
+        }
+
+        return null;
+    }
+
     public function issueCertificate(Domain $domain): Certificate
     {
         if ($domain->dns_status !== 'verified') {
             throw ApiException::conflict('DNS is not pointing at the platform yet. Create the records shown and check again.');
+        }
+        if ($blocked = $this->caaBlocks($domain)) {
+            $domain->update(['https_status' => 'failed']);
+            $last = Certificate::where('domain_id', $domain->id)->latest()->first();
+            if ($last && $last->status === 'failed' && $last->last_error === $blocked) {
+                $last->touch();   // the re-check every 2 minutes does not pile up rows
+
+                return $last;
+            }
+
+            return Certificate::create(['domain_id' => $domain->id, 'status' => 'failed', 'names' => [$domain->name], 'last_error' => $blocked]);
         }
         $domain->update(['https_status' => 'issuing']);
         $names = $domain->www_redirect ? [$domain->name, 'www.'.$domain->name] : [$domain->name];

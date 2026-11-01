@@ -8,8 +8,12 @@ class NativeDnsResolver implements DnsResolver
 {
     public function lookup(string $name, string $type): array
     {
-        $constant = ['A' => DNS_A, 'AAAA' => DNS_AAAA, 'CNAME' => DNS_CNAME, 'TXT' => DNS_TXT][$type] ?? DNS_A;
+        $constant = ['A' => DNS_A, 'AAAA' => DNS_AAAA, 'CNAME' => DNS_CNAME, 'TXT' => DNS_TXT, 'CAA' => DNS_CAA][$type] ?? DNS_A;
         $records = @dns_get_record($name, $constant) ?: [];
+        if ($type === 'CAA') {
+            // "flags tag value", e.g. 0 issue "letsencrypt.org"
+            return array_values(array_map(fn ($r) => ($r['flags'] ?? 0).' '.($r['tag'] ?? '').' "'.($r['value'] ?? '').'"', $records));
+        }
 
         return array_values(array_filter(array_map(fn ($r) => $r['ip'] ?? $r['ipv6'] ?? $r['target'] ?? $r['txt'] ?? null, $records)));
     }
