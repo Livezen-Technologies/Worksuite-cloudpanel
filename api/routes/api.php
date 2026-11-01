@@ -281,6 +281,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('storage-pools', [Admin\VolumeController::class, 'pools'])->middleware('perm:resources.view')->name('storage-pools.index');
 
     // Domains & databases
+    Route::post('domains/certificates/renew', [Admin\DomainController::class, 'renewExpiring'])->middleware('perm:deploy')->name('domains.certificates.renew');
     $crud('domains', Admin\DomainController::class, 'resources.view', 'deploy');
     Route::match(['put', 'patch'], 'domains/{id}/waf', [Admin\DomainController::class, 'waf'])->middleware('perm:deploy|settings.manage')->name('domains.waf');
     Route::post('domains/{id}/verify', [Admin\DomainController::class, 'verify'])->middleware('perm:deploy')->name('domains.verify');

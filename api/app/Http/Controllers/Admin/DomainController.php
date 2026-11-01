@@ -112,4 +112,13 @@ class DomainController extends Controller
 
         return $this->data($this->domains->toApi($domain->fresh()));
     }
+
+    /** Renew certificates that expire within 21 days now rather than at the nightly run (every organisation for staff who see all). */
+    public function renewExpiring(Request $request)
+    {
+        $result = $this->domains->renewExpiring(21, $this->seesAllTenants($request) ? null : \App\Support\Tenant::current()?->id);
+        app(\App\Services\AuditLogger::class)->log('certificates.renew_now', 'domains', null, $result);
+
+        return $this->data($result);
+    }
 }

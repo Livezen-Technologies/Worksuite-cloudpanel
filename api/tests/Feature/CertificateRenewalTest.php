@@ -50,4 +50,22 @@ class CertificateRenewalTest extends TestCase
         $this->assertSame('active', Domain::allTenants()->find($d->id)->https_status);
         $this->assertDatabaseHas('audit_logs', ['action' => 'certificate.renewal_failed', 'resource_id' => $d->id]);
     }
+
+    public function test_renew_now_only_touches_the_callers_organisation_and_failures_carry_the_error(): void
+    {
+        [, $org, $token] = $this->org('owner');
+        [, $other] = $this->org('owner');
+        $mine = $this->domainWithCert($org, 5);
+        $theirs = $this->domainWithCert($other, 5);
+
+        $this->api($token)->postJson('/api/v1/domains/certificates/renew')->assertOk()->assertJsonPath('data.renewed', 1);
+        $this->assertSame('fake-letsencrypt', Certificate::allTenants()->where('domain_id', $mine->id)->where('status', 'active')->value('issuer'));
+        $this->assertSame('old', Certificate::allTenants()->where('domain_id', $theirs->id)->where('status', 'active')->value('issuer'));
+
+        app(Tenant::class)->as($org->id, fn () => Certificate::create(['domain_id' => $mine->id, 'status' => 'failed', 'names' => [$mine->name], 'last_error' => 'CAA record forbids letsencrypt.org', 'created_at' => now()->addMinute()]));
+        $row = collect($this->api($token)->getJson('/api/v1/domains')->assertOk()->json('data'))->firstWhere('id', $mine->id);
+        $this->assertSame('CAA record forbids letsencrypt.org', $row['last_error']);
+        $this->assertSame('active', $row['certificate']['status'], 'the valid certificate still shows after a failed attempt');
+        $this->assertSame('fake-letsencrypt', $row['certificate']['issuer']);
+    }
 }
