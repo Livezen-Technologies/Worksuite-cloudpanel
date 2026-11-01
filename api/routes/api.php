@@ -506,12 +506,20 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
 
     // Customer panel
     Route::prefix('app')->name('app.')->group(function () {
+        // UAI: the MCP server. Checks the token's mcp ability and the app.manage grant itself.
+        Route::post('mcp', [\App\Http\Controllers\McpController::class, 'handle'])->middleware('throttle:120,1')->name('mcp');
         Route::middleware('perm:app.manage')->group(function () {
             // The customer's own incidents and uptime, scoped by the tenant
             // global scope rather than by a filter.
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // UAI: AI permissions, MCP tokens, activity and approvals.
+            Route::get('ai', [Customer\AiController::class, 'index'])->name('ai.index');
+            Route::patch('ai/settings', [Customer\AiController::class, 'settings'])->name('ai.settings');
+            Route::post('ai/tokens', [Customer\AiController::class, 'storeToken'])->name('ai.tokens.store');
+            Route::delete('ai/tokens/{id}', [Customer\AiController::class, 'destroyToken'])->name('ai.tokens.destroy');
+            Route::post('ai/actions/{id}/{decision}', [Customer\AiController::class, 'decide'])->whereIn('decision', ['approve', 'reject'])->name('ai.actions.decide');
             // UPRJ: the customer's own projects.
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
             Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
