@@ -37,6 +37,7 @@ import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
 import HostApp from './pages/app/HostApp'
+import UserProjects from './pages/app/Projects'
 import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
@@ -123,6 +124,7 @@ export function AppRoutes() {
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>
         <Route index element={<CustomerHome />} />
         <Route path="apps" element={<MyApps />} />
+        <Route path="projects" element={<UserProjects />} />
         <Route path="host" element={<HostApp />} />
         <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />

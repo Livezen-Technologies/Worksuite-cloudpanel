@@ -512,6 +512,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // UPRJ: the customer's own projects.
+            Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
+            Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
+            Route::patch('projects/{id}', [Customer\ProjectController::class, 'update'])->name('projects.update');
+            Route::delete('projects/{id}', [Customer\ProjectController::class, 'destroy'])->name('projects.destroy');
+            Route::post('projects/{id}/apps', [Customer\ProjectController::class, 'assign'])->name('projects.apps.assign');
+            Route::delete('projects/{id}/apps/{appId}', [Customer\ProjectController::class, 'unassign'])->name('projects.apps.unassign');
             // UCRON: scheduled jobs in the customer's apps or calling a URL.
             Route::get('cron', [Customer\CronController::class, 'index'])->name('cron.index');
             Route::post('cron', [Customer\CronController::class, 'store'])->name('cron.store');
