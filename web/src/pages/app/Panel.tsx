@@ -248,10 +248,12 @@ export function Billing() {
         </Card>
         <Card>
           <div className="text-[13px] text-muted">Payment method</div>
-          <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
+          <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.brand === 'paypal' ? `PayPal${pm?.email ? ` · ${pm.email}` : ''}` : pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
           <div className="text-sm text-muted mt-2">Billing email: {b?.billing_email ?? '—'}</div>
           <p className="text-xs text-muted">Card details are handled by our payment provider; we never store them.</p>
-          {b?.payment_provider === 'stripe'
+          {b?.payment_provider === 'paypal'
+            ? <button type="button" className="btn" disabled={portalBusy} onClick={openPortal}>{portalBusy ? 'Opening PayPal…' : (typeof pm === 'object' && pm?.brand === 'paypal' ? 'Manage in PayPal' : 'Pay with PayPal')}</button>
+            : b?.payment_provider === 'stripe'
             ? <button type="button" className="btn" disabled={portalBusy} onClick={openPortal}>{portalBusy ? 'Opening Stripe…' : (typeof pm === 'object' && pm?.last4 ? 'Manage in Stripe' : 'Add card with Stripe')}</button>
             : (b?.payment_portal_url ?? b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.payment_portal_url ?? b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
         </Card>

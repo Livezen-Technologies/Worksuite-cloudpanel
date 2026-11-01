@@ -186,6 +186,11 @@ Artisan::command('domains:check-dns', function (DomainService $domains) {
     }
 })->purpose('Re-check pending DNS every 2 minutes (UDOM-003)');
 
+Artisan::command('certificates:renew', function (DomainService $domains) {
+    $r = $domains->renewExpiring();
+    $this->info("Certificates renewed: {$r['renewed']}, failed: {$r['failed']}");
+})->purpose('Renew certificates that expire within 21 days');
+
 Artisan::command('apps:purge', function () {
     $purged = 0;
     foreach (Application::allTenants()->onlyTrashed()->where('purge_after', '<', now())->get() as $app) {
@@ -321,6 +326,7 @@ Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('servers:check-heartbeats')->everyMinute();
 Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();

@@ -26,7 +26,7 @@ return [
         'dns' => env('DNS_DRIVER', 'native'),            // native|fake
         'certificates' => env('CERT_DRIVER', 'fake'),   // fake|traefik
         'scanner' => env('SCANNER_DRIVER', 'fake'),     // fake (in-process, deterministic) | trivy (agent `image.scan`)
-        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake|stripe
+        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake|stripe|paypal
         'metrics' => env('METRICS_DRIVER', 'database'), // database|prometheus
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
     ],

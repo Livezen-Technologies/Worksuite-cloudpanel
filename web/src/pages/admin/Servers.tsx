@@ -1,3 +1,4 @@
+import { useAction } from '../../api/hooks'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -37,6 +38,7 @@ export function ServerCard({ s }: { s: Server }) {
         {[s.environment, s.os, s.docker_version ? `Docker ${s.docker_version}` : null, `${s.container_count ?? 0} containers`].filter(Boolean).map((t) => (
           <span key={t as string} className="px-2 py-0.5 rounded-md bg-track text-muted font-medium">{t}</span>
         ))}
+        {s.agent_outdated && <span className="px-2 py-0.5 rounded-md bg-y-bg text-y-fg font-semibold" title={`Running ${s.agent_version}; ${s.agent_latest} is available`}>Agent {s.agent_version} → {s.agent_latest}</span>}
       </div>
     </li>
   )
@@ -224,6 +226,7 @@ export default function Servers() {
   const [group, setGroup] = useState<'none' | 'environment' | 'region'>('none')
   const open = params.get('add') === '1'
   const groups = group === 'none' ? [['', rows] as const] : Object.entries(rows.reduce<Record<string, Server[]>>((a, s) => { const k = String((s as unknown as R)[group] ?? '—'); (a[k] ??= []).push(s); return a }, {}))
+  const { run: updRun, busy: updBusy } = useAction()
   return (
     <>
       <PageHeader title="Servers" subtitle="VPS and dedicated servers connected through the outbound agent"
@@ -233,6 +236,12 @@ export default function Servers() {
           </label>
           <button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>
         </>} />
+      {rows.some((s) => s.agent_outdated) && (
+        <div role="status" className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-line bg-y-bg text-y-fg text-sm">
+          <span className="flex-1 min-w-[220px]"><b>{rows.filter((s) => s.agent_outdated).length} server{rows.filter((s) => s.agent_outdated).length === 1 ? ' runs' : 's run'} an older agent.</b> Version {rows.find((s) => s.agent_outdated)?.agent_latest} is available; updating restarts the agent only, not your apps.</span>
+          <button type="button" className="btn btn-sm" disabled={updBusy} onClick={() => updRun({ path: '/servers/agents/update', label: 'Update agents', success: 'Agent updates sent' }).catch(() => {})}>Update all</button>
+        </div>
+      )}
       {isLoading && <Loading label="Loading servers…" />}
       {!isLoading && rows.length === 0 && <Card><Empty icon="server" action={<button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>}>No servers yet. Add your first server to start managing containers.</Empty></Card>}
       {groups.map(([g, list]) => (

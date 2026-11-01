@@ -12,7 +12,7 @@ class Server extends Model
 
     protected $guarded = ['id'];
 
-    protected $appends = ['status', 'container_count', 'health_score'];
+    protected $appends = ['status', 'container_count', 'health_score', 'agent_latest', 'agent_outdated'];
 
     protected function casts(): array
     {
@@ -148,5 +148,27 @@ class Server extends Model
     public function isOnline(): bool
     {
         return in_array($this->status, ['online', 'warning'], true);
+    }
+
+    /** SRV-UPD: the agent release the panel ships (signed manifest first, then config). */
+    public static function latestAgentVersion(): string
+    {
+        $manifest = config('platform.agent_binary_dir').'/release.json';
+        $meta = is_file($manifest) ? (json_decode((string) file_get_contents($manifest), true) ?: []) : [];
+
+        return (string) ($meta['version'] ?? config('platform.agent_latest_version'));
+    }
+
+    public function getAgentLatestAttribute(): string
+    {
+        return self::latestAgentVersion();
+    }
+
+    /** True when the agent reported an older version than the panel ships ("dev" builds never count). */
+    public function getAgentOutdatedAttribute(): bool
+    {
+        $v = ltrim((string) $this->agent_version, 'v');
+
+        return $v !== '' && $v !== 'dev' && preg_match('/^\d+(\.\d+)*/', $v) === 1 && version_compare($v, ltrim(self::latestAgentVersion(), 'v'), '<');
     }
 }

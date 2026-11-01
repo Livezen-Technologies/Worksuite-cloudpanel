@@ -367,10 +367,38 @@ class DeploymentService implements HandlesCommandResults
         $app->update(['status' => 'deploying']);
     }
 
+    /**
+     * DEP-CANCEL: stop a deployment that has not finished. Commands not yet sent to the agent are withdrawn;
+     * results of ones already sent are ignored (onCommandFinished skips cancelled deployments), so the app
+     * keeps its current release.
+     */
+    public function cancel(Deployment $deployment, ?User $user): Deployment
+    {
+        if (in_array($deployment->status, ['succeeded', 'failed', 'rolled_back', 'cancelled'], true)) {
+            throw ApiException::conflict("This deployment already finished ({$deployment->status}).");
+        }
+        DB::transaction(function () use ($deployment, $user) {
+            AgentCommand::allTenants()->where('job_id', $deployment->job_id)->where('status', 'queued')
+                ->update(['status' => 'failed', 'message' => 'Cancelled before it was sent.']);
+            $deployment->update(['status' => 'cancelled', 'finished_at' => now()]);
+            if ($job = $deployment->job) {
+                $this->jobs->fail($job, 'Cancelled by '.($user?->name ?: $user?->email ?: 'an administrator').'.');
+                $job->forceFill(['status' => 'cancelled'])->save();
+            }
+            $app = $deployment->application;
+            if ($app && $app->status === 'deploying') {
+                $app->update(['status' => $app->current_release_id ? 'running' : 'stopped']);
+            }
+        });
+        app(\App\Services\AuditLogger::class)->log('deployment.cancel', 'deployments', $deployment->id, ['application' => $deployment->application?->name]);
+
+        return $deployment->fresh();
+    }
+
     public function onCommandFinished(AgentCommand $command, Job $job): void
     {
         $deployment = Deployment::where('job_id', $job->id)->first();
-        if (! $deployment || in_array($deployment->status, ['succeeded', 'failed', 'rolled_back'], true)) {
+        if (! $deployment || in_array($deployment->status, ['succeeded', 'failed', 'rolled_back', 'cancelled'], true)) {
             return;
         }
         $app = $deployment->application;

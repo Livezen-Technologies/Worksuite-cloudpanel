@@ -185,6 +185,40 @@ class DomainService
         return $certificate;
     }
 
+    /**
+     * Renew certificates that expire within $days on domains whose DNS still points here.
+     * A renewal that is pending (ACME) or fails keeps HTTPS active while the old certificate is valid.
+     *
+     * @return array{renewed: int, failed: int}
+     */
+    public function renewExpiring(int $days = 21): array
+    {
+        $renewed = $failed = 0;
+        $certs = Certificate::allTenants()->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<', now()->addDays($days))->get();
+        foreach ($certs as $old) {
+            $domain = Domain::allTenants()->find($old->domain_id);
+            if (! $domain || $domain->dns_status !== 'verified') {
+                continue;
+            }
+            app(\App\Support\Tenant::class)->as($domain->organization_id, function () use ($domain, $old, &$renewed, &$failed) {
+                try {
+                    $new = $this->issueCertificate($domain);
+                } catch (\Throwable) {
+                    $new = null;
+                }
+                $ok = $new && $new->status === 'active' && $new->id !== $old->id;
+                $ok ? $renewed++ : $failed++;
+                if (! $ok && $old->expires_at->isFuture()) {
+                    $domain->update(['https_status' => 'active']);
+                }
+                app(\App\Services\AuditLogger::class)->log($ok ? 'certificate.renewed' : 'certificate.renewal_failed', 'domains', $domain->id,
+                    ['domain' => $domain->name, 'expires_at' => $old->expires_at->toIso8601ZuluString()], $domain->organization_id, null, 'system');
+            });
+        }
+
+        return ['renewed' => $renewed, 'failed' => $failed];
+    }
+
     public function toApi(Domain $domain): array
     {
         $certificate = $domain->certificate;

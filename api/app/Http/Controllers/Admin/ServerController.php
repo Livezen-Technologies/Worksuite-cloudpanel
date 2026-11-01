@@ -64,6 +64,25 @@ class ServerController extends Controller
         return $this->data($server->fresh(), 201);
     }
 
+    /** SRV-UPD: send the agent update to every online server running an older agent. */
+    public function updateAllAgents(Request $request)
+    {
+        $targets = Server::all()->filter(fn (Server $s) => $s->agent_outdated && $s->isOnline() && ! $s->maintenance);
+        $jobs = [];
+        $skipped = [];
+        foreach ($targets as $server) {
+            // One server that cannot take the command must not stop the rest.
+            try {
+                $jobs[] = ['server_id' => $server->id, 'name' => $server->name, 'job_id' => $this->servers->agentCommand($server, 'update')->id];
+            } catch (\App\Exceptions\ApiException $e) {
+                $skipped[] = ['server_id' => $server->id, 'name' => $server->name, 'reason' => $e->getMessage()];
+            }
+        }
+        app(\App\Services\AuditLogger::class)->log('servers.agent_update_all', 'servers', null, ['servers' => count($jobs), 'skipped' => count($skipped), 'version' => Server::latestAgentVersion()]);
+
+        return $this->data(['version' => Server::latestAgentVersion(), 'updating' => $jobs, 'skipped' => $skipped]);
+    }
+
     public function show(string $id)
     {
         return $this->data(Server::withCount('containers')->with('agent:id,server_id,version,enrolled_at,last_seen_at')->findOrFail($id));
