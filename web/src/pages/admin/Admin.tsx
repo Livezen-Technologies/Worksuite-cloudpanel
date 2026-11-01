@@ -1,5 +1,6 @@
 import EmailTemplates from './EmailTemplates'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { CopyButton } from '../../components/CopyButton'
 import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
@@ -254,7 +255,7 @@ function SettingsForm({ tab }: { tab: 'general' | 'security' | 'smtp' }) {
   )
 }
 
-function CrudCards({ path, noun, fields, describe }: { path: string; noun: string; fields: Parameters<typeof FormModal>[0]['fields']; describe: (r: R) => { name: string; sub: string; state: string } }) {
+function CrudCards({ path, noun, fields, describe, extra, test }: { path: string; noun: string; fields: Parameters<typeof FormModal>[0]['fields']; describe: (r: R) => { name: string; sub: string; state: string }; extra?: (r: R) => ReactNode; test?: boolean }) {
   const { rows, isLoading } = useList<R>(path)
   const { run } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
@@ -266,8 +267,10 @@ function CrudCards({ path, noun, fields, describe }: { path: string; noun: strin
           <li key={r.id} className="flex flex-wrap items-center gap-3 py-3 border-t border-line first:border-t-0">
             <div className="flex-1 min-w-[160px]"><div className="font-semibold text-sm">{d.name}</div><div className="text-xs text-muted">{d.sub}</div></div>
             <StatusBadge status={d.state} />
+            {test && <button type="button" className="btn btn-sm" onClick={() => run({ path: `${path}/${r.id}/test`, label: `Test ${d.name}`, success: 'Test delivered' }).catch(() => {})}>Test</button>}
             <button type="button" className="btn btn-sm" onClick={() => setEdit(r)}>Edit</button>
             <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Remove</button>
+            {extra && <div className="basis-full text-xs">{extra(r)}</div>}
           </li>) })}</ul>
       )}
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${noun}` : `Add ${noun}`} fields={fields} initial={edit ?? {}} submitLabel="Save"
@@ -330,7 +333,12 @@ export function Settings() {
       {tab === 'emails' && <EmailTemplates />}
       {tab === 'notifications' && <CrudCards path="/notification-channels" noun="channel"
         fields={[{ name: 'name', label: 'Name', required: true }, { name: 'type', label: 'Type', type: 'select', required: true, options: ['email', 'slack', 'teams', 'telegram', 'webhook'] }, { name: 'target', label: 'Address, channel or URL', mono: true, required: true }, { name: 'secret', label: 'Token / signing secret', type: 'password', hint: 'Write-only' }, { name: 'enabled', label: 'Enabled', type: 'checkbox' }]}
-        describe={(r) => ({ name: r.name ?? r.type, sub: `${r.type} · ${r.target ?? r.config?.target ?? ''}`, state: r.enabled === false ? 'off' : 'connected' })} />}
+        describe={(r) => ({ name: r.name ?? r.type, sub: `${r.type} · ${r.target ?? r.config?.target ?? ''}`, state: r.enabled === false ? 'off' : r.healthy === false ? 'failing' : 'connected' })}
+        test
+        extra={(r) => <>
+          {r.healthy === false && <div className="text-danger">Last {Number(r.consecutive_failures)} delivery(ies) failed: {String(r.last_error ?? 'unknown error')}. Alerts are not reaching this channel.</div>}
+          {r.signing_secret && <div className="flex items-center gap-2 text-muted">Signing secret <code className="font-mono">{String(r.signing_secret).slice(0, 12)}…</code><CopyButton value={String(r.signing_secret)} label="Copy secret" /><span>Verify <code className="font-mono">X-DMP-Signature</code> = sha256 HMAC of <code className="font-mono">timestamp.body</code>.</span></div>}
+        </>} />}
       {tab === 'tokens' && <ApiTokens path="/api-tokens" abilities={['deployments:write', 'servers:read', 'containers:write', 'metrics:read', 'billing:read', 'audit:read']} />}
     </>
   )
