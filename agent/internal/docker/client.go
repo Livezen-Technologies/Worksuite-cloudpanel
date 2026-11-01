@@ -552,3 +552,13 @@ func (c *Client) CreateVolume(ctx context.Context, body any) (*VolumeSummary, er
 func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
 	return c.call(ctx, "DELETE", "/volumes/"+url.PathEscape(name), url.Values{"force": {fmt.Sprint(force)}}, nil, nil)
 }
+
+// Info is the subset of GET /info the agent needs: which OCI runtimes the daemon has.
+type Info struct {
+	Runtimes map[string]any `json:"Runtimes"`
+}
+
+func (c *Client) Info(ctx context.Context) (*Info, error) {
+	var i Info
+	return &i, c.call(ctx, "GET", "/info", nil, nil, &i)
+}

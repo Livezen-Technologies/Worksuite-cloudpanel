@@ -78,3 +78,8 @@ func (c *Client) ExecInspect(ctx context.Context, id string) (ExecState, error) 
 	err := c.call(ctx, "GET", "/exec/"+url.PathEscape(id)+"/json", nil, nil, &out)
 	return out, err
 }
+
+// ExecStartDetached starts an exec instance without attaching to it.
+func (c *Client) ExecStartDetached(ctx context.Context, id string) error {
+	return c.call(ctx, "POST", "/exec/"+url.PathEscape(id)+"/start", nil, map[string]any{"Detach": true, "Tty": false}, nil)
+}

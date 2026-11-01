@@ -514,6 +514,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // UVPS: the customer's own virtual servers.
+            Route::get('vps', [Customer\VpsController::class, 'index'])->name('vps.index');
+            Route::post('vps', [Customer\VpsController::class, 'store'])->middleware('throttle:10,1')->name('vps.store');
+            Route::get('vps/{id}', [Customer\VpsController::class, 'show'])->name('vps.show');
+            Route::post('vps/{id}/{action}', [Customer\VpsController::class, 'action'])->whereIn('action', ['start', 'stop', 'restart'])->name('vps.action');
+            Route::delete('vps/{id}', [Customer\VpsController::class, 'destroy'])->name('vps.destroy');
             // UAI: AI permissions, MCP tokens, activity and approvals.
             Route::get('ai', [Customer\AiController::class, 'index'])->name('ai.index');
             Route::patch('ai/settings', [Customer\AiController::class, 'settings'])->name('ai.settings');
