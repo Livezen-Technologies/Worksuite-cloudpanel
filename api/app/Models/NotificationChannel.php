@@ -21,6 +21,8 @@ class NotificationChannel extends Model
         return [
             'config' => 'encrypted:array',
             'enabled' => 'boolean',
+            'last_delivered_at' => 'datetime',
+            'last_failed_at' => 'datetime',
         ];
     }
 }

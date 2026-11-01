@@ -84,13 +84,19 @@ class NotificationChannelController extends CrudController
     {
         $config = $c->config ?? [];
 
-        return $c->toArray() + ['target' => isset($config['url']) ? parse_url($config['url'], PHP_URL_HOST) : ($config['to'] ?? $config['chat_id'] ?? null)];
+        return $c->toArray() + ['target' => isset($config['url']) ? parse_url($config['url'], PHP_URL_HOST) : ($config['to'] ?? $config['chat_id'] ?? null),
+            'healthy' => (int) $c->consecutive_failures === 0,
+            // Shown only when generated; a secret the admin typed in stays write-only.
+            'signing_secret' => $c->type === 'webhook' && empty($config['secret']) ? NotificationService::signingSecret($c) : null];
     }
 
     public function test(string $id, NotificationService $notifications)
     {
         $ok = $notifications->send(NotificationChannel::findOrFail($id), 'Test notification', 'This is a test from Docker Manager Portal.');
+        if (! $ok) {
+            throw \App\Exceptions\ApiException::conflict('The test was not delivered: '.$notifications->lastError);
+        }
 
-        return $this->data(['delivered' => $ok]);
+        return $this->data(['delivered' => true]);
     }
 }
