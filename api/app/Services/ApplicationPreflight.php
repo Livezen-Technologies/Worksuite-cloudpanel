@@ -48,7 +48,13 @@ class ApplicationPreflight
             }
         } else {
             $repo = trim((string) ($source['repo'] ?? ''));
-            $branch = trim((string) ($source['branch'] ?? '')) ?: 'main';
+            $branch = trim((string) ($source['branch'] ?? ''));
+            if ($branch === '' && $repo !== '') {
+                // No branch chosen: use the one the repository's HEAD points at.
+                $branch = $this->validator->defaultBranch($this->withToken($repo, $source['git_token'] ?? null)) ?? 'main';
+                $detected['default_branch'] = $branch;
+            }
+            $branch = $branch ?: 'main';
             if ($repo === '') {
                 $add('repo', 'source', 'fail', 'Repository', 'Enter the repository URL.');
             } else {

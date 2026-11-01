@@ -19,6 +19,11 @@ class FakeSourceValidator implements SourceValidator
         return ['ok' => true, 'message' => 'Image found.', 'digest' => 'sha256:'.hash('sha256', $reference)];
     }
 
+    public function defaultBranch(string $repository): ?string
+    {
+        return str_contains($repository, 'missing') ? null : (str_contains($repository, 'legacy') ? 'master' : 'main');
+    }
+
     public function git(string $repository, string $branch): array
     {
         return str_contains($repository, 'missing')

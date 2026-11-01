@@ -527,6 +527,9 @@ class DeploymentService implements HandlesCommandResults
         } elseif (! empty($app->source['template']) && (int) (Release::find($deployment->release_id)?->version ?? 0) === 1) {
             $this->notifyInstalled($app, $deployment);
         } else {
+            if ((int) (Release::find($deployment->release_id)?->version ?? 0) === 1) {
+                $this->notifyStaffNewApp($app, $deployment);
+            }
             app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
                 'app' => $app->name, 'version' => (string) (Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
                 'duration' => $deployment->started_at ? $deployment->started_at->diffForHumans(now(), true) : '—',
@@ -565,9 +568,22 @@ class DeploymentService implements HandlesCommandResults
             'admin_url' => $url !== 'internal only' && preg_match('/wordpress/i', (string) $app->image) ? $url.'/wp-admin' : '—',
             'support_email' => (string) config('mail.from.address'),
         ]);
+        $this->notifyStaffNewApp($app, $deployment, $common, $tpl?->type === 'compose' ? 'Compose stack' : 'Single image');
+    }
+
+    /** "New application deployed" to platform staff after an app's first successful release. No secrets. */
+    public function notifyStaffNewApp(Application $app, Deployment $deployment, ?array $common = null, ?string $type = null): void
+    {
+        $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+        $common ??= [
+            'customer' => \App\Models\Organization::find($app->organization_id)?->name ?? '—', 'app' => $app->name,
+            'template' => ['git' => 'an app from a Git repository', 'dockerfile' => 'an app built from a Dockerfile', 'image' => 'a Docker image', 'compose' => 'a Compose stack'][$app->source_type] ?? 'an application',
+            'environment' => (string) $app->environment, 'server' => (string) ($app->server?->name ?? '—'), 'resources' => ucfirst((string) ($app->size ?? 'standard')),
+            'url' => (string) ($this->primaryUrl($app) ?? 'internal only'), 'installed_at' => now()->toDayDateTimeString().' UTC', 'manage_url' => $panel.'/admin/applications/'.$app->id,
+        ];
         app(EmailTemplateService::class)->notifyStaff('app_installed_admin', $common + [
-            'account_id' => (string) $app->organization_id, 'app_type' => $tpl?->type === 'compose' ? 'Compose stack' : 'Single image',
-            'deployment_id' => $deployment->id, 'status' => 'Running', 'logs_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id.'?tab=deployments',
+            'account_id' => (string) $app->organization_id, 'app_type' => $type ?? ucfirst(str_replace('_', ' ', (string) $app->source_type)),
+            'deployment_id' => $deployment->id, 'status' => 'Running', 'logs_url' => $panel.'/admin/deployments/'.$deployment->id,
         ], 'installed:'.$app->id, 60 * 24);
     }
 
@@ -577,6 +593,14 @@ class DeploymentService implements HandlesCommandResults
             'app' => $app->name, 'stage' => $stage, 'error' => $error,
             'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/apps/'.$app->id,
         ]);
+        // Staff hear about customers' failed deployments too (their own organisation's mail already reaches them).
+        $platform = \App\Models\Organization::orderBy('created_at')->orderBy('id')->value('id');
+        if ($platform && $app->organization_id !== $platform) {
+            app(EmailTemplateService::class)->notifyStaff('deploy_failed', [
+                'app' => $app->name, 'stage' => $stage, 'error' => $error,
+                'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id,
+            ], 'failed:'.$app->id, 60);
+        }
     }
 
     private function failDeployment(Deployment $deployment, Job $job, string $error, ?string $serverId = null): void

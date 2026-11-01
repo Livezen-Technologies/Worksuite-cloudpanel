@@ -179,7 +179,7 @@ class BackupDestination
         $s3 = $this->s3();
         $cmd = $s3->getCommand('PutObject', ['Bucket' => $this->bucket(), 'Key' => $key, 'ContentType' => 'application/gzip']);
 
-        return (string) $s3->createPresignedRequest($cmd, $expires)->getUri();
+        return (string) $s3->createPresignedRequest($cmd, self::lifetime($expires))->getUri();
     }
 
     public function presignGet(string $key, \DateTimeInterface $expires, string $filename): string
@@ -187,7 +187,16 @@ class BackupDestination
         $s3 = $this->s3();
         $cmd = $s3->getCommand('GetObject', ['Bucket' => $this->bucket(), 'Key' => $key, 'ResponseContentDisposition' => 'attachment; filename="'.$filename.'"']);
 
-        return (string) $s3->createPresignedRequest($cmd, $expires)->getUri();
+        return (string) $s3->createPresignedRequest($cmd, self::lifetime($expires))->getUri();
+    }
+
+    /**
+     * The SDK turns an absolute time into seconds at signing, so a second ticking over in between
+     * shortened the link by one. A relative "+N seconds" keeps the lifetime exact.
+     */
+    private static function lifetime(\DateTimeInterface $expires): string
+    {
+        return '+'.max(1, (int) round((float) $expires->format('U.u') - microtime(true))).' seconds';
     }
 
     /** Non-secret view of a destination config for the API (keys are write-only). */

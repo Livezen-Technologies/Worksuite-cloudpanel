@@ -94,6 +94,13 @@ class ApplicationController extends Controller
     {
         $data = $request->validate($this->rules(true) + $this->createRules());
         $extras = collect($data)->only(['domain_mode', 'domain', 'subdomain', 'deploy'])->all();
+        // A Git source without a branch builds the repository's default branch, not a guessed "main".
+        if (in_array($data['source_type'], ['git', 'dockerfile', 'compose'], true) && ! empty($data['source']['repo']) && empty($data['source']['branch'])) {
+            $repo = $data['source']['repo'];
+            $token = $data['source']['git_token'] ?? null;
+            $data['source']['branch'] = app(\App\Contracts\SourceValidator::class)->defaultBranch(
+                $token && str_starts_with($repo, 'https://') ? 'https://x-access-token:'.rawurlencode($token).'@'.substr($repo, 8) : $repo) ?? 'main';
+        }
         $data = collect($data)->except(['domain_mode', 'domain', 'subdomain', 'deploy'])->all();
         $templates = app(\App\Services\TemplateService::class);
         [$host, $platformHost] = $templates->resolveHost($extras, $data['name']);
