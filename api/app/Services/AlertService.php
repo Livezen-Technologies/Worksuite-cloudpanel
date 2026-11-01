@@ -79,18 +79,11 @@ class AlertService
                 // A policy whose last two scheduled runs both passed without a successful backup:
                 // the scheduler, the agent or the destination has silently stopped. Value: hours since the last success.
                 foreach (\App\Models\BackupPolicy::where('enabled', true)->get() as $p) {
-                    if (! \Cron\CronExpression::isValidExpression($p->schedule)) {
-                        continue;
+                    ['overdue' => $overdue, 'last_success_at' => $lastAt] = \App\Services\BackupService::overdue($p);
+                    if ($overdue === null) {
+                        continue;   // paused, invalid schedule or too new to have missed two runs
                     }
-                    $cron = new \Cron\CronExpression($p->schedule);
-                    $previous = \Illuminate\Support\Carbon::instance($cron->getPreviousRunDate(now(), 1, true));   // the run before the latest
-                    if ($p->created_at && $p->created_at->gt($previous)) {
-                        continue;   // too new to have missed two runs
-                    }
-                    $last = BackupJob::where('backup_policy_id', $p->id)->where('status', 'succeeded')->latest('created_at')->value('created_at');
-                    $lastAt = $last ? \Illuminate\Support\Carbon::parse($last) : null;
                     $hours = $lastAt ? round($lastAt->diffInMinutes(now()) / 60, 1) : null;
-                    $overdue = ! $lastAt || $lastAt->lt($previous);
                     $results[$p->id] = [$overdue && $cmp($hours ?? 1e6), "Backup policy {$p->name} has not completed since ".($lastAt ? $lastAt->toDayDateTimeString() : 'it was created'), $hours, 'BackupPolicy', $p->id];
                 }
                 break;

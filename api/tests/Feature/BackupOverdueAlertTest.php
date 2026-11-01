@@ -40,7 +40,14 @@ class BackupOverdueAlertTest extends TestCase
             $ok = BackupJob::create(['backup_policy_id' => $daily->id, 'target_type' => 'server', 'trigger' => 'schedule', 'status' => 'succeeded']);
             $ok->forceFill(['created_at' => '2026-11-05 03:04:00'])->save();
             $this->assertFalse($alerts->evaluate($rule)[$daily->id][0]);
+            $ok->delete();
         });
+        // The policy list and the summary show the same verdict.
+        $row = collect($this->api($token)->getJson('/api/v1/backup-policies')->assertOk()->json('data'))->firstWhere('name', 'nightly');
+        $this->assertTrue($row['overdue']);
+        $this->assertStringStartsWith('2026-11-03T03:05', $row['last_success_at']);
+        $this->assertFalse(collect($this->api($token)->getJson('/api/v1/backup-policies')->json('data'))->firstWhere('name', 'brand-new')['overdue']);
+        $this->assertSame(1, $this->api($token)->getJson('/api/v1/backups/summary')->assertOk()->json('data.overdue'));
         $this->api($token)->postJson('/api/v1/alert-rules', ['name' => 'Overdue', 'metric' => 'backup_overdue', 'operator' => '>=', 'threshold' => 24, 'scope_type' => 'organization'])->assertCreated();
         Carbon::setTestNow();
     }

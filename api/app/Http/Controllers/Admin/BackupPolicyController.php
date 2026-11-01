@@ -113,7 +113,11 @@ class BackupPolicyController extends CrudController
     {
         $recent = BackupJob::where('backup_policy_id', $policy->id)->where('created_at', '>=', now()->subDays(14))->get();
 
+        $state = \App\Services\BackupService::overdue($policy);
+
         return $policy->toArray() + [
+            'overdue' => $state['overdue'] === true,
+            'last_success_at' => $state['last_success_at']?->toIso8601ZuluString(),
             'destination_summary' => BackupDestination::present($policy->destination_config),
             'usage' => \App\Services\BackupService::usage($policy),
             'next_run_at' => $policy->enabled ? (new CronExpression($policy->schedule))->getNextRunDate(now())->format(DATE_ATOM) : null,
