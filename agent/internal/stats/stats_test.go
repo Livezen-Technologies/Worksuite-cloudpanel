@@ -97,7 +97,7 @@ func TestDisksReportsEveryArrayOnce(t *testing.T) {
 			t.Fatalf("device %s reported twice", x.Device)
 		}
 		devs[x.Device] = x.Mount
-		if x.SizeGB < 0 || x.UsedPct < 0 || x.UsedPct > 100 {
+		if x.SizeMB <= 0 || x.UsedPct < 0 || x.UsedPct > 100 {
 			t.Fatalf("implausible %+v", x)
 		}
 		if x.FSType != "ext4" {
@@ -111,7 +111,7 @@ func TestDisksReportsEveryArrayOnce(t *testing.T) {
 		t.Fatalf("the bind mount won over the real mount point")
 	}
 	// Largest first, so the panel can show the biggest array at a glance.
-	if got[0].SizeGB < got[1].SizeGB {
+	if got[0].SizeMB < got[1].SizeMB {
 		t.Fatalf("not sorted by size: %+v", got)
 	}
 }

@@ -115,8 +115,9 @@ func (s *Sampler) Disks() []protocol.Disk {
 			Mount:  mount,
 			Device: dev,
 			FSType: fstype,
-			SizeGB: int64(fs.Blocks) * int64(fs.Bsize) / (1 << 30),
-			UsedGB: int64(used) * int64(fs.Bsize) / (1 << 30),
+			// Megabytes, because a 988 MB /boot truncates to 0 in whole gigabytes.
+			SizeMB: int64(fs.Blocks) * int64(fs.Bsize) / (1 << 20),
+			UsedMB: int64(used) * int64(fs.Bsize) / (1 << 20),
 		}
 		// Match df: the denominator excludes blocks only root may use.
 		if denom := used + fs.Bavail; denom > 0 {
@@ -126,8 +127,8 @@ func (s *Sampler) Disks() []protocol.Disk {
 		out = append(out, d)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].SizeGB != out[j].SizeGB {
-			return out[i].SizeGB > out[j].SizeGB
+		if out[i].SizeMB != out[j].SizeMB {
+			return out[i].SizeMB > out[j].SizeMB
 		}
 		return out[i].Mount < out[j].Mount
 	})

@@ -10,7 +10,7 @@ export interface Me { user: User; organization: { id: string; name: string; [k: 
 
 export type ServerStatus = 'pending' | 'online' | 'warning' | 'maintenance' | 'offline'
 /** One mounted local filesystem. disk_gb/disk_pct describe the root one only. */
-export interface ServerDisk { mount: string; device?: string | null; fstype?: string | null; size_gb?: number; used_gb?: number; used_pct?: number }
+export interface ServerDisk { mount: string; device?: string | null; fstype?: string | null; size_mb?: number; used_mb?: number; used_pct?: number }
 export interface Server {
   id: string; name: string; hostname: string; ip: string; environment: string; region: string; tags: string[]
   status: ServerStatus; os?: string; kernel?: string; docker_version?: string; cpu_cores?: number; ram_mb?: number; disk_gb?: number

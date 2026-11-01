@@ -17,11 +17,16 @@ import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
 const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
 
-/** TB above a terabyte, so a 1.8 TB array does not read as "1831 GB". */
-function gb(v?: number) {
-  const n = num(v)
+/**
+ * Megabytes in, the largest sensible unit out: a 1.8 TB array must not read as
+ * "1874560 MB", and a 988 MB /boot must not read as "0 GB".
+ */
+function fsSize(mb?: number) {
+  const n = num(mb)
   if (!n) return '\u2014'
-  return n >= 1024 ? `${(n / 1024).toFixed(1)} TB` : `${n} GB`
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} TB`
+  if (n >= 1024) return `${Math.round(n / 1024)} GB`
+  return `${n} MB`
 }
 
 /**
@@ -31,10 +36,10 @@ function gb(v?: number) {
  */
 function diskDelta(rootGB: number | undefined, disks: ServerDisk[]) {
   if (disks.length > 1) {
-    const total = disks.reduce((a, d) => a + num(d.size_gb), 0)
-    return `${gb(rootGB)} root \u00b7 ${gb(total)} total`
+    const total = disks.reduce((a, d) => a + num(d.size_mb), 0)
+    return `${fsSize(num(rootGB) * 1024)} root \u00b7 ${fsSize(total)} total`
   }
-  return rootGB ? gb(rootGB) : undefined
+  return rootGB ? `${rootGB} GB` : undefined
 }
 
 function SimpleList({ path, query, columns, label }: { path: string; query?: R; columns: Column<R>[]; label: string }) {
@@ -114,8 +119,8 @@ export default function ServerDetail() {
               { key: 'mount', header: 'Mount', render: (r) => <span className="font-mono text-xs">{r.mount}</span> },
               { key: 'device', header: 'Device', render: (r) => <span className="font-mono text-xs">{r.device ?? '\u2014'}</span> },
               { key: 'fstype', header: 'Type', value: (r) => r.fstype ?? '\u2014' },
-              { key: 'size_gb', header: 'Size', value: (r) => gb(r.size_gb) },
-              { key: 'used_gb', header: 'Used', value: (r) => gb(r.used_gb) },
+              { key: 'size_mb', header: 'Size', value: (r) => fsSize(r.size_mb) },
+              { key: 'used_mb', header: 'Used', value: (r) => fsSize(r.used_mb) },
               { key: 'used_pct', header: '', render: (r) => <div className="w-40"><Meter value={num(r.used_pct)} label={`${r.mount} used`} /></div> },
             ]} />
         </Card>

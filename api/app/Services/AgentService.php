@@ -263,8 +263,8 @@ class AgentService
                 'mount' => mb_substr($d['mount'], 0, 255),
                 'device' => isset($d['device']) && is_string($d['device']) ? mb_substr($d['device'], 0, 128) : null,
                 'fstype' => isset($d['fstype']) && is_string($d['fstype']) ? mb_substr($d['fstype'], 0, 32) : null,
-                'size_gb' => (int) ($d['size_gb'] ?? 0),
-                'used_gb' => (int) ($d['used_gb'] ?? 0),
+                'size_mb' => (int) ($d['size_mb'] ?? 0),
+                'used_mb' => (int) ($d['used_mb'] ?? 0),
                 'used_pct' => round(min(100, max(0, (float) ($d['used_pct'] ?? 0))), 1),
             ];
             if (count($out) >= self::MAX_DISKS) {

@@ -59,8 +59,8 @@ type Disk struct {
 	Mount   string  `json:"mount"`
 	Device  string  `json:"device,omitempty"`
 	FSType  string  `json:"fstype,omitempty"`
-	SizeGB  int64   `json:"size_gb"`
-	UsedGB  int64   `json:"used_gb"`
+	SizeMB  int64   `json:"size_mb"`
+	UsedMB  int64   `json:"used_mb"`
 	UsedPct float64 `json:"used_pct"`
 }
 

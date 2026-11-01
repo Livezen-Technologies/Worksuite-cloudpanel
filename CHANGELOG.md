@@ -40,7 +40,7 @@ Dates are the dates the work landed on `main`.
   as though that array did not exist: a node with two 1.8 TB RAID1 arrays
   showed 498 GB free instead of 2.2 TB.
   - The agent now sends every mounted local filesystem on each heartbeat
-    (`stats.disks`: mount, device, fstype, size, used, used %), read from
+    (`stats.disks`: mount, device, fstype, size and used in MB, used %), read from
     `/proc/mounts` and `statfs(2)`. Pseudo, RAM-backed and read-only image
     filesystems are skipped, Docker's own mounts are left out, and a device is
     reported once however many places it is mounted, so a bind mount never
@@ -48,6 +48,9 @@ Dates are the dates the work landed on `main`.
   - Stored on `servers.disks`, shaped and bounded on the way in. `disk_pct`
     keeps its meaning as the root figure the status thresholds are written
     against, so no server changes status because of this.
+  - Sizes are carried in megabytes and rendered in the largest sensible unit,
+    so a 1.8 TB array does not read as `1874560 MB` and a 988 MB `/boot` does
+    not read as `0 GB`.
   - The server page gains a **Filesystems** table under Storage, and the Disk
     tile names the total alongside the root figure once a host has more than
     one filesystem.
