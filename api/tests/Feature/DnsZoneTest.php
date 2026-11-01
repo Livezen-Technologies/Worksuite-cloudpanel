@@ -190,6 +190,8 @@ class DnsZoneTest extends TestCase
 
     public function test_export_writes_a_bind_file_and_import_reads_it_back(): void
     {
+        // The export header carries a timestamp; two exports must not straddle a second.
+        $this->freezeSecond();
         [$token, $provider] = $this->connected();
         $zone = $this->zone($token, $provider['id'], ['defaults_to' => '203.0.113.10']);
         $url = "/api/v1/dns/zones/{$zone['id']}/records";
