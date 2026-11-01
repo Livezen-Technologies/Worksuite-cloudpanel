@@ -139,7 +139,7 @@ class CronEngineTest extends TestCase
         ScheduledJobRun::allTenants()->update(['started_at' => now()->subMinutes(5)]);
         $this->artisan('scheduled-jobs:run-due')->assertSuccessful();
         $this->artisan('scheduled-jobs:run-due')->assertSuccessful();
-        $this->assertTrue(ScheduledJobRun::allTenants()->first()->long_alerted);
+        $this->assertTrue(ScheduledJobRun::allTenants()->orderBy('id')->first()->long_alerted, 'the run started by hand');
     }
 
     public function test_one_off_runs_carry_the_apps_image_env_and_secrets_are_redacted(): void
