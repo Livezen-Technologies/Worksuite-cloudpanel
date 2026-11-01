@@ -371,7 +371,10 @@ export function Monitoring() {
   const [on, setOn] = useState<Record<string, boolean>>({ CPU: true, RAM: true, Disk: true })
   const metrics = useOne<R>('/metrics', { server_id: server || undefined, range }, { refetchInterval: 15000 })
   const rules = useList<R>('/alert-rules')
-  const alerts = useList<R>('/alerts', undefined, { refetchInterval: 15000 })
+  // Active = open or acknowledged, fetched as such so resolved history never pushes them off the page.
+  const [alertView, setAlertView] = useState<'active' | 'resolved'>('active')
+  const alerts = useList<R>('/alerts', { status: alertView, per_page: 100, sort: '-created_at' }, { refetchInterval: 15000 })
+  const active = useList<R>('/alerts', { status: 'active', per_page: 100 }, { refetchInterval: 15000 })
   const channels = useList<R>('/notification-channels')
   const { run } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
@@ -382,7 +385,7 @@ export function Monitoring() {
   const last = (d: number[]) => (d.length ? d[d.length - 1] : null)
   const peak = (d: number[]) => (d.length ? Math.max(...d) : null)
   const pctTone = (v: number | null) => (v == null ? 'n' : v >= 85 ? 'r' : v >= 70 ? 'y' : 'g') as 'g' | 'y' | 'r' | 'n'
-  const openAlerts = alerts.rows.filter((a) => a.status === 'open' || a.status === 'firing' || !a.resolved_at)
+  const openAlerts = active.rows
   const shownServers = servers.rows.filter((x) => !server || x.id === server)
   const busy = [...containers.rows].filter((c) => c.state === 'running').sort((a, b) => num(b.cpu_pct) - num(a.cpu_pct)).slice(0, 6)
   const unhealthy = containers.rows.filter((c) => c.health === 'unhealthy' || c.state === 'restarting').length
@@ -442,7 +445,8 @@ export function Monitoring() {
         </Card>
       </div>
       <StatusPageCard />
-      <Card title="Active alerts" pad={false}>
+      <Card title={alertView === 'active' ? 'Active alerts' : 'Resolved alerts'} pad={false}
+        actions={<span className="flex gap-1">{(['active', 'resolved'] as const).map((v) => <button key={v} type="button" aria-pressed={alertView === v} className={`btn btn-sm ${alertView === v ? 'btn-primary' : ''}`} onClick={() => setAlertView(v)}>{v === 'active' ? `Active (${openAlerts.length})` : 'History'}</button>)}</span>}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
           filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
           actions={(r) => r.status === 'resolved' ? [] : [

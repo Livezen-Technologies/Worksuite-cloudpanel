@@ -11,7 +11,11 @@ class AlertController extends Controller
 {
     public function index(Request $request)
     {
-        return response()->json(Lists::paginate(Alert::query(), $request, ['title'], ['created_at', 'severity'], ['status', 'severity', 'resource_id', 'alert_rule_id']));
+        // status=active is every alert still needing attention (open or acknowledged).
+        $query = Alert::query()->when($request->query('status') === 'active', fn ($q) => $q->whereIn('status', ['open', 'acknowledged']))
+            ->when(in_array($request->query('status'), ['open', 'acknowledged', 'resolved'], true), fn ($q) => $q->where('status', $request->query('status')));
+
+        return response()->json(Lists::paginate($query, $request, ['title'], ['created_at', 'severity', 'resolved_at'], ['severity', 'resource_id', 'alert_rule_id']));
     }
 
     public function ack(Request $request, string $id)

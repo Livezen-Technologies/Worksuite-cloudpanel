@@ -26,6 +26,8 @@ class AlertActionsAndAuditExportTest extends TestCase
         $this->api($token)->postJson("/api/v1/alerts/{$alert->id}/resolve", ['note' => 'Fixed at the provider'])->assertOk()->assertJsonPath('data.status', 'resolved');
         $this->assertDatabaseHas('audit_logs', ['action' => 'alert.resolve', 'resource_id' => $alert->id]);
         $this->api($token)->postJson("/api/v1/alerts/{$alert->id}/snooze", ['minutes' => 30])->assertStatus(409);
+        $this->assertSame([], $this->api($token)->getJson('/api/v1/alerts?status=active')->assertOk()->json('data'), 'resolved alerts leave the active list');
+        $this->assertCount(1, $this->api($token)->getJson('/api/v1/alerts?status=resolved')->json('data'));
     }
 
     public function test_audit_log_exports_as_csv_with_filters_and_is_itself_audited(): void
