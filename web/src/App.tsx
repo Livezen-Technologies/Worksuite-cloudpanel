@@ -42,6 +42,7 @@ import UserAi from './pages/app/Ai'
 import UserVps from './pages/app/Vps'
 import GitSources from './pages/admin/GitSources'
 import AiAdmin from './pages/admin/AiAdmin'
+import OAuthConsent from './pages/auth/OAuthConsent'
 import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
@@ -64,7 +65,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { me, loading } = useAuth()
   const loc = useLocation()
   if (loading) return <div className="p-8 text-muted">Loading…</div>
-  if (!me) return <Navigate to="/login" replace state={{ from: loc.pathname }} />
+  if (!me) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />
   return <>{children}</>
 }
 function Home() {
@@ -85,6 +86,7 @@ export function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/oauth/consent" element={<RequireAuth><OAuthConsent /></RequireAuth>} />
       <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Overview />} />
         <Route path="servers" element={<Servers />} />

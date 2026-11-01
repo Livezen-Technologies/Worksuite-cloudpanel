@@ -113,4 +113,24 @@ class AssistantTest extends TestCase
         $this->assertSame(1, $d['last_24h']['conversations']);
         $this->assertArrayNotHasKey('api_key', $d['assistant']);
     }
+
+    public function test_the_assistant_streams_text_actions_and_the_final_transcript(): void
+    {
+        [, , $token] = $this->account();
+        $this->model->use('restart_app', ['app' => 'shop'])->say('Restart requested. It is waiting for your approval.');
+        $r = $this->api($token)->post('/api/v1/app/ai/assistant/stream', ['message' => 'Restart shop'], ['Accept' => 'text/event-stream']);
+        $r->assertOk();
+        $this->assertStringStartsWith('text/event-stream', $r->headers->get('Content-Type'));
+        $body = $r->streamedContent();
+        preg_match_all('/^event: (\w+)$/m', $body, $m);
+        $this->assertSame('action', $m[1][0]);
+        $this->assertContains('text', $m[1]);
+        $this->assertSame('done', end($m[1]));
+        $this->assertStringContainsString('"status":"pending"', $body);
+        $this->assertCount(2, $this->api($token)->getJson('/api/v1/app/ai/assistant')->json('data.messages'));
+
+        // A limit reached before the stream starts is a normal JSON 409, not an event.
+        config(['platform.ai.max_turns_per_day' => 1]);
+        $this->api($token)->post('/api/v1/app/ai/assistant/stream', ['message' => 'again'], ['Accept' => 'application/json'])->assertStatus(409);
+    }
 }

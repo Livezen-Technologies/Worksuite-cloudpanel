@@ -17,12 +17,16 @@ describe('Assistant chat', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       if (url.endsWith('/app/ai/assistant') && method === 'GET') return json(200, { data: { messages: [], available } })
-      if (url.endsWith('/app/ai/assistant') && method === 'POST') {
+      if (url.endsWith('/app/ai/assistant/stream') && method === 'POST') {
         posts.push(String(init?.body))
-        return json(200, { data: { reply: 'Waiting for your approval.', messages: [
+        const done = { messages: [
           { role: 'user', text: 'Restart shop' },
           { role: 'assistant', text: 'I asked to restart shop. It is waiting for your approval.', actions: [{ tool: 'restart_app', target: 'shop', status: 'pending' }] },
-        ] } })
+        ] }
+        const sse = 'event: text\ndata: {"type":"text","text":"I asked "}\n\n'
+          + 'event: action\ndata: {"type":"action","tool":"restart_app","target":"shop","status":"pending"}\n\n'
+          + `event: done\ndata: ${JSON.stringify(done)}\n\n`
+        return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
       }
       return json(204, {})
     }))
@@ -35,6 +39,23 @@ describe('Assistant chat', () => {
     expect(await screen.findByText('I asked to restart shop. It is waiting for your approval.')).toBeInTheDocument()
     expect(screen.getByText('restart_app · shop: waiting for approval')).toBeInTheDocument()
     expect(JSON.parse(posts[0])).toEqual({ message: 'Restart shop' })
+  })
+
+  it('parses the event stream, including events split across chunks', async () => {
+    const { streamAssistant } = await import('../components/AssistantChat')
+    const enc = new TextEncoder()
+    const parts = ['event: te', 'xt\ndata: {"text":"Hel"}\n', '\nevent: text\ndata: {"text":"lo"}\n\nevent: done\ndata: {"messages":[]}\n\n']
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start(c) { parts.forEach((p) => c.enqueue(enc.encode(p))); c.close() } }), { status: 200 })))
+    let text = ''
+    const d = await streamAssistant('hi', { text: (t) => { text += t }, action: () => {} })
+    expect(text).toBe('Hello')
+    expect(d).toEqual({ messages: [] })
+  })
+
+  it('surfaces a stream error', async () => {
+    const { streamAssistant } = await import('../components/AssistantChat')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('event: error\ndata: {"message":"Your account has used today\'s 200 assistant messages."}\n\n', { status: 200 })))
+    await expect(streamAssistant('hi', { text: () => {}, action: () => {} })).rejects.toThrow(/200 assistant messages/)
   })
 
   it('says when the assistant is not set up', async () => {

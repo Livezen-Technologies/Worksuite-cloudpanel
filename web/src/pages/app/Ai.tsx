@@ -16,10 +16,11 @@ const LEVEL: Record<string, [string, string]> = {
 const STATUS: Record<string, Tone> = { done: 'g', pending: 'y', failed: 'r', refused: 'r', rejected: 'n' }
 
 export const clientSnippets = (url: string): [string, string, string][] => [
-  ['Claude', `claude mcp add --transport http livezen ${url} --header "Authorization: Bearer <token>"`, 'Or in Claude Desktop: Settings → Connectors → Add custom connector.'],
-  ['Cursor', `// .cursor/mcp.json\n{ "mcpServers": { "livezen": { "url": "${url}", "headers": { "Authorization": "Bearer <token>" } } } }`, 'Restart Cursor after saving.'],
-  ['VS Code', `// .vscode/mcp.json\n{ "servers": { "livezen": { "type": "http", "url": "${url}", "headers": { "Authorization": "Bearer <token>" } } } }`, 'Works with Copilot agent mode.'],
-  ['Any client', `POST ${url}\nAuthorization: Bearer <token>`, 'JSON-RPC 2.0 over HTTP (MCP Streamable HTTP).'],
+  ['Claude', `claude mcp add --transport http livezen ${url}`, 'Or in Claude Desktop / claude.ai: Settings → Connectors → Add custom connector → paste the URL. You sign in with your account; no token needed.'],
+  ['ChatGPT', `Settings → Connectors → Advanced → Developer mode\nAdd MCP server: ${url}`, 'Sign in when prompted and approve the connection.'],
+  ['Cursor', `// .cursor/mcp.json\n{ "mcpServers": { "livezen": { "url": "${url}" } } }`, 'Cursor opens a browser window to sign in the first time.'],
+  ['VS Code', `// .vscode/mcp.json\n{ "servers": { "livezen": { "type": "http", "url": "${url}" } } }`, 'Works with Copilot agent mode; it asks you to sign in.'],
+  ['Any client', `POST ${url}\nAuthorization: Bearer <token>`, 'For clients without sign-in, create an access token above.'],
 ]
 
 /** UAI: connect AI tools through MCP, see what they did, approve changes and set what they may do. */
@@ -86,7 +87,7 @@ export default function UserAi() {
         <Card title="Set up your AI client">
           <div className="flex flex-wrap gap-1 mb-3">{snippets.map(([n], i) => <button key={n} type="button" aria-pressed={client === i} className={`btn btn-sm ${client === i ? 'btn-primary' : ''}`} onClick={() => setClient(i)}>{n}</button>)}</div>
           <pre className="m-0 p-3 rounded-md bg-head text-xs overflow-x-auto whitespace-pre-wrap break-all">{snippets[client][1]}</pre>
-          <p className="m-0 mt-2 text-xs text-muted">{snippets[client][2]} Replace &lt;token&gt; with an access token from above.</p>
+          <p className="m-0 mt-2 text-xs text-muted">{snippets[client][2]}</p>
         </Card>
       </>}
 

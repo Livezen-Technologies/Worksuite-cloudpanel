@@ -102,20 +102,67 @@ class AiController extends Controller
         return $this->data(['id' => $c?->id, 'messages' => $c?->transcript ?? [], 'available' => \App\Services\Ai\AssistantService::available()]);
     }
 
-    public function ask(Request $request, \App\Services\Ai\AssistantService $assistant)
+    private function turnKey(Request $request): string
     {
-        $v = $request->validate(['message' => 'required|string|min:1|max:4000']);
         $key = 'ai-turns:'.$request->user()->current_organization_id.':'.now()->toDateString();
         $limit = (int) config('platform.ai.max_turns_per_day');
         if ((int) \Illuminate\Support\Facades\Cache::get($key, 0) >= $limit) {
             throw \App\Exceptions\ApiException::conflict("Your account has used today's {$limit} assistant messages. It resets at midnight UTC.", ['reason' => 'ai_daily_limit']);
         }
-        $r = $assistant->ask($request->user(), $this->conversation($request), $v['message']);
-        // Counted once a reply came back: a message refused for set-up reasons doesn't use the allowance.
+
+        return $key;
+    }
+
+    /** Counted once a reply came back: a message refused for set-up reasons doesn't use the allowance. */
+    private function countTurn(string $key): void
+    {
         \Illuminate\Support\Facades\Cache::add($key, 0, now()->endOfDay());
         \Illuminate\Support\Facades\Cache::increment($key);
+    }
+
+    public function ask(Request $request, \App\Services\Ai\AssistantService $assistant)
+    {
+        $v = $request->validate(['message' => 'required|string|min:1|max:4000']);
+        $key = $this->turnKey($request);
+        $r = $assistant->ask($request->user(), $this->conversation($request), $v['message']);
+        $this->countTurn($key);
 
         return $this->data(['id' => $r['conversation']->id, 'reply' => $r['reply'], 'actions' => $r['actions'], 'messages' => $r['conversation']->transcript]);
+    }
+
+    /**
+     * UAI: the same as ask(), as server-sent events: `text` pieces while the model writes,
+     * `action` for each tool call, then `done` with the transcript (or `error`).
+     */
+    public function stream(Request $request, \App\Services\Ai\AssistantService $assistant)
+    {
+        $v = $request->validate(['message' => 'required|string|min:1|max:4000']);
+        $key = $this->turnKey($request);
+        if (! \App\Services\Ai\AssistantService::available()) {
+            throw \App\Exceptions\ApiException::conflict('The assistant is not set up. An administrator needs to add an Anthropic API key to the environment.');
+        }
+        $user = $request->user();
+        $conv = $this->conversation($request);
+
+        return response()->stream(function () use ($assistant, $user, $conv, $v, $key) {
+            $send = function (string $event, array $data) {
+                echo "event: {$event}\ndata: ".json_encode($data, JSON_UNESCAPED_SLASHES)."\n\n";
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            };
+            try {
+                $r = $assistant->ask($user, $conv, $v['message'], fn (array $e) => $send($e['type'], $e));
+                $this->countTurn($key);
+                $send('done', ['id' => $r['conversation']->id, 'reply' => $r['reply'], 'actions' => $r['actions'], 'messages' => $r['conversation']->transcript]);
+            } catch (\App\Exceptions\ApiException $e) {
+                $send('error', ['message' => $e->getMessage()]);
+            } catch (\Throwable $e) {
+                report($e);
+                $send('error', ['message' => 'The assistant could not answer. Try again in a moment.']);
+            }
+        }, 200, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'no-cache, no-transform', 'X-Accel-Buffering' => 'no']);
     }
 
     /** Start over: the next message opens a new conversation. */

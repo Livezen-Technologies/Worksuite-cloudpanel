@@ -1,12 +1,46 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/client'
+import { api, buildUrl, tokenStore } from '../api/client'
 import { useOne } from '../api/hooks'
 import { Badge, type Tone } from './Badge'
 import { useToast } from './Toasts'
 import type { R } from '../lib/util'
 
 const TONE: Record<string, Tone> = { done: 'g', pending: 'y', failed: 'r', refused: 'r', rejected: 'n' }
+/** Reads the assistant's server-sent events: text pieces, tool actions, then done or error. */
+export async function streamAssistant(message: string, on: { text: (t: string) => void; action: (a: R) => void }): Promise<R> {
+  const token = tokenStore.get()
+  const res = await fetch(buildUrl('/app/ai/assistant/stream'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ message }),
+  })
+  if (!res.ok || !res.body) {
+    const j = await res.json().catch(() => null) as R | null
+    throw new Error(String(((j?.error as R) ?? {}).message ?? 'The assistant could not answer.'))
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (value) buf += dec.decode(value, { stream: true })
+    let i
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, i)
+      buf = buf.slice(i + 2)
+      const ev = /^event: (.+)$/m.exec(chunk)?.[1]
+      const data = /^data: (.*)$/m.exec(chunk)?.[1]
+      if (!ev || data === undefined) continue
+      const d = JSON.parse(data) as R
+      if (ev === 'text') on.text(String(d.text ?? ''))
+      else if (ev === 'action') on.action(d)
+      else if (ev === 'done') return d
+      else if (ev === 'error') throw new Error(String(d.message ?? 'The assistant could not answer.'))
+    }
+    if (done) throw new Error('The answer was cut off. Try again.')
+  }
+}
+
 const LABEL: Record<string, string> = { done: 'done', pending: 'waiting for approval', failed: 'failed', refused: 'not allowed' }
 
 /** UAI: chat with the built-in assistant. Changes it asks for follow the account's AI level. */
@@ -31,9 +65,13 @@ export function AssistantChat() {
     setSending(true)
     setLocal([...messages, { role: 'user', text: msg }])
     setText('')
+    const base = [...messages, { role: 'user', text: msg }]
+    let live = ''
+    const acts: R[] = []
+    const paint = () => setLocal([...base, { role: 'assistant', text: live, actions: [...acts] }])
     try {
-      const r = await api.post<R>('/app/ai/assistant', { message: msg })
-      setLocal(((r as R).data as R).messages as R[])
+      const d = await streamAssistant(msg, { text: (t) => { live += t; paint() }, action: (a) => { acts.push(a); paint() } })
+      setLocal(d.messages as R[])
       qc.invalidateQueries({ queryKey: ['/app/ai'] })
     } catch (e) {
       setLocal(null)
@@ -56,7 +94,7 @@ export function AssistantChat() {
             </div>
           </div>
         ))}
-        {sending && <div className="text-xs text-muted" role="status">Thinking…</div>}
+        {sending && !(messages[messages.length - 1]?.role === 'assistant' && String(messages[messages.length - 1]?.text ?? '')) && <div className="text-xs text-muted" role="status">Thinking…</div>}
         <div ref={end} />
       </div>
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void send() }}>

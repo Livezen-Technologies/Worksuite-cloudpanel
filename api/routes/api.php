@@ -518,6 +518,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
 
     // Customer panel
     Route::prefix('app')->name('app.')->group(function () {
+        // UAI: the panel's consent page for MCP client sign-in.
+        Route::get('oauth/consent', [\App\Http\Controllers\McpOAuthController::class, 'consentInfo'])->name('oauth.consent.show');
+        Route::post('oauth/consent', [\App\Http\Controllers\McpOAuthController::class, 'consent'])->middleware('throttle:20,1')->name('oauth.consent');
         // UAI: the MCP server. Checks the token's mcp ability and the app.manage grant itself.
         Route::post('mcp', [\App\Http\Controllers\McpController::class, 'handle'])->middleware('throttle:120,1')->name('mcp');
         Route::middleware('perm:app.manage')->group(function () {
@@ -548,6 +551,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::delete('ai/tokens/{id}', [Customer\AiController::class, 'destroyToken'])->name('ai.tokens.destroy');
             Route::get('ai/assistant', [Customer\AiController::class, 'conversationShow'])->name('ai.assistant.show');
             Route::post('ai/assistant', [Customer\AiController::class, 'ask'])->middleware('throttle:20,1')->name('ai.assistant.ask');
+            Route::post('ai/assistant/stream', [Customer\AiController::class, 'stream'])->middleware('throttle:20,1')->name('ai.assistant.stream');
             Route::delete('ai/assistant', [Customer\AiController::class, 'conversationReset'])->name('ai.assistant.reset');
             Route::post('ai/actions/{id}/{decision}', [Customer\AiController::class, 'decide'])->whereIn('decision', ['approve', 'reject'])->name('ai.actions.decide');
             // UPRJ: the customer's own projects.

@@ -40,4 +40,16 @@ class FakeChatModel implements ChatModel
 
         return array_shift($this->queue) ?? ['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => 'OK.']], 'text' => 'OK.', 'tool_uses' => []];
     }
+
+    public function streamReply(string $system, array $messages, array $tools, callable $onText): array
+    {
+        $r = $this->reply($system, $messages, $tools);
+        foreach (preg_split('/(?<= )/', $r['text']) ?: [] as $piece) {
+            if ($piece !== '') {
+                $onText($piece);
+            }
+        }
+
+        return $r;
+    }
 }
