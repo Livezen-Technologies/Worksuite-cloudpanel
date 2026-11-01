@@ -171,7 +171,8 @@ class CronController extends Controller
             'name' => ($create ? 'required' : 'sometimes').'|string|max:120',
             'action' => ($create ? 'required' : 'prohibited').'|in:app_command,url,server_command',
             'run_mode' => 'sometimes|in:'.implode(',', ScheduledJobService::MODES),
-            'application_id' => 'nullable|string', 'server_id' => 'nullable|string',
+            // uuid so a malformed id is a 422, not a database error on PostgreSQL.
+            'application_id' => 'nullable|uuid', 'server_id' => 'nullable|uuid',
             'command' => 'sometimes|string|max:4096', 'url' => 'sometimes|url:https,http|max:2000',
             'method' => 'sometimes|in:GET,POST,PUT,PATCH,DELETE,HEAD', 'headers' => 'sometimes|array|max:20', 'headers.*' => 'string|max:1000',
             'expected_status' => 'sometimes|nullable|integer|min:100|max:599',

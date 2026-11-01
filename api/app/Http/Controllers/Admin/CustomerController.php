@@ -108,7 +108,7 @@ class CustomerController extends Controller
         $apps = \App\Models\Application::allTenants()->where('organization_id', $org->id)->orderBy('name')->get();
         $members = DB::table('memberships')->join('users', 'users.id', '=', 'memberships.user_id')->where('memberships.organization_id', $org->id)
             ->orderBy('users.name')->get(['users.id', 'users.name', 'users.email', 'users.mfa_enabled', 'users.last_login_at', 'memberships.role', 'memberships.status']);
-        $domains = DB::table('domains')->where('organization_id', $org->id)->orderBy('name')->get(['id', 'name', 'application_id', 'status', 'created_at']);
+        $domains = DB::table('domains')->where('organization_id', $org->id)->orderBy('name')->get(['id', 'name', 'application_id', 'dns_status as status', 'created_at']);
         $settings = $org->settings ?? [];
 
         return $this->data([

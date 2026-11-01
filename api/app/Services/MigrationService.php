@@ -206,7 +206,8 @@ class MigrationService implements HandlesCommandResults
             if (Domain::allTenants()->where('name', $s['domain'])->exists()) {
                 $issues[] = 'The domain is already on the platform.';
             }
-            if (Application::allTenants()->withTrashed()->where('name', $s['app_name'])->where('id', '!=', $s['app_id'] ?? '')->exists()) {
+            // An unsaved site has no app id yet; comparing a uuid column with '' fails on PostgreSQL.
+            if (Application::allTenants()->withTrashed()->where('name', $s['app_name'])->when(! empty($s['app_id']), fn ($q) => $q->where('id', '!=', $s['app_id']))->exists()) {
                 $issues[] = "An app named {$s['app_name']} already exists.";
             }
             if (($s['docroot'] ?? '') === '') {

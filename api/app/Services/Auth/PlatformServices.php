@@ -16,7 +16,7 @@ class PlatformServices
 
     public function orgId(): ?string
     {
-        return $this->orgId ??= Organization::query()->orderBy('created_at')->value('id');
+        return $this->orgId ??= Organization::query()->orderBy('created_at')->orderBy('id')->value('id');
     }
 
     /** ['config' => [...], 'credentials' => [...]] for an enabled service, or null. */

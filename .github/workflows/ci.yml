@@ -61,6 +61,39 @@ jobs:
         run: cp .env.example .env && php artisan key:generate
       - run: vendor/bin/phpunit
 
+  api-pgsql:
+    # Production runs PostgreSQL; SQLite accepts things PostgreSQL rejects (unknown columns as strings,
+    # '' compared with uuid, column names of aggregates), so the suite also runs here.
+    name: API (PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dmp_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, pgsql, mbstring, intl, zip, gd, bcmath, sodium
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('api/composer.lock') }}
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Environment
+        run: cp .env.example .env && php artisan key:generate
+      - run: vendor/bin/phpunit -c phpunit.pgsql.xml
+
   web:
     name: Web (React)
     runs-on: ubuntu-latest
