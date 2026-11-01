@@ -51,6 +51,43 @@ class PublicPagesTest extends TestCase
         $this->assertStringContainsString('http-equiv="refresh" content="30"', $writes['default/busy.html']['payload']['content']);
     }
 
+    /**
+     * The container reads the volume as its own unprivileged uid, and the
+     * agent's unit runs UMask=0077, so the modes fs.write and fs.mkdir pass to
+     * open(2) and mkdir(2) land as 0600 and 0700. Without an explicit chmod
+     * nginx cannot read one page and every branded page answers 404 behind a
+     * valid certificate.
+     */
+    public function test_the_pages_are_made_readable_by_the_unprivileged_container(): void
+    {
+        [$token, $secret, , , $domain] = $this->setUpEdge();
+        $domain->update(['options' => ['pages' => ['text' => ['suspended' => ['title' => 'Away']]]]]);
+        $this->api($token)->postJson('/api/v1/public-pages/install')->assertStatus(202);
+        $cmds = collect($this->heartbeat($secret)['commands']);
+
+        $chmods = $cmds->where('type', 'fs.chmod')->pluck('payload');
+        $modes = $chmods->mapWithKeys(fn ($p) => [$p['volume'].':'.$p['mode'] => $p['paths']]);
+
+        $this->assertSame('0755', $chmods->firstWhere('mode', '0755')['mode'] ?? null, 'folders are made traversable');
+        $this->assertEqualsCanonicalizing(
+            ['default', 'sites', 'sites/shop.example.com'],
+            $modes[PublicPagesService::HTML_VOLUME.':0755'],
+            'every folder written here, per-site folders included'
+        );
+
+        $files = $modes[PublicPagesService::HTML_VOLUME.':0644'];
+        foreach (array_diff(array_keys(PublicPagesService::PAGES), PublicPagesService::BOT_PAGES) as $key) {
+            $this->assertContains("default/{$key}.html", $files);
+        }
+        $this->assertContains('sites/shop.example.com/suspended.html', $files, 'per-site overrides too');
+        $this->assertSame(['default.conf'], $modes[PublicPagesService::CONF_VOLUME.':0644'], 'and the nginx config');
+
+        // Every path written must be chmodded, or that page alone 404s.
+        $written = $cmds->where('type', 'fs.write')->map(fn ($c) => $c['payload']['volume'].':'.$c['payload']['path']);
+        $chmodded = $chmods->flatMap(fn ($p) => array_map(fn ($x) => $p['volume'].':'.$x, $p['paths']));
+        $this->assertEmpty($written->diff($chmodded)->all(), 'a written file with no chmod would be unreadable');
+    }
+
     public function test_routing_for_errors_maintenance_suspended_and_welcome(): void
     {
         [$token, $secret, $server, $app, $domain] = $this->setUpEdge();
