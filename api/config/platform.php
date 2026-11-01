@@ -49,7 +49,19 @@ return [
         'http_resolver' => env('TRAEFIK_HTTP_RESOLVER', 'le'),
         'dns_resolver_prefix' => env('TRAEFIK_DNS_RESOLVER_PREFIX', 'le-dns-'), // + provider, e.g. le-dns-cloudflare
         'entrypoint' => env('TRAEFIK_ENTRYPOINT', 'websecure'),
-        'docker_service_suffix' => '@docker',
+        // Where Traefik finds the ws-pages service. "@docker" needs Traefik's
+        // docker provider; an ingress that routes purely through the file
+        // provider has to set this to "@file", and the pages service is then
+        // written into the pushed file instead of discovered from labels.
+        // Getting this wrong fails quietly and completely: Traefik drops any
+        // router whose middleware chain will not resolve, so every domain
+        // carrying the errors middleware falls through to the catch-all 404.
+        'docker_service_suffix' => env('TRAEFIK_DOCKER_SERVICE_SUFFIX', '@docker'),
+        // Used when the suffix is not "@docker": how Traefik reaches the pages
+        // container, and the network the two must share for that name to
+        // resolve at all.
+        'pages_url' => env('TRAEFIK_PAGES_URL', 'http://ws-pages:8080'),
+        'network' => env('TRAEFIK_NETWORK', 'proxy'),
         'file_name' => 'dmp-domains.yml',
     ],
 

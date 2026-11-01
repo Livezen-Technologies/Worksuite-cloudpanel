@@ -210,9 +210,12 @@ class TraefikConfigService implements HandlesCommandResults
         }
         // PUB-1..4: maintenance, suspended, expired and welcome pages take over a domain; down apps get the busy page.
         $pages = app(PublicPagesService::class);
-        [$pageRouters, $pageMiddlewares] = $pages->traefik($this->domainsFor($server, $dedicated)->concat($pages->domains()), $routers);
+        [$pageRouters, $pageMiddlewares, $pageServices] = $pages->traefik($this->domainsFor($server, $dedicated)->concat($pages->domains()), $routers);
         $routers = array_replace($routers, $pageRouters);
         $middlewares += $pageMiddlewares;
+        // Empty unless the pages service has to be declared here rather than
+        // discovered by Traefik's docker provider.
+        $services += $pageServices;
         // Traefik rejects an empty routers map ("routers cannot be a standalone
         // element") and drops the whole file-provider configuration when it sees
         // one - taking every other site on the ingress down with it. With nothing
