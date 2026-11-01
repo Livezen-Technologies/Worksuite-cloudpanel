@@ -54,6 +54,8 @@ class AssistantTest extends TestCase
         $this->model->say('Still just shop.');
         $this->api($token)->postJson('/api/v1/app/ai/assistant', ['message' => 'And now?'])->assertOk();
         $this->assertCount(5, $this->model->requests[2]['messages'], 'user, assistant tool_use, tool_result, assistant, user');
+        // Reloaded from storage (JSON), the empty tool input is still an object, as the API requires.
+        $this->assertInstanceOf(\stdClass::class, $this->model->requests[2]['messages'][1]['content'][0]['input']);
         $this->assertCount(4, $this->api($token)->getJson('/api/v1/app/ai/assistant')->json('data.messages'));
 
         $this->api($token)->deleteJson('/api/v1/app/ai/assistant')->assertNoContent();

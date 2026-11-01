@@ -13,7 +13,7 @@ return new class extends Migration
             $t->uuid('id')->primary();
             $t->foreignUuid('organization_id')->constrained('organizations')->cascadeOnDelete();
             $t->uuid('user_id')->index();
-            $t->longText('history'); // encrypted, serialised model messages (content passed back unchanged)
+            $t->longText('history'); // encrypted JSON: the model messages, content passed back unchanged
             $t->text('transcript')->nullable(); // encrypted json: what the person saw
             $t->unsignedInteger('turns')->default(0);
             $t->timestamps();

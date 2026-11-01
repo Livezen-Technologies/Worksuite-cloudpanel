@@ -35,7 +35,8 @@ class AnthropicChatModel implements ChatModel
                 'tool_use' => ['type' => 'tool_use', 'id' => (string) $block->id, 'name' => (string) $block->name, 'input' => ((array) $block->input) ?: new \stdClass],
                 'thinking' => ['type' => 'thinking', 'thinking' => (string) $block->thinking, 'signature' => (string) $block->signature],
                 'redacted_thinking' => ['type' => 'redacted_thinking', 'data' => (string) $block->data],
-                default => $block,
+                // No server tools are declared, so other block types aren't expected; keep their wire form.
+                default => json_decode(json_encode($block->toProperties(), JSON_THROW_ON_ERROR), true),
             };
             if ($block->type === 'text') {
                 $text .= $block->text;
