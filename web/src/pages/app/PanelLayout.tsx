@@ -27,6 +27,7 @@ export const PANEL_SECTIONS: PanelSection[] = [
     { label: 'Move a site here', icon: 'share', to: '/app/move' },
   ] },
   { id: 'account', label: 'Account', icon: 'gear', desc: 'Billing, team and settings', items: [
+    { label: 'AI assistant & MCP', icon: 'share', to: '/app/ai' },
     { label: 'Billing', icon: 'tag', to: '/app/billing' },
     { label: 'Settings & team', icon: 'user', to: '/app/account' },
   ] },
