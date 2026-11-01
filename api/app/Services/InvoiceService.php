@@ -104,9 +104,7 @@ class InvoiceService
             'amount_cents' => $subtotal + $tax, 'currency' => $currency, 'status' => 'open', 'due_at' => now()->addDays(14),
         ]);
         // The payment provider collects it (fake: paid at once; Stripe: invoice items, paid via webhook).
-        $charge = app(\App\Support\Payments::class)->for($org)->collect($org, $invoice);
-        $invoice->update(array_filter(['status' => $charge['status'] ?? 'open', 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
-            'paid_at' => ($charge['status'] ?? null) === 'paid' ? now() : null]));
+        $charge = $this->attempt($org, $invoice);
         $this->render($invoice);
         $invoice = $invoice->fresh();
         $emails = app(EmailTemplateService::class);
@@ -117,12 +115,71 @@ class InvoiceService
             'invoice_url' => $panel.'/app/billing',
         ]);
         if (in_array($invoice->status, ['failed', 'uncollectible', 'past_due'], true)) {
-            $emails->notifyOrganization($org->id, 'payment_failed', [
-                'amount' => $amount, 'reason' => (string) ($charge['error'] ?? 'The card was declined.'), 'retry_date' => now()->addDays(3)->toFormattedDateString(),
-            ]);
+            $this->notifyFailed($org, $invoice, $charge);
         }
 
         return $invoice;
+    }
+
+    /** Automatic collection attempts before an invoice is left to the customer, and the gap between them. */
+    public const MAX_ATTEMPTS = 3;
+
+    public const RETRY_DAYS = 3;
+
+    /**
+     * One collection attempt. A failure is retried RETRY_DAYS later, up to MAX_ATTEMPTS, for gateways
+     * the panel charges itself; Stripe retries its own invoices and reports back by webhook.
+     */
+    private function attempt(Organization $org, Invoice $invoice): array
+    {
+        $gateway = app(\App\Support\Payments::class)->for($org);
+        $invoice->forceFill(['collection_attempts' => $invoice->collection_attempts + 1])->saveQuietly();
+        $charge = $gateway->collect($org, $invoice);
+        $status = $charge['status'] ?? 'open';
+        $retry = $status === 'failed' && $gateway->name() !== 'stripe' && $invoice->collection_attempts < self::MAX_ATTEMPTS;
+        $invoice->update(array_filter(['status' => $status, 'provider_invoice_id' => $charge['provider_invoice_id'] ?? null,
+            'paid_at' => $status === 'paid' ? now() : null]) + ['next_attempt_at' => $retry ? now()->addDays(self::RETRY_DAYS) : null]);
+        if ($status === 'failed' && ! $retry) {
+            // No more automatic attempts: the account is past due until the customer pays.
+            \App\Models\Subscription::allTenants()->where('organization_id', $org->id)->whereIn('status', ['active'])->update(['status' => 'past_due']);
+        }
+
+        return $charge;
+    }
+
+    private function notifyFailed(Organization $org, Invoice $invoice, array $charge): void
+    {
+        $next = $invoice->next_attempt_at;
+        app(EmailTemplateService::class)->notifyOrganization($org->id, 'payment_failed', [
+            'amount' => self::money($invoice->amount_cents, $invoice->currency), 'reason' => (string) ($charge['error'] ?? 'The payment was declined.'),
+            'retry_date' => $next ? $next->toFormattedDateString() : 'no further automatic attempt',
+            'next_step' => $next ? 'We will try again on '.$next->toFormattedDateString().'.' : 'That was the last automatic attempt. Pay from your billing page to keep your sites running.',
+        ]);
+    }
+
+    /** Daily: retry failed invoices whose next attempt is due. Returns [retried, paid]. */
+    public function retryDue(): array
+    {
+        $retried = $paid = 0;
+        foreach (Invoice::allTenants()->where('status', 'failed')->whereNotNull('next_attempt_at')->where('next_attempt_at', '<=', now())->get() as $invoice) {
+            $org = Organization::find($invoice->organization_id);
+            if (! $org) {
+                continue;
+            }
+            app(\App\Support\Tenant::class)->as($org->id, function () use ($org, $invoice, &$retried, &$paid) {
+                $charge = $this->attempt($org, $invoice);
+                $retried++;
+                $invoice->refresh();
+                if ($invoice->status === 'paid') {
+                    $paid++;
+                    \App\Models\Subscription::where('status', 'past_due')->update(['status' => 'active']);
+                } elseif ($invoice->status === 'failed') {
+                    $this->notifyFailed($org, $invoice, $charge);
+                }
+            });
+        }
+
+        return [$retried, $paid];
     }
 
     /** Monthly run over every organisation that had a subscription or usage. */

@@ -190,7 +190,7 @@ class PayPalPaymentGateway implements PaymentGateway
         if (! $current) {
             return ['status' => 'open', 'provider_invoice_id' => null];
         }
-        $r = Http::withToken($this->token())->acceptJson()->timeout(20)->withHeaders(['PayPal-Request-Id' => 'dmp-'.$invoice->id])
+        $r = Http::withToken($this->token())->acceptJson()->timeout(20)->withHeaders(['PayPal-Request-Id' => 'dmp-'.$invoice->id.'-'.max(1, (int) $invoice->collection_attempts)])   // a retry is a new request
             ->post($this->base()."/v1/billing/subscriptions/{$current}/capture", [
                 'note' => 'Usage '.$invoice->number, 'capture_type' => 'OUTSTANDING_BALANCE',
                 'amount' => ['currency_code' => strtoupper($invoice->currency), 'value' => number_format($total / 100, 2, '.', '')],
