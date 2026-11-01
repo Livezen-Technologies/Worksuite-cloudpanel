@@ -421,7 +421,12 @@ HTML;
         $blocks = '';
         foreach ($codes as $page => $code) {
             $retryHeader = $code === 503 ? "    add_header Retry-After {$retry} always;\n" : '';
-            $blocks .= "  location = /__page/{$page} {\n{$retryHeader}    error_page {$code} = @{$page};\n    return {$code};\n  }\n  location @{$page} {\n{$retryHeader}    try_files /sites/\$host/{$page}.html /default/{$page}.html =404;\n  }\n";
+            // "error_page 403 @suspended" keeps the 403; writing it as
+            // "error_page 403 = @suspended" would take the status from the
+            // named location instead, and try_files serving a file there makes
+            // that a 200 - so a suspended site, a parked domain and a site in
+            // maintenance all answered OK to crawlers and uptime monitors.
+            $blocks .= "  location = /__page/{$page} {\n{$retryHeader}    error_page {$code} @{$page};\n    return {$code};\n  }\n  location @{$page} {\n{$retryHeader}    try_files /sites/\$host/{$page}.html /default/{$page}.html =404;\n  }\n";
         }
 
         return <<<CONF

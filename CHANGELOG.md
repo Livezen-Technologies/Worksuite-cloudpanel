@@ -11,6 +11,14 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- **Every branded page answered HTTP 200** (PUB-1, PUB-3). The generated nginx
+  config wrote `error_page 403 = @suspended`; the `=` hands the status to the
+  named location, and `try_files` serving a file there makes it a 200. So a
+  suspended site, a parked domain, a site in maintenance, one that was expired
+  and the not-found catch-all all reported OK — crawlers indexed suspended
+  sites and uptime monitors called them healthy. Dropping the `=` keeps each
+  page's own code (403, 404, 503, 402) while still serving the body and
+  `Retry-After`.
 - **Public pages were written unreadable, so every branded page answered 404**
   (PUB-4). The pages container runs nginx as its own unprivileged uid, but the
   agent's unit sets `UMask=0077`, which intersects the mode `fs.write` and
