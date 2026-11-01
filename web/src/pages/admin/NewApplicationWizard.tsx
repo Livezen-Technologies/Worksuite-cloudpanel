@@ -6,7 +6,7 @@ import type { Server } from '../../api/types'
 import { Field, Toggle } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { Icon } from '../../components/Icon'
-import { Modal } from '../../components/Overlay'
+import { WizardChecks, WizardChoice as Choice, WizardSection as Section, WizardShell } from '../../components/WizardShell'
 import Select from '../../components/Select'
 import { type R } from '../../lib/util'
 import { mergeEnv, parseDotEnv, type EnvRow } from './InstallWizard'
@@ -49,27 +49,7 @@ export function guessPort(image: string): number | null {
   return null
 }
 
-function Choice({ on, onClick, title, text, icon }: { on: boolean; onClick: () => void; title: string; text: string; icon?: string }) {
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick}
-      className={`relative card p-4 text-left cursor-pointer text-fg flex flex-col gap-1.5 transition-colors ${on ? '' : 'hover:border-[var(--muted)]'}`}
-      style={on ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)', background: 'var(--sel)' } : undefined}>
-      {icon && <span aria-hidden="true" className="grid place-items-center w-9 h-9 rounded-lg bg-head" style={{ color: 'var(--accent)' }}><Icon name={icon} size={18} /></span>}
-      <span className="font-semibold text-sm">{title}</span>
-      <span className="text-xs text-muted">{text}</span>
-      {on && <span aria-hidden="true" className="absolute top-2.5 right-2.5 grid place-items-center w-5 h-5 rounded-full text-white" style={{ background: 'var(--accent)' }}><Icon name="check" size={12} /></span>}
-    </button>
-  )
-}
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div><h3 className="m-0 text-[15px] font-semibold">{title}</h3>{hint && <p className="m-0 text-xs text-muted mt-0.5">{hint}</p>}</div>
-      {children}
-    </section>
-  )
-}
 
 function Rows({ rows, onChange, keyLabel, secret, addLabel }: { rows: (KV & { secret?: boolean })[]; onChange: (r: (KV & { secret?: boolean })[]) => void; keyLabel: string; secret?: boolean; addLabel: string }) {
   return (
@@ -87,18 +67,6 @@ function Rows({ rows, onChange, keyLabel, secret, addLabel }: { rows: (KV & { se
   )
 }
 
-function CheckList({ checks }: { checks: Check[] }) {
-  return (
-    <ul className="list-none m-0 p-0 flex flex-col gap-2" aria-label="Pre-deploy checks">
-      {checks.map((c) => (
-        <li key={c.key} className="flex items-start gap-2 text-sm">
-          <span aria-hidden="true" className={`mt-0.5 grid place-items-center w-5 h-5 rounded-full flex-none ${{ pass: 'bg-g-bg text-g-fg', warn: 'bg-y-bg text-y-fg', fail: 'bg-r-bg text-r-fg' }[c.status]}`}><Icon name={c.status === 'pass' ? 'check' : c.status === 'warn' ? 'warn' : 'close'} size={12} /></span>
-          <span><span className="font-semibold">{c.label}</span><span className="sr-only"> ({c.status})</span> <span className="text-muted">{c.message}</span></span>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 /**
  * New application: four steps (source, build, deploy, review). Values survive moving back and forth,
@@ -294,7 +262,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
           <Rows rows={buildArgs} onChange={(r) => setBuildArgs(r)} keyLabel="Build argument" addLabel="Add build argument" />
         </Section>
       </>}
-      {stepChecks('build').length > 0 && <div className="rounded-lg border border-line p-3"><CheckList checks={stepChecks('build')} /></div>}
+      {stepChecks('build').length > 0 && <div className="rounded-lg border border-line p-3"><WizardChecks label="Pre-deploy checks" checks={stepChecks('build')} /></div>}
     </div>,
 
     // 3 · Deploy & runtime
@@ -334,7 +302,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
         <div className="grid gap-3 sm:grid-cols-3">{STRATEGIES.map(([id, t, s]) => <Choice key={id} on={f.strategy === id} onClick={() => set('strategy', id)} title={t} text={s} />)}</div>
         {f.environment === 'production' && <div className="flex items-center gap-3"><Toggle checked={f.require_approval} onChange={(v: boolean) => set('require_approval', v)} label="Require approval for production" /><span className="text-sm">Require approval before production deploys</span></div>}
       </Section>
-      {stepChecks('deploy').length > 0 && <div className="rounded-lg border border-line p-3"><CheckList checks={stepChecks('deploy')} /></div>}
+      {stepChecks('deploy').length > 0 && <div className="rounded-lg border border-line p-3"><WizardChecks label="Pre-deploy checks" checks={stepChecks('deploy')} /></div>}
     </div>,
 
     // 4 · Review & create
@@ -350,7 +318,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
         {!pre ? <p className="m-0 text-sm text-muted">{checking ? 'Checking…' : 'Checks run when you reach this step.'}</p> : (
           <>
             <div className="flex items-center gap-2 text-sm font-semibold">{pre.ok ? <Badge tone="g">All checks passed</Badge> : <Badge tone="r">{pre.failed} must be fixed</Badge>}{pre.warnings > 0 && <Badge tone="y">{pre.warnings} warning{pre.warnings > 1 ? 's' : ''}</Badge>}{checking && <span className="text-muted font-normal">Re-checking…</span>}</div>
-            <CheckList checks={pre.checks} />
+            <WizardChecks label="Pre-deploy checks" checks={pre.checks} />
           </>
         )}
       </Section>
@@ -361,58 +329,12 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
 
   const last = step === STEPS.length - 1
   return (
-    <Modal open={open} onClose={close} title="Create new application" subtitle="Deploy from a repository, a Docker image or a compose stack." width={1120} fullOnMobile
-      footer={<div className="w-full flex items-center justify-between gap-2">
-        <button type="button" className="btn" onClick={close}>Cancel</button>
-        <span className="flex gap-2">
-          <button type="button" className="btn" disabled={step === 0 || busy} onClick={() => go(step - 1)}>Previous</button>
-          {last
-            ? <button type="button" className="btn btn-primary" disabled={busy || (pre ? !pre.ok : false)} onClick={create}>{busy ? 'Creating…' : f.deploy ? 'Create and deploy' : 'Create application'}</button>
-            : <button type="button" className="btn btn-primary" onClick={() => go(step + 1)}>Next: {STEPS[step + 1].label}</button>}
-        </span>
-      </div>}>
-      <div className="flex flex-col gap-5">
-        <ol className="list-none m-0 p-0 flex items-center" aria-label="Progress">
-          {STEPS.map((s, i) => {
-            const done = i < step
-            const cur = i === step
-            return (
-              <li key={s.id} className="flex items-center flex-1 last:flex-none min-w-0">
-                <button type="button" disabled={i > reach || busy} aria-current={cur ? 'step' : undefined} aria-label={`Step ${i + 1}: ${s.label}`} onClick={() => go(i)}
-                  className="flex items-center gap-2 bg-transparent border-0 p-0 cursor-pointer disabled:cursor-default min-w-0 text-fg">
-                  <span aria-hidden="true" className="flex flex-none items-center justify-center rounded-full text-xs font-bold w-7 h-7"
-                    style={{ background: done || cur ? 'var(--accent)' : 'var(--head)', color: done || cur ? '#fff' : 'var(--muted)', boxShadow: cur ? '0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent)' : 'inset 0 0 0 1px var(--line)' }}>
-                    {done ? <Icon name="check" size={13} /> : i + 1}
-                  </span>
-                  <span aria-hidden="true" className={`hidden md:block text-[13px] truncate ${cur ? 'font-semibold' : 'text-muted'}`}>{s.label}</span>
-                </button>
-                {i < STEPS.length - 1 && <span aria-hidden="true" className="flex-1 mx-2 h-[2px] rounded min-w-3" style={{ background: done ? 'var(--accent)' : 'var(--line)' }} />}
-              </li>
-            )
-          })}
-        </ol>
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="min-w-0 flex flex-col gap-5">
-            <div><div className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Step {step + 1} of {STEPS.length}</div><h3 className="m-0 text-lg font-semibold">{STEPS[step].label}</h3><p className="m-0 text-sm text-muted">{STEPS[step].hint}</p></div>
-            {content[step]}
-            {err && <div role="alert" className="text-sm font-semibold text-danger">{err}</div>}
-          </div>
-          <aside className="hidden lg:flex flex-col gap-4 rounded-lg border border-line p-4 self-start sticky top-0" aria-label="Configuration summary">
-            <div className="font-semibold">Configuration summary</div>
-            <ol className="list-none m-0 p-0 flex flex-col gap-1">
-              {STEPS.map((s, i) => (
-                <li key={s.id} className="flex gap-3 rounded-md p-2" style={i === step ? { background: 'var(--sel)' } : undefined}>
-                  <span aria-hidden="true" className="flex-none grid place-items-center w-6 h-6 rounded-full text-xs font-bold" style={{ background: i <= step ? 'var(--accent)' : 'var(--head)', color: i <= step ? '#fff' : 'var(--muted)' }}>{i < step ? <Icon name="check" size={11} /> : i + 1}</span>
-                  <span className="min-w-0"><span className="block text-[13px] font-semibold">{s.label}</span><span className="block text-xs text-muted">{s.hint}</span></span>
-                </li>
-              ))}
-            </ol>
-            <dl className="m-0 flex flex-col gap-1.5 border-t border-line pt-3 text-xs">
-              {summary.map(([k, v]) => <div key={k} className="flex justify-between gap-2"><dt className="text-muted">{k}</dt><dd className="m-0 font-medium text-right truncate max-w-[160px]" title={v}>{v}</dd></div>)}
-            </dl>
-          </aside>
-        </div>
-      </div>
-    </Modal>
+    <WizardShell open={open} onClose={close} title="Create new application" subtitle="Deploy from a repository, a Docker image or a compose stack."
+      steps={STEPS} step={step} reach={reach} onStep={go} summary={summary} error={err} busy={busy}
+      next={last
+        ? { label: busy ? 'Creating…' : f.deploy ? 'Create and deploy' : 'Create application', onClick: create, disabled: pre ? !pre.ok : false }
+        : { label: `Next: ${STEPS[step + 1].label}`, onClick: () => go(step + 1) }}>
+      {content[step]}
+    </WizardShell>
   )
 }
