@@ -61,7 +61,7 @@ class AuthController extends Controller
             // MFA-REC: a one-time recovery code stands in for a lost authenticator.
             if (! \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null)) {
                 if (! empty($data['otp'])) {
-                    \App\Support\SignInLock::fail($user->email, $user);
+                    \App\Support\SignInLock::fail($user->email, $user, 'two_factor');
                 }
                 throw new ApiException('unauthenticated', empty($data['otp']) ? 'Enter the code from your authenticator app, a recovery code, or use a passkey.' : 'The two-factor code is incorrect.', 401, ['otp' => ['A valid one-time code is required.']],
                     ['mfa_required' => true, 'passkey_available' => \App\Models\Passkey::where('user_id', $user->id)->exists()]);
@@ -123,7 +123,7 @@ class AuthController extends Controller
         if ($user->mfa_enabled && ! Totp::verify((string) $user->mfa_secret, $data['otp'] ?? null)
             && ! ($viaRecovery = \App\Support\RecoveryCodes::consume($user, $data['otp'] ?? null))) {
             if (! empty($data['otp'])) {
-                \App\Support\SignInLock::fail($user->email, $user);
+                \App\Support\SignInLock::fail($user->email, $user, 'two_factor');
             }
             $ticket = $data['ticket'] ?? \Illuminate\Support\Str::random(40);
             \Illuminate\Support\Facades\Cache::put('sso:ticket:'.$ticket, $user->id, now()->addMinutes(5));
