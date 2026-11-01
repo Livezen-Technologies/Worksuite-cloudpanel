@@ -173,6 +173,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('deployments/{id}', [Admin\DeploymentController::class, 'show'])->name('deployments.show');
     });
     Route::middleware('perm:deploy')->group(function () {
+        Route::post('applications/preflight', [Admin\ApplicationController::class, 'preflight'])->name('applications.preflight');
         Route::post('applications', [Admin\ApplicationController::class, 'store'])->name('applications.store');
         Route::patch('applications/{id}', [Admin\ApplicationController::class, 'update'])->name('applications.update');
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');

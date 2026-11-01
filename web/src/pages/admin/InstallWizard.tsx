@@ -12,7 +12,7 @@ import { Logo } from './Catalog'
 
 type Server = { id: string; name: string; status?: string; cpu_count?: number | null; memory_mb?: number | null }
 type Db = { id: string; name: string; engine: string; server_id: string | null; status?: string }
-type EnvRow = { key: string; value: string; secret: boolean }
+export type EnvRow = { key: string; value: string; secret: boolean }
 type Check = { key: string; step: string; status: 'pass' | 'warn' | 'fail'; label: string; message: string }
 type Preflight = { ok: boolean; failed: number; warnings: number; platform_domain: string; checks: Check[] }
 type Result = { resource_type: string; resource_id: string; job_id?: string | null; url?: string | null }

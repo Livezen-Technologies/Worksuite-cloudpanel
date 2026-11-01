@@ -17,6 +17,7 @@ import SystemServices from './pages/admin/SystemServices'
 import ServerDetail from './pages/admin/ServerDetail'
 import Containers from './pages/admin/Containers'
 import { Applications, Compose } from './pages/admin/Deploy'
+import DeploymentProgress from './pages/admin/DeploymentProgress'
 import { Images, Networks, Volumes, Domains, Databases } from './pages/admin/Resources'
 import { FileManager } from './pages/admin/FileManager'
 import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
@@ -98,6 +99,7 @@ export function AppRoutes() {
         <Route path="projects" element={<Projects />} />
         <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
+        <Route path="deployments/:id" element={<DeploymentProgress />} />
         <Route path="packages" element={<Packages />} />
         <Route path="customers" element={<Customers />} />
         <Route path="customers/:id" element={<CustomerProfile />} />
