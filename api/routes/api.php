@@ -457,6 +457,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('customers/{id}', [Admin\CustomerController::class, 'show'])->middleware('perm:users.manage|billing.manage')->name('customers.show');
     Route::post('customers/{id}/suspend', [Admin\CustomerController::class, 'suspend'])->middleware('perm:users.manage')->name('customers.suspend');
     Route::post('customers/{id}/members', [Admin\CustomerController::class, 'addMember'])->middleware('perm:users.manage')->name('customers.members.store');
+    Route::patch('customers/{id}/members/{userId}', [Admin\CustomerController::class, 'updateMember'])->middleware('perm:users.manage')->name('customers.members.update');
+    Route::delete('customers/{id}/members/{userId}', [Admin\CustomerController::class, 'removeMember'])->middleware('perm:users.manage')->name('customers.members.destroy');
     Route::post('customers/{id}/close', [Admin\CustomerController::class, 'close'])->middleware('perm:users.manage')->name('customers.close');
     Route::post('customers/{id}/members/{userId}/password-reset', [Admin\CustomerController::class, 'sendPasswordReset'])->middleware('perm:users.manage')->name('customers.password-reset');
     Route::post('customers/{id}/impersonate', [Admin\CustomerController::class, 'impersonate'])->middleware('perm:users.manage')->name('customers.impersonate');

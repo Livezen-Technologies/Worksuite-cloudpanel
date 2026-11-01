@@ -236,6 +236,58 @@ class CustomerController extends Controller
         return $this->data($member, 201);
     }
 
+    private function membership(Organization $org, string $userId): \App\Models\Membership
+    {
+        return \App\Models\Membership::allTenants()->where('organization_id', $org->id)->where('user_id', $userId)->first()
+            ?? throw new \App\Exceptions\ApiException('not_found', 'That person is not a member of this customer.', 404);
+    }
+
+    private function assertNotLastOwner(Organization $org, \App\Models\Membership $m): void
+    {
+        if ($m->role !== 'owner') {
+            return;
+        }
+        $owners = \App\Models\Membership::allTenants()->where('organization_id', $org->id)->where('role', 'owner')->where('status', 'active')->count();
+        if ($m->status === 'active' && $owners <= 1) {
+            throw \App\Exceptions\ApiException::conflict('This is the only owner. Make someone else an owner first.');
+        }
+    }
+
+    /** CUS-8: change a member's role (customer-level roles only; the last owner stays an owner). */
+    public function updateMember(Request $request, string $id, string $userId)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $platformRoles = array_merge(array_keys(array_filter(config('rbac.roles'), fn ($r) => ($r['scope'] ?? '') === 'platform')),
+            \App\Models\Role::where('scope', 'platform')->pluck('name')->all(), ['super_admin']);
+        $d = $request->validate(['role' => ['required', 'exists:roles,name', \Illuminate\Validation\Rule::notIn($platformRoles)]]);
+        $m = $this->membership($org, $userId);
+        if ($m->role === $d['role']) {
+            return $this->data(['user_id' => $userId, 'role' => $m->role]);
+        }
+        $this->assertNotLastOwner($org, $m);
+        $from = $m->role;
+        $m->update(['role' => $d['role']]);
+        app(\App\Services\AuditLogger::class)->log('customer.member_role_changed', 'users', $userId, ['from' => $from, 'to' => $d['role'], 'by' => $request->user()->email], $org->id);
+
+        return $this->data(['user_id' => $userId, 'role' => $m->role]);
+    }
+
+    /** CUS-8: remove a member from the customer; their sessions for this customer end. */
+    public function removeMember(Request $request, string $id, string $userId)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $m = $this->membership($org, $userId);
+        $this->assertNotLastOwner($org, $m);
+        $email = \App\Models\User::find($userId)?->email;
+        $m->delete();
+        \App\Models\AccessToken::where('organization_id', $org->id)->where('tokenable_id', $userId)->delete();
+        app(\App\Services\AuditLogger::class)->log('customer.member_removed', 'users', $userId, ['email' => $email, 'role' => $m->role, 'by' => $request->user()->email], $org->id);
+
+        return response()->noContent();
+    }
+
     /** CUS-4: email a member of the customer a password-reset link (when they are locked out and ask support). */
     public function sendPasswordReset(Request $request, string $id, string $userId)
     {

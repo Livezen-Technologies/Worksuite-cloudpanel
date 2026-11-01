@@ -29,6 +29,7 @@ export default function CustomerProfile() {
   const [asCustomer, setAsCustomer] = useState(false)
   const [closing, setClosing] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<R | null>(null)
   const [closeForm, setCloseForm] = useState({ reason: '', confirm: '' })
   const [why, setWhy] = useState('')
   const [asErr, setAsErr] = useState<string | null>(null)
@@ -90,7 +91,11 @@ export default function CustomerProfile() {
         </>}
         {tab === 'members' && <DataTable label="Members" tableId="customer-members" rows={(c.members ?? []) as R[]} rowKey={(r) => String(r.id)}
           toolbar={closed ? undefined : <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>Add member</button>}
-          actions={(r) => closed ? [] : [{ label: 'Send password reset', icon: 'refresh', onClick: () => run({ path: `/customers/${id}/members/${r.id}/password-reset`, label: 'Send password reset', success: `Reset link sent to ${r.email}` }).catch(() => {}) }]}
+          actions={(r) => closed ? [] : [
+            { label: 'Change role', icon: 'pencil', onClick: () => setEditing(r) },
+            { label: 'Send password reset', icon: 'refresh', onClick: () => run({ path: `/customers/${id}/members/${r.id}/password-reset`, label: 'Send password reset', success: `Reset link sent to ${r.email}` }).catch(() => {}) },
+            { label: 'Remove from customer', icon: 'trash', danger: true, onClick: () => { if (window.confirm(`Remove ${r.email} from ${c.name}? They are signed out of this customer.`)) run({ method: 'DELETE', path: `/customers/${id}/members/${r.id}`, label: 'Remove member', success: `${r.email} removed` }).then(() => refetch()).catch(() => {}) } },
+          ]}
           columns={[
             { key: 'name', header: 'Name', render: (r) => <div><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div> },
             { key: 'role', header: 'Role', render: (r) => <Badge tone="n">{String(r.role).replace(/_/g, ' ')}</Badge> },
@@ -157,6 +162,12 @@ export default function CustomerProfile() {
         ]}
         onSubmit={(v) => run({ path: `/customers/${id}/members`, body: v, label: 'Add member', success: `Invitation sent to ${String(v.email)}` }).then(() => refetch())}>
         <p className="m-0 text-sm text-muted">They get an email to set a password and join {String(c.name)}. Only customer roles can be given here.</p>
+      </FormModal>
+      <FormModal open={!!editing} onClose={() => setEditing(null)} title={`Change role for ${String(editing?.email ?? '')}`} submitLabel="Save role"
+        initial={{ role: String(editing?.role ?? 'developer') }}
+        fields={[{ name: 'role', label: 'Role', type: 'select', required: true, options: [{ value: 'owner', label: 'Owner' }, { value: 'developer', label: 'Developer' }, { value: 'billing', label: 'Billing manager' }] }]}
+        onSubmit={(v) => run({ method: 'PATCH', path: `/customers/${id}/members/${editing?.id}`, body: v, label: 'Change role', success: 'Role updated' }).then(() => { setEditing(null); refetch() })}>
+        <p className="m-0 text-sm text-muted">A customer always keeps at least one owner.</p>
       </FormModal>
       <Modal open={closing} onClose={() => setClosing(false)} title={`Close ${c.name}?`}
         footer={<><button type="button" className="btn" onClick={() => setClosing(false)}>Cancel</button>
