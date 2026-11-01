@@ -131,6 +131,21 @@ class CronEngineTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_repeat_failure_alerts_are_held_until_the_job_succeeds(): void
+    {
+        [$org, $token, $secret, $app] = $this->setUpApp();
+        $mail = $this->spy(\App\Services\EmailTemplateService::class);
+        $job = $this->job($token, ['application_id' => $app->id, 'command' => 'false']);
+        $run = fn (int $exit) => [$this->api($token)->postJson("/api/v1/app/cron/{$job['id']}/run")->assertStatus(202), $this->finish($secret, $exit)];
+
+        $run(1); $run(1); $run(1);
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $k === 'alert' && str_contains($v['title'], 'failed'))->once();
+
+        $run(0);   // a success releases the hold: the next failure is news again
+        $run(1);
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $k === 'alert' && str_contains($v['title'], 'failed'))->twice();
+    }
+
     public function test_long_running_runs_alert_once(): void
     {
         [$org, $token, , $app] = $this->setUpApp();
