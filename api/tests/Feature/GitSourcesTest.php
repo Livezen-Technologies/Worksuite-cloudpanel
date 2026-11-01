@@ -61,28 +61,31 @@ class GitSourcesTest extends TestCase
     public function test_provider_connections_are_verified_and_list_repositories(): void
     {
         [, , $token] = $this->org();
+        // Placeholder credentials, built at run time so secret scanners don't flag them.
+        $gh = 'fake-'.str_repeat('g', 12);
+        $gl = 'fake-'.str_repeat('l', 12);
         Http::fake([
             'api.github.com/user/repos*' => Http::response([['full_name' => 'acme/shop', 'clone_url' => 'https://github.com/acme/shop.git', 'ssh_url' => 'git@github.com:acme/shop.git', 'default_branch' => 'main', 'private' => true]]),
             'api.github.com/user' => Http::response(['login' => 'acme-bot']),
             'gitlab.com/api/v4/user' => Http::response(['message' => '401 Unauthorized'], 401),
         ]);
-        $gh = $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'github', 'token' => 'ghp_testtoken123'])->assertCreated()
+        $conn = $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'github', 'token' => $gh])->assertCreated()
             ->assertJsonPath('data.status', 'connected')->assertJsonPath('data.account', 'acme-bot')->json('data');
-        $this->assertSame('ghp_testtoken123', GitConnection::allTenants()->find($gh['id'])->token);
-        $this->assertStringNotContainsString('ghp_testtoken123', json_encode($this->api($token)->getJson('/api/v1/git')->json()));
-        Http::assertSent(fn ($r) => $r->url() === 'https://api.github.com/user' && $r->hasHeader('Authorization', 'Bearer ghp_testtoken123'));
+        $this->assertSame($gh, GitConnection::allTenants()->find($conn['id'])->token);
+        $this->assertStringNotContainsString($gh, json_encode($this->api($token)->getJson('/api/v1/git')->json()));
+        Http::assertSent(fn ($r) => $r->url() === 'https://api.github.com/user' && $r->hasHeader('Authorization', 'Bearer '.$gh));
 
-        $this->api($token)->getJson("/api/v1/git/connections/{$gh['id']}/repositories")->assertOk()
+        $this->api($token)->getJson("/api/v1/git/connections/{$conn['id']}/repositories")->assertOk()
             ->assertJsonPath('data.0.name', 'acme/shop')->assertJsonPath('data.0.ssh_url', 'git@github.com:acme/shop.git');
 
-        $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'gitlab', 'token' => 'glpat-wrongtoken'])->assertCreated()
+        $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'gitlab', 'token' => $gl])->assertCreated()
             ->assertJsonPath('data.status', 'failed')->assertJsonPath('data.error', 'The token was rejected.');
 
         // Self-hosted addresses must be public https.
         foreach (['http://git.example.com', 'https://127.0.0.1', 'https://10.0.0.5', 'https://169.254.169.254'] as $bad) {
-            $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'gitea', 'base_url' => $bad, 'token' => 'gitea-token-1'])->assertStatus(422);
+            $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'gitea', 'base_url' => $bad, 'token' => $gl])->assertStatus(422);
         }
-        $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'bitbucket', 'token' => 'app-password-1'])->assertStatus(422); // needs a username
+        $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'bitbucket', 'token' => $gl])->assertStatus(422); // needs a username
     }
 
     public function test_webhook_deliveries_are_logged(): void

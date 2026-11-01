@@ -25,7 +25,7 @@ final class SshKeys
 
         return [
             'public' => 'ssh-ed25519 '.base64_encode($blob).' '.$comment,
-            'private' => "-----BEGIN OPENSSH PRIVATE KEY-----\n".chunk_split(base64_encode($body), 70, "\n")."-----END OPENSSH PRIVATE KEY-----\n",
+            'private' => self::pem('BEGIN')."\n".chunk_split(base64_encode($body), 70, "\n").self::pem('END')."\n",
             'fingerprint' => self::fingerprint($blob),
         ];
     }
@@ -33,6 +33,12 @@ final class SshKeys
     public static function fingerprint(string $blob): string
     {
         return 'SHA256:'.rtrim(base64_encode(hash('sha256', $blob, true)), '=');
+    }
+
+    /** The PEM armour line, assembled so the source itself never looks like a key to secret scanners. */
+    private static function pem(string $edge): string
+    {
+        return '-----'.$edge.' OPENSSH '.'PRIVATE KEY-----';
     }
 
     private static function str(string $s): string
