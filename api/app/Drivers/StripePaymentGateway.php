@@ -114,6 +114,22 @@ class StripePaymentGateway implements PaymentGateway
         ])->url;
     }
 
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string
+    {
+        if (! str_starts_with((string) $invoice->provider_invoice_id, 'in_')) {
+            throw ApiException::conflict('Stripe has no payment for this invoice. Refund it outside the panel and record a credit note by hand.');
+        }
+        $stripeInvoice = $this->client()->invoices->retrieve($invoice->provider_invoice_id);
+        $target = ($pi = $stripeInvoice->payment_intent ?? null) ? ['payment_intent' => is_string($pi) ? $pi : $pi->id]
+            : (($ch = $stripeInvoice->charge ?? null) ? ['charge' => is_string($ch) ? $ch : $ch->id] : null);
+        if (! $target) {
+            throw ApiException::conflict('Stripe has no payment for this invoice yet.');
+        }
+
+        return $this->client()->refunds->create($target + ['amount' => $amountCents, 'reason' => 'requested_by_customer',
+            'metadata' => ['dmp_invoice_id' => $invoice->id, 'note' => mb_substr($reason, 0, 400)]])->id;
+    }
+
     public function cancel(Organization $organization, string $subscriptionId): void
     {
         // At period end: the customer keeps what they paid for; Stripe sends subscription.deleted then.

@@ -42,6 +42,8 @@ class StripeTest extends TestCase
                     $path === '/v1/subscriptions' => ['id' => 'sub_1Fixture', 'object' => 'subscription', 'status' => 'incomplete'],
                     str_starts_with($path, '/v1/subscriptions/') => ['id' => basename($path), 'object' => 'subscription', 'status' => 'active', 'items' => ['object' => 'list', 'data' => [['id' => 'si_1', 'object' => 'subscription_item']]]],
                     str_starts_with($path, '/v1/setup_intents/') => ['id' => 'seti_1Fixture', 'object' => 'setup_intent', 'payment_method' => 'pm_456'],
+                    str_starts_with($path, '/v1/invoices/') => ['id' => basename($path), 'object' => 'invoice', 'payment_intent' => 'pi_123'],
+                    $path === '/v1/refunds' => ['id' => 're_123', 'object' => 'refund', 'status' => 'succeeded'],
                     $path === '/v1/invoiceitems' => ['id' => 'ii_'.count($this->requests), 'object' => 'invoiceitem'],
                     default => ['error' => ['message' => 'unexpected '.$path]],
                 };
@@ -167,5 +169,19 @@ class StripeTest extends TestCase
         $this->api($token)->postJson('/api/v1/app/billing/plan', ['plan' => 'standard'])->assertOk();
         $resume = collect($this->http->requests)->last(fn ($r) => $r[0] === 'post' && $r[1] === '/v1/subscriptions/sub_1Live');
         $this->assertSame('false', (string) $resume[2]['cancel_at_period_end'], 'changing plan resumes the subscription');
+    }
+
+    public function test_a_refund_goes_to_the_stripe_payment_of_the_invoice(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        [, , $staff] = $this->org('super_admin');
+        [, $org] = $this->org();
+        $inv = app(Tenant::class)->as($org->id, fn () => Invoice::create(['number' => 'INV-S-1', 'period_start' => '2026-10-01', 'period_end' => '2026-10-31', 'amount_cents' => 1000,
+            'currency' => 'EUR', 'status' => 'paid', 'provider_invoice_id' => 'in_1Paid', 'line_items' => []]));
+        app(Tenant::class)->set(null);
+        $this->api($staff)->postJson("/api/v1/customers/{$org->id}/invoices/{$inv->id}/refund", ['amount_cents' => 400, 'reason' => 'Goodwill'])->assertCreated();
+        $refund = collect($this->http->requests)->first(fn ($r) => $r[1] === '/v1/refunds');
+        $this->assertSame(['pi_123', 400], [$refund[2]['payment_intent'], $refund[2]['amount']]);
+        $this->assertSame('re_123', Invoice::allTenants()->where('credit_for_id', $inv->id)->value('provider_invoice_id'));
     }
 }

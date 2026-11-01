@@ -127,7 +127,8 @@ class CustomerController extends Controller
             'projects' => DB::table('projects')->where('organization_id', $org->id)->orderBy('name')->get(['id', 'name', 'created_at']),
             'domains' => $domains,
             'invoices' => DB::table('invoices')->where('organization_id', $org->id)->orderByDesc('period_start')->limit(24)
-                ->get(['id', 'number', 'period_start', 'period_end', 'amount_cents', 'currency', 'status', 'pdf_url']),
+                ->get(['id', 'number', 'kind', 'period_start', 'period_end', 'amount_cents', 'refunded_cents', 'currency', 'status', 'pdf_url'])
+                ->map(fn ($i) => array_merge((array) $i, ['pdf_url' => app(\App\Services\InvoiceService::class)->signedPdfUrl(\App\Models\Invoice::allTenants()->find($i->id))])),
             'activity' => DB::table('audit_logs')->where('organization_id', $org->id)->orderByDesc('id')->limit(50)
                 ->get(['id', 'actor', 'action', 'resource_type', 'ip', 'created_at']),
         ]);
@@ -286,6 +287,18 @@ class CustomerController extends Controller
         app(\App\Services\AuditLogger::class)->log('customer.member_removed', 'users', $userId, ['email' => $email, 'role' => $m->role, 'by' => $request->user()->email], $org->id);
 
         return response()->noContent();
+    }
+
+    /** BIL-REF: refund part or all of a customer's paid invoice; issues a credit note. */
+    public function refund(Request $request, string $id, string $invoiceId)
+    {
+        $this->staffOnly($request);
+        $org = Organization::findOrFail($id);
+        $invoice = \App\Models\Invoice::allTenants()->where('organization_id', $org->id)->findOrFail($invoiceId);
+        $d = $request->validate(['amount_cents' => 'nullable|integer|min:1', 'reason' => 'required|string|min:3|max:300']);
+        $credit = app(\App\Support\Tenant::class)->as($org->id, fn () => app(\App\Services\InvoiceService::class)->refund($invoice, $d['amount_cents'] ?? null, $d['reason'], $request->user()->id));
+
+        return $this->data(app(\App\Services\BillingService::class)->invoiceApi($credit), 201);
     }
 
     /** CUS-4: email a member of the customer a password-reset link (when they are locked out and ask support). */

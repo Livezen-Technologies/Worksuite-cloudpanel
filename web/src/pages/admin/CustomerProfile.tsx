@@ -121,9 +121,19 @@ export default function CustomerProfile() {
             { key: 'created_at', header: 'Added', value: (r) => String(r.created_at ?? ''), render: (r) => ago(String(r.created_at)) },
           ]} />}
         {tab === 'billing' && <DataTable label="Invoices" tableId="customer-invoices" rows={(c.invoices ?? []) as R[]} rowKey={(r) => String(r.id)} empty="No invoices yet."
-          actions={(r) => r.pdf_url ? [{ label: `Download ${r.number}`, icon: 'download', onClick: () => window.open(String(r.pdf_url), '_blank', 'noopener') }] : []}
+          actions={(r) => [
+            ...(r.pdf_url ? [{ label: `Download ${r.number}`, icon: 'download', onClick: () => window.open(String(r.pdf_url), '_blank', 'noopener') }] : []),
+            ...((r.kind ?? 'invoice') === 'invoice' && r.status === 'paid' ? [{ label: 'Refund', icon: 'refresh', onClick: () => {
+              const left = (Number(r.amount_cents) - Number(r.refunded_cents ?? 0)) / 100
+              const amount = window.prompt(`Refund how much of ${r.number}? Up to ${left.toFixed(2)} ${r.currency}. Leave as is for the full remaining amount.`, left.toFixed(2))
+              if (amount === null) return
+              const reason = window.prompt('Reason (shown to the customer on the credit note and email):')
+              if (!reason || reason.trim().length < 3) return
+              run({ path: `/customers/${id}/invoices/${r.id}/refund`, body: { amount_cents: Math.round(Number(amount) * 100), reason: reason.trim() }, label: 'Refund invoice', success: 'Refunded; credit note issued' }).then(() => refetch()).catch(() => {})
+            } }] : []),
+          ]}
           columns={[
-            { key: 'number', header: 'Invoice', render: (r) => <span className="font-mono text-xs">{r.number}</span> },
+            { key: 'number', header: 'Invoice', render: (r) => <span className="font-mono text-xs">{r.number}{r.kind === 'credit_note' && <Badge tone="b">credit note</Badge>}{Number(r.refunded_cents) > 0 && r.kind !== 'credit_note' && <span className="block text-muted">refunded {money(r.refunded_cents, r.currency)}</span>}</span> },
             { key: 'period', header: 'Period', value: (r) => String(r.period_start), render: (r) => `${r.period_start} – ${r.period_end}` },
             { key: 'amount', header: 'Amount', align: 'right', value: (r) => Number(r.amount_cents), render: (r) => money(r.amount_cents, r.currency) },
             { key: 'status', header: 'Status', render: (r) => <StatusBadge status={String(r.status)} /> },

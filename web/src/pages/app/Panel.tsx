@@ -277,7 +277,7 @@ export function Billing() {
           <ul className="list-none m-0 p-0">
             {invoices.rows.map((iv) => (
               <li key={iv.id ?? iv.number} className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-line first:border-t-0 text-sm">
-                <span className="font-mono font-semibold">{iv.number}</span>
+                <span className="font-mono font-semibold">{iv.number}{iv.kind === 'credit_note' && <Badge tone="b">credit note</Badge>}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{iv.period ?? iv.period_label}</span>
                 <span className="font-semibold" title={iv.tax_cents ? `incl. ${money(num(iv.tax_cents) / 100, iv.currency)} tax` : undefined}>{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
                 <StatusBadge status={iv.status} />

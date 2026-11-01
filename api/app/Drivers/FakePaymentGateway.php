@@ -44,6 +44,11 @@ class FakePaymentGateway implements PaymentGateway
         return 'https://billing.example.com/portal/'.($organization->payment_customer_id ?: 'setup');
     }
 
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string
+    {
+        return 'rf_fake_'.Str::random(10);
+    }
+
     public function cancel(Organization $organization, string $subscriptionId): void {}
 
     public function collect(Organization $organization, Invoice $invoice): array

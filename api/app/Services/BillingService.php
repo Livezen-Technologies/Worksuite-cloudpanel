@@ -220,6 +220,7 @@ class BillingService
             'period_start' => $invoice->period_start->toDateString(), 'period_end' => $invoice->period_end->toDateString(),
             'period' => $invoice->period_start->format('M Y'),
             'amount_cents' => $invoice->amount_cents, 'currency' => $invoice->currency, 'status' => $invoice->status,
+            'kind' => $invoice->kind ?? 'invoice', 'credit_for_id' => $invoice->credit_for_id, 'refunded_cents' => (int) $invoice->refunded_cents,
             'subtotal_cents' => $invoice->subtotal_cents, 'tax_cents' => $invoice->tax_cents, 'tax_rate' => (float) $invoice->tax_rate,
             'line_items' => $invoice->line_items ?? [],
             'paid_at' => $invoice->paid_at?->toIso8601ZuluString(),

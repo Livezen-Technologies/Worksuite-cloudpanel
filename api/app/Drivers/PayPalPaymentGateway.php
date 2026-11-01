@@ -157,6 +157,20 @@ class PayPalPaymentGateway implements PaymentGateway
         return Cache::get("paypal.approve.{$organization->id}") ?? throw ApiException::conflict('PayPal returned no approval link.');
     }
 
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string
+    {
+        if (! $invoice->provider_invoice_id) {
+            throw ApiException::conflict('PayPal has no payment for this invoice. Refund it in PayPal and record a credit note by hand.');
+        }
+        // A subscription capture is a "sale" in PayPal's v1 payments API.
+        $r = $this->api('post', "/v1/payments/sale/{$invoice->provider_invoice_id}/refund", [
+            'amount' => ['total' => number_format($amountCents / 100, 2, '.', ''), 'currency' => strtoupper($invoice->currency)],
+            'description' => mb_substr($reason, 0, 255),
+        ])->json();
+
+        return $r['id'] ?? null;
+    }
+
     public function cancel(Organization $organization, string $subscriptionId): void
     {
         // PayPal stops future charges; the current period is already paid.

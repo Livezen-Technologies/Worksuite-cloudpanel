@@ -28,6 +28,9 @@ interface PaymentGateway
      */
     public function collect(Organization $organization, Invoice $invoice): array;
 
+    /** Refund part or all of a collected invoice; returns the provider's refund id. */
+    public function refund(Organization $organization, Invoice $invoice, int $amountCents, string $reason): ?string;
+
     /** Stop renewing a subscription; the period already paid for runs to its end. */
     public function cancel(Organization $organization, string $subscriptionId): void;
 }

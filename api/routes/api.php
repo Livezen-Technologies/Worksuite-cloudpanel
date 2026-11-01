@@ -467,6 +467,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('customers/{id}/members/{userId}/password-reset', [Admin\CustomerController::class, 'sendPasswordReset'])->middleware('perm:users.manage')->name('customers.password-reset');
     Route::post('customers/{id}/impersonate', [Admin\CustomerController::class, 'impersonate'])->middleware('perm:users.manage')->name('customers.impersonate');
     Route::post('customers/{id}/reactivate', [Admin\CustomerController::class, 'reactivate'])->middleware('perm:users.manage')->name('customers.reactivate');
+    Route::post('customers/{id}/invoices/{invoiceId}/refund', [Admin\CustomerController::class, 'refund'])->middleware('perm:billing.manage')->name('customers.invoices.refund');
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
 
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');
