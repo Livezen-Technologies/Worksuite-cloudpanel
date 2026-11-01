@@ -211,6 +211,11 @@ class DomainService
                 $ok ? $renewed++ : $failed++;
                 if (! $ok && $old->expires_at->isFuture()) {
                     $domain->update(['https_status' => 'active']);
+                    // Tell the customer once a day while it keeps failing; the reason says what to fix.
+                    $reason = $new?->last_error ? 'The last attempt failed: '.$new->last_error : 'Automatic renewal did not succeed. Check that DNS still points at the platform.';
+                    app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                        'domain' => $domain->name, 'days' => (string) max(0, (int) now()->diffInDays($old->expires_at)), 'reason' => $reason,
+                    ], $domain->id, 1440);
                 }
                 app(\App\Services\AuditLogger::class)->log($ok ? 'certificate.renewed' : 'certificate.renewal_failed', 'domains', $domain->id,
                     ['domain' => $domain->name, 'expires_at' => $old->expires_at->toIso8601ZuluString()], $domain->organization_id, null, 'system');

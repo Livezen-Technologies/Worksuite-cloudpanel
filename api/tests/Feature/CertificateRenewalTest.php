@@ -68,4 +68,26 @@ class CertificateRenewalTest extends TestCase
         $this->assertSame('active', $row['certificate']['status'], 'the valid certificate still shows after a failed attempt');
         $this->assertSame('fake-letsencrypt', $row['certificate']['issuer']);
     }
+
+    public function test_a_failed_renewal_still_raises_the_ssl_alert_and_emails_the_customer(): void
+    {
+        [, $org] = $this->org();
+        $this->app->instance(CertificateIssuer::class, new class implements CertificateIssuer {
+            public function issue(Domain $domain, array $names, string $challenge): array { throw new \RuntimeException('CAA record forbids letsencrypt.org'); }
+        });
+        $d = $this->domainWithCert($org, 5);
+        $emails = \Mockery::mock(\App\Services\EmailTemplateService::class);
+        $emails->shouldReceive('notifyOrganization')->once()->withArgs(fn ($o, $key, $vars, $dedupe) => $o === $org->id && $key === 'certificate_expiring'
+            && str_contains($vars['reason'], 'CAA record') && $dedupe === $d->id)->andReturn(1);
+        $this->app->instance(\App\Services\EmailTemplateService::class, $emails);
+
+        $this->artisan('certificates:renew')->assertSuccessful();
+
+        $alerts = app(\App\Services\AlertService::class);
+        app(Tenant::class)->as($org->id, function () use ($alerts, $org, $d) {
+            $alerts->seedDefaults($org);
+            $rule = \App\Models\AlertRule::where('metric', 'ssl_expiry')->firstOrFail();
+            $this->assertTrue($alerts->evaluate($rule)[$d->id][0], 'the old certificate still counts after the failed attempt');
+        });
+    }
 }
