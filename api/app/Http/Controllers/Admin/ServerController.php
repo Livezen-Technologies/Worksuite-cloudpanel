@@ -102,6 +102,12 @@ class ServerController extends Controller
         $server->environment === 'production'
             ? $approvals->gate($request->user(), 'production.delete', 'server.delete', $server, [], $request->input('approval_id'))
             : $this->authorizeFor($request, 'servers.manage');
+        // Deleting removes its volume records and strands its apps and databases: refuse while anything lives there.
+        $left = app(\App\Services\ServerDrainService::class)->residents($server);
+        if ($left['apps'] || $left['databases']) {
+            throw \App\Exceptions\ApiException::conflict(sprintf('%s still runs %d app(s) and %d database(s). Drain it first, then move databases and apps with data volumes with a backup and restore.',
+                $server->name, count($left['apps']), count($left['databases'])), ['residents' => $left]);
+        }
         $server->delete();
 
         return response()->noContent();
@@ -112,6 +118,20 @@ class ServerController extends Controller
         $data = $request->validate(['server_id' => 'required|uuid']);
 
         return $this->data($this->servers->createEnrollment(Server::findOrFail($data['server_id'])), 201);
+    }
+
+    /** Move this server's stateless apps elsewhere and list what has to be moved by hand. */
+    public function drain(Request $request, string $id)
+    {
+        $server = Server::findOrFail($id);
+        $this->authorizeFor($request, 'servers.manage');
+
+        return $this->data(app(\App\Services\ServerDrainService::class)->drain($server, $request->user()));
+    }
+
+    public function residents(string $id)
+    {
+        return $this->data(app(\App\Services\ServerDrainService::class)->residents(Server::findOrFail($id)));
     }
 
     public function maintenance(Request $request, string $id)

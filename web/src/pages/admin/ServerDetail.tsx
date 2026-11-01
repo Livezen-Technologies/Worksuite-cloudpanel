@@ -29,6 +29,11 @@ export default function ServerDetail() {
   const { item: s, isLoading } = useOne<Server>(`/servers/${id}`, undefined, { refetchInterval: 15000 })
   const { run, busy } = useAction()
   const [confirmDel, setConfirmDel] = useState(false)
+  const [drainOpen, setDrainOpen] = useState(false)
+  const [drained, setDrained] = useState<{ moving: { name: string }[]; kept: { name: string; reason: string }[] } | null>(null)
+  // What still lives on the server: drain moves stateless apps; the rest is moved with a backup and restore.
+  const residents = useOne<{ apps: { name: string; stateful: boolean }[]; databases: { name: string }[]; volumes: number }>(id ? `/servers/${id}/residents` : null, undefined, { refetchInterval: 30000 })
+  const left = residents.item ? residents.item.apps.length + residents.item.databases.length : 0
   const [edit, setEdit] = useState<R | null>(null)
   const containers = useList<Container>(`/servers/${id}/containers`)
   const metrics = useOne<R>(tab === 'Monitoring' || tab === 'Overview' ? '/metrics' : null, { server_id: id, range: '6h' })
@@ -46,7 +51,14 @@ export default function ServerDetail() {
             {s.status === 'maintenance' ? 'End maintenance' : 'Maintenance mode'}
           </button>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/agent/restart`, label: `Restart agent on ${s.name}` })}>Restart agent</button>
+          <button type="button" className="btn" disabled={busy || !left} title={left ? undefined : 'Nothing runs here'} onClick={() => setDrainOpen(true)}>Drain server</button>
         </>} />
+      {drained && (
+        <div role="status" className="card p-3 text-sm flex flex-col gap-1">
+          <span className="font-semibold">{drained.moving.length ? `Moving ${drained.moving.length} app(s): ${drained.moving.map((m) => m.name).join(', ')}. Follow them on the Applications page.` : 'No app could be moved automatically.'}</span>
+          {drained.kept.map((k) => <span key={k.name} className="text-muted"><span className="font-semibold text-fg">{k.name}</span>: {k.reason}</span>)}
+        </div>
+      )}
       {s.status === 'maintenance' && <div className="card p-3 text-sm" style={{ background: 'var(--b-bg)', color: 'var(--b-fg)' }}>Maintenance mode is on: new deployments to this server are blocked.</div>}
       <Tabs tabs={TABS.map((t) => ({ id: t, label: t }))} value={tab} onChange={setTab} label="Server sections" />
 
@@ -137,6 +149,15 @@ export default function ServerDetail() {
       <ConfirmDialog open={confirmDel} onClose={() => setConfirmDel(false)} danger confirmText={s.name} confirmLabel="Remove server" title={`Remove ${s.name}?`} busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/servers/${s.id}`, label: `Remove ${s.name}`, success: 'Server removed' }).then(() => nav('/admin/servers')).catch(() => {})}>
         <p className="m-0">The agent is disconnected and the server leaves the fleet. This cannot be undone.</p>
+        {left > 0 && <p className="m-0 font-semibold text-danger">{left} app(s) or database(s) still run here. Drain the server and move the rest first; removing is refused until it is empty.</p>}
+      </ConfirmDialog>
+      <ConfirmDialog open={drainOpen} onClose={() => setDrainOpen(false)} confirmLabel="Drain server" title={`Drain ${s.name}?`} busy={busy}
+        onConfirm={() => run<{ data?: { moving: { name: string }[]; kept: { name: string; reason: string }[] } }>({ path: `/servers/${s.id}/drain`, label: `Drain ${s.name}`, success: 'Drain started' }).then((r) => { setDrained(r?.data ?? null); setDrainOpen(false); residents.refetch() }).catch(() => {})}>
+        <p className="m-0">The server goes into maintenance and each app without a data volume is redeployed on another healthy server.</p>
+        {residents.item && <ul className="m-0 pl-5 text-sm">
+          {residents.item.apps.map((a) => <li key={a.name}>{a.name} {a.stateful ? <span className="text-muted">(data volume: stays, move with backup and restore)</span> : <span className="text-muted">(moves)</span>}</li>)}
+          {residents.item.databases.map((d) => <li key={d.name}>{d.name} <span className="text-muted">(database: stays, move with backup and restore)</span></li>)}
+        </ul>}
       </ConfirmDialog>
     </>
   )
