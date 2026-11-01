@@ -18,7 +18,7 @@ class AlertRuleController extends CrudController
 
         return [
             'name' => "{$req}|string|max:120",
-            'metric' => "{$req}|in:cpu,ram,disk,heartbeat,container_unhealthy,backup_failed,ssl_expiry",
+            'metric' => "{$req}|in:cpu,ram,disk,heartbeat,container_unhealthy,backup_failed,backup_overdue,ssl_expiry",
             'operator' => 'sometimes|in:>,<,>=,<=',
             'threshold' => 'nullable|numeric',
             'duration_minutes' => 'sometimes|integer|min:0|max:1440',

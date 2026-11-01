@@ -313,13 +313,16 @@ export function Backups() {
 
 const RULE_FIELDS = (channels: R[]): FieldDef[] => [
   { name: 'name', label: 'Name', required: true },
-  { name: 'metric', label: 'Metric', type: 'select', required: true, options: ['cpu_pct', 'ram_pct', 'disk_pct', 'heartbeat', 'container_unhealthy', 'restarts', 'response_time_ms', 'backup_failed', 'ssl_days_left'] },
-  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<=', '='] },
+  { name: 'metric', label: 'Metric', type: 'select', required: true, options: [
+    { value: 'cpu', label: 'CPU %' }, { value: 'ram', label: 'RAM %' }, { value: 'disk', label: 'Disk %' }, { value: 'heartbeat', label: 'Seconds since agent heartbeat' },
+    { value: 'container_unhealthy', label: 'Unhealthy containers' }, { value: 'backup_failed', label: 'Backup failed' },
+    { value: 'backup_overdue', label: 'Backups overdue (hours since last success)' }, { value: 'ssl_expiry', label: 'Days until certificate expires' }] },
+  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<='] },
   { name: 'threshold', label: 'Threshold', type: 'number', required: true },
   { name: 'duration_minutes', label: 'For (minutes)', type: 'number' },
   { name: 'severity', label: 'Severity', type: 'select', required: true, options: ['info', 'warning', 'critical', 'emergency'] },
-  { name: 'scope', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'application'], required: true },
-  { name: 'scope_id', label: 'Scope ID (group or app)', mono: true, show: (v) => v.scope !== 'organization' },
+  { name: 'scope_type', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'server', 'application'], required: true },
+  { name: 'scope_id', label: 'Scope ID (group, server or app)', mono: true, show: (v) => !!v.scope_type && v.scope_type !== 'organization' },
   ...channels.map((c) => ({ name: `ch_${c.id}`, label: `Notify ${c.name ?? c.type}`, type: 'checkbox' as const })),
 ]
 
@@ -449,7 +452,7 @@ export function Monitoring() {
             { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
           ]} />
       </Card>
-      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope: 'organization', duration_minutes: 5 })}>Add rule</button>}>
+      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope_type: 'organization', duration_minutes: 5 })}>Add rule</button>}>
         <DataTable label="Alert rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => r.id}
           actions={(r) => [
               { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(toForm(r)) },

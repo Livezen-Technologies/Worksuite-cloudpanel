@@ -75,6 +75,25 @@ class AlertService
                     $results[$last->id] = [$last->status === 'failed', 'Backup of '.$last->target_type.' failed', null, 'BackupJob', $last->id];
                 }
                 break;
+            case 'backup_overdue':
+                // A policy whose last two scheduled runs both passed without a successful backup:
+                // the scheduler, the agent or the destination has silently stopped. Value: hours since the last success.
+                foreach (\App\Models\BackupPolicy::where('enabled', true)->get() as $p) {
+                    if (! \Cron\CronExpression::isValidExpression($p->schedule)) {
+                        continue;
+                    }
+                    $cron = new \Cron\CronExpression($p->schedule);
+                    $previous = \Illuminate\Support\Carbon::instance($cron->getPreviousRunDate(now(), 1, true));   // the run before the latest
+                    if ($p->created_at && $p->created_at->gt($previous)) {
+                        continue;   // too new to have missed two runs
+                    }
+                    $last = BackupJob::where('backup_policy_id', $p->id)->where('status', 'succeeded')->latest('created_at')->value('created_at');
+                    $lastAt = $last ? \Illuminate\Support\Carbon::parse($last) : null;
+                    $hours = $lastAt ? round($lastAt->diffInMinutes(now()) / 60, 1) : null;
+                    $overdue = ! $lastAt || $lastAt->lt($previous);
+                    $results[$p->id] = [$overdue && $cmp($hours ?? 1e6), "Backup policy {$p->name} has not completed since ".($lastAt ? $lastAt->toDayDateTimeString() : 'it was created'), $hours, 'BackupPolicy', $p->id];
+                }
+                break;
             case 'ssl_expiry':
                 // The certificate serving traffic, not a newer failed attempt (which has no expiry).
                 $active = \App\Models\Certificate::where('status', 'active')->whereNotNull('expires_at')->orderBy('expires_at')->get()->groupBy('domain_id')->map->last();
