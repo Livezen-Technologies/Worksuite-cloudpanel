@@ -39,7 +39,7 @@ class AssistantService
     }
 
     /** @return array{conversation: AiConversation, reply: string, actions: list<array>} */
-    public function ask(User $user, ?AiConversation $conv, string $text): array
+    public function ask(User $user, ?AiConversation $conv, string $text, ?callable $onEvent = null): array
     {
         if (! self::available()) {
             throw ApiException::conflict('The assistant is not set up. An administrator needs to add an Anthropic API key to the environment.');
@@ -55,13 +55,16 @@ class AssistantService
         $reply = '';
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             try {
-                $r = $this->model->reply($this->system($org), $messages, $this->toolDefs());
+                $r = $onEvent
+                    ? $this->model->streamReply($this->system($org), $messages, $this->toolDefs(), fn (string $t) => $onEvent(['type' => 'text', 'text' => $t]))
+                    : $this->model->reply($this->system($org), $messages, $this->toolDefs());
             } catch (\Throwable $e) {
                 report($e);
                 throw ApiException::conflict('The assistant could not be reached. Try again in a moment.');
             }
             if ($r['stop_reason'] === 'refusal') {
                 $reply = "I can't help with that request.";
+                $onEvent && $onEvent(['type' => 'text', 'text' => $reply]);
                 // A refused turn has no usable content; the user message stays so the history stays valid.
                 $messages[] = ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => $reply]]];
                 break;
@@ -75,6 +78,7 @@ class AssistantService
             foreach ($r['tool_uses'] as $use) {
                 [$status, $out, $action] = $this->tools->call($user, 'Assistant', null, $use['name'], (array) $use['input'], true);
                 $actions[] = ['id' => $action->id, 'tool' => $use['name'], 'target' => $action->target, 'status' => $status];
+                $onEvent && $onEvent(['type' => 'action'] + end($actions));
                 $results[] = ['type' => 'tool_result', 'toolUseID' => $use['id'],
                     'content' => is_string($out) ? $out : json_encode($out, JSON_UNESCAPED_SLASHES), 'isError' => in_array($status, ['failed', 'refused'], true)];
             }
