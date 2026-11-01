@@ -76,8 +76,11 @@ class AlertService
                 }
                 break;
             case 'ssl_expiry':
-                foreach (Domain::with('certificate')->get() as $d) {
-                    $days = $d->certificate?->expires_at ? (float) now()->diffInDays($d->certificate->expires_at, false) : null;
+                // The certificate serving traffic, not a newer failed attempt (which has no expiry).
+                $active = \App\Models\Certificate::where('status', 'active')->whereNotNull('expires_at')->orderBy('expires_at')->get()->groupBy('domain_id')->map->last();
+                foreach (Domain::all() as $d) {
+                    $expires = $active->get($d->id)?->expires_at;
+                    $days = $expires ? (float) now()->diffInDays($expires, false) : null;
                     if ($days !== null) {
                         $results[$d->id] = [$cmp($days), "Certificate for {$d->name} expires in ".(int) $days.' days', $days, 'Domain', $d->id];
                     }

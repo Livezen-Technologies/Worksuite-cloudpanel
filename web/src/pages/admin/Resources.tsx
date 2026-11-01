@@ -232,13 +232,18 @@ export function Domains() {
   const { rows, isLoading } = useList<R>('/domains')
   const apps = useList<R>('/applications')
   const { run } = useAction()
+  const toast = useToast()
   const [add, setAdd] = useState(false)
   const [del, setDel] = useState<R | null>(null)
   const expiring = rows.filter((d) => ['expiring', 'expired'].includes(certState(d)))
+  const failed = rows.filter((d) => d.last_error && !expiring.includes(d))
+  const { run: renewRun, busy: renewing } = useAction()
+  const renewNow = () => renewRun<{ data?: { renewed?: number; failed?: number } }>({ path: '/domains/certificates/renew', label: 'Renew expiring certificates', silent: true })
+    .then((r) => r?.data && toast.success(`Renewed ${r.data.renewed ?? 0}${r.data.failed ? `, ${r.data.failed} failed` : ''}`)).catch(() => {})
   return (
     <>
       <PageHeader title="Domains & SSL" subtitle="Traefik routes, Let’s Encrypt certificates and DNS readiness for every organisation"
-        actions={<button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add domain</button>} />
+        actions={<>{expiring.length > 0 && <button type="button" className="btn" disabled={renewing} onClick={renewNow}>{renewing ? 'Renewing…' : 'Renew expiring now'}</button>}<button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add domain</button></>} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         <StatTile label="Domains" value={rows.length} />
         <StatTile label="Valid certificates" value={rows.filter((d) => certState(d) === 'valid').length} />
@@ -271,7 +276,8 @@ export function Domains() {
           ) },
           { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ? `${r.challenge}${r.dns_zone ? ` via ${r.dns_zone.name}` : ''}` : '—' },
         ]} />
-      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}
+      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — last attempt failed: ${d.last_error}` : ''}.</div>)}
+      {failed.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--r-bg)', color: 'var(--r-fg)' }}>{domainName(d)}: the certificate could not be issued — {d.last_error}. Fix it, then use “Issue certificate”.</div>)}
       <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'auto', target_port: 80 }}
         fields={[{ name: 'name', label: 'Domain', required: true, mono: true, placeholder: 'app.example.com' }, { name: 'application_id', label: 'Application', type: 'select', options: apps.rows.map((a) => ({ value: a.id, label: a.name })), required: true }, { name: 'target_port', label: 'Internal port', type: 'number' }, { name: 'challenge', label: 'Certificate challenge', type: 'select', options: ['auto', 'http-01', 'dns-01'], required: true, hint: 'auto: DNS-01 through the DNS zone when the domain is in one, otherwise HTTP-01' }, { name: 'wildcard', label: 'Wildcard certificate', type: 'checkbox', hint: 'requires DNS-01' }, { name: 'dns_provider', label: 'DNS provider (DNS-01)', type: 'select', options: ['cloudflare', 'digitalocean', 'hetzner', 'route53', 'gandiv5'], show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'dns_token', label: 'DNS API token', type: 'password', hint: 'write-only, stored encrypted; route53: JSON {"AWS_ACCESS_KEY_ID":…,"AWS_SECRET_ACCESS_KEY":…}', show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'www_redirect', label: 'Redirect www', type: 'checkbox' }, { name: 'websocket', label: 'WebSocket routing', type: 'checkbox' }, { name: 'headers', label: 'Custom headers', type: 'textarea', mono: true, placeholder: 'X-Frame-Options: DENY' }]}
         onSubmit={(v) => run({ path: '/domains', body: { name: v.name, application_id: v.application_id, target_port: v.target_port ? Number(v.target_port) : null, ...(v.wildcard ? { challenge: 'dns-01' } : v.challenge !== 'auto' ? { challenge: v.challenge } : {}), www_redirect: !!v.www_redirect, ...(v.dns_provider ? { dns_provider: v.dns_provider } : {}), ...(v.dns_token ? { dns_token: v.dns_token } : {}), options: { websocket: !!v.websocket, headers: String(v.headers ?? '').split('\n').filter(Boolean) } }, label: `Add ${v.name}`, success: 'Domain added — DNS check started' })} />

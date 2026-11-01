@@ -191,10 +191,11 @@ class DomainService
      *
      * @return array{renewed: int, failed: int}
      */
-    public function renewExpiring(int $days = 21): array
+    public function renewExpiring(int $days = 21, ?string $organizationId = null): array
     {
         $renewed = $failed = 0;
-        $certs = Certificate::allTenants()->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<', now()->addDays($days))->get();
+        $certs = Certificate::allTenants()->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<', now()->addDays($days))
+            ->when($organizationId, fn ($q) => $q->where('organization_id', $organizationId))->get();
         foreach ($certs as $old) {
             $domain = Domain::allTenants()->find($old->domain_id);
             if (! $domain || $domain->dns_status !== 'verified') {
@@ -210,6 +211,11 @@ class DomainService
                 $ok ? $renewed++ : $failed++;
                 if (! $ok && $old->expires_at->isFuture()) {
                     $domain->update(['https_status' => 'active']);
+                    // Tell the customer once a day while it keeps failing; the reason says what to fix.
+                    $reason = $new?->last_error ? 'The last attempt failed: '.$new->last_error : 'Automatic renewal did not succeed. Check that DNS still points at the platform.';
+                    app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                        'domain' => $domain->name, 'days' => (string) max(0, (int) now()->diffInDays($old->expires_at)), 'reason' => $reason,
+                    ], $domain->id, 1440);
                 }
                 app(\App\Services\AuditLogger::class)->log($ok ? 'certificate.renewed' : 'certificate.renewal_failed', 'domains', $domain->id,
                     ['domain' => $domain->name, 'expires_at' => $old->expires_at->toIso8601ZuluString()], $domain->organization_id, null, 'system');
@@ -221,7 +227,11 @@ class DomainService
 
     public function toApi(Domain $domain): array
     {
-        $certificate = $domain->certificate;
+        // Show the certificate that is serving traffic; a newer failed attempt only adds its error.
+        $latest = $domain->certificate;
+        $certificate = $latest?->status === 'failed'
+            ? (Certificate::allTenants()->where('domain_id', $domain->id)->where('status', 'active')->latest()->first() ?? $latest)
+            : $latest;
         $app = $domain->application_id ? Application::find($domain->application_id) : null;
 
         return [
@@ -248,7 +258,10 @@ class DomainService
                 'expires_at' => $certificate->expires_at?->toIso8601ZuluString(),
                 'days_left' => $certificate->expires_at ? (int) now()->diffInDays($certificate->expires_at, false) : null,
                 'resolver' => $certificate->resolver, 'checked_at' => $certificate->checked_at?->toIso8601ZuluString(),
+                'last_error' => $certificate->last_error,
             ] : null,
+            // Why the latest issuance failed, so the panel can say what to fix.
+            'last_error' => $latest?->status === 'failed' ? $latest->last_error : null,
             'renewal_at' => $certificate?->expires_at?->copy()->subDays(30)->toIso8601ZuluString(),
             'expiring' => $certificate?->expires_at && $certificate->expires_at->lt(now()->addDays(14)),
             'options' => $domain->options,
