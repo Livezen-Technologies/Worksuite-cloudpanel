@@ -7,6 +7,8 @@ return [
     'hosted_by' => env('PLATFORM_HOSTED_BY', 'Livezen Cloud'),
     'ingress_ip' => env('PLATFORM_INGRESS_IP', '203.0.113.10'),
     'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
+    // The release, from the repository's VERSION file (one source of truth; see CHANGELOG.md).
+    'version' => trim((string) @file_get_contents(base_path('../VERSION'))) ?: env('APP_VERSION', 'dev'),
     'terminal_ws_url' => env('TERMINAL_WS_URL', 'wss://localhost/ws/terminal'),
 
     'offline_after_seconds' => 90,
