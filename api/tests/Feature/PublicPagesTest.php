@@ -40,7 +40,7 @@ class PublicPagesTest extends TestCase
         $create = $cmds->firstWhere('type', 'container.create')['payload'];
         $this->assertSame([PublicPagesService::IMAGE, '8080', true], [$create['image'], $create['labels']['traefik.http.services.ws-pages.loadbalancer.server.port'], $create['read_only_rootfs']]);
         $writes = $cmds->where('type', 'fs.write')->keyBy(fn ($c) => $c['payload']['path']);
-        $this->assertStringContainsString('error_page 503 = @maintenance', $writes['default.conf']['payload']['content']);
+        $this->assertStringContainsString('error_page 503 @maintenance', $writes['default.conf']['payload']['content']);
         $this->assertStringContainsString('add_header Retry-After 3600 always', $writes['default.conf']['payload']['content']);
         $this->assertArrayNotHasKey('default/captcha.html', $writes->all(), 'the bouncer serves the bot pages, not the edge container');
         foreach (array_diff(array_keys(PublicPagesService::PAGES), PublicPagesService::BOT_PAGES) as $key) {
@@ -49,6 +49,26 @@ class PublicPagesTest extends TestCase
             $this->assertStringNotContainsString('<script', $html);
         }
         $this->assertStringContainsString('http-equiv="refresh" content="30"', $writes['default/busy.html']['payload']['content']);
+    }
+
+    /**
+     * A suspended site must answer 403, a parked one 404 and maintenance 503.
+     * "error_page 403 = @suspended" hands the status to the named location,
+     * where try_files serving a file makes it 200 - so crawlers index a
+     * suspended site and uptime monitors call it healthy.
+     */
+    public function test_each_page_keeps_its_own_status_code(): void
+    {
+        $conf = app(PublicPagesService::class)->nginxConf();
+
+        foreach (['maintenance' => 503, 'sleeping' => 503, 'suspended' => 403, 'expired' => 402, 'not_found' => 404] as $page => $code) {
+            $this->assertStringContainsString("error_page {$code} @{$page};", $conf, "{$page} keeps its {$code}");
+        }
+        // The "= @name" form is the bug: nginx then reports the named
+        // location's own status, which is 200.
+        $this->assertStringNotContainsString('= @', $conf, 'no page may hand its status to the named location');
+        // A 503 still has to carry Retry-After for the crawlers that honour it.
+        $this->assertStringContainsString('add_header Retry-After', $conf);
     }
 
     /**
