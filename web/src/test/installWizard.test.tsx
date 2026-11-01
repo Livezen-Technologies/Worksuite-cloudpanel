@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
-import InstallWizard, { dbFilled, generatePassword } from '../pages/admin/InstallWizard'
+import InstallWizard, { dbFilled, generatePassword, mergeEnv, parseDotEnv } from '../pages/admin/InstallWizard'
 import { ToastProvider } from '../components/Toasts'
 import { JobsProvider } from '../api/jobs'
 
@@ -18,6 +18,11 @@ describe('install wizard helpers', () => {
     expect(dbFilled('PMA_HOST', ['PMA_HOST'])).toBe(true)
     expect(dbFilled('SITE_TITLE', ['SITE_TITLE'])).toBe(false)
   })
+  it('parses .env text and merges by key', () => {
+    const rows = parseDotEnv('# c\n\nexport APP_URL="https://x.test"\nAPI_TOKEN=abc # note\nNAME=\'a b\'\nbad line\n=x')
+    expect(rows).toEqual([{ key: 'APP_URL', value: 'https://x.test', secret: false }, { key: 'API_TOKEN', value: 'abc', secret: true }, { key: 'NAME', value: 'a b', secret: false }])
+    expect(mergeEnv([{ key: 'NAME', value: 'old', secret: false }, { key: '', value: '', secret: false }], rows).map((r) => `${r.key}=${r.value}`)).toEqual(['NAME=a b', 'APP_URL=https://x.test', 'API_TOKEN=abc'])
+  })
   it('generates strong passwords', () => {
     const p = generatePassword()
     expect(p).toHaveLength(24)
@@ -31,6 +36,7 @@ describe('InstallWizard', () => {
   beforeEach(() => {
     body = null
     blocked = false
+    localStorage.clear()
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes('/servers')) return list([{ id: 's1', name: 'edge-1', status: 'online' }])
       if (url.includes('/databases')) return list([{ id: 'd1', name: 'shopdb', engine: 'mariadb', server_id: 's1' }])
@@ -81,5 +87,26 @@ describe('InstallWizard', () => {
     for (let i = 0; i < 2; i++) await u.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByText('1 must be fixed')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Install WordPress' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('keeps a draft without secrets and can start over', async () => {
+    const u = userEvent.setup()
+    const view = () => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ToastProvider><JobsProvider><MemoryRouter><InstallWizard t={tpl} onBack={() => {}} /></MemoryRouter></JobsProvider></ToastProvider></QueryClientProvider>
+    const first = render(view())
+    const name = screen.getByLabelText(/Application name/)
+    await u.clear(name); await u.type(name, 'mysite')
+    await u.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Step 2 of 5')).toBeTruthy()
+    first.unmount()
+    const saved = String(localStorage.getItem('install-draft:wordpress'))
+    expect(saved).toContain('mysite')
+    expect(saved).not.toContain('WORDPRESS_DB_PASSWORD')
+
+    render(view())
+    expect(screen.getByText('Step 2 of 5')).toBeTruthy()
+    expect(screen.getByText(/Picked up where you left off/)).toBeTruthy()
+    await u.click(screen.getByRole('button', { name: 'Start over' }))
+    expect(screen.getByText('Step 1 of 5')).toBeTruthy()
+    expect((screen.getByLabelText(/Application name/) as HTMLInputElement).value).toBe('wordpress')
   })
 })

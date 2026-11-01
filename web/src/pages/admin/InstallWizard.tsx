@@ -56,6 +56,41 @@ export function dbFilled(key: string, keys: string[]): boolean {
 }
 
 /** A strong random password from the browser's crypto source. */
+/** Lines of a .env file → rows; comments and blank lines skipped, quotes stripped, secret-looking keys hidden. */
+export function parseDotEnv(text: string): EnvRow[] {
+  const rows: EnvRow[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim().replace(/^export\s+/, '')
+    if (!line || line.startsWith('#')) continue
+    const eq = line.indexOf('=')
+    if (eq < 1) continue
+    const key = line.slice(0, eq).trim()
+    let value = line.slice(eq + 1).trim()
+    if (/^(['"]).*\1$/.test(value)) value = value.slice(1, -1)
+    else value = value.replace(/\s+#.*$/, '')
+    rows.push({ key, value, secret: /(SECRET|PASSWORD|PASS|TOKEN|KEY|PRIVATE)/i.test(key) })
+  }
+  return rows
+}
+
+/** Rows merged by key: later rows replace earlier ones with the same key; empty rows are dropped. */
+export function mergeEnv(current: EnvRow[], added: EnvRow[]): EnvRow[] {
+  const out = current.filter((r) => r.key)
+  for (const r of added) {
+    const i = out.findIndex((x) => x.key === r.key)
+    if (i >= 0) out[i] = r
+    else out.push(r)
+  }
+  return out
+}
+
+type Draft = { step: number; reach: number; d: Record<string, unknown>; dbMode: string; dbId: string; vars: Record<string, string>; adv: Record<string, unknown>; env: EnvRow[] }
+const draftKey = (id: string) => `install-draft:${id}`
+function loadDraft(id: string): Draft | null {
+  try { const v = localStorage.getItem(draftKey(id)); return v ? JSON.parse(v) as Draft : null } catch { return null }
+}
+function clearDraft(id: string) { try { localStorage.removeItem(draftKey(id)) } catch { /* storage unavailable */ } }
+
 export function generatePassword(len = 24): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_'
   const buf = new Uint32Array(len)
@@ -117,22 +152,47 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
   const keys = t.variables.map((v) => v.key)
   const wantsDb = !compose && keys.some((k) => dbFilled(k, keys))
 
-  const [step, setStep] = useState(0)
-  const [reach, setReach] = useState(0)
+  // A draft of this wizard survives leaving the page; secret values are never stored.
+  const [draft] = useState(() => loadDraft(t.id))
+  const [restored, setRestored] = useState(!!draft)
+  const [step, setStep] = useState(draft?.step ?? 0)
+  const [reach, setReach] = useState(draft?.reach ?? 0)
   const [err, setErr] = useState<string | null>(null)
   const [d, setD] = useState({ name: t.id.slice(0, 40), domain: '', environment: 'production', placement: compose ? 'manual' : 'auto', server_id: '', size: 'standard', port: t.port ? String(t.port) : '', https: true,
-    domain_mode: (compose || t.port ? 'auto' : 'none') as DomainMode, subdomain: t.id.slice(0, 40) })
+    domain_mode: (compose || t.port ? 'auto' : 'none') as DomainMode, subdomain: t.id.slice(0, 40), ...(draft?.d ?? {}) })
   const [pre, setPre] = useState<Preflight | null>(null)
   const [result, setResult] = useState<Result | null>(null)
-  const [dbMode, setDbMode] = useState<'existing' | 'manual' | 'none'>(wantsDb ? 'existing' : 'none')
-  const [dbId, setDbId] = useState('')
+  const [dbMode, setDbMode] = useState<'existing' | 'manual' | 'none'>((draft?.dbMode as 'existing' | 'manual' | 'none' | undefined) ?? (wantsDb ? 'existing' : 'none'))
+  const [dbId, setDbId] = useState(draft?.dbId ?? '')
   // Secrets with no default get a strong generated value; the person can still change it.
-  const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, v.default ?? (v.secret ? generatePassword() : '')])))
+  const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, (v.secret ? null : draft?.vars?.[v.key]) ?? v.default ?? (v.secret ? generatePassword() : '')])))
   const [shown, setShown] = useState<Record<string, boolean>>({})
-  const [adv, setAdv] = useState({ volume_path: '', health_path: '', auto_restart: true })
-  const [env, setEnv] = useState<EnvRow[]>([])
+  const [adv, setAdv] = useState({ volume_path: '', health_path: '', auto_restart: true, ...(draft?.adv ?? {}) })
+  const [env, setEnv] = useState<EnvRow[]>(draft?.env ?? [])
+  const [paste, setPaste] = useState<string | null>(null)
   const [phase, setPhase] = useState<'idle' | 'installing' | 'done' | 'failed'>('idle')
   const [log, setLog] = useState<string[]>([])
+
+  useEffect(() => {
+    if (phase === 'done') { clearDraft(t.id); return }
+    const secretKeys = new Set(t.variables.filter((v) => v.secret).map((v) => v.key))
+    const save: Draft = { step, reach, d, dbMode, dbId, adv,
+      vars: Object.fromEntries(Object.entries(vars).filter(([k]) => !secretKeys.has(k))),
+      env: env.map((e) => (e.secret ? { ...e, value: '' } : e)) }
+    try { localStorage.setItem(draftKey(t.id), JSON.stringify(save)) } catch { /* storage unavailable */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, reach, d, dbMode, dbId, vars, adv, env, phase])
+
+  const startOver = () => {
+    clearDraft(t.id)
+    setRestored(false)
+    setStep(0); setReach(0); setErr(null)
+    setD({ name: t.id.slice(0, 40), domain: '', environment: 'production', placement: compose ? 'manual' : 'auto', server_id: '', size: 'standard', port: t.port ? String(t.port) : '', https: true,
+      domain_mode: (compose || t.port ? 'auto' : 'none') as DomainMode, subdomain: t.id.slice(0, 40) })
+    setDbMode(wantsDb ? 'existing' : 'none'); setDbId('')
+    setVars(Object.fromEntries(t.variables.map((v) => [v.key, v.default ?? (v.secret ? generatePassword() : '')])))
+    setAdv({ volume_path: '', health_path: '', auto_restart: true }); setEnv([])
+  }
 
   const set = <K extends keyof typeof d>(k: K, v: (typeof d)[K]) => setD((p) => ({ ...p, [k]: v }))
   const db = databases.find((x) => x.id === dbId)
@@ -356,7 +416,18 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
           <Toggle checked={adv.auto_restart} onChange={(v: boolean) => setAdv({ ...adv, auto_restart: v })} label="Restart automatically if the container stops" />
           {d.domain_mode === 'custom' && <Toggle checked={d.https} onChange={(v: boolean) => set('https', v)} label="Serve over HTTPS with a free certificate" />}
           <div className="flex items-center justify-between"><span className="text-sm font-semibold">Environment variables</span>
-            <button type="button" className="btn btn-sm" onClick={() => setEnv([...env, { key: '', value: '', secret: false }])}>Add variable</button></div>
+            <span className="flex gap-2"><button type="button" className="btn btn-sm" onClick={() => setPaste(paste === null ? '' : null)}>Paste .env</button>
+            <button type="button" className="btn btn-sm" onClick={() => setEnv([...env, { key: '', value: '', secret: false }])}>Add variable</button></span></div>
+          {paste !== null && (
+            <div className="flex flex-col gap-2">
+              <textarea className="input font-mono text-xs min-h-[110px]" aria-label="Paste .env contents" placeholder={'APP_URL=https://example.com\nAPI_TOKEN=…'} value={paste} onChange={(ev) => setPaste(ev.target.value)} />
+              <div className="flex gap-2 items-center">
+                <button type="button" className="btn btn-sm btn-primary" disabled={!parseDotEnv(paste).length} onClick={() => { setEnv(mergeEnv(env, parseDotEnv(paste))); setPaste(null) }}>Add {parseDotEnv(paste).length || ''} variables</button>
+                <button type="button" className="btn btn-sm" onClick={() => setPaste(null)}>Cancel</button>
+                <span className="text-xs text-muted">Existing keys are replaced. Passwords, tokens and keys are marked secret.</span>
+              </div>
+            </div>
+          )}
           {env.length === 0 && <p className="m-0 text-xs text-muted">None added. Template variables are set for you.</p>}
           {env.map((e, i) => (
             <div key={i} className="flex flex-wrap gap-2 items-center">
@@ -421,6 +492,12 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
             </div>
           </div>
         </div>
+        {restored && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm" role="status">
+            <span>Picked up where you left off. Passwords and secret values were not saved; generated ones are new.</span>
+            <span className="flex gap-2"><button type="button" className="btn btn-sm" onClick={() => setRestored(false)}>Dismiss</button><button type="button" className="btn btn-sm" onClick={startOver}>Start over</button></span>
+          </div>
+        )}
         <Stepper step={step} reach={reach} onStep={go} />
         <div className="mt-5">{content[step]}</div>
         {step < 4 && stepChecks(step).length > 0 && <div className="mt-4 rounded-lg border border-line p-3"><Checks checks={stepChecks(step)} /></div>}
