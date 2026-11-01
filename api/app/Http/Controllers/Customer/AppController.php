@@ -29,6 +29,7 @@ class AppController extends Controller
             'source.registry_auth' => 'nullable|array', 'source.registry_auth.username' => 'nullable|string', 'source.registry_auth.password' => 'nullable|string',
             'source.repo' => 'required_if:source.type,git|nullable|string|max:255',
             'source.branch' => 'nullable|string|max:120',
+            'source.git_connection_id' => 'nullable|uuid', 'source.git_ssh_key_id' => 'nullable|uuid', // GIT: private repositories
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.builder' => 'nullable|in:dockerfile,auto', 'source.no_cache' => 'nullable|boolean',
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',

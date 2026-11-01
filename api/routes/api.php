@@ -36,6 +36,7 @@ Route::get('webmail-sso/{token}', function (\Illuminate\Http\Request $request, s
 
     return $login ? response()->json(['data' => $login]) : response()->json(['error' => ['code' => 'not_found', 'message' => 'Expired or unknown token.']], 404);
 })->where('token', '[A-Za-z0-9]{40,80}')->middleware('throttle:api')->name('webmail.sso');
+Route::get('git/oauth/{provider}/callback', [\App\Http\Controllers\GitSourceController::class, 'oauthCallback'])->whereIn('provider', ['github', 'gitlab'])->middleware('throttle:20,1')->name('git.oauth.callback');
 Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('throttle:api')->name('hooks.git');
 Route::match(['get', 'post'], 'hooks/wake', [HookController::class, 'wake'])->middleware('throttle:20,1')->name('hooks.wake');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
@@ -225,6 +226,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('compose-projects/{id}/rollback', [Admin\ComposeProjectController::class, 'rollback'])->name('compose-projects.rollback');
     });
 
+    // GIT: deploy keys, provider connections and webhook deliveries.
+    Route::get('git', [\App\Http\Controllers\GitSourceController::class, 'index'])->middleware('perm:deploy')->name('git.index');
+    Route::post('git/oauth/{provider}/start', [\App\Http\Controllers\GitSourceController::class, 'oauthStart'])->whereIn('provider', ['github', 'gitlab'])->middleware('perm:deploy')->name('git.oauth.start');
+    Route::post('git/keys', [\App\Http\Controllers\GitSourceController::class, 'storeKey'])->middleware('perm:deploy')->name('git.keys.store');
+    Route::delete('git/keys/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyKey'])->middleware('perm:deploy')->name('git.keys.destroy');
+    Route::post('git/connections', [\App\Http\Controllers\GitSourceController::class, 'storeConnection'])->middleware('perm:deploy')->middleware('throttle:10,1')->name('git.connections.store');
+    Route::post('git/connections/{id}/check', [\App\Http\Controllers\GitSourceController::class, 'check'])->middleware('perm:deploy')->middleware('throttle:20,1')->name('git.connections.check');
+    Route::get('git/connections/{id}/repositories', [\App\Http\Controllers\GitSourceController::class, 'repositories'])->middleware('perm:deploy')->middleware('throttle:30,1')->name('git.connections.repositories');
+    Route::delete('git/connections/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyConnection'])->middleware('perm:deploy')->name('git.connections.destroy');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');
@@ -514,6 +524,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('incidents', [Customer\IncidentController::class, 'index'])->name('incidents.index');
             Route::get('uptime', [Customer\IncidentController::class, 'uptime'])->name('uptime.index');
             Route::get('apps', [Customer\AppController::class, 'index'])->name('apps.index');
+            // GIT: the customer's own deploy keys and Git connections (private repositories).
+            Route::get('git', [\App\Http\Controllers\GitSourceController::class, 'index'])->name('git.index');
+            Route::post('git/keys', [\App\Http\Controllers\GitSourceController::class, 'storeKey'])->name('git.keys.store');
+            Route::delete('git/keys/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyKey'])->name('git.keys.destroy');
+            Route::post('git/connections', [\App\Http\Controllers\GitSourceController::class, 'storeConnection'])->middleware('throttle:10,1')->name('git.connections.store');
+            Route::post('git/connections/{id}/check', [\App\Http\Controllers\GitSourceController::class, 'check'])->middleware('throttle:20,1')->name('git.connections.check');
+            Route::get('git/connections/{id}/repositories', [\App\Http\Controllers\GitSourceController::class, 'repositories'])->middleware('throttle:30,1')->name('git.connections.repositories');
+            Route::delete('git/connections/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyConnection'])->name('git.connections.destroy');
+            Route::post('git/oauth/{provider}/start', [\App\Http\Controllers\GitSourceController::class, 'oauthStart'])->whereIn('provider', ['github', 'gitlab'])->name('git.oauth.start');
             // UVPS: the customer's own virtual servers.
             Route::get('vps', [Customer\VpsController::class, 'index'])->name('vps.index');
             Route::post('vps', [Customer\VpsController::class, 'store'])->middleware('throttle:10,1')->name('vps.store');

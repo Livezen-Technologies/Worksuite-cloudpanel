@@ -24,3 +24,8 @@
 # addServerWizard.test.tsx: a fake enrolment token (abcdef123456) in a mocked API response.
 7242635caca72985b0923863a6fdba85a9b9fe54:web/src/test/addServerWizard.test.tsx:generic-api-key:19
 aa036b7ba062a1fe8d03187c21bdad535abbb671:web/src/test/addServerWizard.test.tsx:generic-api-key:19
+# Git sources (#151), commit c1dd80c: no real secrets. SshKeys.php held the PEM armour strings of the key generator,
+# GitSourcesTest a fake token (ghp_testtoken123), build_ssh_test.go a placeholder key. All rewritten in the next commit.
+c1dd80c2b04a42cf36c972c17d7540790576727f:api/app/Support/SshKeys.php:private-key:28
+c1dd80c2b04a42cf36c972c17d7540790576727f:api/tests/Feature/GitSourcesTest.php:generic-api-key:69
+c1dd80c2b04a42cf36c972c17d7540790576727f:agent/internal/executor/build_ssh_test.go:private-key:10

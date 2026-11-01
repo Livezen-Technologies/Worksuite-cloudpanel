@@ -31,8 +31,10 @@ type BuildSpec struct {
 		Username string `json:"username"`
 		Token    string `json:"token"`
 	} `json:"git_auth"`
-	ImageTag string `json:"image_tag"`
-	Push     *struct {
+	// GitSSHKey is an OpenSSH private deploy key for ssh:// or git@host:path repositories.
+	GitSSHKey string `json:"git_ssh_key"`
+	ImageTag  string `json:"image_tag"`
+	Push      *struct {
 		Registry string `json:"registry"`
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -70,14 +72,25 @@ func (e *Executor) checkRepo(repo string) error {
 	switch {
 	case strings.HasPrefix(repo, "https://"), strings.HasPrefix(repo, "http://"):
 		return nil
+	case isSSHRepo(repo):
+		return nil
 	case strings.HasPrefix(repo, "file://"), strings.HasPrefix(repo, "/"):
 		if !e.AllowLocalGit {
 			return errors.New("local repositories are disabled on this agent (set DOCKERMGR_ALLOW_LOCAL_GIT=1)")
 		}
 		return nil
 	}
-	return fmt.Errorf("repository must be an https:// URL, got %q", repo)
+	return fmt.Errorf("repository must be an https:// or SSH URL, got %q", repo)
 }
+
+// SSH repositories: ssh://user@host[:port]/path or the scp form user@host:path. The host
+// can never start with "-" and nothing here can smuggle ssh options.
+var (
+	reSSHURL = regexp.MustCompile(`^ssh://[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?/[A-Za-z0-9._/~-]+$`)
+	reSCP    = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~][A-Za-z0-9._/~-]*$`)
+)
+
+func isSSHRepo(repo string) bool { return reSSHURL.MatchString(repo) || reSCP.MatchString(repo) }
 
 // relInside cleans a payload path that must stay inside the checkout.
 func relInside(kind, p, def string) (string, error) {
@@ -94,6 +107,15 @@ func relInside(kind, p, def string) (string, error) {
 func (s *BuildSpec) validate(e *Executor) error {
 	if err := e.checkRepo(s.Repo); err != nil {
 		return err
+	}
+	if isSSHRepo(s.Repo) != (s.GitSSHKey != "") {
+		if s.GitSSHKey == "" {
+			return errors.New("an SSH repository needs a deploy key")
+		}
+		return errors.New("a deploy key is only used with an SSH repository")
+	}
+	if s.GitSSHKey != "" && (!strings.HasPrefix(s.GitSSHKey, "-----BEGIN OPENSSH PRIVATE KEY-----") || len(s.GitSSHKey) > 16384) {
+		return errors.New("invalid deploy key")
 	}
 	if s.Ref == "" {
 		s.Ref = "main"
@@ -257,6 +279,16 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 		user := firstNonEmpty(s.GitAuth.Username, "x-access-token")
 		basic := base64.StdEncoding.EncodeToString([]byte(user + ":" + s.GitAuth.Token))
 		env = append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=Authorization: Basic "+basic)
+	}
+	if s.GitSSHKey != "" {
+		keyFile := filepath.Join(dir, "deploy_key")
+		key := strings.TrimSpace(s.GitSSHKey) + "\n"
+		if err := os.WriteFile(keyFile, []byte(key), 0o600); err != nil {
+			return fail(err)
+		}
+		// Fixed options only: the key, no agent, no config file, first-use host keys kept per build.
+		env = append(env, "GIT_SSH_COMMAND=ssh -F /dev/null -i "+keyFile+" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"+
+			" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="+filepath.Join(dir, "known_hosts"))
 	}
 	repo := s.Repo
 	if strings.HasPrefix(repo, "/") {

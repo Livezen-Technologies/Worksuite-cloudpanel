@@ -30,11 +30,27 @@ class HookController extends Controller
     {
         $p = Project::allTenants()->find($project);
         abort_unless($p && $p->webhook_secret, 404);
+        $provider = match (true) {
+            $request->hasHeader('X-Gitea-Event') => 'gitea', $request->hasHeader('X-GitHub-Event') => 'github',
+            $request->hasHeader('X-Gitlab-Event') => 'gitlab', default => null,
+        };
+        $evt = (string) ($request->header('X-GitHub-Event') ?? $request->header('X-Gitea-Event') ?? $request->header('X-Gitlab-Event') ?? 'unknown');
+        $repoName = (string) ($request->input('repository.full_name') ?? $request->input('project.path_with_namespace') ?? '');
+        $log = function (string $outcome, ?string $detail = null, ?string $ref = null) use ($p, $provider, $evt, $repoName, $request) {
+            \App\Models\WebhookDelivery::allTenants()->create([
+                'organization_id' => $p->organization_id, 'project_id' => $p->id, 'provider' => $provider, 'event' => mb_substr($evt, 0, 60),
+                'repo' => mb_substr($repoName, 0, 300) ?: null, 'ref' => $ref !== null ? mb_substr($ref, 0, 200) : (is_string($request->input('ref')) ? mb_substr($request->input('ref'), 0, 200) : null),
+                'outcome' => $outcome, 'detail' => $detail !== null ? mb_substr($detail, 0, 500) : null,
+            ]);
+        };
         $sig = (string) $request->header('X-Hub-Signature-256', '');
         $token = (string) $request->header('X-Gitlab-Token', '');
         $ok = ($sig !== '' && hash_equals('sha256='.hash_hmac('sha256', $request->getContent(), $p->webhook_secret), $sig))
             || ($token !== '' && hash_equals($p->webhook_secret, $token));
-        abort_unless($ok, 401, 'Invalid webhook signature.');
+        if (! $ok) {
+            $log('rejected', 'Signature invalid.');
+            abort(401, 'Invalid webhook signature.');
+        }
         if (in_array($request->header('X-GitHub-Event', $request->header('X-Gitea-Event')), ['ping'], true)) {
             return response()->json(['data' => ['pong' => true]]);
         }
@@ -47,15 +63,22 @@ class HookController extends Controller
             $action = (string) ($gitlab ? $request->input('object_attributes.action') : $request->input('action'));
             $branch = (string) ($gitlab ? $request->input('object_attributes.source_branch') : $request->input('pull_request.head.ref'));
             if ($number < 1) {
+                $log('ignored', 'No pull request number.');
+
                 return response()->json(['data' => ['ignored' => 'no pull request number']]);
             }
             if (in_array($action, ['closed', 'close', 'merge'], true)) {
+                $log('preview', "Preview #{$number} closed.", "#{$number}");
+
                 return response()->json(['data' => ['closed' => $envs->closePreview($p, $number)]]);
             }
             if (! in_array($action, ['opened', 'reopened', 'synchronize', 'open', 'reopen', 'update'], true) || ! preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]*$#', $branch)) {
+                $log('ignored', "Pull request action {$action}.", "#{$number}");
+
                 return response()->json(['data' => ['ignored' => $action]]);
             }
             $r = $envs->openPreview($p, $number, $branch);
+            $log('preview', "Preview #{$number} from {$branch}.", "#{$number}");
             // Comment the addresses once, when the pull request opens or reopens.
             $commented = in_array($action, ['opened', 'reopened', 'open', 'reopen'], true)
                 && app(\App\Services\PreviewCommentService::class)->post($p, \App\Services\PreviewCommentService::target($request, $number), $number, $r['urls']);
@@ -64,12 +87,18 @@ class HookController extends Controller
         }
         $ref = (string) $request->input('ref', '');
         if (! str_starts_with($ref, 'refs/heads/') || $request->input('deleted')) {
+            $log('ignored', 'Not a branch push.');
+
             return response()->json(['data' => ['deployments' => [], 'ignored' => 'not a branch push']]);
         }
         $repo = (string) ($request->input('repository.clone_url') ?? $request->input('repository.git_http_url') ?? $request->input('project.git_http_url') ?? '');
         $tenant->set($p->organization_id);
 
-        return response()->json(['data' => ['deployments' => $envs->onPush($p, $repo, substr($ref, 11))]], 202);
+        $deployments = $envs->onPush($p, $repo, substr($ref, 11));
+        $n = is_countable($deployments) ? count($deployments) : 0;
+        $log($n ? 'deployed' : 'ignored', $n ? "Deployed {$n} app".($n === 1 ? '' : 's').'.' : 'No app follows '.substr($ref, 11).'.', substr($ref, 11));
+
+        return response()->json(['data' => ['deployments' => $deployments]], 202);
     }
 
     /**

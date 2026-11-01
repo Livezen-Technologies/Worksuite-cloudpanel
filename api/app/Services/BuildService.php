@@ -141,6 +141,17 @@ class BuildService
         if (! empty($source['build_args'])) {
             $payload['build_args'] = array_map('strval', (array) $source['build_args']);
         }
+        if (! empty($source['git_ssh_key_id'])) {
+            $key = \App\Models\SshKey::find($source['git_ssh_key_id']) ?? throw ApiException::conflict('The deploy key referenced by this application no longer exists.');
+            $payload['git_ssh_key'] = (string) $key->private_key;
+            $key->forceFill(['last_used_at' => now()])->save();
+        } elseif (! empty($source['git_connection_id'])) {
+            $c = \App\Models\GitConnection::find($source['git_connection_id']) ?? throw ApiException::conflict('The Git connection referenced by this application no longer exists.');
+            if (! app(GitProviderService::class)->owns($c, (string) $source['repo'])) {
+                throw ApiException::conflict('The repository is not on the Git connection\'s host, so its token is not sent there.');
+            }
+            $payload['git_auth'] = ['username' => match ($c->provider) { 'bitbucket' => (string) $c->username, 'gitlab' => 'oauth2', default => 'x-access-token' }, 'token' => (string) $c->token];
+        }
         if (! empty($source['git_secret_id'])) {
             $secret = Secret::find($source['git_secret_id']) ?? throw ApiException::conflict('The Git credential secret referenced by this application no longer exists.');
             $payload['git_auth'] = array_filter(['username' => $source['git_username'] ?? null, 'token' => (string) $secret->value]);
