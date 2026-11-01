@@ -191,6 +191,10 @@ Artisan::command('certificates:renew', function (DomainService $domains) {
     $this->info("Certificates renewed: {$r['renewed']}, failed: {$r['failed']}");
 })->purpose('Renew certificates that expire within 21 days');
 
+Artisan::command('migrations:cleanup', function (\App\Services\MigrationService $migrations) {
+    $this->info('Migration archives removed: '.$migrations->cleanupArchives());
+})->purpose('Free disk space: remove downloaded backup archives of finished or failed migrations');
+
 Artisan::command('apps:purge', function () {
     $purged = 0;
     foreach (Application::allTenants()->onlyTrashed()->where('purge_after', '<', now())->get() as $app) {
@@ -327,6 +331,7 @@ Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('servers:check-heartbeats')->everyMinute();
 Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
+Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();

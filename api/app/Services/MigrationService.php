@@ -94,6 +94,32 @@ class MigrationService implements HandlesCommandResults
         return $m;
     }
 
+    /** Days a finished migration keeps its downloaded archive (for a delta resync), and a failed one. */
+    public const KEEP_ARCHIVE_DAYS = 14;
+
+    public const KEEP_FAILED_ARCHIVE_DAYS = 3;
+
+    /**
+     * Removes downloaded backup archives (often many GB) from servers once a migration has finished
+     * or failed and the keep period has passed. A later resync downloads the archive again.
+     */
+    public function cleanupArchives(): int
+    {
+        $due = SiteMigration::allTenants()->whereNull('archive_removed_at')->whereNotNull('server_id')
+            ->where(fn ($q) => $q->where(fn ($q) => $q->where('status', 'migrated')->where('updated_at', '<', now()->subDays(self::KEEP_ARCHIVE_DAYS)))
+                ->orWhere(fn ($q) => $q->where('status', 'failed')->where('updated_at', '<', now()->subDays(self::KEEP_FAILED_ARCHIVE_DAYS))))
+            ->get();
+        foreach ($due as $m) {
+            app(\App\Support\Tenant::class)->as($m->organization_id, function () use ($m) {
+                $m->forceFill(['archive_removed_at' => now()])->saveQuietly();   // keep updated_at: it measures the keep period
+                $this->run($m, 'cleanup', [['migrate.cleanup', []]], null);
+                $m->event('Removing the downloaded backup from the server to free disk space');
+            });
+        }
+
+        return $due->count();
+    }
+
     private function fetch(SiteMigration $m, ?string $userId, string $action = 'inspect'): Job
     {
         $steps = [['migrate.fetch', ['url' => $m->archive_url, 'sha256' => $m->archive_sha256 ?? '']]];
@@ -115,7 +141,7 @@ class MigrationService implements HandlesCommandResults
         if (! in_array($m->status, ['migrated', 'migrating'], true) || ! collect($m->sites)->contains(fn ($s) => in_array($s['status'], ['migrated', 'live', 'failed'], true))) {
             throw ApiException::conflict('Nothing has been copied yet.');
         }
-        $m->update(['archive_url' => $url, 'archive_sha256' => $sha256]);
+        $m->update(['archive_url' => $url, 'archive_sha256' => $sha256, 'archive_removed_at' => null]);
         $m->event('Fetching a newer backup for a delta sync');
         $this->audit->log('migration.resync', 'site_migrations', $m->id, []);
 
@@ -362,6 +388,18 @@ class MigrationService implements HandlesCommandResults
             return;
         }
         $site = $job->payload['site'] ?? null;
+        if (($job->payload['action'] ?? null) === 'cleanup') {
+            // Housekeeping never changes the migration's own status.
+            if ($command->status === 'succeeded') {
+                $m->event('The downloaded backup was removed from the server');
+                $this->jobs->succeed($job, ['migration_id' => $m->id]);
+            } else {
+                $m->forceFill(['archive_removed_at' => null])->saveQuietly();   // try again tomorrow
+                $this->jobs->fail($job, (string) ($command->message ?: 'Cleanup failed'), 'execute');
+            }
+
+            return;
+        }
         if ($command->status !== 'succeeded') {
             $message = (string) ($command->message ?: 'The migration step failed.');
             if ($site !== null) {
