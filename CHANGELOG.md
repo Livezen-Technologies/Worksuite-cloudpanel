@@ -9,6 +9,22 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Public pages were written unreadable, so every branded page answered 404**
+  (PUB-4). The pages container runs nginx as its own unprivileged uid, but the
+  agent's unit sets `UMask=0077`, which intersects the mode `fs.write` and
+  `fs.mkdir` pass to `open(2)` and `mkdir(2)`: the `0644` and `0755` they ask
+  for landed as `0600` and `0700`, owned by root. nginx could not read a single
+  page, and because its `try_files` falls through to `=404` the symptom was an
+  ordinary 404 on every page - served behind a valid certificate, and
+  indistinguishable from a routing mistake. Install and publish now follow the
+  writes with an explicit `fs.chmod` (`0755` for folders, `0644` for files and
+  the nginx config).
+  - This silently disabled suspend, park and branded error pages: a
+    `dmp-<host>-page` router at priority 100000 would 404 instead of showing a
+    page, taking the host down rather than parking it.
+
 ### Added
 
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
