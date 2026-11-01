@@ -1,3 +1,4 @@
+import { downloadFile } from '../../api/client'
 import { useMemo, useState } from 'react'
 import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
@@ -444,12 +445,19 @@ export function Monitoring() {
       <Card title="Active alerts" pad={false}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
           filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
-          actions={(r) => r.acknowledged_at ? [] : [{ label: 'Acknowledge', icon: 'check', onClick: () => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {}) }]}
+          actions={(r) => r.status === 'resolved' ? [] : [
+            ...(r.acknowledged_at ? [] : [{ label: 'Acknowledge', icon: 'check', onClick: () => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {}) }]),
+            r.snoozed_until && new Date(String(r.snoozed_until)) > new Date()
+              ? { label: 'Wake now', icon: 'bell', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 0 }, label: 'Wake alert', success: 'Reminders are back on' }).catch(() => {}) }
+              : { label: 'Snooze 1 hour', icon: 'clock', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 60 }, label: 'Snooze alert', success: 'No reminders for an hour' }).catch(() => {}) },
+            { label: 'Snooze 1 day', icon: 'clock', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 1440 }, label: 'Snooze alert', success: 'No reminders for a day' }).catch(() => {}) },
+            { label: 'Resolve', icon: 'check', onClick: () => { if (window.confirm('Mark this alert resolved? If the problem is still there, a new alert opens on the next check.')) run({ path: `/alerts/${r.id}/resolve`, label: 'Resolve alert', success: 'Alert resolved' }).catch(() => {}) } },
+          ]}
           columns={[
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'title', header: 'Alert', value: (r) => r.title ?? r.rule_name ?? r.name, render: (r) => <span className="font-semibold">{r.title ?? r.rule_name ?? r.name}</span> },
             { key: 'detail', header: 'Detail', value: (r) => r.detail ?? r.message ?? [r.resource_type, r.value != null ? `value ${r.value}` : null, r.status].filter(Boolean).join(' · ') },
-            { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
+            { key: 'created_at', header: 'Since', render: (r) => <span>{ago(r.created_at ?? r.started_at)}{r.snoozed_until && new Date(String(r.snoozed_until)) > new Date() && <span className="block text-xs text-muted">snoozed until {new Date(String(r.snoozed_until)).toLocaleTimeString()}</span>}</span> },
           ]} />
       </Card>
       <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope_type: 'organization', duration_minutes: 5 })}>Add rule</button>}>
@@ -484,11 +492,12 @@ export function Logs() {
   const [term, setTerm] = useState(false)
   const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200 })
   const c = containers.rows.find((x) => x.id === cid) ?? containers.rows.find((x) => x.state === 'running')
-  const exportCsv = () => {
-    const head = ['time', 'user', 'action', 'resource', 'source_ip']
-    const lines = audit.rows.map((r) => [r.created_at, r.user_name ?? r.user?.name ?? r.user, r.action, r.resource ?? r.resource_type, r.ip ?? r.source_ip].map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' })); a.download = 'audit-log.csv'; a.click()
+  const toast = useToast()
+  const [exporting, setExporting] = useState(false)
+  // The server streams the whole filtered trail (with each row's hash), not just the rows loaded here.
+  const exportCsv = async () => {
+    setExporting(true)
+    try { await downloadFile('/audit-logs/export', {}, 'audit-log.csv') } catch (e) { toast.error(e, 'Could not export the audit log') } finally { setExporting(false) }
   }
   const picker = <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</Select>
   return (
@@ -506,7 +515,7 @@ export function Logs() {
       {tab === 'term' && <div className="mt-4"><TerminalSessions /></div>}
       {tab === 'audit' && (
         <DataTable label="Audit log" rows={audit.rows} loading={audit.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
-          toolbar={<button type="button" className="btn btn-sm" onClick={exportCsv}>Export CSV</button>}
+          toolbar={<button type="button" className="btn btn-sm" disabled={exporting} onClick={exportCsv}>{exporting ? "Exporting…" : "Export CSV"}</button>}
           columns={[
             { key: 'created_at', header: 'Time', render: (r) => <span className="font-mono text-xs">{String(r.created_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
             { key: 'user', header: 'User', value: (r) => r.actor ?? r.user_name ?? r.user?.name ?? 'system' },

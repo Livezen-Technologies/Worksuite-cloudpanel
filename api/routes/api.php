@@ -307,6 +307,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     $crud('alert-rules', Admin\AlertRuleController::class, 'resources.view|servers.view', 'settings.manage|servers.manage');
     Route::get('alerts', [Admin\AlertController::class, 'index'])->middleware($view)->name('alerts.index');
     Route::post('alerts/{id}/ack', [Admin\AlertController::class, 'ack'])->middleware('perm:servers.manage|deploy|containers.operate')->name('alerts.ack');
+    Route::post('alerts/{id}/resolve', [Admin\AlertController::class, 'resolve'])->middleware('perm:servers.manage|deploy|containers.operate')->name('alerts.resolve');
+    Route::post('alerts/{id}/snooze', [Admin\AlertController::class, 'snooze'])->middleware('perm:servers.manage|deploy|containers.operate')->name('alerts.snooze');
     $crud('scheduled-jobs', Admin\ScheduledJobController::class, 'resources.view|servers.view', 'servers.manage');
     Route::post('scheduled-jobs/{id}/run', [Admin\ScheduledJobController::class, 'run'])->middleware('perm:servers.manage')->name('scheduled-jobs.run');
     // CRON-1..9: the cron engine, across every customer for platform admins.
@@ -494,6 +496,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('services/{key}/test', [Admin\ServiceSettingsController::class, 'test'])->where('key', '[a-z0-9_]+')->middleware('throttle:20,1')->name('services.test');
     });
     Route::get('audit-logs', [Admin\AuditLogController::class, 'index'])->middleware('perm:audit.view')->name('audit-logs.index');
+    Route::get('audit-logs/export', [Admin\AuditLogController::class, 'export'])->middleware(['perm:audit.view', 'throttle:10,1'])->name('audit-logs.export');
     Route::get('audit-logs/verify', [Admin\AuditLogController::class, 'verify'])->middleware('perm:audit.view')->name('audit-logs.verify');
 
     // Customer panel

@@ -91,7 +91,7 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
             $job = ScheduledJob::allTenants()->find($run->scheduled_job_id);
             if ($job?->long_after && $run->started_at->lt(now()->subSeconds($job->long_after))) {
                 $run->update(['long_alerted' => true]);
-                $this->alert($job, "Scheduled job \"{$job->name}\" is still running", 'It started at '.$run->started_at->toDayDateTimeString().' UTC, longer than the '.$job->long_after.' s it is allowed.', 'warning');
+                $this->alert($job, "Scheduled job \"{$job->name}\" is still running", 'It started at '.$run->started_at->toDayDateTimeString().' UTC, longer than the '.$job->long_after.' s it is allowed.', 'warning', 'long');
             }
         }
     }
@@ -348,12 +348,22 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
             'source' => 'schedule', 'started_at' => $scheduled->next_run_at ?? now(), 'finished_at' => now(), 'output' => $why,
         ]);
         $scheduled->update(['last_status' => 'missed', 'last_result' => 'Missed']);
-        $this->alert($scheduled, "Scheduled job \"{$scheduled->name}\" missed a run", $why, 'warning');
+        $this->alert($scheduled, "Scheduled job \"{$scheduled->name}\" missed a run", $why, 'warning', 'missed');
     }
 
-    /** CRON-5: email and webhook channels, each switchable per job. */
-    private function alert(ScheduledJob $scheduled, string $title, string $message, string $severity = 'critical'): void
+    /** How long repeat alerts of one kind for one job are held back (a job failing every minute sends one, not 60). */
+    public const ALERT_HOLD_MINUTES = 60;
+
+    /**
+     * CRON-5: email and webhook channels, each switchable per job. The first alert of a kind always goes
+     * out; repeats inside ALERT_HOLD_MINUTES are held, and a successful run releases the hold.
+     */
+    private function alert(ScheduledJob $scheduled, string $title, string $message, string $severity = 'critical', string $kind = 'failed'): void
     {
+        if (! \Illuminate\Support\Facades\Cache::add("cron-alert:{$scheduled->id}:{$kind}", 1, now()->addMinutes(self::ALERT_HOLD_MINUTES))) {
+            return;
+        }
+        $message .= "\n\nRepeats of this alert are held for ".self::ALERT_HOLD_MINUTES.' minutes or until the job succeeds.';
         if ($scheduled->alert_email ?? true) {
             app(EmailTemplateService::class)->notifyOrganization($scheduled->organization_id, 'alert', ['title' => $title, 'message' => $message, 'severity' => $severity]);
         }
@@ -424,6 +434,9 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
     {
         if ($ok) {
             $scheduled->update(['failure_streak' => 0]);
+            foreach (['failed', 'missed', 'long'] as $kind) {
+                \Illuminate\Support\Facades\Cache::forget("cron-alert:{$scheduled->id}:{$kind}");
+            }
             \App\Models\Alert::allTenants()->where('resource_type', 'ScheduledJob')->where('resource_id', $scheduled->id)->whereIn('status', ['open', 'acknowledged'])
                 ->update(['status' => 'resolved', 'resolved_at' => now()]);
 
@@ -435,7 +448,7 @@ class ScheduledJobService implements \App\Contracts\HandlesCommandResults
         $streak = $scheduled->failure_streak + 1;
         $scheduled->update(['failure_streak' => $streak]);
         if ($status === 'missed') {
-            $this->alert($scheduled, "Scheduled job \"{$scheduled->name}\" missed a run", 'The server that runs it was offline at the scheduled time.', 'warning');
+            $this->alert($scheduled, "Scheduled job \"{$scheduled->name}\" missed a run", 'The server that runs it was offline at the scheduled time.', 'warning', 'missed');
         } else {
             $this->alert($scheduled, "Scheduled job \"{$scheduled->name}\" failed", $result.($output !== '' ? "\n\n".mb_strcut($output, max(0, strlen($output) - 2000)) : ''));
         }

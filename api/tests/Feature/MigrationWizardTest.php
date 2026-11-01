@@ -205,6 +205,37 @@ class MigrationWizardTest extends TestCase
         $this->assertNotNull(collect($m->timeline)->firstWhere('event', 'Copied 3 files (900 already there)'));
     }
 
+    public function test_finished_and_failed_migrations_free_their_archive_after_the_keep_period(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $make = fn (string $status, int $daysAgo) => app(Tenant::class)->as($org->id, function () use ($server, $status, $daysAgo) {
+            $m = SiteMigration::create(['server_id' => $server->id, 'source' => 'cpanel', 'status' => $status, 'archive_url' => 'https://x.example.com/a.tar.gz', 'sites' => []]);
+            SiteMigration::allTenants()->whereKey($m->id)->update(['updated_at' => now()->subDays($daysAgo)]);
+
+            return $m;
+        });
+        $old = $make('migrated', 15);
+        $recent = $make('migrated', 5);
+        $failed = $make('failed', 4);
+        $running = $make('migrating', 30);
+
+        $this->artisan('migrations:cleanup')->expectsOutput('Migration archives removed: 2')->assertSuccessful();
+        $cleanups = collect($this->heartbeat($secret)['commands'])->where('type', 'migrate.cleanup');
+        $this->assertEqualsCanonicalizing([$old->id, $failed->id], $cleanups->pluck('payload.id')->all());
+        $this->assertNull(SiteMigration::allTenants()->find($recent->id)->archive_removed_at, 'kept for a delta resync');
+        $this->assertNull(SiteMigration::allTenants()->find($running->id)->archive_removed_at, 'never while it runs');
+
+        foreach ($cleanups as $c) {
+            $this->commandResult($secret, $c['id'], 'succeeded', ['output' => ['removed' => true]])->assertOk();
+        }
+        $this->assertSame(['migrated', 'failed'], [SiteMigration::allTenants()->find($old->id)->status, SiteMigration::allTenants()->find($failed->id)->status], 'cleanup never changes the status');
+        $this->assertNotNull(SiteMigration::allTenants()->find($old->id)->archive_removed_at);
+        $this->artisan('migrations:cleanup')->expectsOutput('Migration archives removed: 0')->assertSuccessful();
+    }
+
     public function test_bulk_and_customer_requests(): void
     {
         [$admin, $org, $token] = $this->org('super_admin');
