@@ -141,13 +141,30 @@ class PublicPagesService
         return null;
     }
 
-    /** Routers and middlewares for the Traefik file provider (added to TraefikConfigService::render). */
+    /**
+     * Routers, middlewares and services for the Traefik file provider (added to
+     * TraefikConfigService::render).
+     *
+     * The pages service is normally discovered from the container's labels by
+     * Traefik's docker provider. Where that provider is switched off, the
+     * reference has to be resolvable inside the pushed file instead, so the
+     * service is declared here and referenced as ws-pages@file. Without it
+     * Traefik cannot resolve the errors middleware, drops every router that
+     * carries it, and quietly serves the catch-all 404 for every domain.
+     */
     public function traefik(iterable $domains, array $routers): array
     {
         if (! $this->installed()) {
-            return [[], []];
+            return [[], [], []];
         }
-        $service = self::CONTAINER.config('platform.traefik.docker_service_suffix');
+        $suffix = (string) config('platform.traefik.docker_service_suffix');
+        $service = self::CONTAINER.$suffix;
+        $services = $suffix === '@docker' ? [] : [
+            self::CONTAINER => ['loadBalancer' => [
+                'passHostHeader' => false,
+                'servers' => [['url' => (string) config('platform.traefik.pages_url')]],
+            ]],
+        ];
         $entry = [config('platform.traefik.entrypoint')];
         $token = $this->settings()['bypass_token'];
         $mw = [
@@ -186,7 +203,7 @@ class PublicPagesService
             $out[$name.'-page'] = ['rule' => $takeover, 'priority' => 100000, 'entryPoints' => $entry, 'service' => $service, 'middlewares' => ['dmp-pages-p-'.$page], 'tls' => $tls];
         }
 
-        return [$out, $mw];
+        return [$out, $mw, $services];
     }
 
     /** Domains served by the pages container: verified ones, with or without an app. */
@@ -215,7 +232,12 @@ class PublicPagesService
             $spec = ContainerSpec::build([
                 'name' => self::CONTAINER, 'image' => self::IMAGE, 'read_only_rootfs' => true, 'tmpfs' => ['/tmp'],
                 'mounts' => [['source' => self::HTML_VOLUME, 'target' => '/usr/share/nginx/html', 'read_only' => true], ['source' => self::CONF_VOLUME, 'target' => '/etc/nginx/conf.d', 'read_only' => true]],
-                'memory_mb' => 64, 'labels' => ['traefik.enable' => 'true', 'traefik.http.services.'.self::CONTAINER.'.loadbalancer.server.port' => '8080'],
+                // Traefik has to reach this container by name, so it joins the
+                // proxy network rather than the default bridge. On the bridge
+                // the name does not resolve from Traefik at all, and the pages
+                // never load however the service is referenced.
+                'memory_mb' => 64, 'network' => config('platform.traefik.network'),
+                'labels' => ['traefik.enable' => 'true', 'traefik.http.services.'.self::CONTAINER.'.loadbalancer.server.port' => '8080'],
             ], null);
             $this->bus->dispatch($server, 'container.create', $spec);
             Container::allTenants()->create(['server_id' => $server->id, 'name' => self::CONTAINER, 'image' => self::IMAGE, 'state' => 'creating', 'spec' => ContainerSpec::redact($spec)]);

@@ -99,4 +99,45 @@ class PublicPagesTest extends TestCase
         [, , $viewer] = $this->org('viewer');
         $this->api($viewer)->patchJson('/api/v1/public-pages', ['maintenance' => false])->assertForbidden();
     }
+
+    /**
+     * An ingress whose Traefik runs no docker provider cannot resolve
+     * ws-pages@docker, and Traefik drops any router whose middleware chain does
+     * not resolve - so every domain carrying the errors middleware falls
+     * through to the catch-all and answers 404. With the suffix set to "@file"
+     * the service has to be declared in the pushed file instead.
+     */
+    public function test_pages_service_is_declared_in_the_file_when_there_is_no_docker_provider(): void
+    {
+        [$token, $secret, $server] = $this->setUpEdge();
+        $this->api($token)->postJson('/api/v1/public-pages/install')->assertStatus(202);
+        $this->heartbeat($secret);
+
+        // Default: discovered from the container's labels, nothing declared here.
+        $http = $this->http($server);
+        $this->assertSame('ws-pages@docker', $http['middlewares']['dmp-pages-errors']['errors']['service']);
+        $this->assertArrayNotHasKey('ws-pages', $http['services'] ?? []);
+
+        config([
+            'platform.traefik.docker_service_suffix' => '@file',
+            'platform.traefik.pages_url' => 'http://ws-pages:8080',
+        ]);
+        $http = $this->http($server);
+        $this->assertSame('ws-pages@file', $http['middlewares']['dmp-pages-errors']['errors']['service']);
+        $this->assertSame(
+            'http://ws-pages:8080',
+            $http['services']['ws-pages']['loadBalancer']['servers'][0]['url'],
+            'ws-pages@file has to resolve to a service in this same file'
+        );
+        $this->assertSame('ws-pages@file', $http['routers']['dmp-pages-catchall']['service']);
+    }
+
+    /** Traefik reaches the container by name, which the default bridge does not allow. */
+    public function test_the_pages_container_joins_the_proxy_network(): void
+    {
+        [$token, $secret] = $this->setUpEdge();
+        $this->api($token)->postJson('/api/v1/public-pages/install')->assertStatus(202);
+        $create = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create')['payload'];
+        $this->assertSame([['name' => 'proxy']], $create['networks']);
+    }
 }

@@ -67,6 +67,27 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- **Public pages could take every managed domain down to a 404 on an ingress
+  with no Traefik docker provider.** `PublicPagesService` referenced the pages
+  container as `ws-pages@docker` and started it with no network, so it landed on
+  the default bridge. Where Traefik routes purely through the file provider —
+  as it does once the docker provider is removed, because Traefik's docker
+  client negotiates API 1.24 and Docker 29 refuses it — that name resolves to
+  nothing. Traefik drops any router whose middleware chain will not resolve, and
+  since `dmp-pages-errors` is attached to *every* domain router, each one was
+  dropped and its traffic fell through `dmp-pages-catchall` to the 404 page.
+  The failure is silent: TLS still terminates with the right certificate, so a
+  domain looks healthy and answers 404. Observed on a live ingress where all
+  twelve adopted domains went to 404 the moment the panel took over routing.
+  - `platform.traefik.docker_service_suffix` is now settable via
+    `TRAEFIK_DOCKER_SERVICE_SUFFIX`. Set it to `@file` on such a server and the
+    pages service is declared in the pushed file, where the reference resolves.
+  - The container now joins `platform.traefik.network` (`TRAEFIK_NETWORK`,
+    default `proxy`) instead of the bridge, so Traefik can reach it by name at
+    all. Existing installs need the running container attached to that network
+    once; the labels are kept so a docker-provider ingress is unaffected.
+  - The default stays `@docker`, so nothing changes for an ingress that does run
+    the docker provider.
 - An incident whose container was replaced stayed open for ever and kept
   re-notifying. `UptimeService::checkInfrastructure` iterates the container and
   server rows that exist now, opening or closing an incident keyed by each row's
