@@ -119,6 +119,20 @@ class BackupExportTest extends TestCase
         $this->artisan('backups:restore-tests')->expectsOutput('Restore tests started: 1')->assertSuccessful();
     }
 
+    public function test_a_failed_restore_test_emails_the_organisation(): void
+    {
+        [$org, $token, $secret] = $this->appBackup();
+        $mail = $this->spy(\App\Services\EmailTemplateService::class);
+        $artifact = BackupArtifact::allTenants()->first();
+        $this->api($token)->postJson("/api/v1/backup-artifacts/{$artifact->id}/restore-test")->assertStatus(202);
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'backup.test');
+        $this->commandResult($secret, $cmd['id'], 'failed', ['message' => 'restic: ciphertext verification failed'])->assertOk();
+
+        $this->assertSame('failed', $artifact->fresh()->restore_test_status);
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $o === $org->id && $k === 'restore_test_failed'
+            && str_contains($v['error'], 'ciphertext verification failed') && str_starts_with($v['target'], 'application'))->once();
+    }
+
     public function test_restore_tests_start_the_restored_app_in_a_sandbox(): void
     {
         [$org, $token, $secret, $app] = $this->appBackup();

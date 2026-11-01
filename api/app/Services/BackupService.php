@@ -518,6 +518,14 @@ class BackupService implements HandlesCommandResults
             $this->jobs->succeed($job, ['artifact_id' => $artifact?->id] + $out);
         } else {
             $this->jobs->fail($job, $message, 'restore_test');
+            // A backup that cannot be restored is as bad as none: tell the people who would rely on it.
+            if ($artifact) {
+                app(\App\Services\EmailTemplateService::class)->notifyOrganization($artifact->organization_id, 'restore_test_failed', [
+                    'target' => $this->label((string) ($artifact->backupJob?->target_type ?? 'backup'), $artifact->backupJob?->target_id),
+                    'snapshot' => $artifact->created_at?->toDayDateTimeString().' UTC', 'error' => \Illuminate\Support\Str::limit($message, 2000),
+                    'time' => now()->toDayDateTimeString().' UTC',
+                ], 'restore_test_failed:'.($policy?->id ?? $artifact->id), 60 * 12);
+            }
         }
     }
 
