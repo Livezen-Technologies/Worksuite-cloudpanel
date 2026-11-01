@@ -213,7 +213,8 @@ class FileManagerTest extends TestCase
         $this->assertSame(['a.txt', 'b.txt'], $commands->firstWhere('type', 'fs.move')['payload']['paths']);
         $this->assertSame('tar.gz', $commands->firstWhere('type', 'fs.compress')['payload']['format']);
 
-        $actions = AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->pluck('action')->all();
+        // Ordered by the auto-increment id: without an ORDER BY, PostgreSQL may return rows in any order.
+        $actions = AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->orderBy('id')->pluck('action')->all();
         $this->assertSame(['files.trash', 'files.trash_restore', 'files.trash_purge', 'files.copy', 'files.move', 'files.compress', 'files.extract'], $actions);
         $this->assertSame(['wp-content/old-theme'], AuditLog::where('organization_id', $org->id)->where('action', 'files.trash')->sole()->meta['paths']);
     }
