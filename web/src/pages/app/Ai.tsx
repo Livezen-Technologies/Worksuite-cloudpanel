@@ -5,6 +5,7 @@ import { Badge, type Tone } from '../../components/Badge'
 import { CopyButton } from '../../components/CopyButton'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+import { AssistantChat } from '../../components/AssistantChat'
 
 const TABS = ['Connect AI (MCP)', 'Activity', 'Permissions', 'Assistant'] as const
 const LEVEL: Record<string, [string, string]> = {
@@ -109,15 +110,13 @@ export default function UserAi() {
           </fieldset>
         </Card>
         <Card title="Safeguards">
-          {([['confirm_destructive', 'Always confirm destructive actions', 'Deleting or restoring needs you to type the name, even when AI asks.'], ['hide_secrets', 'Never send secret values to AI', 'Variables marked secret are never shown to the model.'], ['audit', 'Keep an audit log', 'Every AI and MCP tool call is logged with who, what and the result.']] as const).map(([k, t, d]) => (
+          {([['assistant', 'Built-in assistant', 'Let people in this account chat with the assistant. MCP clients are not affected.'], ['confirm_destructive', 'Always confirm destructive actions', 'Deleting or restoring needs you to type the name, even when AI asks.'], ['hide_secrets', 'Never send secret values to AI', 'Variables marked secret are never shown to the model.'], ['audit', 'Keep an audit log', 'Every AI and MCP tool call is logged with who, what and the result.']] as const).map(([k, t, d]) => (
             <div key={k} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0 text-sm"><span className="flex-1"><span className="font-semibold">{t}</span><span className="block text-xs text-muted">{d}</span></span><Toggle checked={!!s[k]} label={t} disabled={busy} onChange={(v) => save({ [k]: v })} /></div>
           ))}
         </Card>
       </>}
 
-      {tab === 3 && <Card title="Assistant">
-        <p className="m-0 text-sm text-muted">The built-in chat assistant is coming soon. Until then, connect Claude, Cursor or another AI tool through MCP. It uses the same tools and the same approvals.</p>
-      </Card>}
+      {tab === 3 && <Card title="Assistant"><AssistantChat /></Card>}
     </>
   )
 }

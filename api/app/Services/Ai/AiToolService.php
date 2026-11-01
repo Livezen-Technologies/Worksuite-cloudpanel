@@ -24,7 +24,7 @@ class AiToolService
 {
     public const LEVELS = ['read_only', 'ask', 'autonomous'];
 
-    public const DEFAULTS = ['level' => 'ask', 'confirm_destructive' => true, 'hide_secrets' => true, 'audit' => true];
+    public const DEFAULTS = ['level' => 'ask', 'confirm_destructive' => true, 'hide_secrets' => true, 'audit' => true, 'assistant' => true];
 
     public function settings(Organization $org): array
     {
@@ -46,8 +46,8 @@ class AiToolService
         $app = ['type' => 'object', 'properties' => ['app' => ['type' => 'string', 'description' => 'App name or id']], 'required' => ['app']];
 
         return [
-            'list_projects' => ['description' => 'List your projects and the apps in each.', 'write' => false, 'schema' => ['type' => 'object', 'properties' => (object) []]],
-            'list_apps' => ['description' => 'List your apps with status, region and project.', 'write' => false, 'schema' => ['type' => 'object', 'properties' => (object) []]],
+            'list_projects' => ['description' => 'List your projects and the apps in each.', 'write' => false, 'schema' => ['type' => 'object']],
+            'list_apps' => ['description' => 'List your apps with status, region and project.', 'write' => false, 'schema' => ['type' => 'object']],
             'get_app' => ['description' => 'Details of one app: status, image, size, domains.', 'write' => false, 'schema' => $app],
             'get_logs' => ['description' => 'The latest log lines of one app.', 'write' => false, 'schema' => ['type' => 'object', 'properties' => ['app' => ['type' => 'string'], 'tail' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 500]], 'required' => ['app']]],
             'restart_app' => ['description' => 'Restart one app. A change: may need approval.', 'write' => true, 'schema' => $app],

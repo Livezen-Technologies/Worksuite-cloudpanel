@@ -43,6 +43,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(CertificateIssuer::class, fn ($app) => config('platform.drivers.certificates') === 'traefik' ? $app->make(\App\Drivers\TraefikCertificateIssuer::class) : new FakeCertificateIssuer);
         $this->app->singleton(ImageScanner::class, FakeImageScanner::class);
         $this->app->singleton(PaymentGateway::class, fn () => match (config('platform.drivers.payments')) { 'stripe' => new \App\Drivers\StripePaymentGateway(config('billing.stripe')), 'paypal' => new \App\Drivers\PayPalPaymentGateway(\App\Drivers\PayPalPaymentGateway::config()), default => new FakePaymentGateway });
+        $this->app->singleton(\App\Contracts\ChatModel::class, fn () => config('platform.ai.driver') === 'fake'
+            ? new \App\Drivers\FakeChatModel
+            : new \App\Drivers\AnthropicChatModel((string) config('platform.ai.api_key'), (string) config('platform.ai.model'), (string) config('platform.ai.effort')));
         $this->app->singleton(SourceValidator::class, fn () => $drivers['source'] === 'fake' ? new FakeSourceValidator : new HttpSourceValidator);
     }
 

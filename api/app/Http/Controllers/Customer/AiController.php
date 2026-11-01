@@ -36,6 +36,7 @@ class AiController extends Controller
     {
         return $this->data([
             'mcp_url' => url('/api/v1/app/mcp'),
+            'assistant' => ['available' => \App\Services\Ai\AssistantService::available(), 'model' => config('platform.ai.model')],
             'settings' => $this->ai->settings($this->org($request)),
             'levels' => AiToolService::LEVELS,
             'tools' => collect($this->ai->tools())->map(fn ($t, $n) => ['name' => $n, 'description' => $t['description'], 'write' => $t['write']])->values(),
@@ -52,7 +53,7 @@ class AiController extends Controller
     {
         $v = $request->validate([
             'level' => ['sometimes', Rule::in(AiToolService::LEVELS)],
-            'confirm_destructive' => 'sometimes|boolean', 'hide_secrets' => 'sometimes|boolean', 'audit' => 'sometimes|boolean',
+            'confirm_destructive' => 'sometimes|boolean', 'hide_secrets' => 'sometimes|boolean', 'audit' => 'sometimes|boolean', 'assistant' => 'sometimes|boolean',
         ]);
         $saved = $this->ai->saveSettings($this->org($request), $v);
         app(AuditLogger::class)->log('ai.settings', 'organization', $request->user()->current_organization_id, $v);
@@ -86,5 +87,42 @@ class AiController extends Controller
         $a = $decision === 'approve' ? $this->ai->approve($a, $request->user()) : $this->ai->reject($a, $request->user());
 
         return $this->data($this->presentAction($a));
+    }
+
+    private function conversation(Request $request): ?\App\Models\AiConversation
+    {
+        return \App\Models\AiConversation::where('user_id', $request->user()->id)->latest('updated_at')->first();
+    }
+
+    /** UAI: the person's current conversation with the assistant. */
+    public function conversationShow(Request $request)
+    {
+        $c = $this->conversation($request);
+
+        return $this->data(['id' => $c?->id, 'messages' => $c?->transcript ?? [], 'available' => \App\Services\Ai\AssistantService::available()]);
+    }
+
+    public function ask(Request $request, \App\Services\Ai\AssistantService $assistant)
+    {
+        $v = $request->validate(['message' => 'required|string|min:1|max:4000']);
+        $key = 'ai-turns:'.$request->user()->current_organization_id.':'.now()->toDateString();
+        $limit = (int) config('platform.ai.max_turns_per_day');
+        if ((int) \Illuminate\Support\Facades\Cache::get($key, 0) >= $limit) {
+            throw \App\Exceptions\ApiException::conflict("Your account has used today's {$limit} assistant messages. It resets at midnight UTC.", ['reason' => 'ai_daily_limit']);
+        }
+        $r = $assistant->ask($request->user(), $this->conversation($request), $v['message']);
+        // Counted once a reply came back: a message refused for set-up reasons doesn't use the allowance.
+        \Illuminate\Support\Facades\Cache::add($key, 0, now()->endOfDay());
+        \Illuminate\Support\Facades\Cache::increment($key);
+
+        return $this->data(['id' => $r['conversation']->id, 'reply' => $r['reply'], 'actions' => $r['actions'], 'messages' => $r['conversation']->transcript]);
+    }
+
+    /** Start over: the next message opens a new conversation. */
+    public function conversationReset(Request $request)
+    {
+        \App\Models\AiConversation::where('user_id', $request->user()->id)->delete();
+
+        return response()->noContent();
     }
 }

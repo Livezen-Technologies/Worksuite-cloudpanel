@@ -31,6 +31,15 @@ return [
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
     ],
 
+    // UAI: the built-in assistant on the Claude API (fake in tests).
+    'ai' => [
+        'driver' => env('AI_DRIVER', 'anthropic'), // anthropic|fake
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('AI_MODEL', 'claude-opus-5-5'),
+        'effort' => env('AI_EFFORT', 'medium'),
+        'max_turns_per_day' => (int) env('AI_MAX_TURNS_PER_DAY', 200), // per organisation
+    ],
+
     // GIT: "Sign in with GitHub / GitLab". Create an OAuth app whose callback is
     // {APP_URL}/api/v1/git/oauth/{provider}/callback and set its id and secret here.
     'git_oauth' => [

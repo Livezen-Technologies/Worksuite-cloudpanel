@@ -235,6 +235,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('git/connections/{id}/check', [\App\Http\Controllers\GitSourceController::class, 'check'])->middleware('perm:deploy')->middleware('throttle:20,1')->name('git.connections.check');
     Route::get('git/connections/{id}/repositories', [\App\Http\Controllers\GitSourceController::class, 'repositories'])->middleware('perm:deploy')->middleware('throttle:30,1')->name('git.connections.repositories');
     Route::delete('git/connections/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyConnection'])->middleware('perm:deploy')->name('git.connections.destroy');
+    // UAI: the platform's AI set-up and activity across accounts (staff).
+    Route::get('ai', [Admin\AiController::class, 'index'])->middleware('perm:settings.manage')->name('ai.admin');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');
@@ -544,6 +546,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::patch('ai/settings', [Customer\AiController::class, 'settings'])->name('ai.settings');
             Route::post('ai/tokens', [Customer\AiController::class, 'storeToken'])->name('ai.tokens.store');
             Route::delete('ai/tokens/{id}', [Customer\AiController::class, 'destroyToken'])->name('ai.tokens.destroy');
+            Route::get('ai/assistant', [Customer\AiController::class, 'conversationShow'])->name('ai.assistant.show');
+            Route::post('ai/assistant', [Customer\AiController::class, 'ask'])->middleware('throttle:20,1')->name('ai.assistant.ask');
+            Route::delete('ai/assistant', [Customer\AiController::class, 'conversationReset'])->name('ai.assistant.reset');
             Route::post('ai/actions/{id}/{decision}', [Customer\AiController::class, 'decide'])->whereIn('decision', ['approve', 'reject'])->name('ai.actions.decide');
             // UPRJ: the customer's own projects.
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
