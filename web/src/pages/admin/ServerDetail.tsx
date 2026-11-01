@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import type { Container, Server } from '../../api/types'
+import type { Container, Server, ServerDisk } from '../../api/types'
 import { Card, Field, Meter, StatTile, Toggle, PageHeader } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
@@ -16,6 +16,26 @@ import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
 
 const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
+
+/** TB above a terabyte, so a 1.8 TB array does not read as "1831 GB". */
+function gb(v?: number) {
+  const n = num(v)
+  if (!n) return '\u2014'
+  return n >= 1024 ? `${(n / 1024).toFixed(1)} TB` : `${n} GB`
+}
+
+/**
+ * disk_pct and disk_gb are the root filesystem's. On a host whose data sits on
+ * a second array that alone under-reports the machine, so the tile also names
+ * the total once there is more than one filesystem.
+ */
+function diskDelta(rootGB: number | undefined, disks: ServerDisk[]) {
+  if (disks.length > 1) {
+    const total = disks.reduce((a, d) => a + num(d.size_gb), 0)
+    return `${gb(rootGB)} root \u00b7 ${gb(total)} total`
+  }
+  return rootGB ? gb(rootGB) : undefined
+}
 
 function SimpleList({ path, query, columns, label }: { path: string; query?: R; columns: Column<R>[]; label: string }) {
   const { rows, isLoading } = useList<R>(path, query)
@@ -41,6 +61,7 @@ export default function ServerDetail() {
   const audit = useList<R>(tab === 'Logs' || tab === 'Security' ? '/audit-logs' : null, { server_id: id })
   if (isLoading || !s) return <Card>{isLoading ? 'Loading server…' : 'Server not found.'}</Card>
   const series = (metrics.item?.series ?? metrics.item ?? {}) as R
+  const disks = (s.disks ?? []) as ServerDisk[]
   const f = edit ?? { name: s.name, environment: s.environment, region: s.region, tags: (s.tags ?? []).join(', ') }
 
   return (
@@ -69,7 +90,7 @@ export default function ServerDetail() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <StatTile label="CPU" value={pct(s.cpu_pct)} delta={`${s.cpu_cores ?? '—'} cores`} pct={s.cpu_pct} />
             <StatTile label="Memory" value={pct(s.ram_pct)} delta={mb(s.ram_mb)} pct={s.ram_pct} />
-            <StatTile label="Disk" value={pct(s.disk_pct)} delta={s.disk_gb ? `${s.disk_gb} GB` : undefined} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? 'var(--r-fg)' : undefined} />
+            <StatTile label="Disk" value={pct(s.disk_pct)} delta={diskDelta(s.disk_gb, disks)} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? 'var(--r-fg)' : undefined} />
             <StatTile label="Containers" value={s.container_count ?? containers.rows.length} />
           </div>
           <Card title="System">
@@ -86,6 +107,19 @@ export default function ServerDetail() {
       {tab === 'Applications' && <SimpleList label="Applications" path="/applications" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'source_type', header: 'Source' }, { key: 'environment', header: 'Environment' }, { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> }]} />}
       {tab === 'Networks' && <SimpleList label="Networks" path="/networks" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'driver', header: 'Driver' }, { key: 'subnet', header: 'Subnet', render: (r) => <span className="font-mono text-xs">{r.subnet ?? '—'}</span> }, { key: 'exposure', header: 'Exposure' }]} />}
       {tab === 'Volumes' && <SimpleList label="Volumes" path="/volumes" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'type', header: 'Type' }, { key: 'size', header: 'Size', render: (r) => r.size ?? mb(r.size_mb) }, { key: 'backup_policy', header: 'Backup', render: (r) => r.backup_policy ? str(r.backup_policy?.name ?? r.backup_policy) : <Badge tone="y">no policy</Badge> }]} />}
+      {tab === 'Storage' && disks.length > 0 && (
+        <Card title="Filesystems">
+          <DataTable label="Mounted filesystems" rows={disks} rowKey={(r) => r.mount}
+            columns={[
+              { key: 'mount', header: 'Mount', render: (r) => <span className="font-mono text-xs">{r.mount}</span> },
+              { key: 'device', header: 'Device', render: (r) => <span className="font-mono text-xs">{r.device ?? '\u2014'}</span> },
+              { key: 'fstype', header: 'Type', value: (r) => r.fstype ?? '\u2014' },
+              { key: 'size_gb', header: 'Size', value: (r) => gb(r.size_gb) },
+              { key: 'used_gb', header: 'Used', value: (r) => gb(r.used_gb) },
+              { key: 'used_pct', header: '', render: (r) => <div className="w-40"><Meter value={num(r.used_pct)} label={`${r.mount} used`} /></div> },
+            ]} />
+        </Card>
+      )}
       {tab === 'Storage' && <SimpleList label="Storage pools" path="/storage-pools" query={{ server_id: id }} columns={[{ key: 'name', header: 'Pool' }, { key: 'type', header: 'Type' }, { key: 'used', header: 'Used', render: (r) => <div className="w-40"><Meter value={num(r.used_pct ?? (r.capacity_gb ? (num(r.used_gb) / num(r.capacity_gb)) * 100 : 0))} label={`${r.name} used`} /></div> }]} />}
       {tab === 'Monitoring' && (
         <Card title="Resources — last 6 h">
