@@ -115,7 +115,8 @@ class BillingService
             'payment_method' => $org->payment_method,
             'billing_email' => $org->billing_email,
             'payment_provider' => $this->payments->name(),
-            'payment_portal_url' => rescue(fn () => $this->payments->portalUrl($org, config('billing.stripe.return_url')), null, report: false),
+            // PayPal's link creates a subscription, so it is only made on POST billing/portal.
+            'payment_portal_url' => $this->payments->name() === 'paypal' ? null : rescue(fn () => $this->payments->portalUrl($org, $this->returnUrl()), null, report: false),
         ];
     }
 
@@ -154,7 +155,12 @@ class BillingService
 
     public function portalUrl(Organization $org): string
     {
-        return $this->payments->portalUrl($org, config('billing.stripe.return_url'));
+        return $this->payments->portalUrl($org, $this->returnUrl());
+    }
+
+    private function returnUrl(): string
+    {
+        return (string) config('billing.'.($this->payments->name() === 'paypal' ? 'paypal' : 'stripe').'.return_url');
     }
 
     public function invoiceApi(Invoice $invoice): array

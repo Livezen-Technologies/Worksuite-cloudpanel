@@ -45,6 +45,7 @@ Route::get('file-downloads/{id}', [\App\Http\Controllers\SignedFileController::c
 Route::get('invoices/{id}/pdf', [\App\Http\Controllers\SignedFileController::class, 'invoicePdf'])->middleware('signed')->name('invoice.pdf');
 Route::get('status', [Admin\StatusPageController::class, 'public'])->middleware('throttle:api')->name('status.public');
 Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
+Route::post('webhooks/paypal', [\App\Http\Controllers\PayPalWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.paypal');
 
 Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');

@@ -27,4 +27,18 @@ return [
         ],
         'return_url' => env('STRIPE_RETURN_URL', env('PANEL_URL', 'http://localhost').'/app/billing'),
     ],
+
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'secret' => env('PAYPAL_SECRET'),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
+        'mode' => env('PAYPAL_MODE', 'sandbox'),   // sandbox|live
+        // PayPal billing plan ids (P-...) per plan code, monthly.
+        'plans' => [
+            'small' => env('PAYPAL_PLAN_SMALL'),
+            'standard' => env('PAYPAL_PLAN_STANDARD'),
+            'pro' => env('PAYPAL_PLAN_PRO'),
+        ],
+        'return_url' => env('PAYPAL_RETURN_URL', env('PANEL_URL', 'http://localhost').'/app/billing'),
+    ],
 ];
