@@ -38,7 +38,7 @@ class OperationsTest extends TestCase
     public function test_default_alert_rules_seeded_and_evaluated(): void
     {
         [, $org, $token] = $this->org();
-        $this->assertSame(7, AlertRule::allTenants()->where('organization_id', $org->id)->where('is_default', true)->count());
+        $this->assertSame(8, AlertRule::allTenants()->where('organization_id', $org->id)->where('is_default', true)->count());
         $server = $this->server($org, ['cpu_pct' => 97]);
         foreach (range(0, 9) as $m) {
             Metric::create(['organization_id' => $org->id, 'server_id' => $server->id, 'cpu_pct' => 97, 'ram_pct' => 20, 'disk_pct' => 30, 'recorded_at' => now()->subMinutes($m)]);

@@ -617,6 +617,7 @@ class BackupService implements HandlesCommandResults
             'last_restore_test' => $tested ? ['at' => $tested->restore_tested_at->toIso8601ZuluString(), 'status' => $tested->restore_test_status] : null,
             'next_run_at' => $next ? \Illuminate\Support\Carbon::instance($next)->toIso8601ZuluString() : null,
             'paused' => $policies->where('enabled', false)->count(),
+            'overdue' => $policies->filter(fn ($p) => self::overdue($p)['overdue'] === true)->count(),
         ];
     }
 
@@ -640,6 +641,27 @@ class BackupService implements HandlesCommandResults
         }
 
         return $started;
+    }
+
+    /**
+     * Is the policy overdue? True when its last two scheduled runs both passed without a successful
+     * backup. Null when it cannot be judged (paused, bad schedule, or too new to have missed two runs).
+     *
+     * @return array{overdue: ?bool, last_success_at: ?\Illuminate\Support\Carbon}
+     */
+    public static function overdue(BackupPolicy $p): array
+    {
+        $last = BackupJob::allTenants()->where('backup_policy_id', $p->id)->where('status', 'succeeded')->latest('created_at')->value('created_at');
+        $lastAt = $last ? \Illuminate\Support\Carbon::parse($last) : null;
+        if (! $p->enabled || ! \Cron\CronExpression::isValidExpression($p->schedule)) {
+            return ['overdue' => null, 'last_success_at' => $lastAt];
+        }
+        $previous = \Illuminate\Support\Carbon::instance((new \Cron\CronExpression($p->schedule))->getPreviousRunDate(now(), 1, true));
+        if ($p->created_at && $p->created_at->gt($previous)) {
+            return ['overdue' => null, 'last_success_at' => $lastAt];
+        }
+
+        return ['overdue' => ! $lastAt || $lastAt->lt($previous), 'last_success_at' => $lastAt];
     }
 
     public function dueSchedules(): \Illuminate\Support\Collection

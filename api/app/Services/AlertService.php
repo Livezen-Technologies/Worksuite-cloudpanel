@@ -75,6 +75,18 @@ class AlertService
                     $results[$last->id] = [$last->status === 'failed', 'Backup of '.$last->target_type.' failed', null, 'BackupJob', $last->id];
                 }
                 break;
+            case 'backup_overdue':
+                // A policy whose last two scheduled runs both passed without a successful backup:
+                // the scheduler, the agent or the destination has silently stopped. Value: hours since the last success.
+                foreach (\App\Models\BackupPolicy::where('enabled', true)->get() as $p) {
+                    ['overdue' => $overdue, 'last_success_at' => $lastAt] = \App\Services\BackupService::overdue($p);
+                    if ($overdue === null) {
+                        continue;   // paused, invalid schedule or too new to have missed two runs
+                    }
+                    $hours = $lastAt ? round($lastAt->diffInMinutes(now()) / 60, 1) : null;
+                    $results[$p->id] = [$overdue && $cmp($hours ?? 1e6), "Backup policy {$p->name} has not completed since ".($lastAt ? $lastAt->toDayDateTimeString() : 'it was created'), $hours, 'BackupPolicy', $p->id];
+                }
+                break;
             case 'ssl_expiry':
                 // The certificate serving traffic, not a newer failed attempt (which has no expiry).
                 $active = \App\Models\Certificate::where('status', 'active')->whereNotNull('expires_at')->orderBy('expires_at')->get()->groupBy('domain_id')->map->last();

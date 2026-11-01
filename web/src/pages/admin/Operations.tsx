@@ -167,7 +167,7 @@ export function Backups() {
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'due' }, label: 'Run all due', success: 'Started the due backups' }).catch(() => {})}>Run all due now</button>
         </>} />
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
-        <StatTile label="Protected targets" value={num(s.protected_targets)} delta={s.paused ? `${s.paused} paused` : undefined} />
+        <StatTile label="Protected targets" value={num(s.protected_targets)} delta={num(s.overdue) ? `${s.overdue} overdue` : s.paused ? `${s.paused} paused` : undefined} deltaTone={num(s.overdue) ? 'r' : undefined} />
         <StatTile label="Success (30 days)" value={s.success_rate_30d == null ? '—' : `${s.success_rate_30d}%`} delta={`${num(s.runs_30d)} runs`} deltaTone={num(s.success_rate_30d) < 95 && s.success_rate_30d != null ? 'r' : undefined} />
         <StatTile label="Stored" value={fmtMb(num(s.stored_mb))} />
         <StatTile label="Last restore test" value={s.last_restore_test ? String((s.last_restore_test as R).status) : 'never'} delta={s.last_restore_test ? ago((s.last_restore_test as R).at) : undefined} deltaTone={(s.last_restore_test as R)?.status === 'failed' ? 'r' : undefined} />
@@ -193,10 +193,10 @@ export function Backups() {
             columns={[
               { key: 'name', header: 'Target', render: (r) => <span><span className="block font-semibold">{r.name}</span><span className="block text-xs text-muted">{TARGET_KIND[String(r.target_type)] ?? r.target_type}<span className="font-mono"> · {String(r.target_id ?? '').slice(0, 12)}</span></span></span> },
               { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{METHOD[String(r.target_type)] ?? 'Restic snapshot'}</span> },
-              { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
+              { key: 'schedule', header: 'Schedule', render: (r) => <span><span className="block font-mono text-xs">{r.schedule}</span>{r.next_run_at && r.enabled !== false && <span className="block text-xs text-muted mt-1">next {new Date(String(r.next_run_at)).toLocaleString()}</span>}</span> },
               { key: 'destination', header: 'Destination', render: (r) => <span className="text-muted">{DEST_LABEL[String(r.destination)] ?? r.destination}{r.object_lock_days ? <> <Badge tone="b">locked {r.object_lock_days} d</Badge></> : null}</span> },
               { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily}d`, r.keep_weekly && `${r.keep_weekly}w`, r.keep_monthly && `${r.keep_monthly}m`].filter(Boolean).join(' · ') : `${r.retention_days} days` },
-              { key: 'last_status', header: 'Last run', render: (r) => <span><StatusBadge status={r.enabled === false ? 'paused' : (r.last_status ?? 'never run')} /><span className="block text-xs text-muted mt-1">{r.last_run_at ? ago(r.last_run_at) : '—'}</span></span> },
+              { key: 'last_status', header: 'Last run', render: (r) => <span><StatusBadge status={r.enabled === false ? 'paused' : (r.last_status ?? 'never run')} /><span className="block text-xs text-muted mt-1">{r.last_run_at ? ago(r.last_run_at) : '—'}</span>{r.overdue && <span className="block mt-1"><Badge tone="r">overdue</Badge> <span className="text-xs text-muted">{r.last_success_at ? `last good ${ago(r.last_success_at)}` : 'never succeeded'}</span></span>}</span> },
               { key: 'enabled', header: 'On', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
             ]} />
         </Card>
@@ -313,13 +313,16 @@ export function Backups() {
 
 const RULE_FIELDS = (channels: R[]): FieldDef[] => [
   { name: 'name', label: 'Name', required: true },
-  { name: 'metric', label: 'Metric', type: 'select', required: true, options: ['cpu_pct', 'ram_pct', 'disk_pct', 'heartbeat', 'container_unhealthy', 'restarts', 'response_time_ms', 'backup_failed', 'ssl_days_left'] },
-  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<=', '='] },
+  { name: 'metric', label: 'Metric', type: 'select', required: true, options: [
+    { value: 'cpu', label: 'CPU %' }, { value: 'ram', label: 'RAM %' }, { value: 'disk', label: 'Disk %' }, { value: 'heartbeat', label: 'Seconds since agent heartbeat' },
+    { value: 'container_unhealthy', label: 'Unhealthy containers' }, { value: 'backup_failed', label: 'Backup failed' },
+    { value: 'backup_overdue', label: 'Backups overdue (hours since last success)' }, { value: 'ssl_expiry', label: 'Days until certificate expires' }] },
+  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<='] },
   { name: 'threshold', label: 'Threshold', type: 'number', required: true },
   { name: 'duration_minutes', label: 'For (minutes)', type: 'number' },
   { name: 'severity', label: 'Severity', type: 'select', required: true, options: ['info', 'warning', 'critical', 'emergency'] },
-  { name: 'scope', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'application'], required: true },
-  { name: 'scope_id', label: 'Scope ID (group or app)', mono: true, show: (v) => v.scope !== 'organization' },
+  { name: 'scope_type', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'server', 'application'], required: true },
+  { name: 'scope_id', label: 'Scope ID (group, server or app)', mono: true, show: (v) => !!v.scope_type && v.scope_type !== 'organization' },
   ...channels.map((c) => ({ name: `ch_${c.id}`, label: `Notify ${c.name ?? c.type}`, type: 'checkbox' as const })),
 ]
 
@@ -449,7 +452,7 @@ export function Monitoring() {
             { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
           ]} />
       </Card>
-      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope: 'organization', duration_minutes: 5 })}>Add rule</button>}>
+      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope_type: 'organization', duration_minutes: 5 })}>Add rule</button>}>
         <DataTable label="Alert rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => r.id}
           actions={(r) => [
               { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(toForm(r)) },

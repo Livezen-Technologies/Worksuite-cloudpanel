@@ -184,6 +184,7 @@ return [
         ['name' => 'Agent heartbeat timeout', 'metric' => 'heartbeat', 'operator' => '>', 'threshold' => 90, 'duration_minutes' => 0, 'severity' => 'critical'],
         ['name' => 'Unhealthy container', 'metric' => 'container_unhealthy', 'operator' => '>', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'warning'],
         ['name' => 'Backup failed', 'metric' => 'backup_failed', 'operator' => '>', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'critical'],
+        ['name' => 'Backups overdue (two scheduled runs missed)', 'metric' => 'backup_overdue', 'operator' => '>=', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'critical'],
         ['name' => 'SSL certificate expires in under 14 days', 'metric' => 'ssl_expiry', 'operator' => '<', 'threshold' => 14, 'duration_minutes' => 0, 'severity' => 'warning'],
     ],
 

@@ -374,6 +374,7 @@ class MigrationService implements HandlesCommandResults
             }
             $m->event('Failed: '.$message);
             $this->jobs->fail($job, $message, 'execute');
+            $this->notifyFailed($m->fresh(), $site !== null ? (string) ($m->sites[$site]['domain'] ?? 'a site') : 'the backup', $message);
 
             return;
         }
@@ -409,8 +410,14 @@ class MigrationService implements HandlesCommandResults
             unset($sites[$site]['was_live']);
             unset($sites[$site]['error']);
             $done = collect($sites)->where('enabled', true)->every(fn ($s) => in_array($s['status'], ['migrated', 'live'], true));
+            $wasDone = $m->status === 'migrated';
             $m->update(['sites' => $sites, 'status' => $done ? 'migrated' : $m->status]);
             $m->event("{$sites[$site]['domain']} is migrated; check it at {$sites[$site]['temp_url']}");
+            if ($done && ! $wasDone) {
+                $enabled = collect($sites)->where('enabled', true);
+                $this->email($m, 'migration_complete', ['sites' => (string) $enabled->count(),
+                    'site_list' => $enabled->map(fn ($s) => $s['domain'].'  →  '.($s['temp_url'] ?? '—'))->implode("\n")]);
+            }
         }
         $this->jobs->succeed($job, ['migration_id' => $m->id]);
     }
@@ -431,6 +438,28 @@ class MigrationService implements HandlesCommandResults
         $source = in_array($inv['source'] ?? null, ['cpanel', 'hestia', 'plesk'], true) ? $inv['source'] : $m->source;
         $m->update(['inventory' => $inv, 'sites' => $sites, 'status' => 'ready', 'source' => $source]);
         $m->event(sprintf('Inspected: %d sites, %d databases, %s files', count($sites), count($dbs), number_format((int) ($inv['files'] ?? 0))));
+        $this->email($m, 'migration_ready', ['sites' => (string) count($sites), 'databases' => (string) count($dbs)]);
+    }
+
+    /** Migration emails go to the customer's organisation; never include the archive URL or credentials. */
+    private function email(SiteMigration $m, string $key, array $vars): void
+    {
+        app(\App\Services\EmailTemplateService::class)->notifyOrganization($m->organization_id, $key, $vars + [
+            'source' => ['cpanel' => 'cPanel', 'hestia' => 'HestiaCP', 'plesk' => 'Plesk'][$m->source] ?? 'hosting',
+            'migration_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/migrations',
+        ], $key.':'.$m->id, $key === 'migration_failed' ? 60 : 0);
+    }
+
+    private function notifyFailed(SiteMigration $m, string $site, string $error): void
+    {
+        $this->email($m, 'migration_failed', ['site' => $site, 'error' => Str::limit($error, 2000)]);
+        $platform = \App\Models\Organization::orderBy('created_at')->orderBy('id')->value('id');
+        if ($platform && $m->organization_id !== $platform) {
+            app(\App\Services\EmailTemplateService::class)->notifyStaff('migration_failed', [
+                'source' => (string) $m->source, 'site' => $site, 'error' => Str::limit($error, 2000),
+                'migration_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/migrations',
+            ], 'migration_failed:'.$m->id, 60);
+        }
     }
 
     private function targetDb(array $s): ?Database
