@@ -67,19 +67,66 @@ class ApplicationController extends Controller
         return response()->json(Lists::paginate($query, $request, ['name', 'image'], ['name', 'created_at', 'last_deployed_at', 'status'], ['kind', 'environment', 'status', 'source_type', 'server_id']));
     }
 
+    /** Wizard extras on create: the public address and whether to deploy straight away. */
+    private function createRules(): array
+    {
+        return [
+            'domain_mode' => 'nullable|in:auto,subdomain,custom,none',
+            'domain' => ['nullable', 'string', 'max:253', 'regex:/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
+            'subdomain' => 'nullable|string|max:63',
+            'deploy' => 'sometimes|boolean',
+        ];
+    }
+
+    /** New application wizard: check access, capacity and the address before anything is created. */
+    public function preflight(Request $request, \App\Services\ApplicationPreflight $preflight)
+    {
+        $loose = $this->rules(true);
+        $loose['name'] = 'nullable|string|max:200';
+        $loose['source.repo'] = 'nullable|string|max:512';
+        $loose['domain'] = 'nullable|string|max:253';
+        $loose['env.*.key'] = 'nullable|string|max:120';
+
+        return $this->data($preflight->run($request->validate($loose + collect($this->createRules())->except('domain')->all())));
+    }
+
     public function store(Request $request)
     {
-        $data = $request->validate($this->rules(true));
+        $data = $request->validate($this->rules(true) + $this->createRules());
+        $extras = collect($data)->only(['domain_mode', 'domain', 'subdomain', 'deploy'])->all();
+        $data = collect($data)->except(['domain_mode', 'domain', 'subdomain', 'deploy'])->all();
+        $templates = app(\App\Services\TemplateService::class);
+        [$host, $platformHost] = $templates->resolveHost($extras, $data['name']);
+        if ($host && empty($data['port'])) {
+            throw ApiException::validation(['port' => ['A public address needs the port the app listens on.']]);
+        }
         if (Application::withTrashed()->where('name', $data['name'])->exists()) {
             throw ApiException::validation(['name' => ['An application with this name already exists.']]);
         }
-        $data = $this->storeGitToken($data, $data['name']);
-        $data = $this->withEnvironment($data);
-        $app = Application::create(collect($data)->except(['env', 'member_ids'])->all() + ['kind' => 'admin']);
-        $this->syncEnv($app, $data['env'] ?? null);
-        $this->syncMembers($app, $data['member_ids'] ?? null);
+        // App, variables and domain are created together or not at all.
+        $app = \Illuminate\Support\Facades\DB::transaction(function () use ($data, $host, $platformHost) {
+            $data = $this->storeGitToken($data, $data['name']);
+            $data = $this->withEnvironment($data);
+            $app = Application::create(collect($data)->except(['env', 'member_ids'])->all() + ['kind' => 'admin']);
+            $this->syncEnv($app, $data['env'] ?? null);
+            $this->syncMembers($app, $data['member_ids'] ?? null);
+            if ($host) {
+                app(\App\Services\DomainService::class)->create(['name' => $host, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platformHost], $platformHost);
+            }
 
-        return $this->data($this->present($app), 201);
+            return $app;
+        });
+        $out = $this->present($app->fresh());
+        $out['url'] = $host ? 'https://'.$host : null;
+        // The first deployment runs as a background job; the wizard follows it instead of waiting here.
+        if (! empty($extras['deploy'])) {
+            $deployment = app(\App\Services\DeploymentService::class)->start($app->fresh(), $request->user(), 'manual');
+            $out['deployment_id'] = $deployment->id;
+            $out['job_id'] = $deployment->job_id;
+            $out['deployment_status'] = $deployment->status;
+        }
+
+        return $this->data($out, 201);
     }
 
     public function show(Request $request, string $id)

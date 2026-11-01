@@ -66,20 +66,20 @@ export function Drawer({ open, onClose, title, children, side = 'right', width =
   )
 }
 
-export function Modal({ open, onClose, title, children, footer, width = 520 }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; width?: number }) {
+export function Modal({ open, onClose, title, subtitle, children, footer, width = 520, fullOnMobile = false }: { open: boolean; onClose: () => void; title: string; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; width?: number; fullOnMobile?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const id = useId()
   useEscapeAndFocus(open, onClose, ref)
   if (!open) return null
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'var(--z-modal)' }}>
+    <div className={`fixed inset-0 flex items-center justify-center ${fullOnMobile ? 'p-0 sm:p-4' : 'p-4'}`} style={{ zIndex: 'var(--z-modal)' }}>
       <div className="absolute inset-0 bg-black/45 animate-[ovl-fade_var(--dur-base)_var(--ease-out)]" onClick={onClose} aria-hidden="true" />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className="relative card w-full max-h-[90vh] flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)]" style={{ maxWidth: width }}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className={`relative card w-full flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)] ${fullOnMobile ? 'h-full max-h-full rounded-none sm:h-auto sm:max-h-[92vh] sm:rounded-lg' : 'max-h-[90vh]'}`} style={{ maxWidth: width }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line">
-          <h2 id={id} className="m-0 text-base font-semibold">{title}</h2>
+          <div className="min-w-0"><h2 id={id} className="m-0 text-base font-semibold">{title}</h2>{subtitle && <p className="m-0 mt-0.5 text-sm text-muted">{subtitle}</p>}</div>
           <button type="button" aria-label="Close dialog" onClick={onClose} className="btn btn-sm border-0"><Icon name="close" /></button>
         </div>
-        <div className="p-5 overflow-y-auto text-sm">{children}</div>
+        <div className="p-5 overflow-y-auto text-sm flex-1 min-h-0">{children}</div>
         {footer && <div className="px-5 py-3.5 border-t border-line bg-head/40 rounded-b-[inherit] flex flex-wrap gap-2 justify-end">{footer}</div>}
       </div>
     </div>
