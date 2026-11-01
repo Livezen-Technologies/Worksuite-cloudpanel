@@ -14,7 +14,7 @@ import { mergeEnv, parseDotEnv, type EnvRow } from './InstallWizard'
 type SourceType = 'git' | 'image' | 'dockerfile' | 'compose'
 type DomainMode = 'auto' | 'subdomain' | 'custom' | 'none'
 type Check = { key: string; step: 'source' | 'build' | 'deploy'; status: 'pass' | 'warn' | 'fail'; label: string; message: string }
-type Preflight = { ok: boolean; failed: number; warnings: number; checks: Check[]; detected?: { commit?: string; server?: { id: string; name: string } }; platform_domain?: string }
+type Preflight = { ok: boolean; failed: number; warnings: number; checks: Check[]; detected?: { commit?: string; default_branch?: string; server?: { id: string; name: string } }; platform_domain?: string }
 type KV = { key: string; value: string }
 
 const STEPS = [
@@ -88,7 +88,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   const [subTouched, setSubTouched] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const [f, setF] = useState({
-    source_type: 'git' as SourceType, name: '', repo: '', branch: 'main', image: '', git_token: '', environment_id: '',
+    source_type: 'git' as SourceType, name: '', repo: '', branch: '', image: '', git_token: '', environment_id: '',
     builder: 'auto', dockerfile_path: 'Dockerfile', context: '.', no_cache: false, push_registry_id: '',
     environment: 'production', server_id: '', port: '', health_path: '/', strategy: 'rolling', require_approval: true,
     domain_mode: 'auto' as DomainMode, subdomain: '', domain: '', deploy: true,
@@ -117,7 +117,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
     env: env.filter((e) => e.key), deploy,
     ...(isImage ? { image: f.image.trim() } : {
       source: {
-        repo: f.repo.trim(), branch: f.branch.trim() || 'main', ...(f.git_token ? { git_token: f.git_token } : {}),
+        repo: f.repo.trim(), ...(f.branch.trim() ? { branch: f.branch.trim() } : {}), ...(f.git_token ? { git_token: f.git_token } : {}),
         ...(builds ? {
           builder: f.builder, no_cache: f.no_cache, dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null,
           build_args: Object.fromEntries(buildArgs.filter((a) => a.key).map((a) => [a.key, a.value])),
@@ -160,7 +160,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   // The server re-checks repository/image access, capacity and the address as the person goes.
   const bodyKey = JSON.stringify(body(false))
   useEffect(() => {
-    if (!open || step < 1) return
+    if (!open || (step < 1 && !f.repo.trim() && !f.image.trim())) return
     const ctl = new AbortController()
     setChecking(true)
     const timer = setTimeout(() => {
@@ -168,7 +168,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
         .then((r) => setPre(r.data)).catch(() => {}).finally(() => setChecking(false))
     }, 500)
     return () => { clearTimeout(timer); ctl.abort() }
-  }, [bodyKey, step, open])
+  }, [bodyKey, step, open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stepChecks = (id: string) => (pre?.checks ?? []).filter((c) => c.step === id && c.status !== 'pass')
   const reset = () => { setStep(0); setReach(0); setErr(null); setFieldErr({}); setPre(null) }
@@ -197,7 +197,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   const address = { auto: `${f.name || 'app'}-xxxxxx.${platform}`, subdomain: `${f.subdomain || '…'}.${platform}`, custom: f.domain.trim() || '…', none: 'Internal only' }[f.domain_mode]
   const summary: [string, string][] = useMemo(() => [
     ['Source', SOURCES.find((s) => s.id === f.source_type)!.title],
-    [isImage ? 'Image' : 'Repository', isImage ? f.image || '—' : `${f.repo || '—'}${f.repo ? ` @ ${f.branch || 'main'}` : ''}`],
+    [isImage ? 'Image' : 'Repository', isImage ? f.image || '—' : `${f.repo || '—'}${f.repo ? ` @ ${f.branch || pre?.detected?.default_branch || 'default branch'}` : ''}`],
     ...(builds ? [['Builder', f.builder === 'auto' ? 'Auto detect' : `Dockerfile (${f.dockerfile_path})`] as [string, string]] : []),
     ['Server', server?.name ?? (pre?.detected?.server ? `Automatic → ${pre.detected.server.name}` : 'Automatic placement')],
     ['Address', address],
@@ -219,7 +219,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
             ? <div className="lg:col-span-2"><Field label="Docker image" error={fieldErr.image}><input className="input font-mono" value={f.image} placeholder="ghcr.io/acme/web:1.4" onChange={(e) => set('image', e.target.value)} /></Field></div>
             : <>
               <Field label="Repository URL" error={fieldErr['source.repo']}><input className="input font-mono" value={f.repo} placeholder="https://github.com/acme/web" onChange={(e) => set('repo', e.target.value)} /></Field>
-              <Field label="Branch" hint={pre?.detected?.commit ? `Latest commit ${pre.detected.commit.slice(0, 7)}` : undefined}><input className="input font-mono" value={f.branch} onChange={(e) => set('branch', e.target.value)} /></Field>
+              <Field label="Branch" hint={[f.branch.trim() ? null : pre?.detected?.default_branch ? `Default branch: ${pre.detected.default_branch}` : 'Leave empty to use the default branch', pre?.detected?.commit ? `latest commit ${pre.detected.commit.slice(0, 7)}` : null].filter(Boolean).join(' · ')}><input className="input font-mono" value={f.branch} placeholder={pre?.detected?.default_branch ?? 'default branch'} onChange={(e) => set('branch', e.target.value)} /></Field>
             </>}
         </div>
       </Section>

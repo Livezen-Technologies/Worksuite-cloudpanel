@@ -51,6 +51,18 @@ class HttpSourceValidator implements SourceValidator
             : ['ok' => false, 'message' => "We couldn't read branch {$branch} from {$repository}."];
     }
 
+    public function defaultBranch(string $repository): ?string
+    {
+        if (! preg_match('#^(https://|git@)[\w.@:/~%-]+$#', $repository)) {
+            return null;
+        }
+        $process = new Process(['git', 'ls-remote', '--symref', $repository, 'HEAD'], null, ['GIT_TERMINAL_PROMPT' => '0']);
+        $process->setTimeout(15);
+        $process->run();
+
+        return $process->isSuccessful() && preg_match('#^ref:\s+refs/heads/(\S+)\s+HEAD#m', $process->getOutput(), $m) ? $m[1] : null;
+    }
+
     /** @return array{0: string, 1: string, 2: string} registry, repository, tag */
     public static function parse(string $reference): array
     {
