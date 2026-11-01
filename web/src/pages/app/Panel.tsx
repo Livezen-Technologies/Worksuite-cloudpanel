@@ -248,6 +248,15 @@ export function Billing() {
         </Card>
         <Card>
           <div className="text-[13px] text-muted">Payment method</div>
+          {Array.isArray(b?.payment_providers) && b.payment_providers.length > 1 && (
+            <div className="flex gap-1 mt-2" role="group" aria-label="Pay with">
+              {(b.payment_providers as { id: string; label: string }[]).map((p) => (
+                <button key={p.id} type="button" aria-pressed={b.payment_provider === p.id} disabled={busy || b.payment_provider === p.id}
+                  className={`btn btn-sm ${b.payment_provider === p.id ? 'btn-primary' : ''}`}
+                  onClick={() => run({ path: '/app/billing/provider', body: { provider: p.id }, label: 'Change payment provider', success: `You now pay with ${p.label}` }).catch(() => {})}>{p.label}</button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.brand === 'paypal' ? `PayPal${pm?.email ? ` · ${pm.email}` : ''}` : pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
           <div className="text-sm text-muted mt-2">Billing email: {b?.billing_email ?? '—'}</div>
           <p className="text-xs text-muted">Card details are handled by our payment provider; we never store them.</p>

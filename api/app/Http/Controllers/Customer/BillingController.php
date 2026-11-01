@@ -64,6 +64,14 @@ class BillingController extends Controller
     }
 
     /** Fresh Stripe Customer Portal (or Checkout setup) session; the browser is redirected there. */
+    /** Pay by card (Stripe) or with PayPal, when both are offered. */
+    public function provider(Request $request)
+    {
+        $data = $request->validate(['provider' => 'required|string|max:20']);
+
+        return $this->data($this->billing->setProvider(Tenant::current(), $data['provider']));
+    }
+
     public function portal()
     {
         return $this->data(['url' => $this->billing->portalUrl(Tenant::current())]);
