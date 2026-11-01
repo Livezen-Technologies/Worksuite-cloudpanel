@@ -27,6 +27,15 @@ class SignInLockTest extends TestCase
         $this->attempt($user->email, 'password', '203.0.113.9')->assertStatus(429)
             ->assertJsonPath('error.code', 'too_many_attempts')->assertJsonPath('error.locked_for_minutes', 15);
 
+        // Each failure, and the lock, is in the account's organisation audit trail with the address.
+        $failed = \App\Models\AuditLog::where('action', 'auth.login_failed')->where('user_id', $user->id)->get();
+        $this->assertCount(10, $failed);
+        $this->assertSame(['reason' => 'password', 'attempt' => 10], $failed->last()->meta);
+        $this->assertSame('198.51.100.10', $failed->last()->ip);
+        $this->assertSame(1, \App\Models\AuditLog::where('action', 'auth.locked')->where('user_id', $user->id)->count());
+        $this->attempt('nobody@nowhere.test', 'x', '198.51.100.99')->assertStatus(401);
+        $this->assertSame(0, \App\Models\AuditLog::where('actor', 'nobody@nowhere.test')->count(), 'unknown emails are only rate-limited');
+
         // A password reset lifts the pause.
         \App\Support\SignInLock::clear($user->email);
         $this->attempt($user->email, 'password', '203.0.113.9')->assertOk();

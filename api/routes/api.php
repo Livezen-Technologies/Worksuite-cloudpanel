@@ -497,6 +497,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     });
     Route::get('audit-logs', [Admin\AuditLogController::class, 'index'])->middleware('perm:audit.view')->name('audit-logs.index');
     Route::get('audit-logs/export', [Admin\AuditLogController::class, 'export'])->middleware(['perm:audit.view', 'throttle:10,1'])->name('audit-logs.export');
+    Route::get('audit-logs/facets', [Admin\AuditLogController::class, 'facets'])->middleware('perm:audit.view')->name('audit-logs.facets');
     Route::get('audit-logs/verify', [Admin\AuditLogController::class, 'verify'])->middleware('perm:audit.view')->name('audit-logs.verify');
 
     // Customer panel

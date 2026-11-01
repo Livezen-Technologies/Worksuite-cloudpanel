@@ -18,7 +18,21 @@ class AuditLogController extends Controller
             $query->where('created_at', '>=', $from);
         }
         if ($to = $request->query('to')) {
-            $query->where('created_at', '<=', $to);
+            // A bare date means "through the end of that day".
+            $query->where('created_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) ? $to.' 23:59:59' : $to);
+        }
+        // action: exact, or a prefix ending in * (server.* = every server action).
+        if ($action = $request->query('action')) {
+            str_ends_with($action, '*') ? $query->where('action', 'like', rtrim($action, '*').'%') : $query->where('action', $action);
+        }
+        // The server page's history: entries about that server.
+        if ($server = $request->query('server_id')) {
+            $query->whereIn('resource_type', ['servers', 'server'])->where('resource_id', $server);
+        }
+        foreach (['resource_type', 'resource_id', 'user_id'] as $k) {
+            if ($v = $request->query($k)) {
+                $query->where($k, $v);
+            }
         }
 
         return $query;
@@ -28,7 +42,9 @@ class AuditLogController extends Controller
     {
         $query = $this->filtered($request);
 
-        return response()->json(Lists::paginate($query, $request, ['action', 'actor', 'resource_id'], ['created_at', 'id'], ['user_id', 'action', 'resource_type', 'resource_id']));
+        $request->validate(['from' => 'nullable|date', 'to' => 'nullable|date', 'action' => 'nullable|string|max:120', 'resource_type' => 'nullable|string|max:60', 'user_id' => 'nullable|uuid']);
+
+        return response()->json(Lists::paginate($query, $request, ['action', 'actor', 'resource_id'], ['created_at', 'id'], []));
     }
 
     /** Max rows in one export; narrow the dates for more. */
@@ -42,11 +58,7 @@ class AuditLogController extends Controller
     public function export(Request $request, AuditLogger $audit)
     {
         $f = $request->validate(['from' => 'nullable|date', 'to' => 'nullable|date', 'action' => 'nullable|string|max:120', 'resource_type' => 'nullable|string|max:60', 'user_id' => 'nullable|uuid']);
-        $query = $this->filtered($request)
-            ->when($f['action'] ?? null, fn ($q, $v) => str_ends_with($v, '*') ? $q->where('action', 'like', rtrim($v, '*').'%') : $q->where('action', $v))
-            ->when($f['resource_type'] ?? null, fn ($q, $v) => $q->where('resource_type', $v))
-            ->when($f['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v))
-            ->orderBy('id');
+        $query = $this->filtered($request)->orderBy('id');
         $total = (clone $query)->count();
         if ($total > self::EXPORT_LIMIT) {
             throw \App\Exceptions\ApiException::conflict("{$total} entries match; exports are limited to ".number_format(self::EXPORT_LIMIT).'. Narrow the date range.');
@@ -68,6 +80,18 @@ class AuditLogController extends Controller
             });
             fclose($out);
         }, $name, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /** Distinct resource types and action groups seen in this organisation's trail, for the filter menus. */
+    public function facets()
+    {
+        $base = AuditLog::where('organization_id', Tenant::current()->id);
+        $actions = (clone $base)->distinct()->pluck('action');
+
+        return $this->data([
+            'resource_types' => (clone $base)->whereNotNull('resource_type')->distinct()->orderBy('resource_type')->pluck('resource_type')->values(),
+            'action_groups' => $actions->map(fn ($a) => explode('.', $a)[0])->unique()->sort()->values(),
+        ]);
     }
 
     public function verify(AuditLogger $audit)

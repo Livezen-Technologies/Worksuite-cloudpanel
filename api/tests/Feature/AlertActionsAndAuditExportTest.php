@@ -26,6 +26,8 @@ class AlertActionsAndAuditExportTest extends TestCase
         $this->api($token)->postJson("/api/v1/alerts/{$alert->id}/resolve", ['note' => 'Fixed at the provider'])->assertOk()->assertJsonPath('data.status', 'resolved');
         $this->assertDatabaseHas('audit_logs', ['action' => 'alert.resolve', 'resource_id' => $alert->id]);
         $this->api($token)->postJson("/api/v1/alerts/{$alert->id}/snooze", ['minutes' => 30])->assertStatus(409);
+        $this->assertSame([], $this->api($token)->getJson('/api/v1/alerts?status=active')->assertOk()->json('data'), 'resolved alerts leave the active list');
+        $this->assertCount(1, $this->api($token)->getJson('/api/v1/alerts?status=resolved')->json('data'));
     }
 
     public function test_audit_log_exports_as_csv_with_filters_and_is_itself_audited(): void
@@ -51,5 +53,29 @@ class AlertActionsAndAuditExportTest extends TestCase
 
         $all = $this->api($token)->get('/api/v1/audit-logs/export')->assertOk()->streamedContent();
         $this->assertStringContainsString("'=cmd|calc", $all, 'spreadsheet formulas are neutralised');
+    }
+
+    public function test_audit_list_filters_on_the_server_and_the_server_page_sees_only_its_server(): void
+    {
+        [, $org, $token] = $this->org();
+        app(Tenant::class)->as($org->id, function () {
+            app(AuditLogger::class)->log('servers.update', 'servers', 'srv-a', []);
+            app(AuditLogger::class)->log('servers.update', 'servers', 'srv-b', []);
+            app(AuditLogger::class)->log('domains.store', 'domains', 'd1', []);
+        });
+        AuditLog::where('resource_id', 'd1')->update(['created_at' => now()->subDays(10)]);
+        app(Tenant::class)->set(null);
+
+        $actions = fn (string $q) => collect($this->api($token)->getJson('/api/v1/audit-logs?per_page=100&'.$q)->assertOk()->json('data'))->pluck('resource_id')->filter()->values()->all();
+        $this->assertEqualsCanonicalizing(['srv-a', 'srv-b'], $actions('action=servers.*'));
+        $this->assertSame(['srv-a'], $actions('server_id=srv-a'), 'the server page sees only its own server');
+        $this->assertSame(['d1'], $actions('resource_type=domains'));
+        $this->assertNotContains('d1', $actions('from='.now()->subDays(2)->toDateString()));
+        $this->assertContains('d1', $actions('to='.now()->subDays(10)->toDateString()), 'a bare "to" date includes that whole day');
+        $this->api($token)->getJson('/api/v1/audit-logs?from=not-a-date')->assertStatus(422);
+
+        $facets = $this->api($token)->getJson('/api/v1/audit-logs/facets')->assertOk()->json('data');
+        $this->assertContains('servers', $facets['resource_types']);
+        $this->assertContains('domains', $facets['action_groups']);
     }
 }

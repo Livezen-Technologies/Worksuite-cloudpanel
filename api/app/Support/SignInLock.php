@@ -30,11 +30,21 @@ class SignInLock
     }
 
     /** Counts a wrong password or code; tells the owner once when the account locks. */
-    public static function fail(string $email, ?User $user = null): void
+    public static function fail(string $email, ?User $user = null, string $reason = 'password'): void
     {
         $key = self::key($email);
         RateLimiter::hit($key, self::WINDOW_SECONDS);
-        if ($user && RateLimiter::attempts($key) === self::MAX_FAILURES) {
+        $locked = RateLimiter::attempts($key) === self::MAX_FAILURES;
+        // Failed attempts on a real account go into that account's organisation trail
+        // (unknown emails belong to no organisation, so they are only rate-limited).
+        if ($user) {
+            $audit = app(\App\Services\AuditLogger::class);
+            $audit->log('auth.login_failed', 'users', $user->id, ['reason' => $reason, 'attempt' => RateLimiter::attempts($key)], $user->current_organization_id, $user->id, $user->email);
+            if ($locked) {
+                $audit->log('auth.locked', 'users', $user->id, ['minutes' => self::WINDOW_SECONDS / 60], $user->current_organization_id, $user->id, $user->email);
+            }
+        }
+        if ($user && $locked) {
             app(\App\Services\EmailTemplateService::class)->notify('sign_in_locked', $user, [
                 'attempts' => (string) self::MAX_FAILURES, 'minutes' => (string) (self::WINDOW_SECONDS / 60),
                 'ip' => (string) request()->ip(), 'time' => now()->toDayDateTimeString().' UTC',

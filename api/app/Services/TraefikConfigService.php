@@ -307,6 +307,7 @@ class TraefikConfigService implements HandlesCommandResults
         $names = Container::allTenants()->where('application_id', $app->id)
             ->where('server_id', $app->server_id)
             ->whereNotIn('state', ['removing', 'removed'])
+            ->orderBy('name')   // stable order: an unchanged app must not rewrite the proxy config
             ->pluck('name')
             ->filter(fn ($n) => str_ends_with((string) $n, '-canary') === ($part === '-canary'))
             ->values();
