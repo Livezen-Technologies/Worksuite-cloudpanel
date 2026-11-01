@@ -69,6 +69,22 @@ export function apiBase(): string {
   return env.replace(/\/$/, '') + '/api/v1'
 }
 
+/** Downloads an authenticated file (e.g. a CSV export) and saves it under the server's filename. */
+export async function downloadFile(path: string, query?: Record<string, string | undefined>, fallbackName = 'download'): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(buildUrl(path, query as Record<string, string>), { headers: { Accept: 'text/csv, application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new Error(body.error?.message ?? `Download failed (${res.status})`)
+  }
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(await res.blob())
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return 'k-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)

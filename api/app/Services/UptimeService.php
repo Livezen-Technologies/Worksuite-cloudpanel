@@ -114,6 +114,9 @@ class UptimeService
         $renotified = $escalated = 0;
 
         foreach (Alert::allTenants()->where('status', 'open')->get() as $alert) {
+            if ($alert->snoozed_until && $alert->snoozed_until->isFuture()) {
+                continue;   // snoozed: no reminders and no escalation until it wakes
+            }
             if ($this->inMaintenance($alert->organization_id, (string) $alert->resource_type, (string) $alert->resource_id)) {
                 continue;
             }
