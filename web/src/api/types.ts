@@ -13,7 +13,7 @@ export interface Server {
   id: string; name: string; hostname: string; ip: string; environment: string; region: string; tags: string[]
   status: ServerStatus; os?: string; kernel?: string; docker_version?: string; cpu_cores?: number; ram_mb?: number; disk_gb?: number
   cpu_pct?: number; ram_pct?: number; disk_pct?: number; container_count?: number; agent_version?: string; last_heartbeat_at?: string | null
-  provider?: string; roles?: string[]
+  provider?: string; roles?: string[]; agent_latest?: string; agent_outdated?: boolean
 }
 export interface Container {
   id: string; name: string; image: string; server_id: string; server_name?: string; server?: { id: string; name: string }

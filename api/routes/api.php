@@ -131,6 +131,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('servers/{id}/tunnel/restart', [Admin\TunnelController::class, 'restart'])->name('servers.tunnel.restart');
         Route::patch('servers/{id}/tunnel', [Admin\TunnelController::class, 'update'])->name('servers.tunnel.update');
         Route::delete('servers/{id}/tunnel', [Admin\TunnelController::class, 'disable'])->name('servers.tunnel.disable');
+        Route::post('servers/agents/update', [Admin\ServerController::class, 'updateAllAgents'])->name('servers.agents.update');
         Route::post('servers/{id}/maintenance', [Admin\ServerController::class, 'maintenance'])->name('servers.maintenance');
         Route::post('servers/{id}/agent/{action}', [Admin\ServerController::class, 'agent'])->whereIn('action', ['restart', 'update'])->name('servers.agent');
     });
@@ -179,6 +180,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::patch('applications/{id}/canary', [Admin\ScalingController::class, 'canaryWeight'])->name('applications.canary.weight');
         Route::post('applications/{id}/canary/promote', [Admin\ScalingController::class, 'promoteCanary'])->name('applications.canary.promote');
         Route::delete('applications/{id}/canary', [Admin\ScalingController::class, 'abortCanary'])->name('applications.canary.abort');
+        Route::post('deployments/{id}/cancel', [Admin\DeploymentController::class, 'cancel'])->name('deployments.cancel');
         Route::post('deployments', [Admin\DeploymentController::class, 'store'])->name('deployments.store');
         Route::post('templates/{template}/install', [Admin\TemplateController::class, 'install'])->name('templates.install');
         Route::post('templates/{template}/preflight', [Admin\TemplateController::class, 'preflight'])->name('templates.preflight');

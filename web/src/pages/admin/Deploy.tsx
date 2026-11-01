@@ -116,10 +116,11 @@ function Pipeline({ d }: { d: R }) {
   const title = `${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}`.trim()
   const took = d.started_at && d.finished_at ? seconds(Math.max(0, Math.round((new Date(d.finished_at).getTime() - new Date(d.started_at).getTime()) / 1000))) : null
   const showSteps = live || open
+  const { run, busy } = useAction()
   return (
     <Card title={<span className="flex flex-wrap items-center gap-2"><span className="text-muted font-normal">{live ? 'Deploying' : 'Last deployment'}</span>{title}{d.environment ? <StatusBadge status={d.environment} /> : null}</span>}
       subtitle={!live ? [ago(d.finished_at ?? d.created_at), took ? `took ${took}` : null, stages.filter((s) => s.status === 'skipped').length ? `${stages.filter((s) => s.status === 'skipped').length} steps skipped` : null].filter(Boolean).join(' · ') : undefined}
-      actions={<span className="flex items-center gap-2"><StatusBadge status={status} />{!live && <button type="button" className="btn btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide steps' : 'Show steps'}</button>}</span>}>
+      actions={<span className="flex items-center gap-2"><StatusBadge status={status} />{live && <button type="button" className="btn btn-sm btn-ghost text-danger" disabled={busy} onClick={() => { if (window.confirm('Cancel this deployment? The app keeps running its current release.')) run({ path: `/deployments/${d.id}/cancel`, label: 'Cancel deployment', success: 'Deployment cancelled' }).catch(() => {}) }}>Cancel</button>}{!live && <button type="button" className="btn btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide steps' : 'Show steps'}</button>}</span>}>
       {showSteps && <JobTimeline job={live ? job : undefined} stages={stages} />}
       {showSteps && !!job?.build_log?.length && <BuildLog lines={job.build_log} />}
     </Card>
@@ -208,7 +209,10 @@ export function Applications() {
       <BuildUsage path="/builds/usage" />
       <Card title="Release history" pad={false}>
         <DataTable label="Deployments" rows={deployments.rows} loading={deployments.isLoading} rowKey={(r) => r.id}
-          actions={(r) => r.status === 'awaiting_approval' ? [{ label: 'Approve', icon: 'check', onClick: () => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' }).catch(() => {}) }] : []}
+          actions={(r) => [
+            ...(r.status === 'awaiting_approval' ? [{ label: 'Approve', icon: 'check', onClick: () => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' }).catch(() => {}) }] : []),
+            ...(IN_PROGRESS.includes(r.status) ? [{ label: 'Cancel deployment', icon: 'close', danger: true, onClick: () => { if (window.confirm('Cancel this deployment? The app keeps running its current release.')) run({ path: `/deployments/${r.id}/cancel`, label: 'Cancel deployment', success: 'Deployment cancelled' }).catch(() => {}) } }] : []),
+          ]}
           columns={[
             { key: 'application', header: 'Application', value: (r) => appLabel(r), render: (r) => <span className="font-semibold">{appLabel(r)}</span> },
             { key: 'version', header: 'Version', render: (r) => <span className="font-mono text-xs">{r.version ?? imageTag(r.image) ?? '—'}</span> },
