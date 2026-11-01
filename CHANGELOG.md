@@ -88,6 +88,27 @@ Dates are the dates the work landed on `main`.
     once; the labels are kept so a docker-provider ingress is unaffected.
   - The default stays `@docker`, so nothing changes for an ingress that does run
     the docker provider.
+- **The same unresolvable-service bug as the public pages one, for the apps
+  themselves.** `TraefikConfigService::render()` points an application-backed
+  domain at `app-<name><suffix>`, but the only services it declared in the
+  pushed file were the adopted `*-upstream` ones, `ws-pages`, and a `-pool` or
+  `-split` from `scalingServices()` — and those exist only when the app has
+  copies on another server or a running canary. On an ingress with no docker
+  provider there is nothing to turn the container's labels into
+  `app-<name>@docker`, so a plain app-backed domain named a service that did
+  not exist, Traefik dropped its router, and the domain fell through to the
+  catch-all 404 with its certificate still terminating correctly. Attaching a
+  site to an app in the panel is what performs that binding, so this was
+  reachable from the UI on such a host, not theoretical.
+  - `app-<name>` is now declared in the file whenever the suffix is not
+    `@docker`, listing **every replica of the app on its own server** as the
+    docker provider would have from their shared label. Copies on other servers
+    keep going through `<app>-pool`, and a running canary now gets its
+    `<app>-canary` declared too, so the weighted `-split` service resolves.
+  - The port comes from the current release's config, falling back to the app's
+    own port; with no container reported yet it falls back to the name the panel
+    gives the container, so a freshly created app still routes.
+  - The default stays `@docker`, so a docker-provider ingress is unchanged.
 - An incident whose container was replaced stayed open for ever and kept
   re-notifying. `UptimeService::checkInfrastructure` iterates the container and
   server rows that exist now, opening or closing an incident keyed by each row's
