@@ -36,7 +36,10 @@ export default function HostApp() {
   const [step, setStep] = useState(0)
   const [max, setMax] = useState(0)
   const [src, setSrc] = useState<SourceType>('image')
-  const [s, setS] = useState({ image: '', private: false, username: '', password: '', repo: '', branch: 'main', compose: '', template: '' })
+  const [s, setS] = useState({ image: '', private: false, username: '', password: '', repo: '', branch: 'main', access: '', compose: '', template: '' })
+  const git = useOne<R>(src === 'git' ? '/app/git' : null)
+  const gitConns = ((git.item?.connections as R[]) ?? []).filter((x) => x.status === 'connected')
+  const gitKeys = (git.item?.keys as R[]) ?? []
   const [c, setC] = useState({ name: '', port: '80', region: '', volume: false, volume_path: '/data', health_path: '/' })
   const [env, setEnv] = useState<Env[]>([{ key: '', value: '', secret: false }])
   const [size, setSize] = useState<string>('standard')
@@ -70,13 +73,15 @@ export default function HostApp() {
   }
 
   const source = () => (src === 'image' ? { type: src, image: s.image.trim(), ...(s.private ? { registry_auth: { username: s.username, password: s.password } } : {}) }
-    : src === 'git' ? { type: src, repo: s.repo.trim(), branch: s.branch || 'main' }
+    : src === 'git' ? { type: src, repo: s.repo.trim(), branch: s.branch || 'main',
+      ...(s.access.startsWith('conn:') ? { git_connection_id: s.access.slice(5) } : s.access.startsWith('key:') ? { git_ssh_key_id: s.access.slice(4) } : {}) }
     : src === 'compose' ? { type: src, compose: s.compose }
     : { type: src, template: s.template, ...(Object.keys(vars).length ? { variables: vars } : {}) })
 
   const validateSource = async () => {
     const local = src === 'image' && !s.image.trim() ? 'Enter the image name, for example nginx:1.27-alpine.'
-      : src === 'git' && !/^(https:\/\/|git@)/.test(s.repo.trim()) ? 'Enter the repository address, starting with https://'
+      : src === 'git' && s.access.startsWith('key:') && !/^(ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(s.repo.trim()) ? 'A deploy key needs the SSH address, like git@github.com:you/my-shop.git'
+      : src === 'git' && !/^(https:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(s.repo.trim()) ? 'Enter the repository address, starting with https://'
       : src === 'compose' && !s.compose.trim() ? 'Paste your compose file or upload it.'
       : src === 'template' && !s.template ? 'Pick a template.'
       : src === 'image' && s.private && (!s.username || !s.password) ? 'Enter the username and password for the private registry.' : null
@@ -156,6 +161,12 @@ export default function HostApp() {
             <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
               <Field label="Repository URL"><input className="input font-mono" value={s.repo} onChange={(e) => setS({ ...s, repo: e.target.value })} placeholder="https://github.com/you/my-shop" /></Field>
               <Field label="Branch"><input className="input" value={s.branch} onChange={(e) => setS({ ...s, branch: e.target.value })} /></Field>
+              <Field label="Access" hint="For a private repository, use your Git connection or a deploy key"><Select className="input" value={s.access} onChange={(e) => setS({ ...s, access: e.target.value })}>
+                <option value="">Public repository</option>
+                {gitConns.map((x) => <option key={String(x.id)} value={`conn:${x.id}`}>{String(x.provider)} · {String(x.account ?? '')}</option>)}
+                {gitKeys.map((k) => <option key={String(k.id)} value={`key:${k.id}`}>Deploy key · {String(k.name)}</option>)}
+              </Select></Field>
+              <p className="m-0 text-xs text-muted col-span-full">Private repository? <Link to="/app/git">Connect your Git account or create a deploy key</Link>.</p>
             </div>
           )}
           {src === 'compose' && (

@@ -147,6 +147,9 @@ class BuildService
             $key->forceFill(['last_used_at' => now()])->save();
         } elseif (! empty($source['git_connection_id'])) {
             $c = \App\Models\GitConnection::find($source['git_connection_id']) ?? throw ApiException::conflict('The Git connection referenced by this application no longer exists.');
+            if (! app(GitProviderService::class)->owns($c, (string) $source['repo'])) {
+                throw ApiException::conflict('The repository is not on the Git connection\'s host, so its token is not sent there.');
+            }
             $payload['git_auth'] = ['username' => match ($c->provider) { 'bitbucket' => (string) $c->username, 'gitlab' => 'oauth2', default => 'x-access-token' }, 'token' => (string) $c->token];
         }
         if (! empty($source['git_secret_id'])) {

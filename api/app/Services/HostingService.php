@@ -23,7 +23,7 @@ class HostingService
     {
         return match ($source['type']) {
             'image' => $this->validator->image($source['image'] ?? '', $source['registry_auth'] ?? null),
-            'git' => $this->validator->git($source['repo'] ?? '', $source['branch'] ?? 'main'),
+            'git' => $this->validateGit($source),
             'compose' => (function () use ($source) {
                 $r = app(ComposeService::class)->validate($source['compose'] ?? '');
 
@@ -33,6 +33,33 @@ class HostingService
                 ? ['ok' => true, 'message' => 'Template available.', 'template' => $t]
                 : ['ok' => false, 'message' => 'Unknown template.'],
         };
+    }
+
+    /**
+     * GIT: a private repository is checked through the customer's connection (provider API);
+     * with a deploy key the panel cannot reach it itself, so the first build checks it.
+     */
+    private function validateGit(array $source): array
+    {
+        $repo = (string) ($source['repo'] ?? '');
+        $branch = (string) ($source['branch'] ?? 'main');
+        if (! empty($source['git_connection_id'])) {
+            $c = \App\Models\GitConnection::find($source['git_connection_id']);
+
+            return $c ? app(GitProviderService::class)->branchCommit($c, $repo, $branch) : ['ok' => false, 'message' => 'Unknown Git connection.'];
+        }
+        if (! empty($source['git_ssh_key_id'])) {
+            if (! \App\Models\SshKey::whereKey($source['git_ssh_key_id'])->exists()) {
+                return ['ok' => false, 'message' => 'Unknown deploy key.'];
+            }
+            if (! GitProviderService::parseRepo($repo) || ! preg_match('#^(ssh://|[A-Za-z0-9._-]+@)#', $repo)) {
+                return ['ok' => false, 'message' => 'A deploy key needs an SSH address, like git@github.com:you/my-shop.git.'];
+            }
+
+            return ['ok' => true, 'message' => 'Your deploy key is used when the app builds; the first build checks the repository.'];
+        }
+
+        return $this->validator->git($repo, $branch);
     }
 
     public function host(User $user, array $input): array

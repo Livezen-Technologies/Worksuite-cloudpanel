@@ -105,4 +105,76 @@ class GitSourcesTest extends TestCase
         $this->assertSame('github', $log->first()->provider);
         $this->assertCount(2, $this->api($token)->getJson('/api/v1/git')->json('data.deliveries'));
     }
+
+    public function test_customers_host_a_private_repository_through_their_connection(): void
+    {
+        [, , $token] = $this->org();
+        $cred = 'fake-'.str_repeat('c', 12);
+        Http::fake([
+            'api.github.com/user' => Http::response(['login' => 'shop-owner']),
+            'api.github.com/repos/me/shop/branches/main' => Http::response(['commit' => ['sha' => str_repeat('ab', 20)]]),
+            'api.github.com/repos/me/shop/branches/nope' => Http::response([], 404),
+        ]);
+        $c = $this->api($token)->postJson('/api/v1/app/git/connections', ['provider' => 'github', 'token' => $cred])->assertCreated()->json('data');
+        $check = fn (array $src) => $this->api($token)->postJson('/api/v1/app/apps/validate-source', ['source' => ['type' => 'git'] + $src]);
+
+        $check(['repo' => 'https://github.com/me/shop.git', 'branch' => 'main', 'git_connection_id' => $c['id']])->assertOk()
+            ->assertJsonPath('data.ok', true)->assertJsonPath('data.commit', str_repeat('ab', 20));
+        $check(['repo' => 'https://github.com/me/shop', 'branch' => 'nope', 'git_connection_id' => $c['id']])->assertJsonPath('data.ok', false);
+        // The token only ever goes to github.com.
+        $check(['repo' => 'https://evil.example.com/me/shop.git', 'branch' => 'main', 'git_connection_id' => $c['id']])->assertJsonPath('data.ok', false);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'evil.example.com'));
+
+        $key = $this->api($token)->postJson('/api/v1/app/git/keys', ['name' => 'shop-key'])->assertCreated()->json('data.id');
+        $check(['repo' => 'git@github.com:me/shop.git', 'branch' => 'main', 'git_ssh_key_id' => $key])->assertJsonPath('data.ok', true);
+        $check(['repo' => 'https://github.com/me/shop.git', 'branch' => 'main', 'git_ssh_key_id' => $key])->assertJsonPath('data.ok', false);
+
+        // Another customer's connection is unknown.
+        [, , $other] = $this->org();
+        $this->api($other)->postJson('/api/v1/app/apps/validate-source', ['source' => ['type' => 'git', 'repo' => 'https://github.com/me/shop.git', 'git_connection_id' => $c['id']]])->assertJsonPath('data.ok', false);
+    }
+
+    public function test_an_admin_app_cannot_send_a_connection_token_to_another_host(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        Http::fake(['api.github.com/user' => Http::response(['login' => 'acme'])]);
+        $c = $this->api($token)->postJson('/api/v1/git/connections', ['provider' => 'github', 'token' => 'fake-'.str_repeat('d', 12)])->json('data.id');
+        $this->api($token)->postJson('/api/v1/applications', ['name' => 'leak', 'source_type' => 'git', 'server_id' => $server->id, 'port' => 80,
+            'source' => ['repo' => 'https://evil.example.com/a/b.git', 'branch' => 'main', 'git_connection_id' => $c]])->assertStatus(422)->assertJsonStructure(['error' => ['fields' => ['source.repo']]]);
+        $this->assertSame(['github.com', 'acme/shop'], \App\Services\GitProviderService::parseRepo('git@github.com:acme/shop.git'));
+        $this->assertSame(['gitlab.example.com', 'grp/sub/app'], \App\Services\GitProviderService::parseRepo('ssh://git@gitlab.example.com:2222/grp/sub/app.git'));
+        $this->assertNull(\App\Services\GitProviderService::parseRepo('https://github.com/../etc'));
+    }
+
+    public function test_sign_in_with_github_creates_a_connection_once(): void
+    {
+        [$user, , $token] = $this->org();
+        $this->api($token)->getJson('/api/v1/git')->assertJsonPath('data.oauth.github', false);
+        $this->api($token)->postJson('/api/v1/git/oauth/github/start')->assertStatus(409);
+
+        config(['platform.git_oauth.github.client_id' => 'cid-1', 'platform.git_oauth.github.client_secret' => 'fake-'.str_repeat('s', 12), 'platform.panel_url' => 'https://panel.test']);
+        $url = $this->api($token)->postJson('/api/v1/git/oauth/github/start')->assertOk()->json('data.url');
+        $this->assertStringStartsWith('https://github.com/login/oauth/authorize?', $url);
+        parse_str(parse_url($url, PHP_URL_QUERY), $q);
+        $this->assertSame('cid-1', $q['client_id']);
+        $this->assertSame(url('/api/v1/git/oauth/github/callback'), $q['redirect_uri']);
+
+        $granted = 'fake-'.str_repeat('o', 12);
+        Http::fake([
+            'github.com/login/oauth/access_token' => Http::response(['access_token' => $granted, 'token_type' => 'bearer']),
+            'api.github.com/user' => Http::response(['login' => 'oauth-user']),
+        ]);
+        app(\App\Support\Tenant::class)->set(null);
+        $this->get('/api/v1/git/oauth/github/callback?code=abc&state='.rawurlencode($q['state']))->assertRedirect('https://panel.test/admin/git?connected=github');
+        $conn = GitConnection::allTenants()->sole();
+        $this->assertSame($user->current_organization_id, $conn->organization_id);
+        $this->assertSame('oauth-user', $conn->account);
+        $this->assertSame($granted, $conn->token);
+
+        // The same state can't be used twice, and a forged one is refused.
+        $this->get('/api/v1/git/oauth/github/callback?code=abc&state='.rawurlencode($q['state']))->assertRedirect();
+        $this->get('/api/v1/git/oauth/github/callback?code=abc&state=forged')->assertRedirect();
+        $this->assertSame(1, GitConnection::allTenants()->count());
+    }
 }

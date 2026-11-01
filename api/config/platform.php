@@ -31,6 +31,15 @@ return [
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
     ],
 
+    // GIT: "Sign in with GitHub / GitLab". Create an OAuth app whose callback is
+    // {APP_URL}/api/v1/git/oauth/{provider}/callback and set its id and secret here.
+    'git_oauth' => [
+        'github' => ['client_id' => env('GITHUB_OAUTH_CLIENT_ID'), 'client_secret' => env('GITHUB_OAUTH_CLIENT_SECRET'),
+            'authorize' => 'https://github.com/login/oauth/authorize', 'token' => 'https://github.com/login/oauth/access_token', 'scope' => 'repo read:user'],
+        'gitlab' => ['client_id' => env('GITLAB_OAUTH_CLIENT_ID'), 'client_secret' => env('GITLAB_OAUTH_CLIENT_SECRET'),
+            'authorize' => rtrim(env('GITLAB_OAUTH_URL', 'https://gitlab.com'), '/').'/oauth/authorize', 'token' => rtrim(env('GITLAB_OAUTH_URL', 'https://gitlab.com'), '/').'/oauth/token', 'scope' => 'read_api read_repository read_user'],
+    ],
+
     // UVPS: customer virtual servers. Container VPS run under Sysbox on servers with the "vps" role.
     'vps' => [
         'limit' => (int) env('VPS_LIMIT', 5), // per organisation

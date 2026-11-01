@@ -42,6 +42,7 @@ class GitSourceController extends Controller
     {
         return $this->data([
             'providers' => GitProviderService::PROVIDERS,
+            'oauth' => app(\App\Services\GitOAuthService::class)->available(),
             'connections' => GitConnection::orderBy('provider')->get()->map(fn ($c) => $this->presentConnection($c))->values(),
             'keys' => SshKey::orderBy('name')->get()->map(fn ($k) => $this->presentKey($k))->values(),
             'deliveries' => WebhookDelivery::latest('created_at')->limit(50)->get(['id', 'provider', 'event', 'repo', 'ref', 'outcome', 'detail', 'created_at'])
@@ -114,5 +115,31 @@ class GitSourceController extends Controller
         $this->audit->log('git.connection.delete', 'git_connection', $id);
 
         return response()->noContent();
+    }
+
+    /** GIT: begin "Sign in with GitHub / GitLab"; the panel page to come back to rides in the state. */
+    public function oauthStart(Request $request, string $provider)
+    {
+        $user = $request->user();
+        $back = $request->routeIs('app.*') ? '/app/git' : '/admin/git';
+
+        return $this->data(['url' => app(\App\Services\GitOAuthService::class)->start($provider, $user->current_organization_id, $user->id, $back)]);
+    }
+
+    /** The provider sends the browser here; the encrypted single-use state says whose account it is. */
+    public function oauthCallback(Request $request, string $provider)
+    {
+        $web = rtrim((string) config('platform.panel_url') ?: config('app.url'), '/');
+        if ($request->filled('error')) {
+            return redirect()->away($web.'/admin/git?git_error='.rawurlencode((string) $request->input('error')));
+        }
+        try {
+            $r = app(\App\Services\GitOAuthService::class)->finish($provider, (string) $request->input('code'), (string) $request->input('state'));
+        } catch (\App\Exceptions\ApiException $e) {
+            return redirect()->away($web.'/admin/git?git_error='.rawurlencode($e->getMessage()));
+        }
+        $path = in_array($r['return'], ['/app/git', '/admin/git'], true) ? $r['return'] : '/admin/git';
+
+        return redirect()->away($web.$path.'?connected='.$provider);
     }
 }

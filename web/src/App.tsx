@@ -131,6 +131,7 @@ export function AppRoutes() {
         <Route path="projects" element={<UserProjects />} />
         <Route path="ai" element={<UserAi />} />
         <Route path="servers" element={<UserVps />} />
+        <Route path="git" element={<GitSources base="/app/git" customer />} />
         <Route path="host" element={<HostApp />} />
         <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />

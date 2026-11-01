@@ -15,6 +15,7 @@ export const PANEL_SECTIONS: PanelSection[] = [
     { label: 'Apps', icon: 'rocket', to: '/app/apps' },
     { label: 'Projects', icon: 'layers', to: '/app/projects' },
     { label: 'Servers (VPS)', icon: 'server', to: '/app/servers' },
+    { label: 'Git & deploy keys', icon: 'share', to: '/app/git' },
     { label: 'Host an app', icon: 'plus', to: '/app/host' },
     { label: 'Domains & DNS', icon: 'globe', to: '/app/domains' },
     { label: 'Email', icon: 'bell', to: '/app/email' },

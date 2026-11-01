@@ -16,10 +16,12 @@ describe('Git sources', () => {
       const method = init?.method ?? 'GET'
       calls.push({ url, method, body: init?.body as string })
       if (url.endsWith('/git') && method === 'GET') return json(200, { data: {
+        oauth: { github: true, gitlab: false },
         connections: [{ id: 'c1', provider: 'github', account: 'acme-bot', status: 'connected', used_by: [] }],
         keys: [{ id: 'k1', name: 'deploy-shop', public_key: 'ssh-ed25519 AAAAC3Nz deploy-shop', fingerprint: 'SHA256:abc', used_by: ['shop'] }],
         deliveries: [{ id: 'd1', event: 'push', repo: 'acme/shop', ref: 'main', outcome: 'rejected', detail: 'Signature invalid.', created_at: new Date().toISOString() }],
       } })
+      if (url.endsWith('/oauth/github/start')) return json(200, { data: { url: 'https://github.com/login/oauth/authorize?state=x' } })
       if (url.endsWith('/git/connections/c1/repositories')) return json(200, { data: [{ name: 'acme/shop', clone_url: 'https://github.com/acme/shop.git', private: true }] })
       return json(201, { data: {} })
     }))
@@ -49,5 +51,18 @@ describe('Git sources', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Key name' }), 'deploy-api')
     await userEvent.click(screen.getByRole('button', { name: 'Generate key' }))
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/git/keys'))!.body!)).toEqual({ name: 'deploy-api' })
+  })
+
+  it('offers Sign in with GitHub when OAuth is set up, and uses the customer base path', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ToastProvider><MemoryRouter><GitSources base="/app/git" customer /></MemoryRouter></ToastProvider></QueryClientProvider>)
+    expect(await screen.findByRole('heading', { name: 'Git & deploy keys' })).toBeInTheDocument()
+    const signIn = await screen.findByRole('button', { name: 'Sign in with GitHub' })
+    expect(screen.queryByText('Recent webhook deliveries')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Sign in with GitLab' })).toBeNull()
+    await userEvent.click(signIn)
+    expect(calls.some((c) => c.url.endsWith('/app/git/oauth/github/start') && c.method === 'POST')).toBe(true)
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('https://github.com/login/oauth/authorize?state=x'))
   })
 })

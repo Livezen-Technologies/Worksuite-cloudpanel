@@ -203,8 +203,14 @@ class ApplicationController extends Controller
         if (! empty($src['git_ssh_key_id']) && ! \App\Models\SshKey::whereKey($src['git_ssh_key_id'])->exists()) {
             throw \App\Exceptions\ApiException::validation(['source.git_ssh_key_id' => ['Unknown deploy key.']]);
         }
-        if (! empty($src['git_connection_id']) && ! \App\Models\GitConnection::whereKey($src['git_connection_id'])->exists()) {
-            throw \App\Exceptions\ApiException::validation(['source.git_connection_id' => ['Unknown Git connection.']]);
+        if (! empty($src['git_connection_id'])) {
+            $c = \App\Models\GitConnection::find($src['git_connection_id']);
+            if (! $c) {
+                throw \App\Exceptions\ApiException::validation(['source.git_connection_id' => ['Unknown Git connection.']]);
+            }
+            if (! empty($src['repo']) && ! app(\App\Services\GitProviderService::class)->owns($c, (string) $src['repo'])) {
+                throw \App\Exceptions\ApiException::validation(['source.repo' => ['The repository must be on '.app(\App\Services\GitProviderService::class)->host($c).' to use this connection.']]);
+            }
         }
     }
 
