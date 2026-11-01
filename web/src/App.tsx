@@ -40,6 +40,7 @@ import HostApp from './pages/app/HostApp'
 import UserProjects from './pages/app/Projects'
 import UserAi from './pages/app/Ai'
 import UserVps from './pages/app/Vps'
+import GitSources from './pages/admin/GitSources'
 import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
@@ -100,6 +101,7 @@ export function AppRoutes() {
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="projects" element={<Projects />} />
+        <Route path="git" element={<GitSources />} />
         <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="deployments/:id" element={<DeploymentProgress />} />

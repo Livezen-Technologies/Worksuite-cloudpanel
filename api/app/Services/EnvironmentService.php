@@ -173,7 +173,8 @@ class EnvironmentService
     /** ENV-4: apps whose environment tracks `$branch` and whose repository is `$repo`. */
     public function onPush(Project $project, string $repo, string $branch): array
     {
-        $norm = fn (?string $u) => strtolower(preg_replace(['#\.git$#', '#/+$#', '#^[a-z]+://([^@/]+@)?#i'], '', trim((string) $u)));
+        // https://host/org/repo(.git), ssh://git@host/org/repo and git@host:org/repo are the same repository.
+        $norm = fn (?string $u) => strtolower(preg_replace(['#^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):(?!\d+/)#', '#\.git$#', '#/+$#', '#^[a-z]+://([^@/]+@)?#i', '#^([^/:]+):\d+/#'], ['$1/', '', '', '', '$1/'], trim((string) $u)));
         $envIds = Environment::where('project_id', $project->id)->where('branch', $branch)->pluck('id');
         $started = [];
         foreach (Application::whereIn('environment_id', $envIds)->get() as $app) {

@@ -225,6 +225,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('compose-projects/{id}/rollback', [Admin\ComposeProjectController::class, 'rollback'])->name('compose-projects.rollback');
     });
 
+    // GIT: deploy keys, provider connections and webhook deliveries.
+    Route::get('git', [\App\Http\Controllers\GitSourceController::class, 'index'])->middleware('perm:deploy')->name('git.index');
+    Route::post('git/keys', [\App\Http\Controllers\GitSourceController::class, 'storeKey'])->middleware('perm:deploy')->name('git.keys.store');
+    Route::delete('git/keys/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyKey'])->middleware('perm:deploy')->name('git.keys.destroy');
+    Route::post('git/connections', [\App\Http\Controllers\GitSourceController::class, 'storeConnection'])->middleware('perm:deploy')->middleware('throttle:10,1')->name('git.connections.store');
+    Route::post('git/connections/{id}/check', [\App\Http\Controllers\GitSourceController::class, 'check'])->middleware('perm:deploy')->middleware('throttle:20,1')->name('git.connections.check');
+    Route::get('git/connections/{id}/repositories', [\App\Http\Controllers\GitSourceController::class, 'repositories'])->middleware('perm:deploy')->middleware('throttle:30,1')->name('git.connections.repositories');
+    Route::delete('git/connections/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyConnection'])->middleware('perm:deploy')->name('git.connections.destroy');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');

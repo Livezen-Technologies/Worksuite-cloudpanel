@@ -27,7 +27,7 @@ class ApplicationController extends Controller
             'name' => [$req, 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'source_type' => [$req, Rule::in(['git', 'image', 'dockerfile', 'compose'])],
             'source' => 'nullable|array',
-            'source.repo' => ['nullable', 'string', 'max:512', 'regex:#^(https?://|file:///|/)[^\s]+$#'], 'source.branch' => 'nullable|string|max:120',
+            'source.repo' => ['nullable', 'string', 'max:512', 'regex:#^(https?://|file:///|/|ssh://[A-Za-z0-9._-]+@|[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9.-]*:)[^\s]+$#'], 'source.branch' => 'nullable|string|max:120',
             'source.ref' => ['nullable', 'string', 'max:200', 'regex:#^[A-Za-z0-9][A-Za-z0-9._/-]*$#'],
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.context' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
@@ -36,6 +36,8 @@ class ApplicationController extends Controller
             'source.git_token' => 'nullable|string|max:4096', // write-only: stored as a secret, sent to the builder by reference
             'source.git_username' => 'nullable|string|max:120',
             'source.git_secret_id' => 'nullable|uuid|exists:secrets,id',
+            'source.git_ssh_key_id' => 'nullable|uuid', // GIT: a deploy key for SSH repositories
+            'source.git_connection_id' => 'nullable|uuid', // GIT: a provider connection's token
             'source.push_registry_id' => 'nullable|uuid|exists:registries,id',
             'health_path' => ['nullable', 'string', 'max:255', 'regex:#^/[^\s]*$#'],
             'health_timeout' => 'nullable|integer|between:5,900',
@@ -93,6 +95,7 @@ class ApplicationController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate($this->rules(true) + $this->createRules());
+        $this->checkGitRefs($data);
         $extras = collect($data)->only(['domain_mode', 'domain', 'subdomain', 'deploy'])->all();
         // A Git source without a branch builds the repository's default branch, not a guessed "main".
         if (in_array($data['source_type'], ['git', 'dockerfile', 'compose'], true) && ! empty($data['source']['repo']) && empty($data['source']['branch'])) {
@@ -148,7 +151,9 @@ class ApplicationController extends Controller
     {
         $app = Application::findOrFail($id);
         $this->authorizeFor($request, 'deploy', $app);
-        $data = $this->storeGitToken($request->validate($this->rules(false)), $app->name, $app->source['git_secret_id'] ?? null);
+        $validated = $request->validate($this->rules(false));
+        $this->checkGitRefs($validated);
+        $data = $this->storeGitToken($validated, $app->name, $app->source['git_secret_id'] ?? null);
         $data = $this->withEnvironment($data);
         $app->update(collect($data)->except(['env', 'member_ids'])->all());
         $this->syncEnv($app, $data['env'] ?? null);
@@ -189,6 +194,18 @@ class ApplicationController extends Controller
         $deployment = $this->deployments->start($app, $request->user(), 'rollback', $release);
 
         return $this->accepted($deployment->job, ['deployment_id' => $deployment->id]);
+    }
+
+    /** GIT: a deploy key or connection must belong to this organisation (the tenant scope hides others). */
+    private function checkGitRefs(array $data): void
+    {
+        $src = $data['source'] ?? [];
+        if (! empty($src['git_ssh_key_id']) && ! \App\Models\SshKey::whereKey($src['git_ssh_key_id'])->exists()) {
+            throw \App\Exceptions\ApiException::validation(['source.git_ssh_key_id' => ['Unknown deploy key.']]);
+        }
+        if (! empty($src['git_connection_id']) && ! \App\Models\GitConnection::whereKey($src['git_connection_id'])->exists()) {
+            throw \App\Exceptions\ApiException::validation(['source.git_connection_id' => ['Unknown Git connection.']]);
+        }
     }
 
     /** A Git token is never stored on the application: it becomes an encrypted secret referenced by id. */

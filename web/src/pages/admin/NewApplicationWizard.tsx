@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../../api/client'
-import { useAction, useList } from '../../api/hooks'
+import { useAction, useList, useOne } from '../../api/hooks'
 import type { Server } from '../../api/types'
 import { Field, Toggle } from '../../components/Card'
 import { Badge } from '../../components/Badge'
@@ -78,6 +78,8 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   const servers = useList<Server>('/servers')
   const registries = useList<R>('/registries')
   const projects = useList<R>('/projects')
+  const git = useOne<R>('/git')
+  const deployKeys = ((git.item?.keys as R[]) ?? [])
   const { run, busy } = useAction()
   const [step, setStep] = useState(0)
   const [reach, setReach] = useState(0)
@@ -88,7 +90,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   const [subTouched, setSubTouched] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const [f, setF] = useState({
-    source_type: 'git' as SourceType, name: '', repo: '', branch: '', image: '', git_token: '', environment_id: '',
+    source_type: 'git' as SourceType, name: '', repo: '', branch: '', image: '', git_token: '', git_ssh_key_id: '', environment_id: '',
     builder: 'auto', dockerfile_path: 'Dockerfile', context: '.', no_cache: false, push_registry_id: '',
     environment: 'production', server_id: '', port: '', health_path: '/', strategy: 'rolling', require_approval: true,
     domain_mode: 'auto' as DomainMode, subdomain: '', domain: '', deploy: true,
@@ -117,7 +119,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
     env: env.filter((e) => e.key), deploy,
     ...(isImage ? { image: f.image.trim() } : {
       source: {
-        repo: f.repo.trim(), ...(f.branch.trim() ? { branch: f.branch.trim() } : {}), ...(f.git_token ? { git_token: f.git_token } : {}),
+        repo: f.repo.trim(), ...(f.branch.trim() ? { branch: f.branch.trim() } : {}), ...(f.git_token ? { git_token: f.git_token } : {}), ...(f.git_ssh_key_id ? { git_ssh_key_id: f.git_ssh_key_id } : {}),
         ...(builds ? {
           builder: f.builder, no_cache: f.no_cache, dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null,
           build_args: Object.fromEntries(buildArgs.filter((a) => a.key).map((a) => [a.key, a.value])),
@@ -232,6 +234,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
           {advanced && (
             <div className="grid gap-4 sm:grid-cols-2 p-4 pt-0">
               <Field label="Git access token" hint="Optional; stored as an encrypted secret and never shown again"><input className="input font-mono" type="password" autoComplete="off" value={f.git_token} onChange={(e) => set('git_token', e.target.value)} /></Field>
+              {deployKeys.length > 0 && <Field label="Deploy key" hint="For SSH repositories (git@host:org/repo). Manage keys under Git sources"><Select className="input" value={f.git_ssh_key_id} onChange={(e) => set('git_ssh_key_id', e.target.value)}><option value="">None</option>{deployKeys.map((k) => <option key={String(k.id)} value={String(k.id)}>{String(k.name)}</option>)}</Select></Field>}
               {projects.rows.length > 0 && <Field label="Project environment" hint="Shares its variables, branch and approval rules"><Select className="input" value={f.environment_id} onChange={(e) => set('environment_id', e.target.value)}><option value="">None</option>{projects.rows.flatMap((p) => ((p.environments ?? []) as R[]).map((e) => <option key={e.id} value={e.id}>{p.name} / {e.name}</option>))}</Select></Field>}
             </div>
           )}
