@@ -5,6 +5,7 @@ import { Card, PageHeader } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { Modal } from '../../components/Overlay'
 import type { R } from '../../lib/util'
+import { ProjectCanvas } from '../../components/ProjectCanvas'
 
 const GRADIENT: Record<string, string> = {
   blue: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', violet: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', green: 'linear-gradient(135deg,#22c55e,#15803d)',
@@ -42,6 +43,7 @@ export default function UserProjects() {
   const [form, setForm] = useState<R | 'new' | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [pick, setPick] = useState('')
+  const [view, setView] = useState<'list' | 'canvas'>('canvas')
   const w = page.item ?? {}
   const projects = (w.projects as R[]) ?? []
   const unassigned = (w.unassigned as R[]) ?? []
@@ -65,6 +67,13 @@ export default function UserProjects() {
             <button type="button" className="btn" onClick={() => setForm(cur)}>Edit</button>
             <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${cur.name}? Its apps stay, without a project.`)) run({ path: `/app/projects/${cur.id}`, method: 'DELETE', label: 'Delete project', success: 'Project deleted' }).then(() => { setOpenId(null); refetch() }).catch(() => {}) }}>Delete</button>
           </span>} />
+        <div role="tablist" aria-label="Project view" className="flex gap-1 border-b border-line">
+          {(['canvas', 'list'] as const).map((v) => <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
+            className={`h-10 px-3.5 border-0 bg-transparent cursor-pointer text-sm ${view === v ? 'font-semibold' : 'text-muted'}`}
+            style={view === v ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{v === 'canvas' ? 'Canvas' : 'Apps'}</button>)}
+        </div>
+        {view === 'canvas' && <Card><ProjectCanvas projectId={String(cur.id)} /></Card>}
+        {view === 'list' && <>
         <Card title="Add an app">
           {unassigned.length === 0 ? <p className="m-0 text-sm text-muted">All your apps are already in a project. <Link to="/app/host">+ Host a new app</Link></p> : (
             <div className="flex flex-wrap gap-2">
@@ -87,6 +96,7 @@ export default function UserProjects() {
             ))}</ul>
           )}
         </Card>
+        </>}
         {form && <ProjectForm key={String((form as R).id ?? 'new')} open onClose={() => setForm(null)} colors={colors} initial={form === 'new' ? undefined : form} onSave={save} busy={busy} />}
       </>
     )
@@ -107,7 +117,9 @@ export default function UserProjects() {
                 <span aria-hidden="true" className="grid place-items-center w-10 h-10 rounded-lg text-white font-bold text-sm" style={{ background: GRADIENT[String(p.color)] ?? GRADIENT.blue }}>{initials(String(p.name))}</span>
                 <span className="min-w-0"><span className="block font-semibold truncate">{String(p.name)}</span><span className="block text-xs text-muted">{regions.length ? regions.join(', ') + ' · ' : ''}{Number(c.apps ?? 0) + Number(c.domains ?? 0)} resources</span></span>
               </span>
-              <span className="flex gap-2 text-xs text-muted"><Badge tone="n">{Number(c.apps ?? 0)} apps</Badge><Badge tone="n">{Number(c.domains ?? 0)} domains</Badge></span>
+              <span className="flex flex-wrap gap-2 text-xs text-muted items-center"><Badge tone="n">{Number(c.apps ?? 0)} apps</Badge><Badge tone="n">{Number(c.domains ?? 0)} domains</Badge>
+                {((p.environments as string[]) ?? []).map((e) => <Badge key={e} tone={e === 'production' ? 'g' : 'b'}>{e[0].toUpperCase() + e.slice(1)}</Badge>)}
+                <span className="ml-auto font-semibold text-fg">${(Number(p.cost_cents ?? 0) / 100).toFixed(2)}/mo</span></span>
             </button>
           )
         })}
