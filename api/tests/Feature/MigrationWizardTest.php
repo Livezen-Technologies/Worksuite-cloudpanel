@@ -30,6 +30,7 @@ class MigrationWizardTest extends TestCase
 
     public function test_a_cpanel_account_is_inspected_mapped_and_copied(): void
     {
+        $mail = $this->spy(\App\Services\EmailTemplateService::class);
         [, $org, $token] = $this->org();
         $server = $this->server($org);
         [$secret] = $this->enrollAgent($server, $token);
@@ -78,6 +79,10 @@ class MigrationWizardTest extends TestCase
         }
         $done = SiteMigration::allTenants()->sole();
         $this->assertSame(['migrated', 'migrated'], [$done->status, $done->sites[0]['status']]);
+        // The customer hears when the backup is inspected and when every chosen site is copied; no secrets or archive URL.
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $o === $org->id && $k === 'migration_ready' && $v['sites'] === '2' && $v['databases'] === '1' && $v['source'] === 'cPanel')->once();
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $k === 'migration_complete' && $v['sites'] === '1' && str_contains($v['site_list'], 'shop.lk')
+            && ! str_contains(json_encode($v), 'r00t-pw') && ! str_contains(json_encode($v), 'backups.example.com'))->once();
         $this->assertStringNotContainsString('r00t-pw', json_encode(Job::allTenants()->get()->pluck('payload')), 'no job keeps the password');
         $this->assertNotEmpty(collect($done->timeline)->firstWhere('event', 'Imported database shoplk'));
 
@@ -109,6 +114,7 @@ class MigrationWizardTest extends TestCase
 
     public function test_a_failed_copy_is_reported_and_can_be_retried(): void
     {
+        $mail = $this->spy(\App\Services\EmailTemplateService::class);
         [, $org, $token] = $this->org();
         $server = $this->server($org);
         [$secret] = $this->enrollAgent($server, $token);
@@ -117,7 +123,9 @@ class MigrationWizardTest extends TestCase
         $c = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'migrate.fetch');
         $this->commandResult($secret, $c['id'], 'failed', ['message' => 'download failed: HTTP 404'])->assertOk();
         $this->api($token)->getJson("/api/v1/migrations/{$m['id']}")->assertJsonPath('data.status', 'failed')->assertJsonPath('data.error', 'download failed: HTTP 404');
+        $mail->shouldHaveReceived('notifyOrganization')->withArgs(fn ($o, $k, $v) => $o === $org->id && $k === 'migration_failed' && $v['site'] === 'the backup' && $v['error'] === 'download failed: HTTP 404')->once();
     }
+
     /** A migration with one copied site, its app on an ingress server, and a Cloudflare zone holding the old A record. */
     private function migratedSite(array &$remote): array
     {
