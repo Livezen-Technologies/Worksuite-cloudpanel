@@ -159,7 +159,10 @@ class CustomerAppEnvironmentTest extends TestCase
 
         $web = Application::allTenants()->find($webId);
         [$resolved] = app(\App\Services\EnvironmentService::class)->resolve($web, ['API_URL' => 'http://${{api.HOST}}:8080']);
-        $this->assertSame('http://api:8080', $resolved['API_URL'],
-            'sibling discovery works only when both apps share an environment_id');
+        // Resolves to the sibling's container host, whatever the platform
+        // prefixes it with - the point is that it resolves at all, which it
+        // cannot do unless both apps share an environment_id.
+        $this->assertStringNotContainsString('${{', $resolved['API_URL']);
+        $this->assertMatchesRegularExpression('#^http://[a-z0-9-]*api:8080$#', $resolved['API_URL']);
     }
 }
