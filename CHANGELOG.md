@@ -19,10 +19,6 @@ Dates are the dates the work landed on `main`.
   organisation other than the selected one, since tenancy follows the
   organisation picker and there is no cross-organisation route for a single
   application — and any other failure shows the server's own message.
-
-
-### Fixed
-
 - **Every branded page answered HTTP 200** (PUB-1, PUB-3). The generated nginx
   config wrote `error_page 403 = @suspended`; the `=` hands the status to the
   named location, and `try_files` serving a file there makes it a 200. So a
