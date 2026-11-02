@@ -9,6 +9,48 @@ use App\Models\Server;
 /** NET-001..003: network creation and conflict checks. */
 class NetworkService
 {
+    /**
+     * The Docker network belonging to one environment on one server.
+     *
+     * Returns the record, which is only `active` once the agent has confirmed
+     * it exists. Callers must not attach a container to it before then: a
+     * container referring to a network the host does not have fails to create,
+     * and nothing in the deployment pipeline creates networks on demand.
+     *
+     * Bridge networks are per-host, so an environment whose apps are spread
+     * over several servers gets one on each. Cross-host traffic goes over the
+     * WireGuard mesh, as it already does.
+     */
+    public function forEnvironment(\App\Models\Environment $environment, Server $server): Network
+    {
+        $network = Network::where('environment_id', $environment->id)->where('server_id', $server->id)->first();
+        if ($network) {
+            return $network;
+        }
+        $network = Network::create([
+            'server_id' => $server->id, 'project_id' => $environment->project_id, 'environment_id' => $environment->id,
+            'name' => self::environmentNetworkName($environment), 'driver' => 'bridge',
+            'internal' => false, 'exposure' => 'private', 'status' => 'creating',
+        ]);
+        $job = app(JobService::class)->create('network.create', ['execute'], $network);
+        app(CommandBus::class)->dispatch($server, 'network.create', [
+            'name' => $network->name, 'driver' => 'bridge', 'attachable' => true,
+            'labels' => ['com.worksuite.environment' => $environment->id, 'com.worksuite.project' => (string) $environment->project_id],
+        ], $job);
+
+        return $network;
+    }
+
+    /**
+     * Deterministic and short: Docker network names are shared with interface
+     * naming, and the environment's own uuid prefix keeps it unique per host
+     * without leaking the customer's project name onto the server.
+     */
+    public static function environmentNetworkName(\App\Models\Environment $environment): string
+    {
+        return 'wscp-env-'.substr(str_replace('-', '', (string) $environment->id), 0, 12);
+    }
+
     /** @return array{ok: bool, conflicts: array, warnings: array} */
     public function check(Server $server, array $input): array
     {

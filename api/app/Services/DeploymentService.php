@@ -16,6 +16,7 @@ use App\Models\EnvVar;
 use App\Models\Job;
 use App\Models\Plan;
 use App\Models\Release;
+use App\Models\Environment;
 use App\Models\Server;
 use App\Models\User;
 use App\Support\ScanReport;
@@ -648,8 +649,43 @@ class DeploymentService implements HandlesCommandResults
         if (! empty($app->source['database_id'])) {
             $nets[] = ['name' => 'internal'];
         }
+        if ($env = $this->environmentNetwork($app, $server)) {
+            $nets[] = $env;
+        }
 
         return $nets;
+    }
+
+    /**
+     * PRJ-NET: the app's own environment network, in addition to `proxy`.
+     *
+     * Only when the agent has confirmed the network exists — a container that
+     * names a network the host does not have fails to create, and no stage of
+     * this pipeline creates one. A first deployment therefore asks for the
+     * network and joins only `proxy`; the next one joins both. That ordering
+     * is deliberate: no deployment may fail because of this.
+     *
+     * `proxy` is kept on purpose. Traefik reaches containers by name over it,
+     * so dropping it before Traefik is attached to the environment network
+     * would take every site offline.
+     */
+    private function environmentNetwork(Application $app, ?Server $server): ?array
+    {
+        if (! $server || ! $app->environment_id) {
+            return null;
+        }
+        $environment = Environment::allTenants()->find($app->environment_id);
+        if (! $environment) {
+            return null;
+        }
+        $network = app(NetworkService::class)->forEnvironment($environment, $server);
+        if ($network->status !== 'active') {
+            return null;
+        }
+
+        // The alias is what a sibling resolves `${{service.HOST}}` to, so the
+        // two names stay the same whichever network the lookup goes over.
+        return ['name' => $network->name, 'aliases' => array_values(array_unique(array_filter([$app->service, $app->name])))];
     }
 
     private function createRelease(Deployment $deployment, Application $app): Release

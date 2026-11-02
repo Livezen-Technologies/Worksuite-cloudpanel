@@ -186,6 +186,27 @@ Artisan::command('domains:check-dns', function (DomainService $domains) {
     }
 })->purpose('Re-check pending DNS every 2 minutes (UDOM-003)');
 
+Artisan::command('networks:reconcile', function (\App\Services\NetworkService $networks) {
+    // PRJ-NET: make sure every environment that has running apps owns a Docker
+    // network on each server those apps sit on. Deployments only ever *join* a
+    // network that already exists, so without this the first deployment after
+    // a change would have to go without one.
+    $made = 0;
+    $apps = \App\Models\Application::allTenants()->whereNotNull('environment_id')->whereNotNull('server_id')
+        ->whereNull('deleted_at')->get(['organization_id', 'environment_id', 'server_id']);
+    foreach ($apps->groupBy(fn ($a) => $a->environment_id.'|'.$a->server_id) as $pair) {
+        $app = $pair->first();
+        app(Tenant::class)->as($app->organization_id, function () use ($app, $networks, &$made) {
+            $environment = \App\Models\Environment::find($app->environment_id);
+            $server = \App\Models\Server::find($app->server_id);
+            if ($environment && $server && $networks->forEnvironment($environment, $server)->wasRecentlyCreated) {
+                $made++;
+            }
+        });
+    }
+    $this->info("Environment networks requested: {$made}");
+})->purpose('Create the Docker network each environment needs on each of its servers');
+
 Artisan::command('certificates:renew', function (DomainService $domains) {
     $r = $domains->renewExpiring();
     $this->info("Certificates renewed: {$r['renewed']}, failed: {$r['failed']}");
@@ -338,6 +359,7 @@ Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
+Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();
 Schedule::command('metrics:prune')->daily();
