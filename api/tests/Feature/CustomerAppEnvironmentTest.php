@@ -157,7 +157,8 @@ class CustomerAppEnvironmentTest extends TestCase
         $webId = $this->host($token, 'web', ['env' => [['key' => 'API_URL', 'value' => 'http://${{api.HOST}}:8080']]])
             ->assertStatus(202)->json('data.app.id');
 
-        [$resolved] = app(\App\Services\EnvironmentService::class)->resolve(Application::allTenants()->find($webId));
+        $web = Application::allTenants()->find($webId);
+        [$resolved] = app(\App\Services\EnvironmentService::class)->resolve($web, ['API_URL' => 'http://${{api.HOST}}:8080']);
         $this->assertSame('http://api:8080', $resolved['API_URL'],
             'sibling discovery works only when both apps share an environment_id');
     }
