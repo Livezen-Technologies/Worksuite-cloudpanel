@@ -67,8 +67,14 @@ class CustomerProjectsTest extends TestCase
 
         $this->api($token)->postJson("/api/v1/app/projects/{$p['id']}/apps", ['app_id' => $shop->id])->assertOk();
         $this->api($token)->deleteJson("/api/v1/app/projects/{$p['id']}")->assertNoContent();
-        $this->assertNull($shop->fresh()->project_id, 'the app survives with no project');
-        $this->assertSame(0, Project::allTenants()->count());
+        // The app survives the project. It is no longer left with no project at
+        // all: an app outside an environment loses push-deploys, service
+        // discovery and promotion, so it lands in the default project.
+        $moved = $shop->fresh();
+        $this->assertNotNull($moved->project_id);
+        $this->assertNotNull($moved->environment_id);
+        $this->assertTrue((bool) Project::allTenants()->find($moved->project_id)->is_default);
+        $this->assertSame(1, Project::allTenants()->count());
     }
 
     public function test_projects_and_apps_of_another_customer_are_out_of_reach(): void

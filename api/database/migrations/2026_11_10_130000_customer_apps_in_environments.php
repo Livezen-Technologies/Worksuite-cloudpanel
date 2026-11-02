@@ -42,13 +42,11 @@ return new class extends Migration
         }
     }
 
-    /** The organisation's catch-all project: an existing one is adopted before a new one is made. */
+    /** The organisation's catch-all project, always its own and never an existing one. */
     private function defaultProject(string $orgId): string
     {
-        $existing = DB::table('projects')->where('organization_id', $orgId)->orderBy('created_at')->first(['id']);
+        $existing = DB::table('projects')->where('organization_id', $orgId)->where('is_default', true)->first(['id']);
         if ($existing) {
-            DB::table('projects')->where('id', $existing->id)->update(['is_default' => true]);
-
             return $existing->id;
         }
         $id = (string) Illuminate\Support\Str::uuid();

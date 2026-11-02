@@ -114,7 +114,14 @@ class ProjectController extends Controller
         if ($p->is_default) {
             throw ApiException::conflict('This is where apps go when they are not in a project of their own, so it cannot be deleted.');
         }
-        Application::where('project_id', $p->id)->update(['project_id' => null]);
+        // The apps outlive the project, but not as orphans: an app with no
+        // environment loses push-deploys, discovery and promotion, so they go
+        // to the default project exactly as removing them one by one would.
+        $envs = app(\App\Services\EnvironmentService::class);
+        foreach (Application::where('project_id', $p->id)->get() as $app) {
+            $env = $envs->environmentFor(null, $app->environment);
+            $app->update(['project_id' => $env->project_id, 'environment_id' => $env->id, 'environment' => $env->kind]);
+        }
         $p->delete();
 
         return response()->noContent();

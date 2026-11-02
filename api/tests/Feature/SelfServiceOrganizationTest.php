@@ -63,7 +63,7 @@ class SelfServiceOrganizationTest extends TestCase
         [, $first, $token] = $this->org();
         $created = $this->api($token)->postJson('/api/v1/organizations', ['name' => 'Harbour Ltd'])->assertStatus(201)->json('data.id');
 
-        $this->assertSame(1, Organization::allTenants()->where('id', $created)->count());
+        $this->assertSame(1, Organization::where('id', $created)->count());
         // Projects made in one are invisible from the other.
         $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Only here'])->assertStatus(201);
         $this->api($token)->postJson('/api/v1/me/organization', ['organization_id' => $first->id])->assertOk();

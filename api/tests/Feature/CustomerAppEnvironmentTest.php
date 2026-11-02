@@ -49,7 +49,7 @@ class CustomerAppEnvironmentTest extends TestCase
         $this->assertSame(1, Project::allTenants()->where('organization_id', $org->id)->count());
     }
 
-    public function test_an_existing_project_is_adopted_instead_of_adding_a_default_beside_it(): void
+    public function test_the_default_project_is_its_own_and_never_an_existing_one(): void
     {
         [, $org, $token] = $this->org();
         $this->server($org, ['region' => 'eu-central', 'ram_mb' => 32768, 'ram_pct' => 10]);
@@ -59,9 +59,11 @@ class CustomerAppEnvironmentTest extends TestCase
         $id = $this->host($token, 'shop')->assertStatus(202)->json('data.app.id');
         $app = Application::allTenants()->find($id);
 
-        $this->assertSame($mine['id'], $app->project_id, 'the only project becomes the default');
-        $this->assertSame('staging', $app->environment, 'and its only environment is used when there is no production one');
-        $this->assertSame(1, Project::allTenants()->where('organization_id', $org->id)->count());
+        // Adopting "Storefront" as the default would be tidier, but then taking
+        // an app out of Storefront would put it straight back.
+        $this->assertNotSame($mine['id'], $app->project_id);
+        $this->assertTrue((bool) Project::allTenants()->find($app->project_id)->is_default);
+        $this->assertSame(2, Project::allTenants()->where('organization_id', $org->id)->count());
     }
 
     public function test_an_app_can_be_hosted_straight_into_a_chosen_project_and_environment(): void

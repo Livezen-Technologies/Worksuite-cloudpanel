@@ -108,18 +108,18 @@ class EnvironmentService
         ]);
     }
 
-    /** Where an app goes when the customer has not picked a project. One per organisation. */
+    /**
+     * Where an app goes when the customer has not picked a project, and where
+     * one goes when it is taken out of a project. One per organisation.
+     *
+     * Always its own project, never an existing one adopted: if this returned
+     * the customer's only real project, taking an app out of that project
+     * would put it straight back and "remove" would do nothing.
+     */
     public function defaultProject(): Project
     {
         $project = Project::where('is_default', true)->orderBy('created_at')->first();
         if ($project) {
-            return $project;
-        }
-        // A pre-existing project is adopted rather than adding a second one to
-        // an account that already organises its apps.
-        if ($project = Project::orderBy('created_at')->first()) {
-            $project->forceFill(['is_default' => true])->save();
-
             return $project;
         }
 
