@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { api } from '../../api/client'
+import { api, errorMessage, isApiError } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
@@ -17,6 +17,10 @@ export default function AppManage() {
   const app = useOne<R>(id ? `/applications/${id}` : null)
   const [tab, setTab] = useState<Tab>('Settings')
   const row = app.data?.data
+  // A 404 here almost always means the application belongs to an organisation
+  // other than the one currently selected: tenancy follows the org picker, and
+  // there is no cross-organisation route for a single application.
+  const wrongOrg = app.isError && isApiError(app.error) && app.error.status === 404
 
   return (
     <>
@@ -24,17 +28,35 @@ export default function AppManage() {
         subtitle={row ? `${row.source_type} · ${row.image ?? row.source ?? ''}` : ''}
         actions={<Link className="btn" to="/admin/applications">All applications</Link>} />
 
-      <div className="flex flex-wrap gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={`min-h-11 border-b-2 px-4 text-sm font-medium ${tab === t ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
+      {!app.isError && (
+        <div className="flex flex-wrap gap-1 border-b border-line" role="tablist">
+          {TABS.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`min-h-11 border-b-2 px-4 text-sm font-medium ${tab === t ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {!row && <Loading label="Loading…" />}
+      {/* Only while the request is actually in flight. Keying this off `!row`
+          left the skeleton on screen for ever once the request had finished and
+          failed, so a 404 looked like a page that never loaded. */}
+      {app.isLoading && <Loading label="Loading…" />}
+
+      {app.isError && (
+        <Card>
+          {/* No action here: the page header already offers "All applications". */}
+          <Empty icon={wrongOrg ? 'users' : 'warn'}>
+            {/* Empty splits the first sentence off as the heading, so each of
+                these has to lead with one that ends in a full stop. */}
+            {wrongOrg
+              ? 'This application is not in the current organisation. It most likely belongs to another one: switch organisation with the picker at the top of the sidebar, then open it again.'
+              : `This application could not be loaded. ${errorMessage(app.error)}`}
+          </Empty>
+        </Card>
+      )}
       {row && tab === 'Settings' && <SettingsTab app={row} />}
       {row && tab === 'Scaling' && <ScalingPanel path={`/applications/${row.id}/scaling`} />}
       {row && tab === 'Databases' && <DatabasesTab app={row} />}
