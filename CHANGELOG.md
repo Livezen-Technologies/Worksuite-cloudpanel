@@ -11,6 +11,15 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Customers create a project in two steps.** The form asked only for a name
+  and a colour; it is now "Create new project" → "Assign resources", asking
+  also for the environment type, what the project is for and a description,
+  and then offering every app that is not in a project yet. The project's
+  **first environment is created with it**, because a project without one
+  cannot hold an app at all, and a project's environments are now reported
+  from the project itself rather than inferred from the apps inside it — so a
+  new, empty project shows the environment it was just given. `purpose` is a
+  new nullable column; editing a project can now change its description too.
 - **An account menu of its own for the customer portal.** The menu was shared
   with the admin panel, so a customer's "Account" pointed at `/admin/account`,
   a page they cannot open. In the portal it is now **My Account** (`/app/account`),

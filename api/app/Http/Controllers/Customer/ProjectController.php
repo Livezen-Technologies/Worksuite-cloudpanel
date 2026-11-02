@@ -16,12 +16,19 @@ class ProjectController extends Controller
 {
     public const COLORS = ['blue', 'violet', 'green', 'amber', 'rose', 'teal', 'slate'];
 
+    /** What the project is for. Shapes nothing yet; it is asked once, when the project is created. */
+    public const PURPOSES = ['trying_out', 'class_project', 'website_blog', 'web_application', 'service_api', 'mobile_application', 'other'];
+
+    /** The environment a new project starts with, named after its kind. */
+    public const ENVIRONMENTS = ['development' => 'Development', 'staging' => 'Staging', 'production' => 'Production'];
+
     private function present(Project $p): array
     {
         $apps = Application::where('kind', 'customer')->where('project_id', $p->id)->orderBy('name')->get(['id', 'name', 'status', 'region']);
 
         return [
             'id' => $p->id, 'name' => $p->name, 'description' => $p->description, 'color' => $p->color ?? 'blue',
+            'purpose' => $p->purpose,
             'apps' => $apps->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'status' => $a->status])->values(),
             'counts' => [
                 'apps' => $apps->count(),
@@ -29,7 +36,9 @@ class ProjectController extends Controller
             ],
             'regions' => $apps->pluck('region')->filter()->unique()->values(),
             'cost_cents' => $this->cost($apps),
-            'environments' => $apps->isEmpty() ? [] : \App\Models\Environment::whereIn('id', Application::whereIn('id', $apps->pluck('id'))->whereNotNull('environment_id')->pluck('environment_id'))->pluck('kind')->unique()->values()->all(),
+            // The project's own environments, not only those its apps happen to
+            // sit in: a project created with one and no apps yet still has it.
+            'environments' => \App\Models\Environment::where('project_id', $p->id)->pluck('kind')->unique()->values()->all(),
             'created_at' => $p->created_at?->toIso8601String(),
         ];
     }
@@ -40,6 +49,7 @@ class ProjectController extends Controller
             'name' => [$create ? 'required' : 'sometimes', 'string', 'min:2', 'max:80'],
             'description' => 'nullable|string|max:255',
             'color' => ['sometimes', Rule::in(self::COLORS)],
+            'purpose' => ['sometimes', 'nullable', Rule::in(self::PURPOSES)],
         ];
     }
 
@@ -49,14 +59,34 @@ class ProjectController extends Controller
         $unassigned = Application::where('kind', 'customer')->whereNull('project_id')->orderBy('name')->get(['id', 'name', 'status'])
             ->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'status' => $a->status])->values();
 
-        return $this->data(['projects' => $projects, 'unassigned' => $unassigned, 'colors' => self::COLORS]);
+        return $this->data([
+            'projects' => $projects, 'unassigned' => $unassigned, 'colors' => self::COLORS,
+            'purposes' => self::PURPOSES, 'environment_types' => self::ENVIRONMENTS,
+        ]);
     }
 
-    public function store(Request $request)
+    /**
+     * A project and, optionally, the first environment to put its apps in. The
+     * environment is created here rather than left for later because a project
+     * with none cannot hold an app at all.
+     */
+    public function store(Request $request, \App\Services\EnvironmentService $environments)
     {
-        $v = $request->validate($this->rules(true));
+        $v = $request->validate($this->rules(true) + [
+            'environment' => ['sometimes', 'nullable', Rule::in(array_keys(self::ENVIRONMENTS))],
+        ]);
         $this->unique($v['name']);
-        $p = Project::create($v + ['webhook_secret' => Str::random(40)]);
+        $kind = $v['environment'] ?? null;
+        unset($v['environment']);
+
+        $p = \Illuminate\Support\Facades\DB::transaction(function () use ($v, $kind, $environments) {
+            $p = Project::create($v + ['webhook_secret' => Str::random(40)]);
+            if ($kind) {
+                $environments->createEnvironment($p, ['name' => self::ENVIRONMENTS[$kind], 'kind' => $kind]);
+            }
+
+            return $p;
+        });
 
         return $this->data($this->present($p), 201);
     }

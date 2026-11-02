@@ -15,6 +15,37 @@ class CustomerProjectsTest extends TestCase
         return app(Tenant::class)->as($orgId, fn () => Application::create(['name' => $name, 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'small', 'port' => 80, 'region' => 'eu-west']));
     }
 
+    /**
+     * The create form asks for an environment, a purpose and a description, as
+     * well as a name. The environment matters: a project without one cannot
+     * hold an app at all, so it is made with the project rather than later.
+     */
+    public function test_a_project_is_created_with_its_first_environment_purpose_and_description(): void
+    {
+        [, , $token] = $this->org();
+
+        $p = $this->api($token)->postJson('/api/v1/app/projects', [
+            'name' => 'Storefront', 'color' => 'violet', 'environment' => 'production',
+            'purpose' => 'web_application', 'description' => 'The public shop',
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('web_application', $p['purpose']);
+        $this->assertSame('The public shop', $p['description']);
+        // Reported even though the project has no apps yet.
+        $this->assertSame(['production'], $p['environments']);
+        $env = \App\Models\Environment::allTenants()->where('project_id', $p['id'])->firstOrFail();
+        $this->assertSame(['Production', 'production', true], [$env->name, $env->kind, (bool) $env->requires_approval]);
+
+        // Both extra fields are optional, and both are checked against a list.
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Plain'])->assertCreated()->assertJsonPath('data.environments', []);
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Bad env', 'environment' => 'qa'])->assertStatus(422);
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Bad purpose', 'purpose' => 'world domination'])->assertStatus(422);
+
+        $list = $this->api($token)->getJson('/api/v1/app/projects')->assertOk()->json('data');
+        $this->assertContains('web_application', $list['purposes']);
+        $this->assertSame('Production', $list['environment_types']['production']);
+    }
+
     public function test_customers_create_fill_rename_and_delete_projects(): void
     {
         [, $org, $token] = $this->org();
