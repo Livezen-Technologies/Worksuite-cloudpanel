@@ -9,6 +9,36 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Customer applications now belong to a project and an environment.** They
+  were created with `environment` set to the bare string `production` and
+  `environment_id` left null, while every environment-shaped feature keys on
+  the foreign key. That single omission cut customer apps off from four things
+  at once, all of which now work:
+  - **Deploy on Git push.** `onPush` matches apps by `environment_id`, so a
+    push could never reach a customer app. An environment that names a branch
+    still tracks it; one that does not — which is every environment the portal
+    creates, since it never asks for a branch — now falls back to each app's
+    own source branch.
+  - **The "Auto-deploy when I push" toggle**, which was stored and displayed
+    but never read by any deploy path. It gates customer apps only: on an admin
+    application the same column means "deploy on a new release", a different
+    promise, so admin push behaviour is unchanged. Hosting from a repository
+    turns it on, making it an opt-out.
+  - **`${{service.HOST}}` discovery between a customer's own apps**, which
+    resolves siblings within an environment.
+  - **Promotion, duplication and PR previews**, which select by environment.
+
+  Apps created before this are backfilled. An app with no project of its own
+  goes to a default project — an existing project is adopted rather than adding
+  a second one beside it — and that project cannot be deleted, since it is
+  where apps land. Taking an app out of a project returns it to the default one
+  rather than leaving it with no environment, and moving an app between
+  projects moves its environment with it. Hosting an app accepts `project_id`
+  and `environment`, and the portal is given each project's Git webhook URL and
+  a way to roll its signing secret.
+
 ### Added
 
 - **Customers create a project in two steps.** The form asked only for a name

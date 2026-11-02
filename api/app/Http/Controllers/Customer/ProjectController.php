@@ -29,6 +29,10 @@ class ProjectController extends Controller
         return [
             'id' => $p->id, 'name' => $p->name, 'description' => $p->description, 'color' => $p->color ?? 'blue',
             'purpose' => $p->purpose,
+            'is_default' => (bool) $p->is_default,
+            // What the customer points their Git provider at; the secret that
+            // signs it is revealed only by the rotate endpoint.
+            'webhook_url' => url("/api/v1/hooks/git/{$p->id}"),
             'apps' => $apps->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'status' => $a->status])->values(),
             'counts' => [
                 'apps' => $apps->count(),
@@ -107,10 +111,22 @@ class ProjectController extends Controller
     public function destroy(string $id)
     {
         $p = Project::findOrFail($id);
+        if ($p->is_default) {
+            throw ApiException::conflict('This is where apps go when they are not in a project of their own, so it cannot be deleted.');
+        }
         Application::where('project_id', $p->id)->update(['project_id' => null]);
         $p->delete();
 
         return response()->noContent();
+    }
+
+    /** Reveals a new signing secret for the project's Git webhook; the old one stops working at once. */
+    public function rotateSecret(string $id)
+    {
+        $p = Project::findOrFail($id);
+        $p->update(['webhook_secret' => Str::random(40)]);
+
+        return $this->data(['webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'webhook_secret' => $p->webhook_secret]);
     }
 
     /** Move one of the customer's apps into this project (or out, with project_id null on the app route). */
@@ -119,7 +135,10 @@ class ProjectController extends Controller
         $p = Project::findOrFail($id);
         $v = $request->validate(['app_id' => 'required|uuid']);
         $app = Application::where('kind', 'customer')->findOrFail($v['app_id']);
-        $app->update(['project_id' => $p->id]);
+        // The environment moves with the app: an app in one project pointing at
+        // another project's environment would break push-deploys and discovery.
+        $env = app(\App\Services\EnvironmentService::class)->environmentFor($p->id, $app->environment);
+        $app->update(['project_id' => $p->id, 'environment_id' => $env->id, 'environment' => $env->kind]);
 
         return $this->data($this->present($p->fresh()));
     }
@@ -127,7 +146,11 @@ class ProjectController extends Controller
     public function unassign(string $id, string $appId)
     {
         $p = Project::findOrFail($id);
-        Application::where('kind', 'customer')->where('project_id', $p->id)->findOrFail($appId)->update(['project_id' => null]);
+        $app = Application::where('kind', 'customer')->where('project_id', $p->id)->findOrFail($appId);
+        // Not orphaned: an app with no environment loses push-deploys, service
+        // discovery and promotion, so it goes back to the default project.
+        $env = app(\App\Services\EnvironmentService::class)->environmentFor(null, $app->environment);
+        $app->update(['project_id' => $env->project_id, 'environment_id' => $env->id, 'environment' => $env->kind]);
 
         return $this->data($this->present($p->fresh()));
     }

@@ -563,6 +563,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::patch('projects/{id}', [Customer\ProjectController::class, 'update'])->name('projects.update');
             Route::get('projects/{id}/canvas', [Customer\ProjectController::class, 'canvas'])->name('projects.canvas');
             Route::delete('projects/{id}', [Customer\ProjectController::class, 'destroy'])->name('projects.destroy');
+            Route::post('projects/{id}/webhook-secret', [Customer\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
             Route::post('projects/{id}/apps', [Customer\ProjectController::class, 'assign'])->name('projects.apps.assign');
             Route::delete('projects/{id}/apps/{appId}', [Customer\ProjectController::class, 'unassign'])->name('projects.apps.unassign');
             // UCRON: scheduled jobs in the customer's apps or calling a URL.
