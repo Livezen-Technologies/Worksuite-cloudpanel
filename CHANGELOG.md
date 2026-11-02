@@ -9,6 +9,23 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+### Added
+
+- **An account menu of its own for the customer portal.** The menu was shared
+  with the admin panel, so a customer's "Account" pointed at `/admin/account`,
+  a page they cannot open. In the portal it is now **My Account** (`/app/account`),
+  a **Theme** list offering Light, Dark and System rather than the header's
+  two-state toggle, an **Organization** list of every organisation they belong
+  to, and **Create an Organization**. The admin panel's menu is unchanged.
+- **Anyone can create an organisation for themselves** — `POST /organizations`
+  creates it with the caller as owner, and `POST /me/organization` acts as
+  another one they belong to. Both move the access token as well as the user's
+  `current_organization_id`, because tenancy reads the token first; a support
+  session is refused both.
+- **Theme can follow the operating system.** The stored preference is now
+  `light`, `dark` or `system`, and `system` keeps following the OS while the
+  page is open instead of only at load.
+
 ### Fixed
 
 - **An application you cannot see no longer loads for ever.** `AppManage` showed

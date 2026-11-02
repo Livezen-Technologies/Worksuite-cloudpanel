@@ -6,7 +6,9 @@ export interface Job { id: string; type: string; status: JobStatus; progress: nu
 export interface Accepted { job_id: string; [k: string]: unknown }
 
 export interface User { id: string; name: string; email: string; mfa_enabled?: boolean; [k: string]: unknown }
-export interface Me { user: User; organization: { id: string; name: string; [k: string]: unknown }; role: string; permissions: string[] }
+export interface Me { user: User; organization: { id: string; name: string; [k: string]: unknown }; role: string; permissions: string[];
+  /** Every organisation this person is a member of, for the account menu's switcher. */
+  organizations?: { id: string; name: string | null; role: string }[] }
 
 export type ServerStatus = 'pending' | 'online' | 'warning' | 'maintenance' | 'offline'
 /** One mounted local filesystem. disk_gb/disk_pct describe the root one only. */

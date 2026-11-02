@@ -56,6 +56,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('me/sessions', [\App\Http\Controllers\MeController::class, 'sessions'])->name('me.sessions');
     Route::delete('me/sessions', [\App\Http\Controllers\MeController::class, 'endSession'])->name('me.sessions.end-others');
     Route::delete('me/sessions/{id}', [\App\Http\Controllers\MeController::class, 'endSession'])->name('me.sessions.end');
+    // Self-service organisations, from the customer portal's account menu.
+    Route::post('organizations', [\App\Http\Controllers\OrganizationController::class, 'store'])->middleware('throttle:5,10')->name('organizations.store');
+    Route::post('me/organization', [\App\Http\Controllers\OrganizationController::class, 'switch'])->name('me.organization');
     Route::post('me/verify-email', [\App\Http\Controllers\AccountRecoveryController::class, 'resend'])->middleware('throttle:3,10')->name('me.verify-email');
     Route::match(['get', 'patch'], 'me/email-preferences', [Admin\EmailTemplateController::class, 'preferences'])->name('me.email-preferences');
     Route::post('me/mfa/enable', [AuthController::class, 'mfaEnable'])->name('me.mfa-enable');
