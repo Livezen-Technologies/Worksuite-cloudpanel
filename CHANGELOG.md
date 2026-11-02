@@ -9,6 +9,28 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+### Added
+
+- **Every environment now has its own private network.** Services in one
+  project's environment could reach services in every other customer's
+  environment: all containers shared the `proxy` network and resolved each
+  other by name. Each environment now gets a Docker bridge network of its own
+  (`wscp-env-<id>`, labelled with the project and environment), created on the
+  server the environment's first application is placed on, and containers join
+  it alongside `proxy` with their service name as a network alias — so
+  `${{service.HOST}}` resolves over a network only that environment is on.
+
+  This step is deliberately additive: nothing is removed from `proxy`, so
+  routing is unchanged and no existing deployment can lose traffic. A container
+  joins its environment network only once the network is reported `active` by
+  the agent, so a deploy never waits on, or fails because of, network creation.
+  `networks:reconcile` (every fifteen minutes) creates any network that is
+  missing and re-dispatches ones stuck in `creating`.
+
+  Dropping `proxy` for service-to-service traffic — attaching Traefik to the
+  environment networks and moving databases off the shared `internal`
+  network — is the next step and is not part of this change.
+
 ### Fixed
 
 - **Customer applications now belong to a project and an environment.** They
