@@ -11,6 +11,18 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- **An application you cannot see no longer loads for ever.** `AppManage` showed
+  its loading skeleton whenever it had no row, which included "the request
+  finished and failed", so a 404 looked like a page that never loaded. It now
+  shows the skeleton only while the request is in flight, and names the cause.
+  A 404 is reported as what it almost always is — the application belongs to an
+  organisation other than the selected one, since tenancy follows the
+  organisation picker and there is no cross-organisation route for a single
+  application — and any other failure shows the server's own message.
+
+
+### Fixed
+
 - **Every branded page answered HTTP 200** (PUB-1, PUB-3). The generated nginx
   config wrote `error_page 403 = @suspended`; the `=` hands the status to the
   named location, and `try_files` serving a file there makes it a 200. So a
