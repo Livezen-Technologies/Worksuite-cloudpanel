@@ -25,7 +25,10 @@ Dates are the dates the work landed on `main`.
   joins its environment network only once the network is reported `active` by
   the agent, so a deploy never waits on, or fails because of, network creation.
   `networks:reconcile` (every fifteen minutes) creates any network that is
-  missing and re-dispatches ones stuck in `creating`.
+  missing and re-dispatches ones stuck in `creating`. It resolves the server
+  outside the tenant scope, because a server can belong to one organisation
+  and host another's apps, and it reports anything it could not resolve
+  instead of skipping it in silence.
 
   Dropping `proxy` for service-to-service traffic — attaching Traefik to the
   environment networks and moving databases off the shared `internal`
