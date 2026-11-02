@@ -33,14 +33,29 @@ class NetworkService
         if ($network) {
             return $network;
         }
-        $network = Network::create([
+        $attributes = [
             // Explicit, for the same reason: with no tenant set the global scope
             // would leave organization_id null and the row would belong to no one.
             'organization_id' => $environment->organization_id,
             'server_id' => $server->id, 'project_id' => $environment->project_id, 'environment_id' => $environment->id,
             'name' => self::environmentNetworkName($environment), 'driver' => 'bridge',
             'internal' => false, 'exposure' => 'private', 'status' => 'creating',
-        ]);
+        ];
+        try {
+            $network = Network::create($attributes);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+            // Two callers can reach this at once -- a deploy and the reconcile
+            // both resolve the same (environment, server) pair, and
+            // withoutOverlapping does not help because they are different
+            // processes. This happened on the live panel: the scheduled
+            // reconcile died on networks_server_id_name_unique while a manual
+            // run was creating the same row. Losing the race is not an error,
+            // so the winner's row is returned and nothing is dispatched twice.
+            // Recovered by the key that actually collided, (server_id, name),
+            // which is therefore guaranteed to be there -- the pair lookup
+            // could miss again if the winner has not finished writing.
+            return Network::allTenants()->where('server_id', $server->id)->where('name', $attributes['name'])->firstOrFail();
+        }
         $job = app(JobService::class)->create('network.create', ['execute'], $network);
         app(CommandBus::class)->dispatch($server, 'network.create', [
             'name' => $network->name, 'driver' => 'bridge', 'attachable' => true,

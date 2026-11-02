@@ -288,4 +288,34 @@ class EnvironmentNetworkTest extends TestCase
         $made = $envs->map(fn ($e) => $service->forEnvironment($e, $server)->name);
         $this->assertCount(3, $made->unique());
     }
+
+    public function test_losing_the_race_to_create_the_network_returns_the_winners_row(): void
+    {
+        // A deploy and the reconcile are different processes resolving the same
+        // (environment, server) pair, so withoutOverlapping does not help. On
+        // the live panel the scheduled reconcile died on
+        // networks_server_id_name_unique at 11:30:07 while a manual run was
+        // creating the same row. Losing that race must not be an error.
+        [, $org, $token] = $this->org();
+        $server = Server::allTenants()->find($this->server($org, ['region' => 'eu-central', 'ram_mb' => 32768, 'ram_pct' => 10])->id);
+        $environment = \App\Models\Environment::allTenants()->create([
+            'organization_id' => $org->id, 'name' => 'Production', 'slug' => 'production', 'kind' => 'production',
+        ]);
+        $name = NetworkService::environmentNetworkName($environment);
+
+        // The winner's row as the other process left it: the right name on the
+        // right server, but not yet visible to a lookup by environment.
+        $winnerId = (string) \Illuminate\Support\Str::uuid7();
+        \Illuminate\Support\Facades\DB::table('networks')->insert([
+            'id' => $winnerId, 'organization_id' => $org->id, 'server_id' => $server->id,
+            'name' => $name, 'driver' => 'bridge', 'internal' => false, 'exposure' => 'private',
+            'status' => 'creating', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $found = app(NetworkService::class)->forEnvironment($environment, $server);
+
+        $this->assertSame($winnerId, $found->id, "the winner's row, not an exception");
+        $this->assertSame(1, Network::allTenants()->where('server_id', $server->id)->where('name', $name)->count(),
+            'and no second row for the same network');
+    }
 }

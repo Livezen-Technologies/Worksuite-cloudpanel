@@ -49,6 +49,13 @@ Dates are the dates the work landed on `main`.
   same millisecond, as duplicating one does, produced an identical name and
   collided. The full id is used now.
 
+- **Two processes could race to create the same environment network.** A deploy
+  and `networks:reconcile` resolve the same (environment, server) pair from
+  different processes, which `withoutOverlapping` cannot prevent; on the live
+  panel the scheduled reconcile died on `networks_server_id_name_unique` at
+  11:30:07 on 2026-11-02 while a manual run was creating the same row. Losing
+  the race now returns the winner's row, recovered by the key that collided.
+
 ### Added
 
 - **Every environment now has its own private network.** Services in one
