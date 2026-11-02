@@ -7,6 +7,7 @@ import {
   EyeIcon, PencilSquareIcon, TrashIcon, ArrowDownTrayIcon, EllipsisHorizontalIcon, FunnelIcon, ViewColumnsIcon,
   AdjustmentsHorizontalIcon, ListBulletIcon, TableCellsIcon, BookmarkIcon, ArrowPathIcon, PlayIcon, StopIcon,
   ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ExclamationTriangleIcon, InboxIcon, PlusIcon, Bars2Icon,
+  CreditCardIcon, ChartBarIcon, BanknotesIcon, ReceiptRefundIcon, PauseIcon,
 } from '@heroicons/react/24/outline'
 import type { ComponentType, SVGProps } from 'react'
 
@@ -51,6 +52,11 @@ const ICONS: Record<string, IconComponent> = {
   clock: ClockIcon,
   users: UserGroupIcon,
   tag: TagIcon,
+  wallet: BanknotesIcon,
+  card: CreditCardIcon,
+  chart: ChartBarIcon,
+  refund: ReceiptRefundIcon,
+  pause: PauseIcon,
   gear: Cog6ToothIcon,
   user: UserCircleIcon,
   eye: EyeIcon,

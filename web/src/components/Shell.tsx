@@ -10,7 +10,9 @@ import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 import { api, errorMessage } from '../api/client'
 
-export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean }
+export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean
+  /** Overrides the NavLink match: a section whose pages do not all sit under `to` says so itself. */
+  active?: boolean }
 
 export interface NavItem { label: string; to: string; end?: boolean; icon?: string; group?: string; badge?: string | number }
 
@@ -58,10 +60,10 @@ function Rail({ items }: { items: RailItem[] }) {
     <nav aria-label="Areas" className="hidden lg:flex w-[92px] flex-none flex-col items-center gap-1.5 px-2 border-r border-line bg-side py-3 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
-          className={({ isActive }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
-          {({ isActive }) => (<>
+          className={({ isActive: m }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          {({ isActive: m }) => (<>
             <Icon name={r.icon} size={20} />
-            <span className={`w-full truncate text-center text-[11px] leading-tight ${isActive ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
+            <span className={`w-full truncate text-center text-[11px] leading-tight ${(r.active ?? m) ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
           )}
@@ -290,7 +292,7 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
           <nav aria-label="Areas" className="mb-5 grid grid-cols-3 gap-1.5 border-b border-line pb-5">
             {rail.map((r) => (
               <NavLink key={r.to} to={r.to} end={r.end} onClick={() => setMenu(false)}
-                className={({ isActive }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
+                className={({ isActive: m }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
                 <Icon name={r.icon} size={20} />
                 <span className="w-full truncate text-[11px] font-semibold">{r.label}</span>
               </NavLink>

@@ -307,6 +307,20 @@ Artisan::command('billing:invoice {--month= : YYYY-MM, default previous month} {
     $this->info('Invoices generated: '.$invoices->generateAll($month));
 })->purpose('Roll usage_records into monthly invoices with PDFs (UBIL-004)');
 
+Artisan::command('finance:demo {--force : run even though customers already exist}', function () {
+    // Demo rows mixed into real books are worse than no demo rows, so this
+    // stops unless the panel is empty or the operator insists.
+    $customers = \App\Models\Organization::count();
+    if ($customers > 1 && ! $this->option('force')) {
+        $this->error("This panel already has {$customers} organisations. Re-run with --force if you are sure.");
+
+        return 1;
+    }
+    $this->call('db:seed', ['--class' => \Database\Seeders\FinanceDemoSeeder::class, '--force' => true]);
+
+    return 0;
+})->purpose('Fill the finance screens with realistic demonstration data (FIN-11)');
+
 Artisan::command('proxy:push {--force}', function (\App\Services\TraefikConfigService $traefik) {
     $this->info('proxy.config commands queued: '.$traefik->push((bool) $this->option('force')));
 })->purpose('Push Traefik dynamic config to ingress servers (CERT_DRIVER=traefik)');
