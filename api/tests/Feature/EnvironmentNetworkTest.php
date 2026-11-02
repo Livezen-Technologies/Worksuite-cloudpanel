@@ -114,4 +114,30 @@ class EnvironmentNetworkTest extends TestCase
         $this->artisan('networks:reconcile')->assertExitCode(0);
         $this->assertSame(1, Network::allTenants()->whereNotNull('environment_id')->count());
     }
+
+    public function test_reconcile_creates_a_network_on_a_server_another_organisation_owns(): void
+    {
+        // livezen-panel-01 belongs to one organisation and hosts others' apps.
+        // The reconcile used to resolve the server inside the app's tenant, so
+        // find() returned null and the environment was skipped without a word.
+        [, $tenant, $token] = $this->org();
+        $this->server($tenant, ['region' => 'eu-central', 'ram_mb' => 32768, 'ram_pct' => 10]);
+        $app = $this->hosted($token, $tenant);
+
+        // Placement only ever picks a server in the app's own organisation, so
+        // the shared-server state has to be built the way production got it:
+        // the app was moved onto a server another organisation owns.
+        [, $owner] = $this->org();
+        $foreign = $this->server($owner, ['region' => 'eu-central', 'ram_mb' => 32768, 'ram_pct' => 10]);
+        Application::allTenants()->where('id', $app->id)->update(['server_id' => $foreign->id]);
+        $server = $foreign;
+
+        Network::allTenants()->whereNotNull('environment_id')->delete();
+        $this->artisan('networks:reconcile')->expectsOutput('Environment networks requested: 1')->assertExitCode(0);
+
+        $network = Network::allTenants()->where('environment_id', $app->environment_id)->first();
+        $this->assertNotNull($network, 'the environment got its network');
+        $this->assertSame($server->id, $network->server_id);
+        $this->assertSame($tenant->id, $network->organization_id, 'owned by the app\'s organisation, not the server\'s');
+    }
 }

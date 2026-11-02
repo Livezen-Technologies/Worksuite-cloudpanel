@@ -192,19 +192,33 @@ Artisan::command('networks:reconcile', function (\App\Services\NetworkService $n
     // network that already exists, so without this the first deployment after
     // a change would have to go without one.
     $made = 0;
+    $skipped = [];
     $apps = \App\Models\Application::allTenants()->whereNotNull('environment_id')->whereNotNull('server_id')
         ->whereNull('deleted_at')->get(['organization_id', 'environment_id', 'server_id']);
-    foreach ($apps->groupBy(fn ($a) => $a->environment_id.'|'.$a->server_id) as $pair) {
+    foreach ($apps->groupBy(fn ($a) => $a->environment_id.'|'.$a->server_id) as $key => $pair) {
         $app = $pair->first();
-        app(Tenant::class)->as($app->organization_id, function () use ($app, $networks, &$made) {
+        app(Tenant::class)->as($app->organization_id, function () use ($app, $key, $networks, &$made, &$skipped) {
             $environment = \App\Models\Environment::find($app->environment_id);
-            $server = \App\Models\Server::find($app->server_id);
-            if ($environment && $server && $networks->forEnvironment($environment, $server)->wasRecentlyCreated) {
+            // A server can belong to one organisation and host another's apps,
+            // so it must be resolved outside the tenant scope: the scoped
+            // lookup returned null and skipped those environments in silence.
+            $server = \App\Models\Server::allTenants()->find($app->server_id);
+            if (! $environment || ! $server) {
+                $skipped[] = $key;
+
+                return;
+            }
+            if ($networks->forEnvironment($environment, $server)->wasRecentlyCreated) {
                 $made++;
             }
         });
     }
     $this->info("Environment networks requested: {$made}");
+    if ($skipped) {
+        // Never silent: an environment or server that cannot be resolved means
+        // an environment stays without a network, and nothing else would say so.
+        $this->warn('Could not resolve environment or server for: '.implode(', ', $skipped));
+    }
 })->purpose('Create the Docker network each environment needs on each of its servers');
 
 Artisan::command('certificates:renew', function (DomainService $domains) {
