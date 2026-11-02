@@ -33,6 +33,7 @@ var Types = map[string]bool{
 	"container.create": true, "vps.create": true, "container.logs": true, "container.prune": true,
 	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true, "mesh.apply": true, "mesh.status": true, "mesh.confirm": true, "tunnel.lockdown": true,
 	"network.create": true, "network.remove": true,
+	"network.connect": true, "network.disconnect": true,
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,
 	"backup.run": true, "restore.run": true, "backup.test": true, "backup.export": true, "backup.probe": true,

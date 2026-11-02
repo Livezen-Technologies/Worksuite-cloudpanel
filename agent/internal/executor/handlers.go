@@ -209,6 +209,54 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return d.PruneImages(ctx, pruneFilters(p.Until, p.Labels, map[string][]string{"dangling": {dangling}}))
 	case "network.create":
 		return e.createNetwork(ctx, c.Payload)
+	case "network.connect":
+		var p struct {
+			Network   string   `json:"network"`
+			Container string   `json:"container"`
+			Aliases   []string `json:"aliases"`
+			IPv4      string   `json:"ipv4_address"`
+		}
+		if err := decode(c.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := checkRef("network", p.Network); err != nil {
+			return nil, err
+		}
+		if err := checkRef("container", p.Container); err != nil {
+			return nil, err
+		}
+		// Attaching a container that is already attached is how the panel keeps
+		// the ingress on every environment network, so "already exists" is the
+		// expected answer on every run after the first, not a failure.
+		if err := d.ConnectNetwork(ctx, p.Network, p.Container, p.Aliases, p.IPv4); err != nil && !isAlreadyAttached(err) {
+			return nil, err
+		}
+		return map[string]any{"network": p.Network, "container": p.Container, "attached": true}, nil
+	case "network.disconnect":
+		var p struct {
+			Network   string `json:"network"`
+			Container string `json:"container"`
+			Force     bool   `json:"force"`
+		}
+		if err := decode(c.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := checkRef("network", p.Network); err != nil {
+			return nil, err
+		}
+		if err := checkRef("container", p.Container); err != nil {
+			return nil, err
+		}
+		// Taking a container off `proxy` is how it loses public reachability, so
+		// the built-in networks are refused here the way network.remove refuses
+		// to delete them: a typo must not be able to black-hole the ingress.
+		if p.Network == "bridge" || p.Network == "host" || p.Network == "none" {
+			return nil, fmt.Errorf("refusing to detach from built-in network %s", p.Network)
+		}
+		if err := d.DisconnectNetwork(ctx, p.Network, p.Container, p.Force); err != nil {
+			return nil, err
+		}
+		return map[string]any{"network": p.Network, "container": p.Container, "attached": false}, nil
 	case "network.remove":
 		var p struct {
 			NetworkID string `json:"network_id"`
@@ -366,6 +414,16 @@ func managedLabels(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// isAlreadyAttached reports whether Docker refused a connect because the
+// container is on that network already, which is not an error for us.
+func isAlreadyAttached(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists in network") || strings.Contains(msg, "already attached")
 }
 
 func (e *Executor) createNetwork(ctx context.Context, raw []byte) (any, error) {

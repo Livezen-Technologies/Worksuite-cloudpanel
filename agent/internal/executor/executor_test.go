@@ -259,6 +259,8 @@ func TestOtherDockerCommands(t *testing.T) {
 		{"image.prune", `{}`, "POST /images/prune"},
 		{"network.create", `{"name":"proxy"}`, "POST /networks/create"},
 		{"network.remove", `{"network_id":"proxy"}`, "DELETE /networks/proxy"},
+		{"network.connect", `{"network":"wscp-env-abc","container":"host-traefik-1"}`, "POST /networks/wscp-env-abc/connect"},
+		{"network.disconnect", `{"network":"wscp-env-abc","container":"app-foo"}`, "POST /networks/wscp-env-abc/disconnect"},
 		{"volume.create", `{"name":"data"}`, "POST /volumes/create"},
 		{"volume.remove", `{"name":"data"}`, "DELETE /volumes/data"},
 	}

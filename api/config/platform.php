@@ -97,6 +97,11 @@ return [
         // resolve at all.
         'pages_url' => env('TRAEFIK_PAGES_URL', 'http://ws-pages:8080'),
         'network' => env('TRAEFIK_NETWORK', 'proxy'),
+        // PRJ-NET: Traefik reaches a container by Docker DNS over a shared
+        // network (this ingress has no docker provider), so it has to join
+        // every environment network before any container can stop sharing
+        // `proxy`. Empty disables the attach entirely.
+        'container' => env('TRAEFIK_CONTAINER', 'host-traefik-1'),
         'file_name' => 'dmp-domains.yml',
     ],
 

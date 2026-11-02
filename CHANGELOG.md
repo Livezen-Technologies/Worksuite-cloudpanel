@@ -11,6 +11,46 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **The ingress can now reach a container over its environment network**, which
+  is what has to be true before anything can stop sharing `proxy`. This ingress
+  runs with no Docker provider: routers come from the file provider and name the
+  container (`http://app-foo:80`), so Traefik can only reach a container over a
+  Docker network it shares with it. Traefik is therefore attached to each
+  environment network as soon as that network exists.
+
+  - New agent commands `network.connect` and `network.disconnect` (agent
+    **1.2.5**), wrapping Docker's network attach and detach. A connect that
+    finds the container already attached is success, so re-running is free;
+    disconnect refuses the built-in networks the way `network.remove` does.
+  - The attach is dispatched when a network goes active and recorded on
+    `networks.ingress_attached_at`, so the reconcile repairs a missing one
+    without re-queueing a command every fifteen minutes for ever.
+  - Servers whose agent predates 1.2.5 are skipped rather than sent a command
+    that cannot succeed, so the panel is safe to deploy before the fleet is
+    updated; each server attaches by itself on the first reconcile after its
+    agent reports a new enough version.
+
+  Nothing is removed from `proxy` by this change, so no routing is altered.
+
+### Fixed
+
+- **An environment network could be created twice and break the deploy that hit
+  it.** The existence check in `forEnvironment` was tenant-scoped, but a deploy
+  driven by an agent command result runs with no tenant set: the lookup found
+  nothing, created the network a second time and failed the
+  `(server_id, name)` unique index as a 500 from inside the deployment
+  pipeline. One environment on one server is one network globally, so the pair
+  is now looked up unscoped, and `organization_id` is set explicitly rather
+  than left to a scope that may not be active.
+
+- **Two environments could be given the same network name.** The name used the
+  first twelve hex characters of the environment's UUIDv7, which are exactly
+  its 48-bit millisecond timestamp -- so any two environments created in the
+  same millisecond, as duplicating one does, produced an identical name and
+  collided. The full id is used now.
+
+### Added
+
 - **Every environment now has its own private network.** Services in one
   project's environment could reach services in every other customer's
   environment: all containers shared the `proxy` network and resolved each

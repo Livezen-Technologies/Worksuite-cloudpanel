@@ -24,7 +24,7 @@ class CommandBus
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
         'container.remove', 'container.create', 'container.logs', 'container.prune', 'vps.create',
-        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove',
+        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove', 'network.connect', 'network.disconnect',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'proxy.scan', 'proxy.retire', 'proxy.restore', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
@@ -216,12 +216,32 @@ class CommandBus
             'container.create' => Container::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'] ?? '')->whereNull('docker_id')
                 ->update(['docker_id' => $command->output['container_id'] ?? null, 'state' => ($p['start'] ?? true) ? 'running' : 'created', 'started_at' => now()]),
             'vps.create' => app(\App\Services\VpsService::class)->created($command, true),
-            'network.create' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]),
+            'network.create' => $this->networkCreated($command, $p),
+            'network.connect' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['network'] ?? '')
+                ->update(['ingress_attached_at' => now()]),
+            'network.disconnect' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['network'] ?? '')
+                ->update(['ingress_attached_at' => null]),
             'network.remove' => Network::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('name', $p['name'] ?? null)->orWhere('docker_id', $p['network_id'] ?? null))->delete(),
             'volume.create' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active']),
             'volume.remove' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->delete(),
             'image.remove' => Image::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('docker_id', $p['image'])->orWhere('repository', $p['image']))->delete(),
             default => null,
         };
+    }
+
+    /**
+     * A network has been created on a server. An environment's own network is
+     * only useful once the ingress can reach over it, so Traefik is attached
+     * as soon as the network exists -- before any container relies on it.
+     */
+    private function networkCreated(AgentCommand $command, array $p): void
+    {
+        Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])
+            ->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]);
+
+        $network = Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->first();
+        if ($network && $network->environment_id) {
+            app(\App\Services\NetworkService::class)->attachIngress($network);
+        }
     }
 }

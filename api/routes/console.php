@@ -213,7 +213,16 @@ Artisan::command('networks:reconcile', function (\App\Services\NetworkService $n
             }
         });
     }
-    $this->info("Environment networks requested: {$made}");
+    // Networks that already exist still need the ingress on them: the three on
+    // the live panel were created before the attach existed, and an attach that
+    // failed once must be retried rather than waiting for a new network.
+    $attached = 0;
+    foreach (\App\Models\Network::allTenants()->whereNotNull('environment_id')->where('status', 'active')->get() as $network) {
+        app(Tenant::class)->as($network->organization_id, function () use ($network, $networks, &$attached) {
+            $attached += $networks->attachIngress($network);
+        });
+    }
+    $this->info("Environment networks requested: {$made}; ingress attachments dispatched: {$attached}");
     if ($skipped) {
         // Never silent: an environment or server that cannot be resolved means
         // an environment stays without a network, and nothing else would say so.
