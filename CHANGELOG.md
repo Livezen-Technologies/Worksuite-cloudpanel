@@ -35,6 +35,33 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Panel assets are cached correctly** — nginx sent no `Cache-Control` for
+  the SPA, so browsers cached `index.html` heuristically and a deploy looked
+  like it had not landed until someone hard-reloaded. The shell is now
+  `no-cache` and the content-hashed `/assets/` files are `immutable`.
+  `docs/deploy/nginx-agent-mtls.conf` carries the same blocks, with a note
+  that `add_header` in a location replaces the server block's headers.
+
+- **Per-mount disk reporting** — `disk_gb` and `disk_pct` describe the root
+  filesystem only, so a server whose data sits on a second array was reported
+  as though that array did not exist: a node with two 1.8 TB RAID1 arrays
+  showed 498 GB free instead of 2.2 TB.
+  - The agent now sends every mounted local filesystem on each heartbeat
+    (`stats.disks`: mount, device, fstype, size and used in MB, used %), read from
+    `/proc/mounts` and `statfs(2)`. Pseudo, RAM-backed and read-only image
+    filesystems are skipped, Docker's own mounts are left out, and a device is
+    reported once however many places it is mounted, so a bind mount never
+    counts an array twice. The list is sorted largest first and capped at 32.
+  - Stored on `servers.disks`, shaped and bounded on the way in. `disk_pct`
+    keeps its meaning as the root figure the status thresholds are written
+    against, so no server changes status because of this.
+  - Sizes are carried in megabytes and rendered in the largest sensible unit,
+    so a 1.8 TB array does not read as `1874560 MB` and a 988 MB `/boot` does
+    not read as `0 GB`.
+  - The server page gains a **Filesystems** table under Storage, and the Disk
+    tile names the total alongside the root figure once a host has more than
+    one filesystem.
+
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
   - `firewall_rules`, `firewall_countries`, `firewall_protected_paths` and

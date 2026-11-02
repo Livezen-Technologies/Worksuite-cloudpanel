@@ -73,6 +73,53 @@ class AgentProtocolTest extends TestCase
         $this->assertSame('offline', Server::allTenants()->find($server->id)->status);
     }
 
+    /**
+     * disk_gb/disk_pct are the root filesystem's. A server whose data sits on a
+     * second array was therefore reported as if that array did not exist - one
+     * node with 2.2 TB of storage showed 498 GB. The heartbeat now carries
+     * every mount, and the list is shaped and bounded on the way in.
+     */
+    public function test_heartbeat_stores_every_mounted_filesystem(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+
+        $this->heartbeat($secret, ['stats' => [
+            'cpu_pct' => 1, 'ram_pct' => 2, 'disk_pct' => 71.4,
+            'disks' => [
+                ['mount' => '/', 'device' => '/dev/md3', 'fstype' => 'ext4', 'size_mb' => 1874560, 'used_mb' => 1331200, 'used_pct' => 71.4],
+                ['mount' => '/var/www/downmgr/writable/storage', 'device' => '/dev/md10', 'fstype' => 'ext4', 'size_mb' => 1874560, 'used_mb' => 12288, 'used_pct' => 1],
+                ['mount' => '/boot', 'device' => '/dev/md2', 'fstype' => 'ext4', 'size_mb' => 988, 'used_mb' => 223, 'used_pct' => 24.2],
+            ],
+        ]]);
+
+        $fresh = Server::allTenants()->find($server->id);
+        $this->assertSame(71.4, (float) $fresh->disk_pct, 'the root figure keeps its meaning for the status thresholds');
+        $this->assertCount(3, $fresh->disks);
+        $this->assertSame(
+            ['/dev/md3', '/dev/md10', '/dev/md2'],
+            array_column($fresh->disks, 'device'),
+            'every filesystem is kept, in the order the agent reported them'
+        );
+        $this->assertSame(3750108, array_sum(array_column($fresh->disks, 'size_mb')), 'the real capacity of the host');
+        // Megabytes, so a sub-gigabyte /boot is not stored as zero.
+        $this->assertSame(988, $fresh->disks[2]['size_mb']);
+
+        // A junk row is dropped, a wild percentage clamped, and an empty list
+        // stored as null rather than as an empty array.
+        $this->heartbeat($secret, ['stats' => ['disk_pct' => 10, 'disks' => [
+            ['device' => '/dev/sdz'],                                   // no mount
+            ['mount' => '/data', 'used_pct' => 9999, 'size_mb' => '12'],
+        ]]]);
+        $fresh = Server::allTenants()->find($server->id);
+        // json_encode drops the zero fraction, so a clamped 100 comes back as an int.
+        $this->assertSame([['mount' => '/data', 'device' => null, 'fstype' => null, 'size_mb' => 12, 'used_mb' => 0, 'used_pct' => 100]], $fresh->disks);
+
+        $this->heartbeat($secret, ['stats' => ['disk_pct' => 10, 'disks' => []]]);
+        $this->assertNull(Server::allTenants()->find($server->id)->disks, 'an empty list is absent, not an empty array');
+    }
+
     public function test_heartbeat_keeps_old_container_and_new_placeholder_apart_during_recreate(): void
     {
         [, $org, $token] = $this->org();
