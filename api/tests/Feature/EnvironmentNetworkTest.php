@@ -42,7 +42,7 @@ class EnvironmentNetworkTest extends TestCase
         $this->assertSame($env->project_id, $network->project_id);
         $this->assertStringStartsWith('wscp-env-', $network->name);
 
-        $command = AgentCommand::where('server_id', $server->id)->where('name', 'network.create')->latest()->first();
+        $command = AgentCommand::where('server_id', $server->id)->where('type', 'network.create')->latest()->first();
         $this->assertNotNull($command);
         $this->assertSame($network->name, $command->payload['name']);
         $this->assertTrue($command->payload['attachable']);
@@ -51,7 +51,7 @@ class EnvironmentNetworkTest extends TestCase
         // Asking twice does not make a second network or a second command.
         app(NetworkService::class)->forEnvironment($env, $server);
         $this->assertSame(1, Network::allTenants()->where('environment_id', $env->id)->count());
-        $this->assertSame(1, AgentCommand::where('server_id', $server->id)->where('name', 'network.create')->count());
+        $this->assertSame(1, AgentCommand::where('server_id', $server->id)->where('type', 'network.create')->count());
     }
 
     public function test_a_container_joins_the_environment_network_only_once_it_exists(): void
@@ -60,7 +60,7 @@ class EnvironmentNetworkTest extends TestCase
         $server = $this->server($org, ['region' => 'eu-central', 'ram_mb' => 32768, 'ram_pct' => 10]);
         $app = $this->hosted($token, $org);
 
-        $create = AgentCommand::where('server_id', $server->id)->where('name', 'container.create')->latest()->first();
+        $create = AgentCommand::where('server_id', $server->id)->where('type', 'container.create')->latest()->first();
         $this->assertNotNull($create, 'the app was deployed');
         $names = array_column($create->payload['networks'] ?? [], 'name');
         $this->assertContains('proxy', $names, 'proxy is never given up: Traefik routes over it');
@@ -72,7 +72,7 @@ class EnvironmentNetworkTest extends TestCase
         Network::allTenants()->where('environment_id', $app->environment_id)->update(['status' => 'active']);
         $this->api($token)->postJson("/api/v1/app/apps/{$app->id}/redeploy")->assertStatus(202);
 
-        $create = AgentCommand::where('server_id', $server->id)->where('name', 'container.create')->latest()->first();
+        $create = AgentCommand::where('server_id', $server->id)->where('type', 'container.create')->latest()->first();
         $nets = collect($create->payload['networks'] ?? [])->keyBy('name');
         $envName = NetworkService::environmentNetworkName(\App\Models\Environment::allTenants()->find($app->environment_id));
         $this->assertTrue($nets->has('proxy'), 'still on proxy');
