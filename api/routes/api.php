@@ -241,6 +241,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::delete('git/connections/{id}', [\App\Http\Controllers\GitSourceController::class, 'destroyConnection'])->middleware('perm:deploy')->name('git.connections.destroy');
     // UAI: the platform's AI set-up and activity across accounts (staff).
     Route::get('ai', [Admin\AiController::class, 'index'])->middleware('perm:settings.manage')->name('ai.admin');
+    // SWARM: Docker Swarm clusters across servers.
+    Route::get('swarm', [Admin\SwarmController::class, 'index'])->middleware('perm:servers.view|servers.manage')->name('swarm.index');
+    Route::post('swarm', [Admin\SwarmController::class, 'store'])->middleware('perm:servers.manage')->name('swarm.store');
+    Route::delete('swarm/{id}', [Admin\SwarmController::class, 'destroy'])->middleware('perm:servers.manage')->name('swarm.destroy');
+    Route::post('swarm/{id}/join', [Admin\SwarmController::class, 'join'])->middleware('perm:servers.manage')->name('swarm.join');
+    Route::post('swarm/{id}/leave', [Admin\SwarmController::class, 'leave'])->middleware('perm:servers.manage')->name('swarm.leave');
+    Route::post('swarm/{id}/refresh', [Admin\SwarmController::class, 'refresh'])->middleware('perm:servers.view|servers.manage')->name('swarm.refresh');
+    Route::post('swarm/{id}/nodes/{nodeId}', [Admin\SwarmController::class, 'node'])->where('nodeId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.node');
+    Route::post('swarm/{id}/services/{serviceId}/scale', [Admin\SwarmController::class, 'scale'])->where('serviceId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.scale');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');

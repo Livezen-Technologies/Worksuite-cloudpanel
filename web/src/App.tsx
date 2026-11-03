@@ -42,6 +42,7 @@ import UserAi from './pages/app/Ai'
 import UserVps from './pages/app/Vps'
 import GitSources from './pages/admin/GitSources'
 import AiAdmin from './pages/admin/AiAdmin'
+import Cluster from './pages/admin/Cluster'
 import OAuthConsent from './pages/auth/OAuthConsent'
 import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
@@ -109,6 +110,7 @@ export function AppRoutes() {
         <Route path="projects" element={<Projects />} />
         <Route path="git" element={<GitSources />} />
         <Route path="ai" element={<AiAdmin />} />
+        <Route path="cluster" element={<Cluster />} />
         <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="deployments/:id" element={<DeploymentProgress />} />

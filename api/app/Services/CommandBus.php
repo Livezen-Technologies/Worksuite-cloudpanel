@@ -24,6 +24,7 @@ class CommandBus
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
         'container.remove', 'container.create', 'container.logs', 'container.prune', 'vps.create',
+        'swarm.init', 'swarm.join', 'swarm.leave', 'swarm.inspect', 'swarm.node_update', 'swarm.service_scale',
         'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove', 'network.connect', 'network.disconnect',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'proxy.scan', 'proxy.retire', 'proxy.restore', 'agent.update', 'agent.restart',
@@ -192,6 +193,11 @@ class CommandBus
     /** Optimistic state updates; heartbeats reconcile the truth afterwards. */
     private function applySideEffects(AgentCommand $command): void
     {
+        if (str_starts_with($command->type, 'swarm.')) {
+            app(\App\Services\SwarmService::class)->result($command, $command->status === 'succeeded');
+
+            return;
+        }
         if ($command->status !== 'succeeded') {
             if ($command->type === 'vps.create') {
                 app(\App\Services\VpsService::class)->created($command, false);

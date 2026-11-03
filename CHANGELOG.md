@@ -9,6 +9,18 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-03
+
+### Added
+
+- **Docker Swarm cluster** — a Cluster page under Servers: create a swarm on a
+  manager server, join servers to it (over their private network address when
+  they have one), see nodes with their tasks and labels and services with
+  running/desired replicas, drain or reactivate a node, scale a service, and
+  remove nodes or the cluster. Everything runs through the agent on the
+  servers' own Docker Engine API (new `swarm.*` commands); join tokens are
+  stored encrypted and never returned by the API.
+
 ## [1.2.0] — 2026-11-03
 
 ### Added

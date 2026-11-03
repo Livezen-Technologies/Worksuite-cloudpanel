@@ -147,6 +147,8 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.createContainer(ctx, c.Payload, progress)
 	case "vps.create":
 		return e.createVPS(ctx, c.Payload, progress)
+	case "swarm.init", "swarm.join", "swarm.leave", "swarm.inspect", "swarm.node_update", "swarm.service_scale":
+		return e.swarm(ctx, c.Type, c.Payload)
 	case "container.prune":
 		var p struct {
 			Until  string            `json:"until"`
