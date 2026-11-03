@@ -11,6 +11,35 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Customers**, an eighth admin section between Finance and Settings, holding
+  the customer directory, companies, contacts and customer groups. Hosting's
+  "Hosting Customers" item moves here, the way Packages moved to Finance.
+
+  - **Account status is a column, not a key in a JSON blob.** `suspend` and
+    `close` wrote `organizations.settings`, which no index can reach, so the
+    directory could not filter by it and the dashboard could not count it. It
+    is now `organizations.status`, backfilled from the existing JSON and from
+    suspended subscriptions, with the JSON keeping the suspension reason.
+    `organizations` also gains a customer type, account manager, onboarding
+    status, registration, last-activity and archive stamps; `users` gain phone,
+    country, locale, timezone and notification preferences.
+  - **A company is the account's billing profile**, extended with industry,
+    website and registration number -- not a second record that could disagree
+    with the one Finance addresses invoices to. New `contacts` holds the
+    billing, technical and abuse people who have no login, with one primary
+    contact per account enforced on write.
+  - **Customer groups** with the twelve defaults, seeded once and undeletable
+    thereafter; a customer may be in many, and where two carry a discount the
+    largest applies. Rule-driven membership arrives with the next phase, and a
+    manual edit already leaves rule-sourced rows alone.
+  - `customer_activities` is the customer's readable timeline, kept separate
+    from the tamper-evident `audit_logs` chain so it can be pruned.
+  - New permission `customers.manage`, granted to Support; reading is open to
+    anyone who already manages users or billing, so Finance and support keep
+    the visibility they have.
+  - CSV export honours whatever the directory is filtered to, and the archive
+    is a separate view rather than a filter to remember.
+
 - **Finance & Billing**, a seventh admin section between Operations and
   Settings, gathering invoices, payments, refunds, subscriptions, packages,
   billing profiles, transactions, gateways, reports and finance settings behind
@@ -65,6 +94,15 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- **A customer's package and owner were hidden from the admin panel by the
+  reader's own tenant scope.** `Organization::subscription()` and
+  `memberships()` carried the organisation scope, so every customer but the
+  reader's own showed a blank package, subscription state and e-mail in any
+  cross-tenant list. Both relations are keyed by `organization_id` already, so
+  dropping the scope cannot widen what they return.
+- A new permission added to `config/rbac.php` was invisible until the reference
+  seeder ran again, because the matrix is read from `role_permissions`. The
+  seeder now runs from a migration, so a deploy does not need the extra step.
 - A tenant-scoped child row no longer disappears from an admin list: a
   payment's or refund's invoice is read without the reader's own organisation
   scope, so the panel showed `—` for every invoice belonging to another
