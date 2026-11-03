@@ -11,6 +11,37 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Finance & Billing**, a seventh admin section between Operations and
+  Settings, gathering invoices, payments, refunds, subscriptions, packages,
+  billing profiles, transactions, gateways, reports and finance settings behind
+  `billing.manage` (the `billing` role reads everything and writes, `developer`
+  sees none of it).
+
+  - New tables: `payments` (one row per collection attempt, with a unique
+    `(gateway, gateway_reference)` so a webhook replay cannot bank the same
+    money twice), `refund_requests` (request, decision and gateway outcome kept
+    apart, so a refund that the gateway rejects parks as `failed` with its
+    reason instead of writing a credit note), and `billing_profiles` (who an
+    invoice is addressed to, the tax identity and an account balance).
+    `subscriptions` gains a billing cycle, discount, trial end, cancellation and
+    expiry dates, auto-renew, and a booked next-renewal package change.
+  - `FinanceService` holds the money rules in one place: what an invoice still
+    owes, what is left to refund once open requests are counted, MRR and ARR
+    (a yearly subscription counts as a twelfth, after its discount), churn over
+    a window, and the proration for a mid-term package change.
+  - **Change package** quotes before it charges: the drawer shows the unused
+    credit on the current package, the new package's share of the remaining
+    days and the net to charge now, and can book the change for the next
+    renewal instead. Every change is written to the audit chain.
+  - Overview with fourteen figures over Today / 7 / 30 days / this month / this
+    year / a custom range, revenue and refund trends, and breakdowns by gateway
+    and package; reports with a CSV export.
+  - `php artisan finance:demo` seeds a panel worth judging the screens by:
+    100 customers, 6 packages, 150 subscriptions, 350 invoices (50 of them
+    overdue), 300 payments including part payments, failures and disputes, and
+    25 refunds across every state, over twelve months. It refuses to run on an
+    installation with more than one organisation unless forced.
+
 - **The ingress can now reach a container over its environment network**, which
   is what has to be true before anything can stop sharing `proxy`. This ingress
   runs with no Docker provider: routers come from the file provider and name the
@@ -33,6 +64,14 @@ Dates are the dates the work landed on `main`.
   Nothing is removed from `proxy` by this change, so no routing is altered.
 
 ### Fixed
+
+- A tenant-scoped child row no longer disappears from an admin list: a
+  payment's or refund's invoice is read without the reader's own organisation
+  scope, so the panel showed `—` for every invoice belonging to another
+  customer, and reconciling such a payment silently skipped settling it.
+- The area rail now follows the same longest-match rule as the section panel,
+  so a section whose first item is an exact-match route stays lit on its own
+  sub-pages.
 
 - **An environment network could be created twice and break the deploy that hit
   it.** The existence check in `forEnvironment` was tenant-scoped, but a deploy

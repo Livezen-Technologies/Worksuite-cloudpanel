@@ -49,6 +49,8 @@ import Catalog from './pages/admin/Catalog'
 import Projects from './pages/admin/Projects'
 import PrivateNetwork from './pages/admin/PrivateNetwork'
 import { Packages, Customers } from './pages/admin/Hosting'
+import { FinanceOverview, FinanceReports, FinanceSettings, FinanceGateways, FinanceProfiles } from './pages/admin/Finance'
+import { FinanceInvoices, FinancePayments, FinanceRefunds, FinanceSubscriptions, FinanceTransactions } from './pages/admin/FinanceLedger'
 import AppManage from './pages/admin/AppManage'
 
 export const queryClient = new QueryClient({
@@ -110,6 +112,16 @@ export function AppRoutes() {
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="deployments/:id" element={<DeploymentProgress />} />
         <Route path="packages" element={<Packages />} />
+        <Route path="finance" element={<FinanceOverview />} />
+        <Route path="finance/invoices" element={<FinanceInvoices />} />
+        <Route path="finance/payments" element={<FinancePayments />} />
+        <Route path="finance/refunds" element={<FinanceRefunds />} />
+        <Route path="finance/subscriptions" element={<FinanceSubscriptions />} />
+        <Route path="finance/billing-profiles" element={<FinanceProfiles />} />
+        <Route path="finance/transactions" element={<FinanceTransactions />} />
+        <Route path="finance/gateways" element={<FinanceGateways />} />
+        <Route path="finance/reports" element={<FinanceReports />} />
+        <Route path="finance/settings" element={<FinanceSettings />} />
         <Route path="customers" element={<Customers />} />
         <Route path="customers/:id" element={<CustomerProfile />} />
         <Route path="compose" element={<Compose />} />

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin;
+use App\Http\Controllers\Admin\Finance;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Customer;
 use App\Http\Controllers\HookController;
@@ -487,6 +488,61 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('customers/{id}/reactivate', [Admin\CustomerController::class, 'reactivate'])->middleware('perm:users.manage')->name('customers.reactivate');
     Route::post('customers/{id}/invoices/{invoiceId}/refund', [Admin\CustomerController::class, 'refund'])->middleware('perm:billing.manage')->name('customers.invoices.refund');
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
+
+    /*
+     * Finance (FIN-1..10). Reading is open to anyone who may see billing;
+     * anything that moves money, decides a refund or changes what a customer
+     * is on needs billing.manage.
+     */
+    Route::prefix('finance')->name('finance.')->group(function () {
+        $read = 'perm:billing.manage|billing';
+        $write = 'perm:billing.manage';
+
+        Route::get('overview', [Finance\OverviewController::class, 'show'])->middleware($read)->name('overview');
+        Route::get('reports', [Finance\ReportController::class, 'show'])->middleware($read)->name('reports');
+        Route::get('reports/summary', [Finance\ReportController::class, 'summary'])->middleware($read)->name('reports.summary');
+        Route::get('reports/export', [Finance\ReportController::class, 'export'])->middleware($read)->name('reports.export');
+        Route::get('transactions', [Finance\TransactionController::class, 'index'])->middleware($read)->name('transactions');
+
+        Route::get('invoices', [Finance\InvoiceController::class, 'index'])->middleware($read)->name('invoices.index');
+        Route::get('invoices/{id}', [Finance\InvoiceController::class, 'show'])->middleware($read)->name('invoices.show');
+        Route::get('invoices/{id}/pdf', [Finance\InvoiceController::class, 'pdf'])->middleware($read)->name('invoices.pdf');
+        Route::post('invoices', [Finance\InvoiceController::class, 'store'])->middleware($write)->name('invoices.store');
+        Route::patch('invoices/{id}', [Finance\InvoiceController::class, 'update'])->middleware($write)->name('invoices.update');
+        Route::post('invoices/{id}/payments', [Finance\InvoiceController::class, 'recordPayment'])->middleware($write)->name('invoices.payments');
+        Route::post('invoices/{id}/send', [Finance\InvoiceController::class, 'send'])->middleware($write)->name('invoices.send');
+        Route::post('invoices/{id}/remind', [Finance\InvoiceController::class, 'remind'])->middleware($write)->name('invoices.remind');
+
+        Route::get('payments', [Finance\PaymentController::class, 'index'])->middleware($read)->name('payments.index');
+        Route::get('payments/{id}', [Finance\PaymentController::class, 'show'])->middleware($read)->name('payments.show');
+        Route::get('payments/{id}/receipt', [Finance\PaymentController::class, 'receipt'])->middleware($read)->name('payments.receipt');
+        Route::post('payments', [Finance\PaymentController::class, 'store'])->middleware($write)->name('payments.store');
+        Route::post('payments/{id}/reconcile', [Finance\PaymentController::class, 'reconcile'])->middleware($write)->name('payments.reconcile');
+
+        Route::get('refunds', [Finance\RefundController::class, 'index'])->middleware($read)->name('refunds.index');
+        Route::get('refunds/{id}', [Finance\RefundController::class, 'show'])->middleware($read)->name('refunds.show');
+        Route::post('refunds', [Finance\RefundController::class, 'store'])->middleware($write)->name('refunds.store');
+        Route::post('refunds/{id}/approve', [Finance\RefundController::class, 'approve'])->middleware($write)->name('refunds.approve');
+        Route::post('refunds/{id}/reject', [Finance\RefundController::class, 'reject'])->middleware($write)->name('refunds.reject');
+
+        Route::get('subscriptions', [Finance\SubscriptionController::class, 'index'])->middleware($read)->name('subscriptions.index');
+        Route::get('subscriptions/{id}', [Finance\SubscriptionController::class, 'show'])->middleware($read)->name('subscriptions.show');
+        Route::post('subscriptions', [Finance\SubscriptionController::class, 'store'])->middleware($write)->name('subscriptions.store');
+        Route::patch('subscriptions/{id}', [Finance\SubscriptionController::class, 'update'])->middleware($write)->name('subscriptions.update');
+        Route::post('subscriptions/{id}/transition', [Finance\SubscriptionController::class, 'transition'])->middleware($write)->name('subscriptions.transition');
+        Route::post('subscriptions/{id}/extend', [Finance\SubscriptionController::class, 'extend'])->middleware($write)->name('subscriptions.extend');
+        Route::post('subscriptions/{id}/quote-change', [Finance\SubscriptionController::class, 'quoteChange'])->middleware($write)->name('subscriptions.quote-change');
+        Route::post('subscriptions/{id}/change-plan', [Finance\SubscriptionController::class, 'changePlan'])->middleware($write)->name('subscriptions.change-plan');
+
+        Route::get('billing-profiles', [Finance\BillingProfileController::class, 'index'])->middleware($read)->name('profiles.index');
+        Route::get('billing-profiles/{organizationId}', [Finance\BillingProfileController::class, 'show'])->middleware($read)->name('profiles.show');
+        Route::patch('billing-profiles/{organizationId}', [Finance\BillingProfileController::class, 'update'])->middleware($write)->name('profiles.update');
+        Route::post('billing-profiles/{organizationId}/balance', [Finance\BillingProfileController::class, 'adjustBalance'])->middleware($write)->name('profiles.balance');
+
+        Route::get('settings', [Finance\SettingsController::class, 'show'])->middleware($read)->name('settings.show');
+        Route::patch('settings', [Finance\SettingsController::class, 'update'])->middleware($write)->name('settings.update');
+        Route::post('settings/test-gateway', [Finance\SettingsController::class, 'testGateway'])->middleware($write)->name('settings.test-gateway');
+    });
 
     Route::get('roles', [Admin\RoleController::class, 'index'])->middleware('perm:users.manage|audit.view')->name('roles.index');
     Route::get('roles/{name}', [Admin\RoleController::class, 'show'])->middleware('perm:users.manage|audit.view')->where('name', '[a-z_]+')->name('roles.show');

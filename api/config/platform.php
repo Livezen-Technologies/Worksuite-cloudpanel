@@ -185,6 +185,31 @@ return [
             'under_attack' => false,            // FW-010
             'under_attack_domain_id' => null,
         ],
+        // FIN-9. How invoices are numbered, what tax is charged, and which
+        // parts of billing run without anyone pressing anything. Gateway
+        // credentials are not here: they stay in the service settings, where
+        // a secret is written but never read back.
+        'finance' => [
+            'currency' => 'EUR',
+            'invoice_prefix' => 'INV-',
+            'invoice_number_padding' => 5,
+            'invoice_due_days' => 14,
+            'invoice_footer' => '',
+            'tax_enabled' => false,
+            'tax_name' => 'VAT',
+            'tax_percent' => 0.0,
+            'tax_inclusive' => false,
+            'auto_generate_invoices' => true,
+            'auto_collect' => true,
+            'reminder_days_before_due' => [3],
+            'reminder_days_after_due' => [1, 7, 14],
+            // Dunning: how many times a failed collection is retried, and how far apart.
+            'retry_attempts' => 3,
+            'retry_interval_days' => 3,
+            // At or under this, an approved refund needs no second pair of eyes. 0 = always ask.
+            'refund_auto_approve_under_cents' => 0,
+            'refund_require_reason' => true,
+        ],
         // MON-00x. How often an open incident may notify, when it escalates,
         // and whether an unhealthy container is restarted automatically.
         'monitoring' => [
