@@ -30,7 +30,7 @@ const MaxClockSkew = 2 * time.Minute
 var Types = map[string]bool{
 	"container.start": true, "container.stop": true, "container.restart": true,
 	"container.pause": true, "container.unpause": true, "container.remove": true,
-	"container.create": true, "vps.create": true, "container.logs": true, "container.prune": true,
+	"container.create": true, "vps.create": true, "swarm.init": true, "swarm.join": true, "swarm.leave": true, "swarm.inspect": true, "swarm.node_update": true, "swarm.service_scale": true, "container.logs": true, "container.prune": true,
 	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true, "mesh.apply": true, "mesh.status": true, "mesh.confirm": true, "tunnel.lockdown": true,
 	"network.create": true, "network.remove": true,
 	"network.connect": true, "network.disconnect": true,
