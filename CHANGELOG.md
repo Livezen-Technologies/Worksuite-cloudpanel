@@ -9,7 +9,7 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
-## [1.1.0] — 2026-11-01
+## [1.2.0] — 2026-11-03
 
 ### Added
 
@@ -96,6 +96,9 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- Losing the race to create an environment network no longer fails on
+  PostgreSQL: the insert runs in a savepoint, so the lookup that recovers the
+  winner's row isn't refused by an aborted transaction.
 - **A customer's package and owner were hidden from the admin panel by the
   reader's own tenant scope.** `Organization::subscription()` and
   `memberships()` carried the organisation scope, so every customer but the
@@ -276,6 +279,10 @@ Dates are the dates the work landed on `main`.
   - The server page gains a **Filesystems** table under Storage, and the Disk
     tile names the total alongside the root figure once a host has more than
     one filesystem.
+
+## [1.1.0] — 2026-11-01
+
+### Added
 
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
