@@ -278,7 +278,10 @@ class CustomerService
     /** @return list<array{label: string, total: int}> */
     private function breakdown(string $column): array
     {
-        return DB::table('organizations')->groupBy($column)->selectRaw("$column as label, count(*) as total")
+        // A known column only, selected through the builder (which quotes it) rather than raw SQL.
+        $column = match ($column) { 'customer_type', 'status' => $column };
+
+        return DB::table('organizations')->groupBy($column)->select("{$column} as label")->selectRaw('count(*) as total')
             ->orderByDesc('total')->get()
             ->map(fn ($r) => ['label' => (string) $r->label, 'total' => (int) $r->total])->all();
     }

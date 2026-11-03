@@ -96,6 +96,8 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- The customer dashboard's breakdowns no longer build SQL from a column name:
+  the column is whitelisted and selected through the query builder.
 - Losing the race to create an environment network no longer fails on
   PostgreSQL: the insert runs in a savepoint, so the lookup that recovers the
   winner's row isn't refused by an aborted transaction.
