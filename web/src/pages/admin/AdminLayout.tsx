@@ -5,7 +5,7 @@ import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
 /**
- * Seven primary categories. The rail switches between them; the sidebar shows
+ * Eight primary categories. The rail switches between them; the sidebar shows
  * only the items of the one in view, so a category's contents stay together
  * instead of competing with every other area for attention.
  */
@@ -43,7 +43,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
     { label: 'Mail', to: '/admin/mail', icon: 'bell' },
     { label: 'Public pages', to: '/admin/public-pages', icon: 'file' },
-    { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
   ] },
   { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
@@ -67,6 +66,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Payment Gateways', to: '/admin/finance/gateways', icon: 'share' },
     { label: 'Reports', to: '/admin/finance/reports', icon: 'chart' },
     { label: 'Finance Settings', to: '/admin/finance/settings', icon: 'gear' },
+  ] },
+  { id: 'customers', label: 'Customers', icon: 'users', desc: 'Accounts, companies, contacts and groups', items: [
+    { label: 'Overview', to: '/admin/customers/overview', icon: 'chart' },
+    { label: 'All Customers', to: '/admin/customers', end: true, icon: 'users' },
+    { label: 'Companies', to: '/admin/customers/companies', icon: 'store' },
+    { label: 'Contacts', to: '/admin/customers/contacts', icon: 'user' },
+    { label: 'Customer Groups', to: '/admin/customers/groups', icon: 'tag' },
   ] },
   { id: 'settings', label: 'Settings', icon: 'gear', desc: 'Users, permissions and configuration', items: [
     { label: 'Users & Teams', to: '/admin/users', icon: 'users' },

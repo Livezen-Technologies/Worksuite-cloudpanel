@@ -490,6 +490,50 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('customers/{id}/plan', [Admin\CustomerController::class, 'setPlan'])->middleware('perm:billing.manage')->name('customers.plan');
 
     /*
+     * Customers (CUST-1..5). Reading is open to staff who already manage
+     * users or billing, so Finance and support keep the visibility they have;
+     * writing needs customers.manage.
+     */
+    Route::prefix('customer-accounts')->name('customer-accounts.')->group(function () {
+        $read = 'perm:customers.manage|users.manage|billing.manage';
+        $write = 'perm:customers.manage';
+
+        Route::get('overview', [Admin\Customers\OverviewController::class, 'show'])->middleware($read)->name('overview');
+        Route::get('filters', [Admin\Customers\DirectoryController::class, 'filters'])->middleware($read)->name('filters');
+        Route::get('export', [Admin\Customers\DirectoryController::class, 'export'])->middleware($read)->name('export');
+
+        Route::get('/', [Admin\Customers\DirectoryController::class, 'index'])->middleware($read)->name('index');
+        Route::get('{id}', [Admin\Customers\DirectoryController::class, 'show'])->middleware($read)->name('show');
+        Route::patch('{id}', [Admin\Customers\DirectoryController::class, 'update'])->middleware($write)->name('update');
+        Route::post('{id}/status', [Admin\Customers\DirectoryController::class, 'status'])->middleware($write)->name('status');
+        Route::post('{id}/archive', [Admin\Customers\DirectoryController::class, 'archive'])->middleware($write)->name('archive');
+        Route::post('{id}/restore', [Admin\Customers\DirectoryController::class, 'restore'])->middleware($write)->name('restore');
+        Route::post('{id}/groups', [Admin\Customers\DirectoryController::class, 'setGroups'])->middleware($write)->name('groups');
+        Route::get('{id}/activities', [Admin\Customers\DirectoryController::class, 'activities'])->middleware($read)->name('activities');
+        Route::get('{id}/services', [Admin\Customers\DirectoryController::class, 'services'])->middleware($read)->name('services');
+
+        Route::get('{organizationId}/contacts', [Admin\Customers\ContactController::class, 'index'])->middleware($read)->name('contacts.index');
+        Route::post('{organizationId}/contacts', [Admin\Customers\ContactController::class, 'store'])->middleware($write)->name('contacts.store');
+    });
+
+    Route::patch('contacts/{id}', [Admin\Customers\ContactController::class, 'update'])->middleware('perm:customers.manage')->name('contacts.update');
+    Route::delete('contacts/{id}', [Admin\Customers\ContactController::class, 'destroy'])->middleware('perm:customers.manage')->name('contacts.destroy');
+
+    Route::prefix('companies')->name('companies.')->group(function () {
+        $read = 'perm:customers.manage|users.manage|billing.manage';
+        Route::get('/', [Admin\Customers\CompanyController::class, 'index'])->middleware($read)->name('index');
+        Route::get('{organizationId}', [Admin\Customers\CompanyController::class, 'show'])->middleware($read)->name('show');
+        Route::patch('{organizationId}', [Admin\Customers\CompanyController::class, 'update'])->middleware('perm:customers.manage')->name('update');
+    });
+
+    Route::prefix('customer-groups')->name('customer-groups.')->group(function () {
+        Route::get('/', [Admin\Customers\GroupController::class, 'index'])->middleware('perm:customers.manage|users.manage|billing.manage')->name('index');
+        Route::post('/', [Admin\Customers\GroupController::class, 'store'])->middleware('perm:customers.manage')->name('store');
+        Route::patch('{id}', [Admin\Customers\GroupController::class, 'update'])->middleware('perm:customers.manage')->name('update');
+        Route::delete('{id}', [Admin\Customers\GroupController::class, 'destroy'])->middleware('perm:customers.manage')->name('destroy');
+    });
+
+    /*
      * Finance (FIN-1..10). Reading is open to anyone who may see billing;
      * anything that moves money, decides a refund or changes what a customer
      * is on needs billing.manage.
