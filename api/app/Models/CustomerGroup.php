@@ -24,6 +24,8 @@ class CustomerGroup extends Model
             'rules' => 'array',
             'plan_overrides' => 'array',
             'is_system' => 'boolean',
+            'rules_run_at' => 'datetime',
+            'rules_matched' => 'integer',
             'discount_percent' => 'integer',
         ];
     }

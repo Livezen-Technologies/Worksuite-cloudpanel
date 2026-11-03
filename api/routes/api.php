@@ -514,6 +514,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
 
         Route::get('{organizationId}/contacts', [Admin\Customers\ContactController::class, 'index'])->middleware($read)->name('contacts.index');
         Route::post('{organizationId}/contacts', [Admin\Customers\ContactController::class, 'store'])->middleware($write)->name('contacts.store');
+
+        // CUST-4: the people under the account. The writes are the existing
+        // member endpoints -- same guards, same audit trail, one implementation.
+        Route::get('{organizationId}/users', [Admin\Customers\AccountUserController::class, 'index'])->middleware($read)->name('users.index');
+        Route::post('{id}/users', [Admin\CustomerController::class, 'addMember'])->middleware('perm:customers.manage|users.manage')->name('users.store');
+        Route::patch('{id}/users/{userId}', [Admin\CustomerController::class, 'updateMember'])->middleware('perm:customers.manage|users.manage')->name('users.update');
+        Route::delete('{id}/users/{userId}', [Admin\CustomerController::class, 'removeMember'])->middleware('perm:customers.manage|users.manage')->name('users.destroy');
     });
 
     Route::patch('contacts/{id}', [Admin\Customers\ContactController::class, 'update'])->middleware('perm:customers.manage')->name('contacts.update');
@@ -531,7 +538,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('/', [Admin\Customers\GroupController::class, 'store'])->middleware('perm:customers.manage')->name('store');
         Route::patch('{id}', [Admin\Customers\GroupController::class, 'update'])->middleware('perm:customers.manage')->name('update');
         Route::delete('{id}', [Admin\Customers\GroupController::class, 'destroy'])->middleware('perm:customers.manage')->name('destroy');
+
+        // A preview writes nothing, so it is readable; recompute changes
+        // membership and is not.
+        Route::post('{id}/preview-rules', [Admin\Customers\GroupController::class, 'preview'])->middleware('perm:customers.manage|users.manage|billing.manage')->name('preview');
+        Route::post('{id}/recompute', [Admin\Customers\GroupController::class, 'recompute'])->middleware('perm:customers.manage')->name('recompute');
     });
+
+    Route::get('customer-group-fields', [Admin\Customers\GroupController::class, 'fields'])
+        ->middleware('perm:customers.manage|users.manage|billing.manage')->name('customer-groups.fields');
 
     /*
      * Finance (FIN-1..10). Reading is open to anyone who may see billing;
