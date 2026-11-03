@@ -19,6 +19,7 @@ return [
         'billing.manage' => ['Billing', 'Billing'],
         'logs.view' => ['Logs', 'Logs & audit'],
         'audit.view' => ['Audit log', 'Logs & audit'],
+        'customers.manage' => ['Manage customers, companies and groups', 'Customers'],
         'users.manage' => ['Manage users & roles', 'Administration'],
         'settings.manage' => ['Manage settings & integrations', 'Administration'],
         'approvals.decide' => ['Approve requests', 'Administration'],
@@ -52,7 +53,7 @@ return [
         ]],
         'support' => ['label' => 'Support Engineer', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'all', 'servers.view' => 'all', 'deploy' => 'all', 'terminal' => 'all+approval',
-            'logs.view' => 'all', 'audit.view' => 'all',
+            'logs.view' => 'all', 'audit.view' => 'all', 'customers.manage' => 'all',
         ]],
         'billing' => ['label' => 'Billing Manager', 'scope' => 'both', 'grants' => [
             'billing.manage' => 'all', 'logs.view' => 'read', 'audit.view' => 'read', 'app.billing' => 'own_org',

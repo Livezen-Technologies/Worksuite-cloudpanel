@@ -65,5 +65,5 @@ export function PanelLayout() {
     .map((sec) => ({ sec, hit: Math.max(...sec.items.map((i) => (pathname === i.to || (!i.end && pathname.startsWith(i.to + '/'))) ? i.to.length : 0)) }))
     .reduce((best, c) => (c.hit > best.hit ? c : best), { sec: pathname.startsWith('/app/new-site') ? PANEL_SECTIONS[1] : PANEL_SECTIONS[0], hit: 0 }).sec
   const rail: RailItem[] = PANEL_SECTIONS.map((sec) => ({ label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end }))
-  return <Shell label={active.label} rail={rail} nav={active.items} sectionDesc={active.desc} brand={{ title: 'My Cloud', subtitle: active.label }} touch sidebarFooter={<PlanBox />} />
+  return <Shell label={active.label} rail={rail} nav={active.items} sectionDesc={active.desc} brand={{ title: 'My Cloud', subtitle: active.label }} area="portal" touch sidebarFooter={<PlanBox />} />
 }

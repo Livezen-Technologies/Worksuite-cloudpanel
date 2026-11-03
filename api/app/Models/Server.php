@@ -27,6 +27,7 @@ class Server extends Model
             'mesh_status' => 'array',
             'mesh_ssh_lock' => 'array',
             'mesh_joined_at' => 'datetime',
+            'disks' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',

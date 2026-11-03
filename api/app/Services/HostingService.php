@@ -112,12 +112,21 @@ class HostingService
             $image = $source['type'] === 'git'
                 ? 'registry.'.config('platform.domain').'/'.\App\Support\Tenant::current()->slug.'/'.$input['name'].':'.substr($check['commit'] ?? 'latest', 0, 12)
                 : ($source['image'] ?? null);
+            // Every customer app belongs to a project and an environment. Before
+            // this, `environment` was set to the bare string 'production' and
+            // environment_id was left null, which quietly cut customer apps off
+            // from push-deploys, service discovery, promotion and previews.
+            $env = app(EnvironmentService::class)->environmentFor($input['project_id'] ?? null, $input['environment'] ?? null);
             $app = Application::create([
                 'name' => $input['name'], 'kind' => 'customer',
                 'source_type' => $source['type'], 'source' => array_merge($source, ['digest' => $check['digest'] ?? null]),
-                'image' => $image, 'strategy' => 'recreate', 'environment' => 'production',
+                'image' => $image, 'strategy' => 'recreate',
+                'project_id' => $env->project_id, 'environment_id' => $env->id, 'environment' => $env->kind,
                 'region' => $input['region'] ?? null, 'size' => $input['size'], 'port' => $input['port'] ?? 80,
                 'volume_path' => $input['volume_path'] ?? null, 'status' => 'deploying', 'health_path' => $input['health_path'] ?? null,
+                // Deploying from a repository implies deploying when it changes;
+                // the toggle in Settings is now an opt-out rather than dead UI.
+                'auto_deploy' => $source['type'] === 'git',
             ]);
             foreach ($input['env'] ?? [] as $var) {
                 EnvVar::create(['application_id' => $app->id, 'key' => $var['key'], 'value' => (string) ($var['value'] ?? ''), 'secret' => (bool) ($var['secret'] ?? false)]);

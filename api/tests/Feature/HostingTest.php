@@ -37,8 +37,10 @@ class HostingTest extends TestCase
         $job = Job::allTenants()->find($response->json('data.job_id'));
         $this->assertSame(DeploymentService::CUSTOMER_STAGES, array_column($job->stages, 'name'));
 
-        $cmd = $this->heartbeat($secret)['commands'][0];
-        $this->assertSame('container.create', $cmd['type']);
+        // The environment's own network is created first, so pick the container
+        // command by type rather than by position in the queue.
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
+        $this->assertNotNull($cmd);
         $this->assertSame([['type' => 'volume', 'source' => 'app-my-site-data', 'target' => '/data', 'read_only' => false]], $cmd['payload']['mounts'] ?? [['type' => 'volume', 'source' => 'app-my-site-data', 'target' => '/data', 'read_only' => false]]);
         $this->assertSame(512, $cmd['payload']['memory_mb']);
         $this->assertSame('Host(`my-site.livezen.app`)', $cmd['payload']['labels']['traefik.http.routers.app-my-site.rule']);

@@ -264,7 +264,22 @@ class PublicPagesService
         app(TraefikConfigService::class)->push(true);
     }
 
-    /** @return list<array{0: string, 1: array}> */
+    /**
+     * The pages container runs nginx as its own unprivileged uid, not root, so
+     * everything written here has to be world-readable and every folder
+     * world-traversable.
+     *
+     * The agent cannot be relied on to produce that: its unit sets
+     * UMask=0077, which intersects the mode fs.write and fs.mkdir pass to
+     * open(2) and mkdir(2), so the 0644 and 0755 they ask for land as 0600 and
+     * 0700. nginx then cannot read a single page, and because its own
+     * try_files falls through to "=404" the symptom is an ordinary 404 on
+     * every branded page - served behind a valid certificate, and
+     * indistinguishable from a routing mistake. So each write is followed by
+     * an explicit fs.chmod.
+     *
+     * @return list<array{0: string, 1: array}>
+     */
     public function fileCommands(): array
     {
         $cmds = [
@@ -272,15 +287,25 @@ class PublicPagesService
             ['fs.mkdir', ['volume' => self::HTML_VOLUME, 'path' => 'sites', 'exist_ok' => true]],
             ['fs.write', ['volume' => self::CONF_VOLUME, 'path' => 'default.conf', 'content' => $this->nginxConf()]],
         ];
+        $dirs = ['default', 'sites'];
+        $files = [];
         foreach (array_diff(array_keys(self::PAGES), self::BOT_PAGES) as $key) {
             $cmds[] = ['fs.write', ['volume' => self::HTML_VOLUME, 'path' => "default/{$key}.html", 'content' => $this->render($key)]];
+            $files[] = "default/{$key}.html";
         }
         foreach (Domain::allTenants()->get()->filter(fn ($d) => ! empty($d->options['pages']['text'])) as $d) {
             $cmds[] = ['fs.mkdir', ['volume' => self::HTML_VOLUME, 'path' => 'sites/'.$d->name, 'exist_ok' => true]];
+            $dirs[] = 'sites/'.$d->name;
             foreach (array_keys($d->options['pages']['text']) as $key) {
                 $cmds[] = ['fs.write', ['volume' => self::HTML_VOLUME, 'path' => "sites/{$d->name}/{$key}.html", 'content' => $this->render($key, $d)]];
+                $files[] = "sites/{$d->name}/{$key}.html";
             }
         }
+        // Folders and files take different modes, and fs.chmod applies one
+        // mode to everything it is given, so they go in separate commands.
+        $cmds[] = ['fs.chmod', ['volume' => self::HTML_VOLUME, 'paths' => $dirs, 'mode' => '0755']];
+        $cmds[] = ['fs.chmod', ['volume' => self::HTML_VOLUME, 'paths' => $files, 'mode' => '0644']];
+        $cmds[] = ['fs.chmod', ['volume' => self::CONF_VOLUME, 'paths' => ['default.conf'], 'mode' => '0644']];
 
         return $cmds;
     }
@@ -396,7 +421,12 @@ HTML;
         $blocks = '';
         foreach ($codes as $page => $code) {
             $retryHeader = $code === 503 ? "    add_header Retry-After {$retry} always;\n" : '';
-            $blocks .= "  location = /__page/{$page} {\n{$retryHeader}    error_page {$code} = @{$page};\n    return {$code};\n  }\n  location @{$page} {\n{$retryHeader}    try_files /sites/\$host/{$page}.html /default/{$page}.html =404;\n  }\n";
+            // "error_page 403 @suspended" keeps the 403; writing it as
+            // "error_page 403 = @suspended" would take the status from the
+            // named location instead, and try_files serving a file there makes
+            // that a 200 - so a suspended site, a parked domain and a site in
+            // maintenance all answered OK to crawlers and uptime monitors.
+            $blocks .= "  location = /__page/{$page} {\n{$retryHeader}    error_page {$code} @{$page};\n    return {$code};\n  }\n  location @{$page} {\n{$retryHeader}    try_files /sites/\$host/{$page}.html /default/{$page}.html =404;\n  }\n";
         }
 
         return <<<CONF

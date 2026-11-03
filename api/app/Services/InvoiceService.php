@@ -237,6 +237,42 @@ class InvoiceService
         return $credit->fresh();
     }
 
+    /**
+     * Send an invoice to the customer, either as the invoice itself or as a
+     * reminder that it is due.
+     *
+     * The PDF is rendered first so the link in the letter resolves to a
+     * document that exists -- a reminder pointing at a 404 is worse than no
+     * reminder at all.
+     */
+    public function notify(Invoice $invoice, string $kind = 'issued'): void
+    {
+        $org = Organization::find($invoice->organization_id);
+        if (! $org) {
+            return;
+        }
+        $this->pdf($invoice);
+        $amount = self::money((int) $invoice->amount_cents, (string) $invoice->currency);
+        $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+        $emails = app(EmailTemplateService::class);
+
+        if ($kind === 'reminder') {
+            $emails->notifyOrganization($org->id, 'invoice_reminder', [
+                'number' => $invoice->number, 'amount' => $amount,
+                'due_date' => $invoice->due_at?->toFormattedDateString() ?? 'on receipt',
+                'invoice_url' => $panel.'/app/billing',
+            ]);
+
+            return;
+        }
+
+        $emails->notifyOrganization($org->id, 'invoice', [
+            'number' => $invoice->number, 'amount' => $amount,
+            'period' => $invoice->period_start?->format('F Y') ?? '',
+            'invoice_url' => $panel.'/app/billing',
+        ]);
+    }
+
     public function render(Invoice $invoice): string
     {
         $org = Organization::find($invoice->organization_id);

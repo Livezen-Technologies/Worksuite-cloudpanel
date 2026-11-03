@@ -56,6 +56,9 @@ class AppController extends Controller
             'name' => ['required', 'string', 'min:2', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'port' => 'nullable|integer|between:1,65535',
             'region' => 'nullable|string|max:60',
+            // Where the app lives. Omitted, it lands in the default project's production environment.
+            'project_id' => 'nullable|uuid',
+            'environment' => ['nullable', \Illuminate\Validation\Rule::in(\App\Services\EnvironmentService::KINDS)],
             'env' => 'nullable|array', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string|max:10000', 'env.*.secret' => 'nullable|boolean',
             'volume_path' => 'nullable|string|max:255|starts_with:/',
             'size' => 'required|in:small,standard,pro',

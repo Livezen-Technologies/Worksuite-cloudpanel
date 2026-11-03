@@ -15,6 +15,10 @@ interface AuthCtx {
   register: (b: { name: string; email: string; password: string; organization: string; captcha?: string | null }) => Promise<Me | null>
   logout: () => Promise<void>
   refresh: () => Promise<Me | null>
+  /** Create an organisation and move this session into it. */
+  createOrg: (name: string) => Promise<Me | null>
+  /** Act as another organisation this person belongs to. */
+  switchOrg: (id: string) => Promise<Me | null>
 }
 const Ctx = createContext<AuthCtx | null>(null)
 export const CUSTOMER_ROLES = ['owner', 'developer', 'billing']
@@ -54,12 +58,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [accept])
   const register = useCallback(async (b: { name: string; email: string; password: string; organization: string; captcha?: string | null }) =>
     accept(await api.post('/auth/register', b, { retries: 0 })), [accept])
+  // Every cached query is scoped to the organisation the token names, so the
+  // cache has to go when the token starts naming a different one.
+  const adopt = useCallback(async () => { qc.clear(); return refresh() }, [qc, refresh])
+  const createOrg = useCallback(async (name: string) => {
+    await api.post('/organizations', { name })
+    return adopt()
+  }, [adopt])
+  const switchOrg = useCallback(async (id: string) => {
+    await api.post('/me/organization', { organization_id: id })
+    return adopt()
+  }, [adopt])
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout') } catch { /* already gone */ }
     tokenStore.clear(); setMe(null); qc.clear()
   }, [qc])
 
-  return <Ctx.Provider value={{ me, loading, login, loginPasskey, register, logout, refresh, acceptToken: accept }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ me, loading, login, loginPasskey, register, logout, refresh, acceptToken: accept, createOrg, switchOrg }}>{children}</Ctx.Provider>
 }
 export function useAuth() {
   const c = useContext(Ctx)

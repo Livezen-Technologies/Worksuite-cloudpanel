@@ -81,6 +81,55 @@ class EnvironmentService
         return [$env, array_values(array_unique($warnings))];
     }
 
+    /**
+     * The environment a customer's app belongs in.
+     *
+     * Every customer application must have one: `environment_id` is what binds
+     * an app to push-deploys, `${{service.HOST}}` discovery, promotion and the
+     * project's own network. Apps created without it are invisible to all four,
+     * which is why this never returns null and creates what is missing.
+     */
+    public function environmentFor(?string $projectId, ?string $kind = null): Environment
+    {
+        $project = $projectId ? Project::findOrFail($projectId) : $this->defaultProject();
+        // Ordered in PHP rather than SQL: the panel runs PostgreSQL and the
+        // tests do not, so a CASE expression would behave differently in each.
+        $envs = Environment::where('project_id', $project->id)->orderBy('created_at')->get();
+        // A kind that was asked for explicitly is created when the project does
+        // not have it: falling back to another one would put the app somewhere
+        // the customer did not choose. With no kind asked for, any existing
+        // environment will do, production first.
+        $env = $kind
+            ? $envs->firstWhere('kind', $kind)
+            : ($envs->firstWhere('kind', 'production') ?? $envs->first());
+
+        return $env ?? $this->createEnvironment($project, [
+            'name' => ucfirst($kind ?: 'production'), 'kind' => $kind ?: 'production',
+        ]);
+    }
+
+    /**
+     * Where an app goes when the customer has not picked a project, and where
+     * one goes when it is taken out of a project. One per organisation.
+     *
+     * Always its own project, never an existing one adopted: if this returned
+     * the customer's only real project, taking an app out of that project
+     * would put it straight back and "remove" would do nothing.
+     */
+    public function defaultProject(): Project
+    {
+        $project = Project::where('is_default', true)->orderBy('created_at')->first();
+        if ($project) {
+            return $project;
+        }
+
+        return Project::create([
+            'name' => 'Default', 'is_default' => true, 'color' => 'blue',
+            'description' => 'Apps that have not been put in a project of their own.',
+            'webhook_secret' => Str::random(40),
+        ]);
+    }
+
     public function createEnvironment(Project $project, array $data): Environment
     {
         $slug = Str::slug($data['slug'] ?? $data['name']);
@@ -175,12 +224,30 @@ class EnvironmentService
     {
         // https://host/org/repo(.git), ssh://git@host/org/repo and git@host:org/repo are the same repository.
         $norm = fn (?string $u) => strtolower(preg_replace(['#^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):(?!\d+/)#', '#\.git$#', '#/+$#', '#^[a-z]+://([^@/]+@)?#i', '#^([^/:]+):\d+/#'], ['$1/', '', '', '', '$1/'], trim((string) $u)));
-        $envIds = Environment::where('project_id', $project->id)->where('branch', $branch)->pluck('id');
+        // An environment that names a branch tracks it. One that does not -
+        // which is every environment a customer creates, since the portal never
+        // asks for a branch - falls back to each app's own source branch.
+        $envs = Environment::where('project_id', $project->id)
+            ->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'))->get();
+        $tracked = $envs->where('branch', $branch)->pluck('id');
+        $untracked = $envs->whereNull('branch')->pluck('id');
         $started = [];
-        foreach (Application::whereIn('environment_id', $envIds)->get() as $app) {
-            if (($app->source['repo'] ?? null) && $norm($app->source['repo']) === $norm($repo)) {
-                $started[] = app(DeploymentService::class)->start($app, null, 'webhook')->id;
+        foreach (Application::whereIn('environment_id', $envs->pluck('id'))->get() as $app) {
+            if (! ($app->source['repo'] ?? null) || $norm($app->source['repo']) !== $norm($repo)) {
+                continue;
             }
+            if ($untracked->contains($app->environment_id) && ! $tracked->contains($app->environment_id)
+                && strtolower((string) ($app->source['branch'] ?? 'main')) !== strtolower($branch)) {
+                continue;
+            }
+            // The portal's "Auto-deploy when I push" toggle was stored and shown
+            // but never read. It gates customer apps only: on an admin app the
+            // same column means "deploy automatically on a new release", which
+            // is a different promise, so admin push behaviour is left alone.
+            if ($app->kind === 'customer' && ! $app->auto_deploy) {
+                continue;
+            }
+            $started[] = app(DeploymentService::class)->start($app, null, 'webhook')->id;
         }
 
         return $started;

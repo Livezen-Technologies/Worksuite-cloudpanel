@@ -40,7 +40,7 @@ class PublicPagesTest extends TestCase
         $create = $cmds->firstWhere('type', 'container.create')['payload'];
         $this->assertSame([PublicPagesService::IMAGE, '8080', true], [$create['image'], $create['labels']['traefik.http.services.ws-pages.loadbalancer.server.port'], $create['read_only_rootfs']]);
         $writes = $cmds->where('type', 'fs.write')->keyBy(fn ($c) => $c['payload']['path']);
-        $this->assertStringContainsString('error_page 503 = @maintenance', $writes['default.conf']['payload']['content']);
+        $this->assertStringContainsString('error_page 503 @maintenance', $writes['default.conf']['payload']['content']);
         $this->assertStringContainsString('add_header Retry-After 3600 always', $writes['default.conf']['payload']['content']);
         $this->assertArrayNotHasKey('default/captcha.html', $writes->all(), 'the bouncer serves the bot pages, not the edge container');
         foreach (array_diff(array_keys(PublicPagesService::PAGES), PublicPagesService::BOT_PAGES) as $key) {
@@ -49,6 +49,63 @@ class PublicPagesTest extends TestCase
             $this->assertStringNotContainsString('<script', $html);
         }
         $this->assertStringContainsString('http-equiv="refresh" content="30"', $writes['default/busy.html']['payload']['content']);
+    }
+
+    /**
+     * A suspended site must answer 403, a parked one 404 and maintenance 503.
+     * "error_page 403 = @suspended" hands the status to the named location,
+     * where try_files serving a file makes it 200 - so crawlers index a
+     * suspended site and uptime monitors call it healthy.
+     */
+    public function test_each_page_keeps_its_own_status_code(): void
+    {
+        $conf = app(PublicPagesService::class)->nginxConf();
+
+        foreach (['maintenance' => 503, 'sleeping' => 503, 'suspended' => 403, 'expired' => 402, 'not_found' => 404] as $page => $code) {
+            $this->assertStringContainsString("error_page {$code} @{$page};", $conf, "{$page} keeps its {$code}");
+        }
+        // The "= @name" form is the bug: nginx then reports the named
+        // location's own status, which is 200.
+        $this->assertStringNotContainsString('= @', $conf, 'no page may hand its status to the named location');
+        // A 503 still has to carry Retry-After for the crawlers that honour it.
+        $this->assertStringContainsString('add_header Retry-After', $conf);
+    }
+
+    /**
+     * The container reads the volume as its own unprivileged uid, and the
+     * agent's unit runs UMask=0077, so the modes fs.write and fs.mkdir pass to
+     * open(2) and mkdir(2) land as 0600 and 0700. Without an explicit chmod
+     * nginx cannot read one page and every branded page answers 404 behind a
+     * valid certificate.
+     */
+    public function test_the_pages_are_made_readable_by_the_unprivileged_container(): void
+    {
+        [$token, $secret, , , $domain] = $this->setUpEdge();
+        $domain->update(['options' => ['pages' => ['text' => ['suspended' => ['title' => 'Away']]]]]);
+        $this->api($token)->postJson('/api/v1/public-pages/install')->assertStatus(202);
+        $cmds = collect($this->heartbeat($secret)['commands']);
+
+        $chmods = $cmds->where('type', 'fs.chmod')->pluck('payload');
+        $modes = $chmods->mapWithKeys(fn ($p) => [$p['volume'].':'.$p['mode'] => $p['paths']]);
+
+        $this->assertSame('0755', $chmods->firstWhere('mode', '0755')['mode'] ?? null, 'folders are made traversable');
+        $this->assertEqualsCanonicalizing(
+            ['default', 'sites', 'sites/shop.example.com'],
+            $modes[PublicPagesService::HTML_VOLUME.':0755'],
+            'every folder written here, per-site folders included'
+        );
+
+        $files = $modes[PublicPagesService::HTML_VOLUME.':0644'];
+        foreach (array_diff(array_keys(PublicPagesService::PAGES), PublicPagesService::BOT_PAGES) as $key) {
+            $this->assertContains("default/{$key}.html", $files);
+        }
+        $this->assertContains('sites/shop.example.com/suspended.html', $files, 'per-site overrides too');
+        $this->assertSame(['default.conf'], $modes[PublicPagesService::CONF_VOLUME.':0644'], 'and the nginx config');
+
+        // Every path written must be chmodded, or that page alone 404s.
+        $written = $cmds->where('type', 'fs.write')->map(fn ($c) => $c['payload']['volume'].':'.$c['payload']['path']);
+        $chmodded = $chmods->flatMap(fn ($p) => array_map(fn ($x) => $p['volume'].':'.$x, $p['paths']));
+        $this->assertEmpty($written->diff($chmodded)->all(), 'a written file with no chmod would be unreadable');
     }
 
     public function test_routing_for_errors_maintenance_suspended_and_welcome(): void

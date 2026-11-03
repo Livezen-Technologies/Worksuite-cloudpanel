@@ -186,6 +186,50 @@ Artisan::command('domains:check-dns', function (DomainService $domains) {
     }
 })->purpose('Re-check pending DNS every 2 minutes (UDOM-003)');
 
+Artisan::command('networks:reconcile', function (\App\Services\NetworkService $networks) {
+    // PRJ-NET: make sure every environment that has running apps owns a Docker
+    // network on each server those apps sit on. Deployments only ever *join* a
+    // network that already exists, so without this the first deployment after
+    // a change would have to go without one.
+    $made = 0;
+    $skipped = [];
+    $apps = \App\Models\Application::allTenants()->whereNotNull('environment_id')->whereNotNull('server_id')
+        ->whereNull('deleted_at')->get(['organization_id', 'environment_id', 'server_id']);
+    foreach ($apps->groupBy(fn ($a) => $a->environment_id.'|'.$a->server_id) as $key => $pair) {
+        $app = $pair->first();
+        app(Tenant::class)->as($app->organization_id, function () use ($app, $key, $networks, &$made, &$skipped) {
+            $environment = \App\Models\Environment::find($app->environment_id);
+            // A server can belong to one organisation and host another's apps,
+            // so it must be resolved outside the tenant scope: the scoped
+            // lookup returned null and skipped those environments in silence.
+            $server = \App\Models\Server::allTenants()->find($app->server_id);
+            if (! $environment || ! $server) {
+                $skipped[] = $key;
+
+                return;
+            }
+            if ($networks->forEnvironment($environment, $server)->wasRecentlyCreated) {
+                $made++;
+            }
+        });
+    }
+    // Networks that already exist still need the ingress on them: the three on
+    // the live panel were created before the attach existed, and an attach that
+    // failed once must be retried rather than waiting for a new network.
+    $attached = 0;
+    foreach (\App\Models\Network::allTenants()->whereNotNull('environment_id')->where('status', 'active')->get() as $network) {
+        app(Tenant::class)->as($network->organization_id, function () use ($network, $networks, &$attached) {
+            $attached += $networks->attachIngress($network);
+        });
+    }
+    $this->info("Environment networks requested: {$made}; ingress attachments dispatched: {$attached}");
+    if ($skipped) {
+        // Never silent: an environment or server that cannot be resolved means
+        // an environment stays without a network, and nothing else would say so.
+        $this->warn('Could not resolve environment or server for: '.implode(', ', $skipped));
+    }
+})->purpose('Create the Docker network each environment needs on each of its servers');
+
 Artisan::command('certificates:renew', function (DomainService $domains) {
     $r = $domains->renewExpiring();
     $this->info("Certificates renewed: {$r['renewed']}, failed: {$r['failed']}");
@@ -263,6 +307,20 @@ Artisan::command('billing:invoice {--month= : YYYY-MM, default previous month} {
     $this->info('Invoices generated: '.$invoices->generateAll($month));
 })->purpose('Roll usage_records into monthly invoices with PDFs (UBIL-004)');
 
+Artisan::command('finance:demo {--force : run even though customers already exist}', function () {
+    // Demo rows mixed into real books are worse than no demo rows, so this
+    // stops unless the panel is empty or the operator insists.
+    $customers = \App\Models\Organization::count();
+    if ($customers > 1 && ! $this->option('force')) {
+        $this->error("This panel already has {$customers} organisations. Re-run with --force if you are sure.");
+
+        return 1;
+    }
+    $this->call('db:seed', ['--class' => \Database\Seeders\FinanceDemoSeeder::class, '--force' => true]);
+
+    return 0;
+})->purpose('Fill the finance screens with realistic demonstration data (FIN-11)');
+
 Artisan::command('proxy:push {--force}', function (\App\Services\TraefikConfigService $traefik) {
     $this->info('proxy.config commands queued: '.$traefik->push((bool) $this->option('force')));
 })->purpose('Push Traefik dynamic config to ingress servers (CERT_DRIVER=traefik)');
@@ -338,6 +396,7 @@ Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
+Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();
 Schedule::command('metrics:prune')->daily();

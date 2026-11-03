@@ -15,6 +15,37 @@ class CustomerProjectsTest extends TestCase
         return app(Tenant::class)->as($orgId, fn () => Application::create(['name' => $name, 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'small', 'port' => 80, 'region' => 'eu-west']));
     }
 
+    /**
+     * The create form asks for an environment, a purpose and a description, as
+     * well as a name. The environment matters: a project without one cannot
+     * hold an app at all, so it is made with the project rather than later.
+     */
+    public function test_a_project_is_created_with_its_first_environment_purpose_and_description(): void
+    {
+        [, , $token] = $this->org();
+
+        $p = $this->api($token)->postJson('/api/v1/app/projects', [
+            'name' => 'Storefront', 'color' => 'violet', 'environment' => 'production',
+            'purpose' => 'web_application', 'description' => 'The public shop',
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('web_application', $p['purpose']);
+        $this->assertSame('The public shop', $p['description']);
+        // Reported even though the project has no apps yet.
+        $this->assertSame(['production'], $p['environments']);
+        $env = \App\Models\Environment::allTenants()->where('project_id', $p['id'])->firstOrFail();
+        $this->assertSame(['Production', 'production', true], [$env->name, $env->kind, (bool) $env->requires_approval]);
+
+        // Both extra fields are optional, and both are checked against a list.
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Plain'])->assertCreated()->assertJsonPath('data.environments', []);
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Bad env', 'environment' => 'qa'])->assertStatus(422);
+        $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Bad purpose', 'purpose' => 'world domination'])->assertStatus(422);
+
+        $list = $this->api($token)->getJson('/api/v1/app/projects')->assertOk()->json('data');
+        $this->assertContains('web_application', $list['purposes']);
+        $this->assertSame('Production', $list['environment_types']['production']);
+    }
+
     public function test_customers_create_fill_rename_and_delete_projects(): void
     {
         [, $org, $token] = $this->org();
@@ -36,8 +67,14 @@ class CustomerProjectsTest extends TestCase
 
         $this->api($token)->postJson("/api/v1/app/projects/{$p['id']}/apps", ['app_id' => $shop->id])->assertOk();
         $this->api($token)->deleteJson("/api/v1/app/projects/{$p['id']}")->assertNoContent();
-        $this->assertNull($shop->fresh()->project_id, 'the app survives with no project');
-        $this->assertSame(0, Project::allTenants()->count());
+        // The app survives the project. It is no longer left with no project at
+        // all: an app outside an environment loses push-deploys, service
+        // discovery and promotion, so it lands in the default project.
+        $moved = $shop->fresh();
+        $this->assertNotNull($moved->project_id);
+        $this->assertNotNull($moved->environment_id);
+        $this->assertTrue((bool) Project::allTenants()->find($moved->project_id)->is_default);
+        $this->assertSame(1, Project::allTenants()->count());
     }
 
     public function test_projects_and_apps_of_another_customer_are_out_of_reach(): void

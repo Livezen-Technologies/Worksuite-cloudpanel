@@ -20,6 +20,7 @@ class Network extends Model
     {
         return [
             'internal' => 'boolean',
+            'ingress_attached_at' => 'datetime',
         ];
     }
 

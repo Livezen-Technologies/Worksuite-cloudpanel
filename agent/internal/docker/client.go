@@ -340,6 +340,13 @@ func (c *Client) ConnectNetwork(ctx context.Context, network, container string, 
 	return c.call(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", nil, body, nil)
 }
 
+// DisconnectNetwork detaches a container from a network. Force applies to a
+// container that is not running, which Docker otherwise refuses to detach.
+func (c *Client) DisconnectNetwork(ctx context.Context, network, container string, force bool) error {
+	body := map[string]any{"Container": container, "Force": force}
+	return c.call(ctx, "POST", "/networks/"+url.PathEscape(network)+"/disconnect", nil, body, nil)
+}
+
 // Logs returns the last `tail` lines of stdout+stderr as text.
 func (c *Client) Logs(ctx context.Context, id string, tail int, timestamps bool) (string, error) {
 	insp, err := c.InspectContainer(ctx, id)

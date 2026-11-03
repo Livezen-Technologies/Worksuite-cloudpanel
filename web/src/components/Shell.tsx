@@ -1,16 +1,18 @@
 import { useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useLocation, Link } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate, Link } from 'react-router'
 import { Icon } from './Icon'
 import { MfaRequired, PageErrorBoundary } from './ErrorStates'
 import { endImpersonation } from '../lib/impersonation'
-import { Drawer } from './Overlay'
+import { Drawer, Modal } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
-import { useTheme } from '../lib/theme'
+import { useTheme, type ThemePref } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 import { api, errorMessage } from '../api/client'
 
-export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean }
+export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean
+  /** Overrides the NavLink match: a section whose pages do not all sit under `to` says so itself. */
+  active?: boolean }
 
 export interface NavItem { label: string; to: string; end?: boolean; icon?: string; group?: string; badge?: string | number }
 
@@ -58,10 +60,10 @@ function Rail({ items }: { items: RailItem[] }) {
     <nav aria-label="Areas" className="hidden lg:flex w-[92px] flex-none flex-col items-center gap-1.5 px-2 border-r border-line bg-side py-3 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
-          className={({ isActive }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
-          {({ isActive }) => (<>
+          className={({ isActive: m }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          {({ isActive: m }) => (<>
             <Icon name={r.icon} size={20} />
-            <span className={`w-full truncate text-center text-[11px] leading-tight ${isActive ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
+            <span className={`w-full truncate text-center text-[11px] leading-tight ${(r.active ?? m) ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
           )}
@@ -72,12 +74,74 @@ function Rail({ items }: { items: RailItem[] }) {
   )
 }
 
-export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+/** A disclosure inside the account menu: one row that opens a short list under itself. */
+function SubMenu({ label, open, onToggle, children }: { label: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <>
+      <button type="button" role="menuitem" aria-expanded={open} onClick={onToggle}
+        className="flex items-center justify-between gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-fg hover:bg-head cursor-pointer">
+        <span>{label}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+          className={`flex-none text-muted transition-transform ${open ? 'rotate-90' : ''}`}><path d="m9 18 6-6-6-6" /></svg>
+      </button>
+      {open && <div className="mb-1 ml-3 flex flex-col border-l border-line pl-1">{children}</div>}
+    </>
+  )
+}
+
+/** One option in a SubMenu, ticked when it is the one in force. */
+function MenuChoice({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button type="button" role="menuitemradio" aria-checked={selected} onClick={onClick}
+      className="flex items-center justify-between gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-fg hover:bg-head cursor-pointer">
+      <span className="truncate">{label}</span>
+      {selected && <Icon name="check" size={15} />}
+    </button>
+  )
+}
+
+/** Names a new organisation and moves the session into it. */
+function CreateOrgModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { createOrg } = useAuth()
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const nav = useNavigate()
+  const submit = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await createOrg(name.trim())
+      onClose()
+      // The whole query cache was just dropped, so land somewhere that refetches.
+      nav('/app')
+    } catch (e) { setErr(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <Modal open={open} onClose={onClose} title="Create an organisation"
+      subtitle="A separate workspace with its own apps, domains and billing. You will be its owner, and this session switches to it."
+      footer={<>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={busy || name.trim().length < 2} onClick={submit}>{busy ? 'Creating…' : 'Create organisation'}</button>
+      </>}>
+      <label className="block text-sm font-medium" htmlFor="new-org-name">Organisation name</label>
+      <input id="new-org-name" className="input mt-1.5 w-full" value={name} autoFocus maxLength={120}
+        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim().length >= 2 && !busy) submit() }} />
+      {err && <p className="mt-2 mb-0 text-sm text-danger">{err}</p>}
+    </Modal>
+  )
+}
+
+export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label, area = 'admin' }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string; area?: 'admin' | 'portal' }) {
   const [menu, setMenu] = useState(false)
   const [acct, setAcct] = useState(false)
   const [palette, setPalette] = useState(false)
-  const { theme, toggle } = useTheme()
-  const { me, logout } = useAuth()
+  const { theme, pref, setPref, toggle } = useTheme()
+  const { me, logout, switchOrg } = useAuth()
+  const portal = area === 'portal'
+  // Which of the account menu's sub-lists is open; only ever one at a time.
+  const [sub, setSub] = useState<'theme' | 'org' | null>(null)
+  const [newOrg, setNewOrg] = useState(false)
+  useEffect(() => { if (!acct) setSub(null) }, [acct])
   const loc = useLocation()
   useEffect(() => setMenu(false), [loc.pathname])
   const initials = (me?.user?.name ?? '?').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()
@@ -145,10 +209,14 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
             </Link>
             )}
             {headerExtra}
+            {/* In the portal the theme is a choice of three in the account
+                menu, so a two-state button beside it would contradict it. */}
+            {!portal && (
             <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" onClick={toggle}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
+            )}
             <div className="mx-1 hidden h-6 w-px bg-white/15 sm:block" aria-hidden="true" />
             <div className="relative">
               <button type="button" onClick={() => setAcct((v) => !v)}
@@ -175,12 +243,38 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
                       )}
                     </div>
                     <div className="flex flex-col p-1">
-                      <Link to="/admin/account" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Account</Link>
-                      <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Settings</Link>
+                      {/* The portal and the admin panel have their own account
+                          pages; /admin is closed to a customer, so sending them
+                          there from their own menu was a dead end. */}
+                      <Link to={portal ? '/app/account' : '/admin/account'} role="menuitem" onClick={() => setAcct(false)}
+                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">{portal ? 'My Account' : 'Account'}</Link>
+                      {!portal && (
+                        <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
+                          className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Settings</Link>
+                      )}
+
+                      {portal && (<>
+                        <SubMenu label="Theme" open={sub === 'theme'} onToggle={() => setSub((v) => (v === 'theme' ? null : 'theme'))}>
+                          {(['light', 'dark', 'system'] as ThemePref[]).map((t) => (
+                            <MenuChoice key={t} selected={pref === t} onClick={() => setPref(t)}
+                              label={t === 'system' ? 'System' : t === 'dark' ? 'Dark' : 'Light'} />
+                          ))}
+                        </SubMenu>
+
+                        <SubMenu label="Organization" open={sub === 'org'} onToggle={() => setSub((v) => (v === 'org' ? null : 'org'))}>
+                          {(me?.organizations ?? []).map((o) => (
+                            <MenuChoice key={o.id} selected={o.id === me?.organization?.id} label={o.name ?? o.id}
+                              onClick={() => { setAcct(false); if (o.id !== me?.organization?.id) switchOrg(o.id) }} />
+                          ))}
+                          <button type="button" role="menuitem" onClick={() => { setAcct(false); setNewOrg(true) }}
+                            className="mt-0.5 w-full rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-accent hover:bg-head cursor-pointer">
+                            Create an Organization
+                          </button>
+                        </SubMenu>
+                      </>)}
+
                       <button type="button" role="menuitem" onClick={() => { setAcct(false); logout() }}
-                        className="mt-0.5 rounded-lg border-0 border-t border-line bg-transparent px-3 py-2 text-left text-sm font-medium text-danger hover:bg-r-bg cursor-pointer">Sign out</button>
+                        className="mt-0.5 rounded-lg border-0 border-t border-line bg-transparent px-3 py-2 text-left text-sm font-medium text-danger hover:bg-r-bg cursor-pointer">{portal ? 'Sign Out' : 'Sign out'}</button>
                     </div>
                   </div>
                 </>
@@ -188,6 +282,7 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
             </div>
           </div>
         </header>
+      {portal && <CreateOrgModal open={newOrg} onClose={() => setNewOrg(false)} />}
       <div className="flex flex-1 min-h-0">
       {rail && <Rail items={rail} />}
       <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">{side}</aside>
@@ -197,7 +292,7 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
           <nav aria-label="Areas" className="mb-5 grid grid-cols-3 gap-1.5 border-b border-line pb-5">
             {rail.map((r) => (
               <NavLink key={r.to} to={r.to} end={r.end} onClick={() => setMenu(false)}
-                className={({ isActive }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
+                className={({ isActive: m }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
                 <Icon name={r.icon} size={20} />
                 <span className="w-full truncate text-[11px] font-semibold">{r.label}</span>
               </NavLink>

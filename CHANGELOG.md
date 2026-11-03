@@ -13,6 +13,270 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Customers**, an eighth admin section between Finance and Settings, holding
+  the customer directory, companies, contacts and customer groups. Hosting's
+  "Hosting Customers" item moves here, the way Packages moved to Finance.
+
+  - **Account status is a column, not a key in a JSON blob.** `suspend` and
+    `close` wrote `organizations.settings`, which no index can reach, so the
+    directory could not filter by it and the dashboard could not count it. It
+    is now `organizations.status`, backfilled from the existing JSON and from
+    suspended subscriptions, with the JSON keeping the suspension reason.
+    `organizations` also gains a customer type, account manager, onboarding
+    status, registration, last-activity and archive stamps; `users` gain phone,
+    country, locale, timezone and notification preferences.
+  - **A company is the account's billing profile**, extended with industry,
+    website and registration number -- not a second record that could disagree
+    with the one Finance addresses invoices to. New `contacts` holds the
+    billing, technical and abuse people who have no login, with one primary
+    contact per account enforced on write.
+  - **Customer groups** with the twelve defaults, seeded once and undeletable
+    thereafter; a customer may be in many, and where two carry a discount the
+    largest applies. Rule-driven membership arrives with the next phase, and a
+    manual edit already leaves rule-sourced rows alone.
+  - `customer_activities` is the customer's readable timeline, kept separate
+    from the tamper-evident `audit_logs` chain so it can be pruned.
+  - New permission `customers.manage`, granted to Support; reading is open to
+    anyone who already manages users or billing, so Finance and support keep
+    the visibility they have.
+  - CSV export honours whatever the directory is filtered to, and the archive
+    is a separate view rather than a filter to remember.
+
+- **Finance & Billing**, a seventh admin section between Operations and
+  Settings, gathering invoices, payments, refunds, subscriptions, packages,
+  billing profiles, transactions, gateways, reports and finance settings behind
+  `billing.manage` (the `billing` role reads everything and writes, `developer`
+  sees none of it).
+
+  - New tables: `payments` (one row per collection attempt, with a unique
+    `(gateway, gateway_reference)` so a webhook replay cannot bank the same
+    money twice), `refund_requests` (request, decision and gateway outcome kept
+    apart, so a refund that the gateway rejects parks as `failed` with its
+    reason instead of writing a credit note), and `billing_profiles` (who an
+    invoice is addressed to, the tax identity and an account balance).
+    `subscriptions` gains a billing cycle, discount, trial end, cancellation and
+    expiry dates, auto-renew, and a booked next-renewal package change.
+  - `FinanceService` holds the money rules in one place: what an invoice still
+    owes, what is left to refund once open requests are counted, MRR and ARR
+    (a yearly subscription counts as a twelfth, after its discount), churn over
+    a window, and the proration for a mid-term package change.
+  - **Change package** quotes before it charges: the drawer shows the unused
+    credit on the current package, the new package's share of the remaining
+    days and the net to charge now, and can book the change for the next
+    renewal instead. Every change is written to the audit chain.
+  - Overview with fourteen figures over Today / 7 / 30 days / this month / this
+    year / a custom range, revenue and refund trends, and breakdowns by gateway
+    and package; reports with a CSV export.
+  - `php artisan finance:demo` seeds a panel worth judging the screens by:
+    100 customers, 6 packages, 150 subscriptions, 350 invoices (50 of them
+    overdue), 300 payments including part payments, failures and disputes, and
+    25 refunds across every state, over twelve months. It refuses to run on an
+    installation with more than one organisation unless forced.
+
+- **The ingress can now reach a container over its environment network**, which
+  is what has to be true before anything can stop sharing `proxy`. This ingress
+  runs with no Docker provider: routers come from the file provider and name the
+  container (`http://app-foo:80`), so Traefik can only reach a container over a
+  Docker network it shares with it. Traefik is therefore attached to each
+  environment network as soon as that network exists.
+
+  - New agent commands `network.connect` and `network.disconnect` (agent
+    **1.2.5**), wrapping Docker's network attach and detach. A connect that
+    finds the container already attached is success, so re-running is free;
+    disconnect refuses the built-in networks the way `network.remove` does.
+  - The attach is dispatched when a network goes active and recorded on
+    `networks.ingress_attached_at`, so the reconcile repairs a missing one
+    without re-queueing a command every fifteen minutes for ever.
+  - Servers whose agent predates 1.2.5 are skipped rather than sent a command
+    that cannot succeed, so the panel is safe to deploy before the fleet is
+    updated; each server attaches by itself on the first reconcile after its
+    agent reports a new enough version.
+
+  Nothing is removed from `proxy` by this change, so no routing is altered.
+
+### Fixed
+
+- **A customer's package and owner were hidden from the admin panel by the
+  reader's own tenant scope.** `Organization::subscription()` and
+  `memberships()` carried the organisation scope, so every customer but the
+  reader's own showed a blank package, subscription state and e-mail in any
+  cross-tenant list. Both relations are keyed by `organization_id` already, so
+  dropping the scope cannot widen what they return.
+- A new permission added to `config/rbac.php` was invisible until the reference
+  seeder ran again, because the matrix is read from `role_permissions`. The
+  seeder now runs from a migration, so a deploy does not need the extra step.
+- A tenant-scoped child row no longer disappears from an admin list: a
+  payment's or refund's invoice is read without the reader's own organisation
+  scope, so the panel showed `—` for every invoice belonging to another
+  customer, and reconciling such a payment silently skipped settling it.
+- The area rail now follows the same longest-match rule as the section panel,
+  so a section whose first item is an exact-match route stays lit on its own
+  sub-pages.
+
+- **An environment network could be created twice and break the deploy that hit
+  it.** The existence check in `forEnvironment` was tenant-scoped, but a deploy
+  driven by an agent command result runs with no tenant set: the lookup found
+  nothing, created the network a second time and failed the
+  `(server_id, name)` unique index as a 500 from inside the deployment
+  pipeline. One environment on one server is one network globally, so the pair
+  is now looked up unscoped, and `organization_id` is set explicitly rather
+  than left to a scope that may not be active.
+
+- **Two environments could be given the same network name.** The name used the
+  first twelve hex characters of the environment's UUIDv7, which are exactly
+  its 48-bit millisecond timestamp -- so any two environments created in the
+  same millisecond, as duplicating one does, produced an identical name and
+  collided. The full id is used now.
+
+- **Two processes could race to create the same environment network.** A deploy
+  and `networks:reconcile` resolve the same (environment, server) pair from
+  different processes, which `withoutOverlapping` cannot prevent; on the live
+  panel the scheduled reconcile died on `networks_server_id_name_unique` at
+  11:30:07 on 2026-11-02 while a manual run was creating the same row. Losing
+  the race now returns the winner's row, recovered by the key that collided.
+
+### Added
+
+- **Every environment now has its own private network.** Services in one
+  project's environment could reach services in every other customer's
+  environment: all containers shared the `proxy` network and resolved each
+  other by name. Each environment now gets a Docker bridge network of its own
+  (`wscp-env-<id>`, labelled with the project and environment), created on the
+  server the environment's first application is placed on, and containers join
+  it alongside `proxy` with their service name as a network alias — so
+  `${{service.HOST}}` resolves over a network only that environment is on.
+
+  This step is deliberately additive: nothing is removed from `proxy`, so
+  routing is unchanged and no existing deployment can lose traffic. A container
+  joins its environment network only once the network is reported `active` by
+  the agent, so a deploy never waits on, or fails because of, network creation.
+  `networks:reconcile` (every fifteen minutes) creates any network that is
+  missing and re-dispatches ones stuck in `creating`. It resolves the server
+  outside the tenant scope, because a server can belong to one organisation
+  and host another's apps, and it reports anything it could not resolve
+  instead of skipping it in silence.
+
+  Dropping `proxy` for service-to-service traffic — attaching Traefik to the
+  environment networks and moving databases off the shared `internal`
+  network — is the next step and is not part of this change.
+
+### Fixed
+
+- **Customer applications now belong to a project and an environment.** They
+  were created with `environment` set to the bare string `production` and
+  `environment_id` left null, while every environment-shaped feature keys on
+  the foreign key. That single omission cut customer apps off from four things
+  at once, all of which now work:
+  - **Deploy on Git push.** `onPush` matches apps by `environment_id`, so a
+    push could never reach a customer app. An environment that names a branch
+    still tracks it; one that does not — which is every environment the portal
+    creates, since it never asks for a branch — now falls back to each app's
+    own source branch.
+  - **The "Auto-deploy when I push" toggle**, which was stored and displayed
+    but never read by any deploy path. It gates customer apps only: on an admin
+    application the same column means "deploy on a new release", a different
+    promise, so admin push behaviour is unchanged. Hosting from a repository
+    turns it on, making it an opt-out.
+  - **`${{service.HOST}}` discovery between a customer's own apps**, which
+    resolves siblings within an environment.
+  - **Promotion, duplication and PR previews**, which select by environment.
+
+  Apps created before this are backfilled. An app with no project of its own
+  goes to a default project — an existing project is adopted rather than adding
+  a second one beside it — and that project cannot be deleted, since it is
+  where apps land. Taking an app out of a project returns it to the default one
+  rather than leaving it with no environment, and moving an app between
+  projects moves its environment with it. Hosting an app accepts `project_id`
+  and `environment`, and the portal is given each project's Git webhook URL and
+  a way to roll its signing secret.
+
+### Added
+
+- **Customers create a project in two steps.** The form asked only for a name
+  and a colour; it is now "Create new project" → "Assign resources", asking
+  also for the environment type, what the project is for and a description,
+  and then offering every app that is not in a project yet. The project's
+  **first environment is created with it**, because a project without one
+  cannot hold an app at all, and a project's environments are now reported
+  from the project itself rather than inferred from the apps inside it — so a
+  new, empty project shows the environment it was just given. `purpose` is a
+  new nullable column; editing a project can now change its description too.
+- **An account menu of its own for the customer portal.** The menu was shared
+  with the admin panel, so a customer's "Account" pointed at `/admin/account`,
+  a page they cannot open. In the portal it is now **My Account** (`/app/account`),
+  a **Theme** list offering Light, Dark and System rather than the header's
+  two-state toggle, an **Organization** list of every organisation they belong
+  to, and **Create an Organization**. The admin panel's menu is unchanged.
+- **Anyone can create an organisation for themselves** — `POST /organizations`
+  creates it with the caller as owner, and `POST /me/organization` acts as
+  another one they belong to. Both move the access token as well as the user's
+  `current_organization_id`, because tenancy reads the token first; a support
+  session is refused both.
+- **Theme can follow the operating system.** The stored preference is now
+  `light`, `dark` or `system`, and `system` keeps following the OS while the
+  page is open instead of only at load.
+
+### Fixed
+
+- **An application you cannot see no longer loads for ever.** `AppManage` showed
+  its loading skeleton whenever it had no row, which included "the request
+  finished and failed", so a 404 looked like a page that never loaded. It now
+  shows the skeleton only while the request is in flight, and names the cause.
+  A 404 is reported as what it almost always is — the application belongs to an
+  organisation other than the selected one, since tenancy follows the
+  organisation picker and there is no cross-organisation route for a single
+  application — and any other failure shows the server's own message.
+- **Every branded page answered HTTP 200** (PUB-1, PUB-3). The generated nginx
+  config wrote `error_page 403 = @suspended`; the `=` hands the status to the
+  named location, and `try_files` serving a file there makes it a 200. So a
+  suspended site, a parked domain, a site in maintenance, one that was expired
+  and the not-found catch-all all reported OK — crawlers indexed suspended
+  sites and uptime monitors called them healthy. Dropping the `=` keeps each
+  page's own code (403, 404, 503, 402) while still serving the body and
+  `Retry-After`.
+- **Public pages were written unreadable, so every branded page answered 404**
+  (PUB-4). The pages container runs nginx as its own unprivileged uid, but the
+  agent's unit sets `UMask=0077`, which intersects the mode `fs.write` and
+  `fs.mkdir` pass to `open(2)` and `mkdir(2)`: the `0644` and `0755` they ask
+  for landed as `0600` and `0700`, owned by root. nginx could not read a single
+  page, and because its `try_files` falls through to `=404` the symptom was an
+  ordinary 404 on every page - served behind a valid certificate, and
+  indistinguishable from a routing mistake. Install and publish now follow the
+  writes with an explicit `fs.chmod` (`0755` for folders, `0644` for files and
+  the nginx config).
+  - This silently disabled suspend, park and branded error pages: a
+    `dmp-<host>-page` router at priority 100000 would 404 instead of showing a
+    page, taking the host down rather than parking it.
+
+### Added
+
+- **Panel assets are cached correctly** — nginx sent no `Cache-Control` for
+  the SPA, so browsers cached `index.html` heuristically and a deploy looked
+  like it had not landed until someone hard-reloaded. The shell is now
+  `no-cache` and the content-hashed `/assets/` files are `immutable`.
+  `docs/deploy/nginx-agent-mtls.conf` carries the same blocks, with a note
+  that `add_header` in a location replaces the server block's headers.
+
+- **Per-mount disk reporting** — `disk_gb` and `disk_pct` describe the root
+  filesystem only, so a server whose data sits on a second array was reported
+  as though that array did not exist: a node with two 1.8 TB RAID1 arrays
+  showed 498 GB free instead of 2.2 TB.
+  - The agent now sends every mounted local filesystem on each heartbeat
+    (`stats.disks`: mount, device, fstype, size and used in MB, used %), read from
+    `/proc/mounts` and `statfs(2)`. Pseudo, RAM-backed and read-only image
+    filesystems are skipped, Docker's own mounts are left out, and a device is
+    reported once however many places it is mounted, so a bind mount never
+    counts an array twice. The list is sorted largest first and capped at 32.
+  - Stored on `servers.disks`, shaped and bounded on the way in. `disk_pct`
+    keeps its meaning as the root figure the status thresholds are written
+    against, so no server changes status because of this.
+  - Sizes are carried in megabytes and rendered in the largest sensible unit,
+    so a 1.8 TB array does not read as `1874560 MB` and a 988 MB `/boot` does
+    not read as `0 GB`.
+  - The server page gains a **Filesystems** table under Storage, and the Disk
+    tile names the total alongside the root figure once a host has more than
+    one filesystem.
+
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
   - `firewall_rules`, `firewall_countries`, `firewall_protected_paths` and

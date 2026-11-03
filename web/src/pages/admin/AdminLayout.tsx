@@ -5,7 +5,7 @@ import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
 /**
- * Six primary categories. The rail switches between them; the sidebar shows
+ * Eight primary categories. The rail switches between them; the sidebar shows
  * only the items of the one in view, so a category's contents stay together
  * instead of competing with every other area for attention.
  */
@@ -43,8 +43,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
     { label: 'Mail', to: '/admin/mail', icon: 'bell' },
     { label: 'Public pages', to: '/admin/public-pages', icon: 'file' },
-    { label: 'Packages', to: '/admin/packages', icon: 'tag' },
-    { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
   ] },
   { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
@@ -55,6 +53,26 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file' },
     { label: 'Automation', to: '/admin/automation', icon: 'clock' },
     { label: 'Cron & scheduler', to: '/admin/cron', icon: 'clock' },
+  ] },
+  { id: 'finance', label: 'Finance', icon: 'wallet', desc: 'Invoices, payments, refunds, subscriptions and revenue', items: [
+    { label: 'Overview', to: '/admin/finance', end: true, icon: 'wallet' },
+    { label: 'Invoices', to: '/admin/finance/invoices', icon: 'file' },
+    { label: 'Payments', to: '/admin/finance/payments', icon: 'wallet' },
+    { label: 'Refunds', to: '/admin/finance/refunds', icon: 'share' },
+    { label: 'Subscriptions', to: '/admin/finance/subscriptions', icon: 'clock' },
+    { label: 'Packages & Plans', to: '/admin/packages', icon: 'tag' },
+    { label: 'Billing Profiles', to: '/admin/finance/billing-profiles', icon: 'users' },
+    { label: 'Transactions', to: '/admin/finance/transactions', icon: 'layers' },
+    { label: 'Payment Gateways', to: '/admin/finance/gateways', icon: 'share' },
+    { label: 'Reports', to: '/admin/finance/reports', icon: 'chart' },
+    { label: 'Finance Settings', to: '/admin/finance/settings', icon: 'gear' },
+  ] },
+  { id: 'customers', label: 'Customers', icon: 'users', desc: 'Accounts, companies, contacts and groups', items: [
+    { label: 'Overview', to: '/admin/customers/overview', icon: 'chart' },
+    { label: 'All Customers', to: '/admin/customers', end: true, icon: 'users' },
+    { label: 'Companies', to: '/admin/customers/companies', icon: 'store' },
+    { label: 'Contacts', to: '/admin/customers/contacts', icon: 'user' },
+    { label: 'Customer Groups', to: '/admin/customers/groups', icon: 'tag' },
   ] },
   { id: 'settings', label: 'Settings', icon: 'gear', desc: 'Users, permissions and configuration', items: [
     { label: 'Users & Teams', to: '/admin/users', icon: 'users' },
@@ -103,8 +121,10 @@ export function AdminLayout() {
     .map((sec) => ({ sec, hit: Math.max(...sec.items.map((i) => (pathname === i.to || pathname.startsWith(i.to + '/')) ? i.to.length : 0)) }))
     .reduce((best, c) => (c.hit > best.hit ? c : best), { sec: ADMIN_SECTIONS[0], hit: 0 }).sec
 
+  // The rail follows the same longest-match rule as the section panel, so a
+  // section stays lit on pages that do not sit under its first item's path.
   const rail: RailItem[] = ADMIN_SECTIONS.map((sec) => ({
-    label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end,
+    label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end, active: sec === active,
   }))
 
   return (

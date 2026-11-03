@@ -20,6 +20,9 @@ use Illuminate\Support\Str;
 /** Agent protocol (SRS 6.4, docs/API.md). */
 class AgentService
 {
+    /** Matches the agent's own cap, so a host with very many mounts cannot bloat the row. */
+    private const MAX_DISKS = 32;
+
     public function __construct(private CommandBus $bus, private AuditLogger $audit) {}
 
     public function enroll(array $data): array
@@ -81,6 +84,7 @@ class AgentService
                 'cpu_pct' => $stats['cpu_pct'] ?? null,
                 'ram_pct' => $stats['ram_pct'] ?? null,
                 'disk_pct' => $stats['disk_pct'] ?? null,
+                'disks' => self::disks($stats['disks'] ?? null),
                 'net_rx' => $stats['net_rx'] ?? null,
                 'net_tx' => $stats['net_tx'] ?? null,
                 'docker_error' => $data['docker_error'] ?? null,
@@ -238,6 +242,37 @@ class AgentService
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Normalise the per-mount disk list. The agent is authenticated, but the
+     * list is still shaped and bounded here so one odd host cannot store an
+     * unbounded blob or push text into the column.
+     */
+    private static function disks(mixed $reported): ?array
+    {
+        if (!is_array($reported) || $reported === []) {
+            return null;
+        }
+        $out = [];
+        foreach ($reported as $d) {
+            if (!is_array($d) || !isset($d['mount']) || !is_string($d['mount'])) {
+                continue;
+            }
+            $out[] = [
+                'mount' => mb_substr($d['mount'], 0, 255),
+                'device' => isset($d['device']) && is_string($d['device']) ? mb_substr($d['device'], 0, 128) : null,
+                'fstype' => isset($d['fstype']) && is_string($d['fstype']) ? mb_substr($d['fstype'], 0, 32) : null,
+                'size_mb' => (int) ($d['size_mb'] ?? 0),
+                'used_mb' => (int) ($d['used_mb'] ?? 0),
+                'used_pct' => round(min(100, max(0, (float) ($d['used_pct'] ?? 0))), 1),
+            ];
+            if (count($out) >= self::MAX_DISKS) {
+                break;
+            }
+        }
+
+        return $out ?: null;
     }
 
     /** Issues a client certificate bound to server+org (SEC-003; verified via the proxy, see AgentCertificateService). */

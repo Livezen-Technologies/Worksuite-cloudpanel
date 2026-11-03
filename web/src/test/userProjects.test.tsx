@@ -63,7 +63,7 @@ describe('Customer projects', () => {
     expect(screen.getByRole('complementary', { name: 'Selected app' })).toHaveTextContent('failed')
   })
 
-  it('creates a project with a colour', async () => {
+  it('creates a project with a colour and its first environment', async () => {
     renderIt()
     await userEvent.click(await screen.findByRole('button', { name: 'New project' }))
     const dialog = screen.getByRole('dialog')
@@ -71,6 +71,7 @@ describe('Customer projects', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'violet' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }))
     const post = calls.find((c) => c.url.endsWith('/app/projects') && c.method === 'POST')
-    expect(JSON.parse(post!.body!)).toEqual({ name: 'Agency', color: 'violet' })
+    // Every project now starts with an environment; nothing can be deployed into one without.
+    expect(JSON.parse(post!.body!)).toEqual({ name: 'Agency', color: 'violet', environment: 'development' })
   })
 })
