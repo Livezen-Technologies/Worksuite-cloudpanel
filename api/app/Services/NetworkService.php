@@ -42,7 +42,9 @@ class NetworkService
             'internal' => false, 'exposure' => 'private', 'status' => 'creating',
         ];
         try {
-            $network = Network::create($attributes);
+            // Its own transaction, which inside an outer one is a savepoint: on PostgreSQL a failed
+            // statement aborts the whole transaction, so without it the recovery lookup below fails too.
+            $network = \Illuminate\Support\Facades\DB::transaction(fn () => Network::create($attributes));
         } catch (\Illuminate\Database\UniqueConstraintViolationException) {
             // Two callers can reach this at once -- a deploy and the reconcile
             // both resolve the same (environment, server) pair, and

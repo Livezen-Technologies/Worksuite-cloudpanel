@@ -94,7 +94,7 @@ class AuthController extends Controller
     /** SVC-6/7: what the sign-in page offers (captcha, sign-in apps). Public. */
     public function config()
     {
-        return $this->data(['captcha' => app(\App\Services\Auth\CaptchaService::class)->publicConfig(), 'sso' => app(\App\Services\Auth\SsoService::class)->enabled()]);
+        return $this->data(['captcha' => app(\App\Services\Auth\CaptchaService::class)->publicConfig(), 'sso' => app(\App\Services\Auth\SsoService::class)->enabled(), 'version' => config('platform.version')]);
     }
 
     /** SVC-7: the provider's authorisation URL. */

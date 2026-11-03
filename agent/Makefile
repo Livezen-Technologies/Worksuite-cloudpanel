@@ -1,4 +1,4 @@
-VERSION ?= dev
+VERSION ?= $(shell cat ../VERSION 2>/dev/null || echo dev)
 UPDATE_PUBLIC_KEY ?=
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.updatePublicKey=$(UPDATE_PUBLIC_KEY)
 

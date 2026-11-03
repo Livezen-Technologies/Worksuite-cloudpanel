@@ -9,6 +9,8 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-03
+
 ### Added
 
 - **Customers**, an eighth admin section between Finance and Settings, holding
@@ -94,6 +96,11 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- The customer dashboard's breakdowns no longer build SQL from a column name:
+  the column is whitelisted and selected through the query builder.
+- Losing the race to create an environment network no longer fails on
+  PostgreSQL: the insert runs in a savepoint, so the lookup that recovers the
+  winner's row isn't refused by an aborted transaction.
 - **A customer's package and owner were hidden from the admin panel by the
   reader's own tenant scope.** `Organization::subscription()` and
   `memberships()` carried the organisation scope, so every customer but the
@@ -275,6 +282,10 @@ Dates are the dates the work landed on `main`.
     tile names the total alongside the root figure once a host has more than
     one filesystem.
 
+## [1.1.0] — 2026-11-01
+
+### Added
+
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
   - `firewall_rules`, `firewall_countries`, `firewall_protected_paths` and
@@ -317,6 +328,36 @@ Dates are the dates the work landed on `main`.
 - **Design system**: spacing, radius, elevation, z-index and motion tokens;
   `.btn-ghost` and `.btn-group`; `Card` gained a subtitle.
 
+- **Billing** (#143, #144) — customers pay by card (Stripe) or PayPal; cancel
+  a subscription; refunds and credit notes (`InvoiceService::refund`); dunning
+  with retries (`billing:dunning`).
+- **Servers** (#145) — drain a server (move its residents away), a delete
+  guard while it still runs workloads, and revoking an agent by name.
+- **Notifications** (#146) — signed webhooks (`X-DMP-Signature`, HMAC over
+  timestamp and body), real delivery failures, and per-channel health.
+- **Customer projects** (#147, #150) — group apps into coloured projects; a
+  project canvas showing apps as connected cards (linked when one app's
+  variables name another as a host), with monthly cost and environment badges.
+- **AI & MCP** (#148, #152, #153) — an MCP server over the customer's apps with
+  read and change tools; an AI level per account (read-only, ask before
+  changes, autonomous) with approvals and an activity log; scoped MCP tokens;
+  OAuth sign-in for MCP clients (discovery, dynamic registration, PKCE,
+  rotating refresh tokens); a built-in assistant on the Claude API
+  (`claude-opus-5-5`) that uses the same tools and approvals and streams its
+  replies; an admin AI & MCP page.
+- **Customer VPS** (#149) — container servers with root access under the
+  Sysbox runtime on servers with the `vps` role; KVM plans listed as coming
+  soon.
+- **Git sources** (#151) — ed25519 deploy keys for SSH repositories; GitHub,
+  GitLab, Gitea and Bitbucket connections (token, or OAuth sign-in for GitHub
+  and GitLab); private repositories for customers; a webhook delivery log.
+- **Monitoring, backups and audit** (#140, #142) — alerts, cleanup, audit
+  export, audit filters and an integrity check.
+- **Versioning** — a root `VERSION` file is the single source of the release
+  number (API `auth/config`, `web/package.json`, the agent build), with
+  `scripts/release.sh` to bump it and date this changelog, and a test that
+  keeps them in step.
+
 ### Changed
 
 - `Select` is now a Headless UI Listbox and `Icon` maps onto Heroicons, from
@@ -331,6 +372,11 @@ Dates are the dates the work landed on `main`.
 
 ### Fixed
 
+- Duplicate Stripe subscriptions on SQLite (a `LIKE` match) (#144).
+- A connection's Git token is only ever sent to that provider's host, and
+  repository paths with `.` or `..` segments are rejected (#151).
+- Tests that depended on timing or row order (`DnsZoneTest`,
+  `FileManagerTest`) now freeze the clock or order explicitly.
 - **Public pages could take every managed domain down to a 404 on an ingress
   with no Traefik docker provider.** `PublicPagesService` referenced the pages
   container as `ws-pages@docker` and started it with no network, so it landed on
@@ -457,6 +503,9 @@ Dates are the dates the work landed on `main`.
 
 ### Security
 
+- The assistant's stored history is encrypted JSON, not `serialize()`; MCP
+  tokens cannot approve OAuth clients for themselves; a reused OAuth code or
+  rotated refresh token revokes its whole family (#152, #153).
 - Challenge and SMTP secrets are encrypted at rest and never returned by the
   API; only a `*_set` boolean is exposed.
 - Firewall rules whose action the proxy cannot enforce are reported as such in
