@@ -9,6 +9,22 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-11-04
+
+### Added
+
+- Admin → Projects: a Show canvas button on each project draws all of the
+  project's apps, in every environment, with the connections found in their
+  variables. There is an environment filter, and staff can drag apps to
+  arrange them; the layout is saved. Open app goes to the admin app page.
+  Connecting apps and redeploying stay on the customer's canvas. (#171)
+
+### Changed
+
+- The staff and customer canvases now share one way of finding connections
+  and saving layouts. Connections are read with one query instead of one per
+  app. (#171)
+
 ## [1.10.0] — 2026-11-04
 
 ### Added

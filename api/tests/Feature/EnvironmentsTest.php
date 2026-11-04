@@ -282,4 +282,30 @@ class EnvironmentsTest extends TestCase
         $this->call('POST', '/api/v1/hooks/wake', [], [], [], ['HTTP_X_FORWARDED_HOST' => 'web.acme.test'])->assertStatus(202)->assertJsonPath('data.woken', false);
         $this->call('POST', '/api/v1/hooks/wake', [], [], [], ['HTTP_X_FORWARDED_HOST' => 'nope.example'])->assertJsonPath('data.woken', false);
     }
+
+    public function test_staff_see_a_project_as_a_canvas_and_arrange_it(): void
+    {
+        [$token, , $project, $server] = $this->setUpProject();
+        $staging = $this->env($project, 'staging');
+        $prod = $this->env($project, 'production');
+        $api = $this->api($token)->postJson('/api/v1/applications', ['name' => 'api', 'environment_id' => $prod['id'], 'source_type' => 'image', 'image' => 'acme/api:1', 'server_id' => $server->id, 'port' => 8080])->assertCreated()->json('data.id');
+        $web = $this->api($token)->postJson('/api/v1/applications', ['name' => 'web', 'environment_id' => $prod['id'], 'source_type' => 'image', 'image' => 'acme/web:1', 'server_id' => $server->id, 'port' => 80,
+            'env' => [['key' => 'API_URL', 'value' => 'http://api:8080']]])->assertCreated()->json('data.id');
+        $stg = $this->api($token)->postJson('/api/v1/applications', ['name' => 'web-staging', 'environment_id' => $staging['id'], 'source_type' => 'image', 'image' => 'acme/web:2', 'server_id' => $server->id])->assertCreated()->json('data.id');
+
+        $c = $this->api($token)->getJson("/api/v1/projects/{$project['id']}/canvas")->assertOk()->json('data');
+        $this->assertSame(['api', 'web', 'web-staging'], array_column($c['nodes'], 'name'));
+        $this->assertSame([['from' => $web, 'to' => $api, 'via' => 'API_URL']], $c['links']);
+        $this->assertSame($staging['id'], collect($c['nodes'])->firstWhere('id', $stg)['environment_id']);
+        $this->assertSame('acme/api:1', $c['nodes'][0]['source']);
+        $this->assertStringNotContainsString('8080', json_encode($c['links']));
+        $this->assertGreaterThanOrEqual(2, count($c['environments']));
+
+        $this->api($token)->putJson("/api/v1/projects/{$project['id']}/canvas/layout", ['positions' => [$web => ['x' => 400, 'y' => 20]]])->assertNoContent();
+        $this->assertSame(['x' => 400, 'y' => 20], $this->api($token)->getJson("/api/v1/projects/{$project['id']}/canvas")->json("data.layout.{$web}"));
+        $this->api($token)->putJson("/api/v1/projects/{$project['id']}/canvas/layout", ['positions' => ['00000000-0000-0000-0000-000000000000' => ['x' => 1, 'y' => 1]]])->assertStatus(422);
+
+        [, , $viewer] = $this->org('viewer');
+        $this->api($viewer)->getJson("/api/v1/projects/{$project['id']}/canvas")->assertNotFound();
+    }
 }

@@ -58,6 +58,45 @@ class ProjectController extends Controller
         return $this->data($this->present(Project::findOrFail($id)));
     }
 
+    /** Every app in the project, whichever environment it sits in. */
+    private function canvasApps(Project $p)
+    {
+        $envs = \App\Models\Environment::where('project_id', $p->id)->pluck('id');
+
+        return \App\Models\Application::where(fn ($q) => $q->where('project_id', $p->id)->orWhereIn('environment_id', $envs))->orderBy('name')->get();
+    }
+
+    /** PRJ: the project's apps as a graph, as customers see theirs. */
+    public function canvas(string $id, \App\Services\ProjectCanvasService $canvas)
+    {
+        $p = Project::findOrFail($id);
+        $apps = $this->canvasApps($p);
+
+        return $this->data([
+            'project' => ['id' => $p->id, 'name' => $p->name],
+            'layout' => $canvas->layout($p, $apps),
+            'environments' => \App\Models\Environment::where('project_id', $p->id)->orderBy('name')->get(['id', 'name', 'kind'])->map(fn ($e) => ['id' => $e->id, 'name' => $e->name, 'kind' => $e->kind])->values(),
+            'nodes' => $apps->map(fn ($a) => [
+                'id' => $a->id, 'name' => $a->name, 'state' => $a->asleep_at ? 'asleep' : $a->status, 'kind' => $a->kind,
+                'source' => $a->image ?: (((array) $a->source)['repo'] ?? $a->source_type),
+                'domain' => \App\Models\Domain::where('application_id', $a->id)->value('name'),
+                'environment_id' => $a->environment_id, 'region' => $a->region, 'size' => $a->size,
+                'deployments' => \App\Models\Deployment::where('application_id', $a->id)->latest()->limit(4)->get()
+                    ->map(fn ($d) => ['id' => $d->id, 'status' => $d->status, 'source' => $d->source, 'created_at' => $d->created_at?->toIso8601ZuluString()])->values(),
+            ])->values(),
+            'links' => $canvas->links($apps),
+        ]);
+    }
+
+    public function saveLayout(Request $request, string $id, \App\Services\ProjectCanvasService $canvas)
+    {
+        $p = Project::findOrFail($id);
+        $v = $request->validate(\App\Services\ProjectCanvasService::layoutRules());
+        $canvas->saveLayout($p, $this->canvasApps($p), $v['positions']);
+
+        return response()->noContent();
+    }
+
     /** PRJ-9: what a hand-over would move. */
     public function transferPreview(string $id)
     {
