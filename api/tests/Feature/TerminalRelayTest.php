@@ -128,4 +128,28 @@ class TerminalRelayTest extends TestCase
         $stopped = Container::allTenants()->create(['organization_id' => $x['org']->id, 'server_id' => $x['server']->id, 'name' => 'db', 'image' => 'pg', 'docker_id' => 'def', 'state' => 'exited']);
         $this->api($x['token'])->postJson("/api/v1/containers/{$stopped->id}/terminal-sessions")->assertStatus(409);
     }
+
+    /** Opening a terminal names a missing secret or a relay that is not running, instead of a bare WebSocket failure. */
+    public function test_opening_a_terminal_checks_the_relay_first(): void
+    {
+        [, $org, $token] = $this->org();
+        $this->api($token)->patchJson('/api/v1/settings', ['security' => ['require_approval_destructive' => false]])->assertOk();
+        $server = $this->server($org);
+        $this->enrollAgent($server, $token);
+        $c = Container::allTenants()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'name' => 'web', 'image' => 'nginx', 'docker_id' => 'abc123', 'state' => 'running']);
+        $open = fn () => $this->api($token)->postJson("/api/v1/containers/{$c->id}/terminal-sessions");
+        config(['security.relay.preflight' => true, 'security.relay.health_url' => 'http://127.0.0.1:8090/relay/healthz']);
+
+        config(['security.relay.secret' => null]);
+        $open()->assertStatus(503)->assertJsonPath('error.code', 'relay_not_configured')->assertJsonPath('error.message', fn ($m) => str_contains($m, 'RELAY_SECRET'));
+
+        config(['security.relay.secret' => self::SECRET]);
+        \Illuminate\Support\Facades\Http::fake(['127.0.0.1:8090/*' => \Illuminate\Support\Facades\Http::response('', 502)]);
+        $open()->assertStatus(503)->assertJsonPath('error.code', 'relay_unreachable')->assertJsonPath('error.message', fn ($m) => str_contains($m, 'dockermgr-relay'));
+        $this->assertSame(0, \App\Models\TerminalSession::allTenants()->count(), 'no session is left behind');
+
+        \Illuminate\Support\Facades\Http::swap(new \Illuminate\Http\Client\Factory);
+        \Illuminate\Support\Facades\Http::fake(['127.0.0.1:8090/*' => \Illuminate\Support\Facades\Http::response('ok')]);
+        $open()->assertCreated();
+    }
 }

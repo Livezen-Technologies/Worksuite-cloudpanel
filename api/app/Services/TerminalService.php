@@ -26,6 +26,32 @@ class TerminalService
         return config('security.terminal.shells')[0] ?? '/bin/sh';
     }
 
+    /**
+     * Before a terminal opens: is the relay set up and running? Each answer names
+     * the fix, because the browser can only report that its WebSocket failed.
+     */
+    public static function preflight(): void
+    {
+        if (! config('security.relay.preflight')) {
+            return;
+        }
+        if (strlen((string) config('security.relay.secret')) < 16) {
+            throw new ApiException('relay_not_configured', 'The terminal relay is not set up: RELAY_SECRET is missing from the API settings (.env). Set the same value (16+ characters) for the API and the relay, then restart both.', 503);
+        }
+        $url = (string) config('security.relay.health_url');
+        if ($url === '') {
+            return;
+        }
+        try {
+            $ok = \Illuminate\Support\Facades\Http::timeout(3)->get($url)->successful();
+        } catch (\Throwable) {
+            $ok = false;
+        }
+        if (! $ok) {
+            throw new ApiException('relay_unreachable', "The terminal relay is not running or not reachable at {$url}. Start the dockermgr-relay service on the panel server (systemctl status dockermgr-relay), or set RELAY_HEALTH_URL to where it listens.", 503);
+        }
+    }
+
     /** Relay: validate the browser's token and return the session + signed agent command. */
     public function connect(string $id, string $token, int $cols, int $rows, ?string $ip): array
     {

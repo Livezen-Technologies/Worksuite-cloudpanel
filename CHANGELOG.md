@@ -9,6 +9,30 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.11.2] — 2026-11-04
+
+### Fixed
+
+- Containers: search now also finds a container by its app, its Compose stack
+  or service, its server, its container ID or a port. Before, it matched only
+  the container's own name and image, so searching for an app or stack found
+  nothing when Docker or Compose had named the container. (#173)
+- Containers: the list loads up to 200 containers instead of 100, so search
+  and filters see all of them on larger servers. (#173)
+- Container terminal: opening one now first checks that the terminal relay
+  is set up (`RELAY_SECRET`) and running (`RELAY_HEALTH_URL`, by default
+  `http://127.0.0.1:8090/relay/healthz`). If not, it says which, and how to
+  fix it. Before, the browser only reported that the connection failed.
+  (#173)
+- Container terminal: when the browser cannot open the connection, the
+  message names the address it tried and explains that the web server must
+  forward `/relay/` to the relay as a WebSocket. A connection that drops
+  later points at the agent. (#173)
+- Container terminal: images without the configured shell user (`app`), such
+  as WordPress and most databases, now open a shell instead of failing. The
+  agent tries the container's own non-root user, then `www-data`, `node` and
+  `nobody`, and says which one it used. It never uses root. (#173)
+
 ## [1.11.1] — 2026-11-04
 
 ### Fixed

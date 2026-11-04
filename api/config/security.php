@@ -10,6 +10,10 @@ return [
         // Base the agent dials back to (signed into terminal.open) and keeps its control connection on.
         // Browser-facing base for ws_url (relative URLs resolve against the panel origin).
         'ws_url' => env('TERMINAL_WS_URL', '/relay/terminal'),
+        // Checked before a terminal opens, so a relay that is not running is named instead of the
+        // browser's WebSocket simply failing. Empty turns the check off.
+        'health_url' => env('RELAY_HEALTH_URL', 'http://127.0.0.1:'.env('RELAY_PORT', '8090').'/relay/healthz'),
+        'preflight' => (bool) env('RELAY_PREFLIGHT', true),
         'agent_url' => env('RELAY_AGENT_URL', rtrim(env('PANEL_URL', env('APP_URL', 'http://localhost')), '/').'/relay'),
         'recording_disk' => env('TERMINAL_RECORDING_DISK', 'local'),
         'recording_max_bytes' => (int) env('TERMINAL_RECORDING_MAX_BYTES', 8 * 1024 * 1024),

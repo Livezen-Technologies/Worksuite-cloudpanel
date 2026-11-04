@@ -23,4 +23,5 @@ export interface Container {
   id: string; name: string; image: string; server_id: string; server_name?: string; server?: { id: string; name: string }
   state: string; health?: string | null; cpu_pct?: number; mem_mb?: number; ports?: string | string[]; created?: string; uptime?: string
   limits?: { cpus?: number; memory_mb?: number }; user?: string; restart_policy?: string
+  docker_id?: string | null; application_name?: string | null; compose_project?: string | null; compose_service?: string | null
 }

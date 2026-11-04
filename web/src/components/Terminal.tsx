@@ -22,6 +22,18 @@ export function terminalSocketUrl(wsUrl: string, cols: number, rows: number, bas
 }
 
 /**
+ * What to tell someone whose terminal WebSocket failed. The panel already checked that the relay
+ * is running before giving out the session, so a socket that never opens is almost always the
+ * web server in front of the panel not passing /relay/ through as a WebSocket.
+ */
+export function terminalSocketError(url: string, opened: boolean): string {
+  if (opened) return 'The terminal connection dropped. Check that the server’s agent is online, then open the terminal again.'
+  let where = url
+  try { const u = new URL(url); where = `${u.protocol}//${u.host}/relay/terminal/` } catch { /* keep as is */ }
+  return `Your browser could not open the terminal connection (${where}). The web server in front of the panel must forward /relay/ to the terminal relay with WebSocket upgrade headers (see docs/deploy/nginx-agent-mtls.conf); if RELAY_ALLOWED_ORIGINS is set, it must include ${window.location.origin}.`
+}
+
+/**
  * CTR-008 / LOG-002: exec terminal over the relay WebSocket. Binary frames carry the TTY stream,
  * text frames are JSON control messages (resize, status, ready, exit, closed). The session is
  * time-limited, non-root, recorded, and "End session" closes it for good.
@@ -68,10 +80,12 @@ export function TerminalDialog({ containerId, name, open, onClose }: { container
       } catch (e) { if (!disposed) setErr((e as Error).message); return }
       if (disposed) return
       sessRef.current = s; setSess(s)
-      const sock = new WebSocket(terminalSocketUrl(s.ws_url, t.cols, t.rows))
+      const url = terminalSocketUrl(s.ws_url, t.cols, t.rows)
+      const sock = new WebSocket(url)
+      let opened = false
       sock.binaryType = 'arraybuffer'
       ws.current = sock
-      sock.onopen = () => setStatus('Connected · waiting for the agent…')
+      sock.onopen = () => { opened = true; setStatus('Connected · waiting for the agent…') }
       sock.onmessage = (m) => {
         if (m.data instanceof ArrayBuffer) { t.write(new Uint8Array(m.data)); return }
         let c: Control
@@ -83,7 +97,7 @@ export function TerminalDialog({ containerId, name, open, onClose }: { container
         else if (c.type === 'closed') setEnded(c.reason ?? 'closed')
       }
       sock.onclose = () => { setEnded((r) => r ?? 'disconnected'); ws.current = null }
-      sock.onerror = () => setErr('The terminal connection failed. Check that the relay and the agent are online.')
+      sock.onerror = () => setErr(terminalSocketError(url, opened))
       t.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(enc.encode(d)) })
       t.onResize(({ cols, rows }) => sendCtl({ type: 'resize', cols, rows }))
       ro = new ResizeObserver(() => { try { fit.fit() } catch { /* hidden */ } })
