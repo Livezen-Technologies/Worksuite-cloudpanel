@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -59,6 +60,10 @@ type fakeDockerExec struct {
 	mu      sync.Mutex
 	created map[string]any
 	resized []string
+	probes  []string       // users the agent tried before the shell
+	exitFor map[string]int // probe exit code per user (default 0)
+	cfgUser string         // the container's own Config.User
+	lastBy  map[string]string
 }
 
 func (f *fakeDockerExec) handler(t *testing.T) http.Handler {
@@ -67,13 +72,35 @@ func (f *fakeDockerExec) handler(t *testing.T) http.Handler {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.lastBy == nil {
+			f.lastBy = map[string]string{}
+		}
+		if body["Tty"] != true { // a user probe
+			u, _ := body["User"].(string)
+			f.probes = append(f.probes, u)
+			id := fmt.Sprintf("probe%d", len(f.probes))
+			f.lastBy[id] = u
+			w.WriteHeader(201)
+			io.WriteString(w, `{"Id":"`+id+`"}`)
+			return
+		}
 		f.created = body
 		f.created["container"] = r.PathValue("id")
-		f.mu.Unlock()
 		w.WriteHeader(201)
 		io.WriteString(w, `{"Id":"exec1"}`)
 	})
+	mux.HandleFunc("GET /containers/{id}/json", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		io.WriteString(w, `{"Id":"abc123","Config":{"User":"`+f.cfgUser+`"}}`)
+	})
 	mux.HandleFunc("POST /exec/{id}/start", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.PathValue("id"), "probe") {
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(200)
+			return
+		}
 		if r.Header.Get("Upgrade") != "tcp" {
 			t.Error("exec start without Upgrade: tcp")
 		}
@@ -99,7 +126,10 @@ func (f *fakeDockerExec) handler(t *testing.T) http.Handler {
 		w.WriteHeader(201)
 	})
 	mux.HandleFunc("GET /exec/{id}/json", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"Running":false,"ExitCode":0}`)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		code := f.exitFor[f.lastBy[r.PathValue("id")]]
+		fmt.Fprintf(w, `{"Running":false,"ExitCode":%d}`, code)
 	})
 	return mux
 }
@@ -186,5 +216,41 @@ func TestOpenTerminalDialsRelayAndBridgesExec(t *testing.T) {
 	// Disabled terminal config refuses.
 	if _, err := (&Executor{}).openTerminal(context.Background(), payload); err == nil {
 		t.Fatal("terminal opened without config")
+	}
+}
+
+func TestTerminalFallsBackToANonRootUserThatExists(t *testing.T) {
+	cases := []struct {
+		name, cfgUser, want string
+		exit                map[string]int
+	}{
+		{"configured user exists", "", "app", nil},
+		{"container's own user", "1000:1000", "1000", map[string]int{"app": 126}},
+		{"root falls back", "root", "www-data", map[string]int{"app": 126}},
+		{"none work", "", "app", map[string]int{"app": 126, "www-data": 126, "node": 126, "nobody": 126}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fd := &fakeDockerExec{exitFor: c.exit, cfgUser: c.cfgUser}
+			sock := filepath.Join(t.TempDir(), "d.sock")
+			l, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dsrv := httptest.NewUnstartedServer(fd.handler(t))
+			dsrv.Listener = l
+			dsrv.Start()
+			defer dsrv.Close()
+			e := &Executor{Docker: docker.New(sock), Log: log.New(io.Discard, "", 0)}
+			got, changed := e.terminalUser(context.Background(), "abc123", "app", "/bin/sh")
+			if got != c.want || changed != (c.want != "app") {
+				t.Fatalf("got %q changed=%v, want %q (probes %v)", got, changed, c.want, fd.probes)
+			}
+			for _, p := range fd.probes {
+				if IsRootUser(p) {
+					t.Fatalf("probed root: %v", fd.probes)
+				}
+			}
+		})
 	}
 }
