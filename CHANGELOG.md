@@ -9,6 +9,30 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-11-04
+
+### Added
+
+- `scripts/setup-relay.sh` sets up the terminal relay on the panel server in
+  one command (`sudo scripts/setup-relay.sh`, plus `--ssh-port 2222` for SSH
+  access). Running it again is safe: it keeps an existing secret and changes
+  only what is missing. `--check` reports what is set up without changing
+  anything. (#178)
+  - It puts one shared `RELAY_SECRET` in the API's `.env` and in
+    `/etc/dockermgr/relay.env` (mode 0600), and never shows it.
+  - It builds and installs the `dockermgr-relay` binary (amd64 or arm64).
+  - It installs and starts the systemd service.
+  - It writes the nginx upstream and an include snippet for
+    `/relay/terminal/`, then tells you the one `include` line to add to the
+    panel's server block.
+  - It rebuilds the API's config cache and checks that the relay answers.
+- The agent build now also produces an arm64 relay binary. (#178)
+
+### Changed
+
+- The terminal's "relay not set up" and "relay not reachable" messages now
+  point to `scripts/setup-relay.sh`. (#178)
+
 ## [1.13.2] — 2026-11-04
 
 ### Changed

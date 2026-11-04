@@ -36,7 +36,7 @@ class TerminalService
             return;
         }
         if (strlen((string) config('security.relay.secret')) < 16) {
-            throw new ApiException('relay_not_configured', 'The terminal relay is not set up: RELAY_SECRET is missing from the API settings (.env). Set the same value (16+ characters) for the API and the relay, then restart both.', 503);
+            throw new ApiException('relay_not_configured', 'The terminal relay is not set up: RELAY_SECRET is missing from the API settings (.env). On the panel server, run: sudo scripts/setup-relay.sh (it sets the secret, installs the relay and its service, and prints the nginx line to add).', 503);
         }
         $url = (string) config('security.relay.health_url');
         if ($url === '') {
@@ -48,7 +48,7 @@ class TerminalService
             $ok = false;
         }
         if (! $ok) {
-            throw new ApiException('relay_unreachable', "The terminal relay is not running or not reachable at {$url}. Start the dockermgr-relay service on the panel server (systemctl status dockermgr-relay), or set RELAY_HEALTH_URL to where it listens.", 503);
+            throw new ApiException('relay_unreachable', "The terminal relay is not running or not reachable at {$url}. On the panel server, run: sudo scripts/setup-relay.sh, or check the dockermgr-relay service (systemctl status dockermgr-relay).", 503);
         }
     }
 
