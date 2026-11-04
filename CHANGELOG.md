@@ -33,9 +33,9 @@ Dates are the dates the work landed on `main`.
 
 ### Changed
 
-- Building the agent and relay now needs Go 1.25 or newer, because the SSH
-  library (`golang.org/x/crypto` v0.52.0) requires it. That library version
-  also has the fixes for its known SSH server vulnerabilities. (#175)
+- Building the agent and relay now needs Go 1.26 or newer, because the SSH
+  library (`golang.org/x/crypto` v0.58.0) requires it. That library version
+  also has the fixes for all of its known SSH server vulnerabilities. (#175)
 
 ## [1.12.0] — 2026-11-04
 
