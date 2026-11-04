@@ -75,6 +75,11 @@ return [
             'subject' => 'Your {{source}} migration is complete', 'preview' => '{{sites}} sites are running here.',
             'heading' => 'Migration complete', 'body' => "All {{sites}} sites from your {{source}} backup are running here. Check each one on its temporary address, then switch DNS when you are happy:", 'code' => '{{site_list}}',
             'button_label' => 'Review and switch DNS', 'button_url' => '{{migration_url}}'],
+        // SITE: a visitor asked sales to get in touch (sent to staff).
+        'sales_lead' => ['tone' => 'violet', 'group' => 'account', 'name' => 'Sales lead (staff)', 'vars' => ['lead_name', 'lead_email', 'lead_company', 'lead_budget', 'lead_message', 'leads_url'],
+            'subject' => 'Sales lead: {{lead_name}} ({{lead_company}})', 'preview' => '{{lead_email}} · budget {{lead_budget}}',
+            'heading' => 'New sales lead', 'body' => '{{lead_name}} ({{lead_email}}) from {{lead_company}} (budget {{lead_budget}}) wrote:', 'code' => '{{lead_message}}',
+            'button_label' => 'Open sales leads', 'button_url' => '{{leads_url}}'],
         'migration_failed' => ['tone' => 'red', 'group' => 'deployments', 'name' => 'Migration failed', 'vars' => ['source', 'site', 'error', 'migration_url'],
             'subject' => 'Your {{source}} migration stopped', 'preview' => '{{site}}: {{error}}',
             'heading' => 'Migration stopped', 'body' => 'Migrating {{site}} from your {{source}} backup failed. Nothing on your old host was changed. The reason:', 'code' => '{{error}}',

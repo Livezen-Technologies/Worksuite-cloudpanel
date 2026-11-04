@@ -9,6 +9,24 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-11-04
+
+### Added
+
+- A public marketing website at the panel's address: Home, Pricing (monthly or
+  yearly prices, usage rates, a bill estimate and FAQ), Templates (search and
+  categories), Docs, Changelog, Blog, About, Contact sales and Legal, with a
+  light and dark theme. Signed-in visitors see a Dashboard button. Some copy
+  (customer logos, stats, team, blog and changelog samples) is placeholder
+  text kept in `web/src/site/content.ts`.
+- Contact sales form: messages are saved, staff get a "New sales lead" email,
+  and staff can read and close them under Admin → Sales leads. The form is
+  rate-limited and uses the captcha and a hidden spam trap.
+
+### Changed
+
+- Opening `/` now shows the website instead of jumping straight to sign in.
+
 ## [1.6.0] — 2026-11-04
 
 ### Added

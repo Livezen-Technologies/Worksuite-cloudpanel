@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { ReactNode } from 'react'
 import { isApiError } from './api/client'
-import { AuthProvider, homeFor, useAuth } from './lib/auth'
+import { AuthProvider, useAuth } from './lib/auth'
 import { ToastProvider } from './components/Toasts'
 import { JobsProvider } from './api/jobs'
 import { ForgotPassword, InviteAccept, SsoCallback, Login, Register, ResetPassword, VerifyEmail } from './pages/auth/Auth'
@@ -55,6 +55,9 @@ import { FinanceOverview, FinanceReports, FinanceSettings, FinanceGateways, Fina
 import { FinanceInvoices, FinancePayments, FinanceRefunds, FinanceSubscriptions, FinanceTransactions } from './pages/admin/FinanceLedger'
 import { CustomersOverview, CustomerDirectory, Companies, CustomerContacts, CustomerGroups } from './pages/admin/Customers'
 import AppManage from './pages/admin/AppManage'
+import SalesLeads from './pages/admin/SalesLeads'
+import { SiteLayout } from './site/SiteLayout'
+import { SiteHome, Pricing, Templates, Docs, Changelog, Blog, About, Contact, Legal } from './site/pages'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,16 +76,21 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (!me) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />
   return <>{children}</>
 }
-function Home() {
-  const { me, loading } = useAuth()
-  if (loading) return <div className="p-8 text-muted">Loading…</div>
-  return <Navigate to={me ? homeFor(me) : '/login'} replace />
-}
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route element={<SiteLayout />}>
+        <Route path="/" element={<SiteHome />} />
+        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/templates" element={<Templates />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="/changelog" element={<Changelog />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/legal" element={<Legal />} />
+      </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/status" element={<Status />} />
       <Route path="/invite/:token" element={<InviteAccept />} />
@@ -113,6 +121,7 @@ export function AppRoutes() {
         <Route path="ai" element={<AiAdmin />} />
         <Route path="cluster" element={<Cluster />} />
         <Route path="kubernetes" element={<Kubernetes />} />
+        <Route path="leads" element={<SalesLeads />} />
         <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="deployments/:id" element={<DeploymentProgress />} />
