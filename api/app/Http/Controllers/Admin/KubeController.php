@@ -64,7 +64,7 @@ class KubeController extends Controller
             throw ApiException::validation(['namespace' => ['Invalid namespace.']]);
         }
 
-        return $this->data($this->present($c) + $this->kube->overview($c, $ns ?: null));
+        return $this->data($this->present($c) + $this->kube->overview($c, $ns ?: null) + $this->kube->routing($c, $ns ?: null));
     }
 
     public function deploy(Request $request, string $id)
@@ -117,6 +117,46 @@ class KubeController extends Controller
         @unlink(storage_path('app/kube-ca-'.$c->id.'.pem'));
         $c->delete();
         $this->audit->log('kube.disconnect', 'kube_cluster', $id);
+
+        return response()->noContent();
+    }
+
+    public function pods(string $id, string $ns, string $name)
+    {
+        return $this->data($this->kube->pods(KubeCluster::findOrFail($id), $ns, $name));
+    }
+
+    public function logs(Request $request, string $id, string $ns, string $pod)
+    {
+        $c = KubeCluster::findOrFail($id);
+        $v = $request->validate(['container' => 'nullable|string|max:63', 'tail' => 'nullable|integer|between:10,5000', 'previous' => 'nullable|boolean']);
+        $text = $this->kube->logs($c, $ns, $pod, $v['container'] ?? null, (int) ($v['tail'] ?? 300), (bool) ($v['previous'] ?? false));
+        $this->audit->log('kube.logs', 'kube_cluster', $c->id, ['namespace' => $ns, 'pod' => $pod]);
+
+        return $this->data(['lines' => $text === '' ? [] : explode("\n", rtrim($text, "\n"))]);
+    }
+
+    public function storeIngress(Request $request, string $id)
+    {
+        $c = KubeCluster::findOrFail($id);
+        $v = $request->validate([
+            'namespace' => ['required', 'string', 'regex:'.KubeService::NAME], 'service' => ['required', 'string', 'regex:'.KubeService::NAME],
+            'name' => ['nullable', 'string', 'regex:'.KubeService::NAME], 'port' => 'required|integer|between:1,65535',
+            'host' => ['required', 'string', 'max:253', 'regex:'.KubeService::HOST],
+            'class' => ['nullable', 'string', 'regex:'.KubeService::NAME], 'issuer' => ['nullable', 'string', 'regex:'.KubeService::NAME],
+        ]);
+        $v['host'] = strtolower($v['host']);
+        $r = $this->kube->createIngress($c, $v);
+        $this->audit->log('kube.ingress.create', 'kube_cluster', $c->id, ['namespace' => $v['namespace'], 'host' => $v['host'], 'service' => $v['service'], 'tls' => $r['tls']]);
+
+        return $this->data($r, 201);
+    }
+
+    public function destroyIngress(string $id, string $ns, string $name)
+    {
+        $c = KubeCluster::findOrFail($id);
+        $this->kube->deleteIngress($c, $ns, $name);
+        $this->audit->log('kube.ingress.delete', 'kube_cluster', $c->id, ['namespace' => $ns, 'name' => $name]);
 
         return response()->noContent();
     }

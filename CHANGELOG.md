@@ -9,6 +9,26 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-11-04
+
+### Added
+
+- Kubernetes: a Pods button on each deployment lists its pods, with
+  readiness, restarts, the waiting reason (such as CrashLoopBackOff) and the
+  node. Logs opens the last 300 lines of a pod's container, including from
+  before its last restart. (#170)
+- Kubernetes: a domains (ingresses) section lists each host, the service it
+  points to, its address and whether it has HTTPS. Staff can add or delete a
+  domain for a service. (#170)
+- Kubernetes: when cert-manager is installed, a domain can get an HTTPS
+  certificate from one of the cluster's issuers (such as Let's Encrypt),
+  which cert-manager then renews on its own. (#170)
+
+### Changed
+
+- Kubernetes: the cluster page still loads when the token is not allowed to
+  read ingresses or cert-manager; those sections are then hidden. (#170)
+
 ## [1.9.0] — 2026-11-04
 
 ### Added
