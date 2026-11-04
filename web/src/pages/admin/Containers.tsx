@@ -18,6 +18,40 @@ import { Icon } from '../../components/Icon'
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 
 const ports = (p: Container['ports']) => (Array.isArray(p) ? p.join(', ') : p) || '—'
+
+/** "sha256:39d0…" and "repo@sha256:4c9b…" read as a short digest; tags stay as they are. */
+export function shortImage(image: string): string {
+  const m = image.match(/^(.*?)@?sha256:([0-9a-f]{12})[0-9a-f]*$/i)
+  if (!m) return image
+  return m[1] ? `${m[1]}@${m[2]}` : `sha256:${m[2]}`
+}
+
+/** "0.0.0.0:18081->18081/tcp" → "18081→18081", "127.0.0.1:8080->80/tcp" → "local 8080→80", "3000/tcp" → "3000". */
+export function shortPort(p: string): string {
+  const m = p.trim().match(/^(?:\[?([\d.:a-f]*)\]?:)?(\d+)(?:->(\d+))?(?:\/(tcp|udp))?$/i)
+  if (!m) return p.trim()
+  const [, ip, a, b, proto] = m
+  const local = ip === '127.0.0.1' || ip === '::1'
+  const core = b ? `${a}→${b}` : a
+  return `${local ? 'local ' : ''}${core}${proto?.toLowerCase() === 'udp' ? '/udp' : ''}`
+}
+
+/** IPv4 and IPv6 publish the same port twice; show it once. */
+export function portList(p: Container['ports']): string[] {
+  const all = (Array.isArray(p) ? p : String(p ?? '').split(',')).map((x) => x.trim()).filter(Boolean)
+  return [...new Set(all.map(shortPort))]
+}
+
+function Meter({ value, max, label }: { value: number; max: number; label: string }) {
+  const pctv = max > 0 ? Math.min(100, (value / max) * 100) : 0
+  const tone = pctv >= 90 ? 'var(--r-fg)' : pctv >= 70 ? 'var(--y-fg)' : 'var(--accent)'
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <span className="tabular-nums">{label}</span>
+      <span aria-hidden="true" className="block h-1 w-14 rounded-full bg-head overflow-hidden"><span className="block h-full rounded-full" style={{ width: `${Math.max(pctv, value > 0 ? 3 : 0)}%`, background: tone }} /></span>
+    </span>
+  )
+}
 const dotTone = (c: Container): Tone => (c.state === 'running' ? (c.health === 'unhealthy' ? 'r' : 'g') : c.state === 'paused' ? 'y' : 'n')
 
 /**
@@ -306,14 +340,38 @@ export default function Containers() {
         }}
         minWidth={980}
         columns={[
-          { key: 'name', header: 'Name', render: (r) => <span className="inline-flex items-center gap-2 font-semibold"><Dot tone={dotTone(r)} />{r.name}</span> },
-          { key: 'image', header: 'Image', render: (r) => <span className="font-mono text-[11.5px] text-muted">{r.image}</span> },
+          { key: 'name', header: 'Name', value: (r) => r.name, render: (r) => (
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Dot tone={dotTone(r)} />
+              <span className="min-w-0">
+                <span className="block font-semibold truncate max-w-[16rem]" title={r.name}>{r.name}</span>
+                {(r.application_name || r.compose_project) && <span className="block text-xs text-muted truncate max-w-[16rem]">{r.application_name ? `app ${r.application_name}` : `stack ${r.compose_project}${r.compose_service ? ` · ${r.compose_service}` : ''}`}</span>}
+              </span>
+            </span>
+          ) },
+          { key: 'image', header: 'Image', value: (r) => r.image, render: (r) => <span className="block max-w-[18rem] truncate font-mono text-[11.5px] text-muted" title={r.image}>{shortImage(r.image)}</span> },
           { key: 'server', header: 'Server', value: (r) => serverName(r as unknown as R) },
-          { key: 'state', header: 'State', options: ['running', 'exited', 'paused', 'created', 'restarting'], render: (r) => <StatusBadge status={r.state} /> },
-          { key: 'health', header: 'Health', options: ['healthy', 'unhealthy', 'starting', 'none'], render: (r) => <StatusBadge status={r.health ?? '—'} /> },
-          { key: 'cpu_pct', header: 'CPU', kind: 'number', align: 'right', value: (r) => r.cpu_pct ?? 0, render: (r) => pct(r.cpu_pct) },
-          { key: 'mem_mb', header: 'Memory', kind: 'number', align: 'right', value: (r) => r.mem_mb ?? 0, render: (r) => mb(r.mem_mb) },
-          { key: 'ports', header: 'Ports', value: (r) => ports(r.ports), render: (r) => <span className="block max-w-[18rem] truncate font-mono text-[11.5px] text-muted" title={ports(r.ports)}>{ports(r.ports)}</span> },
+          { key: 'state', header: 'Status', options: ['running', 'exited', 'paused', 'created', 'restarting'], value: (r) => r.state, render: (r) => (
+            <span className="inline-flex items-center gap-1.5">
+              <StatusBadge status={r.state} />
+              {r.health === 'unhealthy' && <StatusBadge status="unhealthy" />}
+              {r.health === 'starting' && <StatusBadge status="starting" />}
+              {r.health === 'healthy' && <span className="text-xs text-success" title="Health check passing">✓ healthy</span>}
+            </span>
+          ) },
+          { key: 'health', header: 'Health', hidden: true, options: ['healthy', 'unhealthy', 'starting', 'none'], render: (r) => <StatusBadge status={r.health ?? '—'} /> },
+          { key: 'cpu_pct', header: 'CPU', kind: 'number', align: 'right', value: (r) => r.cpu_pct ?? 0, render: (r) => r.state === 'running' ? <Meter value={r.cpu_pct ?? 0} max={100} label={pct(r.cpu_pct)} /> : <span className="text-muted">—</span> },
+          { key: 'mem_mb', header: 'Memory', kind: 'number', align: 'right', value: (r) => r.mem_mb ?? 0, render: (r) => r.state === 'running' ? (r.limits?.memory_mb ? <Meter value={r.mem_mb ?? 0} max={r.limits.memory_mb} label={mb(r.mem_mb)} /> : <span className="tabular-nums">{mb(r.mem_mb)}</span>) : <span className="text-muted">—</span> },
+          { key: 'ports', header: 'Ports', value: (r) => ports(r.ports), render: (r) => {
+            const list = portList(r.ports)
+            if (!list.length) return <span className="text-muted">—</span>
+            return (
+              <span className="flex items-center gap-1 whitespace-nowrap" title={ports(r.ports)}>
+                <code className="rounded bg-head px-1.5 py-0.5 font-mono text-[11px]">{list[0]}</code>
+                {list.length > 1 && <span className="text-xs text-muted">+{list.length - 1}</span>}
+              </span>
+            )
+          } },
         ]} />
       <p className="m-0 text-xs text-muted">Removing a container never deletes attached volumes unless you untick “Keep attached volumes”.</p>
       {sel && <DetailPanel id={sel} onClose={() => setParams({})} />}

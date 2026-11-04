@@ -9,6 +9,23 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.13.2] — 2026-11-04
+
+### Changed
+
+- Containers list tidied up. (#177)
+  - Names show their app, or their Compose stack and service, underneath.
+  - Images given as a digest are shortened to `sha256:39d0d31dde66` or
+    `repo@4c9b34c113e6`; the full image shows on hover.
+  - State and health share one Status column: a "✓ healthy" mark, an
+    unhealthy badge, and nothing when there is no health check. The separate
+    Health column can still be turned on under Columns.
+  - Ports show as one short tag, such as `18081→18081` or `local 8080→80`,
+    with "+2" for more. IPv4/IPv6 duplicates are dropped and the full list
+    shows on hover.
+  - CPU and memory have small usage bars (memory against its limit when one
+    is set). Stopped containers show "—" instead of "0% · 0 MB".
+
 ## [1.13.1] — 2026-11-04
 
 ### Changed
