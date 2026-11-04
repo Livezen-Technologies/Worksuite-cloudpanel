@@ -19,7 +19,7 @@ class Project extends Model
 
     protected function casts(): array
     {
-        return ['webhook_secret' => 'encrypted'];
+        return ['webhook_secret' => 'encrypted', 'canvas_layout' => 'array'];
     }
 
     public function environments() { return $this->hasMany(Environment::class); }

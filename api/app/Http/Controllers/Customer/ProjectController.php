@@ -201,19 +201,80 @@ class ProjectController extends Controller
 
         return $this->data([
             'project' => ['id' => $p->id, 'name' => $p->name, 'color' => $p->color ?? 'blue'],
+            // Saved positions, only for apps still in the project.
+            'layout' => (object) collect($p->canvas_layout ?? [])->only($apps->pluck('id'))->all(),
+            'environments' => \App\Models\Environment::where('project_id', $p->id)->orderBy('name')->get(['id', 'name', 'kind'])
+                ->map(fn ($e) => ['id' => $e->id, 'name' => $e->name, 'kind' => $e->kind])->values(),
             'nodes' => $apps->map(function ($a) use ($hosting, $prices) {
                 $x = $hosting->toApi($a);
 
                 return [
                     'id' => $a->id, 'name' => $a->name, 'state' => $x['state'], 'source' => $x['source'], 'domain' => $x['primary_domain'] ?? $x['address'],
                     'size' => $a->size, 'ram_limit_mb' => $x['ram_limit_mb'], 'cpu_pct' => $x['cpu_pct'], 'ram_mb' => $x['ram_mb'], 'volume_path' => $a->volume_path,
-                    'region' => $a->region, 'cost_cents' => (int) ($prices[$a->size] ?? 0),
+                    'region' => $a->region, 'environment_id' => $a->environment_id, 'cost_cents' => (int) ($prices[$a->size] ?? 0),
                     'deployments' => \App\Models\Deployment::where('application_id', $a->id)->latest()->limit(4)->get()
                         ->map(fn ($d) => ['id' => $d->id, 'status' => $d->status, 'source' => $d->source, 'created_at' => $d->created_at?->toIso8601ZuluString()])->values(),
                 ];
             })->values(),
             'links' => array_values($links),
         ]);
+    }
+
+    /** UPRJ: remember where the customer dragged each app. */
+    public function saveLayout(Request $request, string $id)
+    {
+        $p = Project::findOrFail($id);
+        $v = $request->validate(['positions' => 'present|array|max:500', 'positions.*.x' => 'required|integer|min:0|max:20000', 'positions.*.y' => 'required|integer|min:0|max:20000']);
+        $ids = Application::where('kind', 'customer')->where('project_id', $p->id)->pluck('id')->all();
+        $unknown = array_diff(array_keys($v['positions']), $ids);
+        if ($unknown) {
+            throw ApiException::validation(['positions' => ['Only apps in this project can be placed on its canvas.']]);
+        }
+        $p->update(['canvas_layout' => $v['positions'] ? collect($v['positions'])->map(fn ($xy) => ['x' => (int) $xy['x'], 'y' => (int) $xy['y']])->all() : null]);
+
+        return response()->noContent();
+    }
+
+    /**
+     * UPRJ: draw a line on the canvas. Gives the calling app a variable with the
+     * other app's private address, which is what the canvas reads links from.
+     */
+    public function link(Request $request, string $id)
+    {
+        [$from, $to] = $this->pair($request, $id);
+        $v = $request->validate(['key' => ['nullable', 'string', 'max:120', 'regex:/^[A-Za-z_][A-Za-z0-9_]*$/']]);
+        $key = $v['key'] ?? strtoupper(preg_replace('/[^A-Za-z0-9]+/', '_', $to->name)).'_URL';
+        if (\App\Models\EnvVar::where('application_id', $from->id)->where('key', $key)->exists()) {
+            throw ApiException::validation(['key' => ["{$from->name} already has a variable called {$key}. Choose another name."]]);
+        }
+        \App\Models\EnvVar::create(['application_id' => $from->id, 'key' => $key, 'value' => 'http://'.$to->name.($to->port ? ':'.$to->port : ''), 'secret' => false]);
+
+        return $this->data(['from' => $from->id, 'to' => $to->id, 'via' => $key, 'redeploy_needed' => true], 201);
+    }
+
+    /** UPRJ: remove a line: deletes the variable the line was drawn from. */
+    public function unlink(Request $request, string $id)
+    {
+        [$from, $to] = $this->pair($request, $id);
+        $v = $request->validate(['key' => 'required|string|max:120']);
+        $var = \App\Models\EnvVar::where('application_id', $from->id)->where('key', $v['key'])->firstOrFail();
+        $re = '/(^|[\/@:=\s,])'.preg_quote($to->name, '/').'(?=$|[:\/\s,.])/i';
+        if (! preg_match($re, (string) $var->value)) {
+            throw ApiException::validation(['key' => ["{$v['key']} does not point at {$to->name}."]]);
+        }
+        $var->delete();
+
+        return response()->noContent();
+    }
+
+    /** @return array{0: Application, 1: Application} */
+    private function pair(Request $request, string $id): array
+    {
+        $p = Project::findOrFail($id);
+        $v = $request->validate(['from' => 'required|uuid', 'to' => 'required|uuid|different:from']);
+        $q = fn () => Application::where('kind', 'customer')->where('project_id', $p->id);
+
+        return [$q()->findOrFail($v['from']), $q()->findOrFail($v['to'])];
     }
 
     private function unique(string $name, ?string $except = null): void

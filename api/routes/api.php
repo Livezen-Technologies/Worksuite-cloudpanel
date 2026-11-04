@@ -689,6 +689,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
             Route::patch('projects/{id}', [Customer\ProjectController::class, 'update'])->name('projects.update');
             Route::get('projects/{id}/canvas', [Customer\ProjectController::class, 'canvas'])->name('projects.canvas');
+            Route::put('projects/{id}/canvas/layout', [Customer\ProjectController::class, 'saveLayout'])->name('projects.canvas.layout');
+            Route::post('projects/{id}/canvas/links', [Customer\ProjectController::class, 'link'])->name('projects.canvas.link');
+            Route::delete('projects/{id}/canvas/links', [Customer\ProjectController::class, 'unlink'])->name('projects.canvas.unlink');
             Route::delete('projects/{id}', [Customer\ProjectController::class, 'destroy'])->name('projects.destroy');
             Route::post('projects/{id}/webhook-secret', [Customer\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
             Route::post('projects/{id}/apps', [Customer\ProjectController::class, 'assign'])->name('projects.apps.assign');

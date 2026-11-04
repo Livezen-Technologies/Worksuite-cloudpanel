@@ -116,4 +116,44 @@ class CustomerProjectsTest extends TestCase
         [, , $other] = $this->org();
         $this->api($other)->getJson("/api/v1/app/projects/{$p['id']}/canvas")->assertNotFound();
     }
+
+    public function test_the_canvas_saves_a_layout_and_draws_and_removes_links(): void
+    {
+        [, $org, $token] = $this->org();
+        $web = $this->app($org->id, 'web');
+        $api = $this->app($org->id, 'billing-api');
+        $outside = $this->app($org->id, 'elsewhere');
+        $p = $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Shop', 'environment' => 'production'])->json('data');
+        foreach ([$web, $api] as $a) {
+            $this->api($token)->postJson("/api/v1/app/projects/{$p['id']}/apps", ['app_id' => $a->id])->assertOk();
+        }
+        $base = "/api/v1/app/projects/{$p['id']}/canvas";
+
+        // Layout: only this project's apps, saved and returned.
+        $this->api($token)->putJson("{$base}/layout", ['positions' => [$outside->id => ['x' => 1, 'y' => 1]]])->assertStatus(422);
+        $this->api($token)->putJson("{$base}/layout", ['positions' => [$web->id => ['x' => -5, 'y' => 1]]])->assertStatus(422);
+        $this->api($token)->putJson("{$base}/layout", ['positions' => [$web->id => ['x' => 300, 'y' => 40]]])->assertNoContent();
+        $c = $this->api($token)->getJson($base)->json('data');
+        $this->assertSame(['x' => 300, 'y' => 40], $c['layout'][$web->id]);
+        $this->assertSame(['production'], array_column($c['environments'], 'kind'));
+        $this->assertSame($c['environments'][0]['id'], $c['nodes'][0]['environment_id']);
+
+        // Drawing a line gives the caller a variable the canvas reads back as that line.
+        $l = $this->api($token)->postJson("{$base}/links", ['from' => $web->id, 'to' => $api->id])->assertCreated()->json('data');
+        $this->assertSame(['BILLING_API_URL', true], [$l['via'], $l['redeploy_needed']]);
+        $this->assertSame('http://billing-api:80', \App\Models\EnvVar::allTenants()->where('application_id', $web->id)->where('key', 'BILLING_API_URL')->value('value'));
+        $this->assertSame([['from' => $web->id, 'to' => $api->id, 'via' => 'BILLING_API_URL']], $this->api($token)->getJson($base)->json('data.links'));
+        $this->api($token)->postJson("{$base}/links", ['from' => $web->id, 'to' => $api->id])->assertStatus(422)->assertJsonPath('error.fields.key.0', fn ($m) => str_contains($m, 'already has'));
+        $this->api($token)->postJson("{$base}/links", ['from' => $web->id, 'to' => $outside->id])->assertNotFound();
+        $this->api($token)->postJson("{$base}/links", ['from' => $web->id, 'to' => $web->id])->assertStatus(422);
+
+        // Removing it deletes only a variable that really points there.
+        $this->api($token)->deleteJson("{$base}/links?from={$api->id}&to={$web->id}&key=BILLING_API_URL")->assertNotFound();
+        $this->api($token)->deleteJson("{$base}/links?from={$web->id}&to={$api->id}&key=BILLING_API_URL")->assertNoContent();
+        $this->assertSame([], $this->api($token)->getJson($base)->json('data.links'));
+
+        [, , $other] = $this->org();
+        $this->api($other)->putJson("{$base}/layout", ['positions' => []])->assertNotFound();
+        $this->api($other)->postJson("{$base}/links", ['from' => $web->id, 'to' => $api->id])->assertNotFound();
+    }
 }

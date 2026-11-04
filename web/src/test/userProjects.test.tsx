@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
@@ -21,8 +21,10 @@ describe('Customer projects', () => {
         projects: [{ id: 'p1', name: 'Online Store', color: 'violet', cost_cents: 1250, environments: ['production'], apps: [{ id: 'a1', name: 'shop', status: 'running' }], counts: { apps: 1, domains: 2 }, regions: ['eu-west'] }],
       } })
       if (url.endsWith('/app/projects/p1/canvas')) return json(200, { data: {
-        nodes: [{ id: 'a1', name: 'web', state: 'running', source: 'nginx', domain: 'shop.test', cost_cents: 500, deployments: [] }, { id: 'a3', name: 'api', state: 'running', source: 'node', domain: 'api.test', cost_cents: 500, deployments: [{ id: 'd1', status: 'failed', source: 'git', created_at: new Date().toISOString() }] }],
+        nodes: [{ id: 'a1', name: 'web', state: 'running', source: 'nginx', domain: 'shop.test', cost_cents: 500, environment_id: 'e1', deployments: [] }, { id: 'a3', name: 'api', state: 'running', source: 'node', domain: 'api.test', cost_cents: 500, environment_id: 'e1', deployments: [{ id: 'd1', status: 'failed', source: 'git', created_at: new Date().toISOString() }] },
+          { id: 'a4', name: 'web-staging', state: 'stopped', source: 'nginx', domain: '', cost_cents: 0, environment_id: 'e2', deployments: [] }],
         links: [{ from: 'a1', to: 'a3', via: 'API_URL' }],
+        layout: {}, environments: [{ id: 'e1', name: 'Production', kind: 'production' }, { id: 'e2', name: 'Staging', kind: 'staging' }],
       } })
       return json(200, { data: {} })
     }))
@@ -58,7 +60,7 @@ describe('Customer projects', () => {
     renderIt()
     await userEvent.click(await screen.findByRole('button', { name: 'Open Online Store' }))
     await userEvent.click(await screen.findByRole('listitem', { name: 'web, running' }))
-    expect(screen.getByRole('complementary', { name: 'Selected app' })).toHaveTextContent('api (API_URL)')
+    expect(screen.getByRole('complementary', { name: 'Selected app' })).toHaveTextContent('api via API_URL')
     await userEvent.click(screen.getByRole('listitem', { name: 'api, running' }))
     expect(screen.getByRole('complementary', { name: 'Selected app' })).toHaveTextContent('failed')
   })
@@ -73,5 +75,40 @@ describe('Customer projects', () => {
     const post = calls.find((c) => c.url.endsWith('/app/projects') && c.method === 'POST')
     // Every project now starts with an environment; nothing can be deployed into one without.
     expect(JSON.parse(post!.body!)).toEqual({ name: 'Agency', color: 'violet', environment: 'development' })
+  })
+
+  const openCanvas = async () => { renderIt(); await userEvent.click(await screen.findByRole('button', { name: 'Open Online Store' })) }
+
+  it('filters the canvas by environment', async () => {
+    await openCanvas()
+    expect(await screen.findByRole('listitem', { name: 'web-staging, stopped' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Staging' }))
+    expect(screen.queryByRole('listitem', { name: 'web, running' })).toBeNull()
+    expect(screen.getByRole('listitem', { name: 'web-staging, stopped' })).toBeInTheDocument()
+  })
+
+  it('connects two apps and removes a connection', async () => {
+    await openCanvas()
+    await userEvent.click(await screen.findByRole('listitem', { name: 'api, running' }))
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Connect to' }), 'web')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Variable name' }), 'FRONT_URL')
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/canvas/links') && c.method === 'POST')!.body!)).toEqual({ from: 'a3', to: 'a1', key: 'FRONT_URL' })
+    await userEvent.click(screen.getByRole('listitem', { name: 'web, running' }))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Remove API_URL' }))
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/canvas/links?from=a1&to=a3&key=API_URL'))).toBe(true)
+  })
+
+  it('saves where an app is dragged', async () => {
+    await openCanvas()
+    const node = await screen.findByRole('listitem', { name: 'web, running' })
+    fireEvent.pointerDown(node, { clientX: 10, clientY: 10, pointerId: 1 })
+    fireEvent.pointerMove(node, { clientX: 110, clientY: 60, pointerId: 1 })
+    fireEvent.pointerUp(node, { clientX: 110, clientY: 60, pointerId: 1 })
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/canvas/layout'))).toBe(true))
+    const body = JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)
+    expect(body.positions.a1.x).toBeGreaterThan(50)
+    expect(screen.getByRole('complementary', { name: 'Selected app' })).not.toHaveTextContent('via API_URL')
   })
 })

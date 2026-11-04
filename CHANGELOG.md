@@ -9,6 +9,19 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-11-04
+
+### Added
+
+- Project canvas: drag apps to arrange them; the layout is saved for the
+  project, with a Reset layout button. (#168)
+- Project canvas: connect two apps from the side panel. This gives the
+  calling app a variable with the other app's private address (for example
+  `API_URL=http://api:8080`). Connections can be removed, which deletes that
+  variable. Redeploy the app to apply either change. (#168)
+- Project canvas: filter by environment (Production, Staging, …) when a
+  project has more than one. (#168)
+
 ## [1.7.1] — 2026-11-04
 
 ### Changed
