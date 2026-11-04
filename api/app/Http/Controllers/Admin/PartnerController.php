@@ -30,6 +30,11 @@ class PartnerController extends Controller
                 'deployments' => PartnerDeployment::where('partner_client_id', $c->id)->where('status', '<>', 'terminated')->count(),
             ]),
             'deployments' => collect(PartnerDeployment::STATUSES)->mapWithKeys(fn ($s) => [$s => (int) ($byStatus[$s] ?? 0)]),
+            'recent' => PartnerDeployment::with(['account', 'client'])->latest('updated_at')->limit(25)->get()->map(fn ($d) => [
+                'id' => $d->id, 'external_id' => $d->external_id, 'client' => $d->client?->name, 'account' => $d->account?->name, 'product' => $d->product,
+                'workspace_name' => $d->workspace_name, 'subdomain' => $d->subdomain, 'custom_domain' => $d->custom_domain, 'status' => $d->status,
+                'size' => $d->size, 'storage_gb' => $d->storage_gb, 'organization_id' => $d->organization_id, 'updated_at' => $d->updated_at?->toIso8601ZuluString(),
+            ]),
             'failures' => PartnerDeployment::where('status', 'failed')->latest('updated_at')->limit(20)->get()->map(fn ($d) => [
                 'id' => $d->id, 'external_id' => $d->external_id, 'product' => $d->product, 'subdomain' => $d->subdomain,
                 'reason' => $d->status_reason, 'organization_id' => $d->organization_id, 'updated_at' => $d->updated_at?->toIso8601ZuluString(),

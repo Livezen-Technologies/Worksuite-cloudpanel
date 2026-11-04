@@ -176,4 +176,26 @@ class PartnerProvisioningTest extends TestCase
         $ids = collect($this->api($token)->getJson('/api/v1/app/templates')->assertOk()->json('data'))->pluck('id');
         $this->assertNotContains('worksuite-business', $ids);
     }
+
+    public function test_staff_overview_is_for_platform_staff_only(): void
+    {
+        $acct = app(PartnerProvisioningService::class)->account($this->client, 'acct_o', 'Overview Co');
+        PartnerDeployment::create(['partner_client_id' => $this->client->id, 'partner_account_id' => $acct->id, 'organization_id' => $acct->organization_id, 'external_id' => 'ov1',
+            'product' => 'cms', 'workspace_name' => 'Site', 'subdomain' => 'site', 'size' => 'small', 'storage_gb' => 5, 'admin_email' => 'a@x.test', 'status' => 'failed', 'status_reason' => 'boom']);
+
+        [, , $owner] = $this->org();
+        $this->api($owner)->getJson('/api/v1/partner-overview')->assertForbidden();
+
+        [, , $admin] = $this->org('super_admin');
+        $this->api($admin)->getJson('/api/v1/partner-overview')->assertOk()
+            ->assertJsonPath('data.clients.0.key_id', 'lzp_test')
+            ->assertJsonMissingPath('data.clients.0.secret')
+            ->assertJsonPath('data.deployments.failed', 1)
+            ->assertJsonPath('data.recent.0.workspace_name', 'Site')
+            ->assertJsonPath('data.recent.0.account', 'Overview Co')
+            ->assertJsonPath('data.failures.0.reason', 'boom');
+
+        $this->api($admin)->patchJson("/api/v1/partner-clients/{$this->client->id}", ['active' => false])->assertOk()->assertJsonPath('data.active', false);
+        $this->partner('GET', '/partner/v1/deployments')->assertStatus(401);
+    }
 }

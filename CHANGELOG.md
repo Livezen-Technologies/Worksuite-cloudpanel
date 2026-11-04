@@ -30,7 +30,10 @@ Dates are the dates the work landed on `main`.
   - Signed status webhooks back to the partner from an outbox
     (`partner:sync`, `partner:webhooks`, both every minute), retried with
     backoff and parked after 12 attempts.
-  - Staff overview at `GET /api/v1/partner-overview` and
+  - **Hosting → Partner provisioning** (`/admin/partners`, platform staff):
+    deployments by state, the partner keys (enable/disable, webhook URL — never
+    their secrets), recent and failed deployments, and webhook delivery
+    failures. Backed by `GET /api/v1/partner-overview` and
     `PATCH /api/v1/partner-clients/{id}`.
 
 ### Fixed
