@@ -18,14 +18,14 @@ Dates are the dates the work landed on `main`.
   categories), Docs, Changelog, Blog, About, Contact sales and Legal, with a
   light and dark theme. Signed-in visitors see a Dashboard button. Some copy
   (customer logos, stats, team, blog and changelog samples) is placeholder
-  text kept in `web/src/site/content.ts`.
+  text kept in `web/src/site/content.ts`. (#166)
 - Contact sales form: messages are saved, staff get a "New sales lead" email,
   and staff can read and close them under Admin → Sales leads. The form is
-  rate-limited and uses the captcha and a hidden spam trap.
+  rate-limited and uses the captcha and a hidden spam trap. (#166)
 
 ### Changed
 
-- Opening `/` now shows the website instead of jumping straight to sign in.
+- Opening `/` now shows the website instead of jumping straight to sign in. (#166)
 
 ## [1.6.0] — 2026-11-04
 
