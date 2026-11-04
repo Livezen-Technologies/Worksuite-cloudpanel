@@ -12,6 +12,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: { chunkSizeWarningLimit: 800 },
   server: {
+    fs: { allow: ['..'] }, // the website's Changelog page reads ../CHANGELOG.md
     proxy: {
       '/api': { target: API_PROXY, changeOrigin: true },
       // Terminal relay (agent/cmd/relay); Host is kept so the relay's same-origin check passes.
