@@ -17,9 +17,11 @@ describe('Cluster (Docker Swarm)', () => {
       calls.push({ url, method, body: init?.body as string })
       if (url.endsWith('/swarm') && method === 'GET') return json(200, { data: {
         available_servers: [{ id: 's3', name: 'w2', ip: '10.0.0.3' }],
+        apps: [{ id: 'a1', name: 'shop' }],
         clusters: [{ id: 'c1', name: 'prod', status: 'active', advertise_addr: '10.0.0.1',
           nodes: [{ id: 'node1abcdef1234', hostname: 'w1', role: 'worker', availability: 'active', tasks: 2, labels: { zone: 'a' } }],
-          services: [{ id: 'svc1abcdef1234', name: 'web', image: 'nginx:1', replicas: 3, running: 3 }] }],
+          services: [{ id: 'svc1abcdef1234', name: 'web', image: 'nginx:1', replicas: 3, running: 3 }],
+          secrets: [{ id: 'sec1abcdef1234', name: 'db_password' }] }],
       } })
       return json(202, { data: { job_id: 'j1', status: 'queued' } })
     }))
@@ -46,6 +48,25 @@ describe('Cluster (Docker Swarm)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Deploy' }))
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/swarm/c1/services'))!.body!)).toEqual({
       name: 'api', image: 'ghcr.io/acme/api:2', replicas: 2, ports: [{ published: 8080, target: 80 }], constraints: ['node.role==worker'],
+    })
+  })
+
+  it('creates a secret and deploys an app with a secret and a volume', async () => {
+    renderIt()
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Secret name' }), 'api_key')
+    await userEvent.type(screen.getByLabelText('Secret value'), 'hunter2')
+    await userEvent.click(screen.getByRole('button', { name: '+ Secret' }))
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/swarm/c1/secrets'))!.body!)).toEqual({ name: 'api_key', value: 'hunter2' })
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Service name' }), 'shop')
+    await userEvent.click(screen.getByText('Image (type it)', { selector: 'button *, button' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'From app: shop' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'db_password' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Volume name' }), 'shop-data')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Mount path' }), '/data')
+    await userEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/swarm/c1/services'))!.body!)).toEqual({
+      name: 'shop', application_id: 'a1', replicas: 2, secrets: ['db_password'], mounts: [{ source: 'shop-data', target: '/data' }],
     })
   })
 })

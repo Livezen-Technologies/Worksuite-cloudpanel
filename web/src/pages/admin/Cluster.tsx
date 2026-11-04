@@ -14,10 +14,12 @@ export default function Cluster() {
   const { run, busy } = useAction()
   const [f, setF] = useState({ name: '', manager: '' })
   const [joinTo, setJoinTo] = useState<Record<string, string>>({})
-  const [svc, setSvc] = useState({ name: '', image: '', replicas: '2', published: '', target: '', constraint: '' })
+  const [svc, setSvc] = useState({ name: '', image: '', app: '', replicas: '2', published: '', target: '', constraint: '', secrets: [] as string[], volume: '', mountAt: '' })
+  const [sec, setSec] = useState({ name: '', value: '' })
   const w = page.item ?? {}
   const clusters = (w.clusters as R[]) ?? []
   const free = (w.available_servers as R[]) ?? []
+  const apps = (w.apps as R[]) ?? []
   const refetch = () => page.refetch()
   const act = (path: string, label: string, body?: R) => run({ path, body, label }).then(refetch).catch(() => {})
 
@@ -109,24 +111,47 @@ export default function Cluster() {
                 )
               })}</ul>
             )}
+            {status === 'active' && <div className="mt-4">
+              <h3 className="m-0 mb-1 text-sm font-semibold">Secrets</h3>
+              <ul className="list-none m-0 mb-2 p-0 flex flex-wrap gap-2">{((c.secrets as R[]) ?? []).map((x) => (
+                <li key={String(x.id)} className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs"><code>{String(x.name)}</code>
+                  <button type="button" className="btn btn-sm" aria-label={`Remove secret ${x.name}`} disabled={busy} onClick={() => act(`/swarm/${c.id}/secrets/${x.id}`, `Remove secret ${x.name}`)}>×</button></li>
+              ))}{((c.secrets as R[]) ?? []).length === 0 && <li className="text-xs text-muted">None yet.</li>}</ul>
+              <div className="flex flex-wrap gap-2">
+                <input className="input font-mono flex-1 min-w-[140px]" aria-label="Secret name" placeholder="db_password" value={sec.name} onChange={(e) => setSec({ ...sec, name: e.target.value })} />
+                <input className="input font-mono flex-1 min-w-[180px]" aria-label="Secret value" type="password" autoComplete="off" value={sec.value} onChange={(e) => setSec({ ...sec, value: e.target.value })} />
+                <button type="button" className="btn" disabled={busy || !sec.name.trim() || !sec.value} onClick={() => run({ path: `/swarm/${c.id}/secrets`, body: { name: sec.name.trim(), value: sec.value }, label: `Create secret ${sec.name}`, success: 'Secret created' }).then(() => { setSec({ name: '', value: '' }); refetch() }).catch(() => {})}>+ Secret</button>
+              </div>
+              <p className="m-0 mt-1 text-xs text-muted">Stored in the cluster's encrypted store; never shown again. Secrets can't be edited: create one with a new name and switch the service to it.</p>
+            </div>}
             {status === 'active' && <div className="mt-4 rounded-md border border-line p-3">
               <h3 className="m-0 mb-2 text-sm font-semibold">Deploy a service</h3>
               <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
                 <input className="input font-mono" aria-label="Service name" placeholder="web" value={svc.name} onChange={(e) => setSvc({ ...svc, name: e.target.value })} />
-                <input className="input font-mono" aria-label="Service image" placeholder="nginx:1.27" value={svc.image} onChange={(e) => setSvc({ ...svc, image: e.target.value })} />
+                {svc.app ? null : <input className="input font-mono" aria-label="Service image" placeholder="nginx:1.27" value={svc.image} onChange={(e) => setSvc({ ...svc, image: e.target.value })} />}
+                {apps.length > 0 && <Select className="input" aria-label="Deploy from an app" value={svc.app} onChange={(e) => setSvc({ ...svc, app: e.target.value })}>
+                  <option value="">Image (type it)</option>{apps.map((a) => <option key={String(a.id)} value={String(a.id)}>From app: {String(a.name)}</option>)}</Select>}
+                <input className="input font-mono" aria-label="Volume name" placeholder="volume (optional)" value={svc.volume} onChange={(e) => setSvc({ ...svc, volume: e.target.value })} />
+                <input className="input font-mono" aria-label="Mount path" placeholder="/data" value={svc.mountAt} onChange={(e) => setSvc({ ...svc, mountAt: e.target.value })} />
                 <input className="input" aria-label="Service replicas" type="number" min={0} max={100} value={svc.replicas} onChange={(e) => setSvc({ ...svc, replicas: e.target.value })} />
                 <input className="input" aria-label="Published port" type="number" placeholder="Published port" value={svc.published} onChange={(e) => setSvc({ ...svc, published: e.target.value })} />
                 <input className="input" aria-label="Container port" type="number" placeholder="Container port" value={svc.target} onChange={(e) => setSvc({ ...svc, target: e.target.value })} />
                 <input className="input font-mono" aria-label="Placement constraint" placeholder="node.role==worker" value={svc.constraint} onChange={(e) => setSvc({ ...svc, constraint: e.target.value })} />
               </div>
-              <button type="button" className="btn btn-primary mt-2" disabled={busy || !svc.name.trim() || !svc.image.trim() || (!!svc.published !== !!svc.target)}
+              {((c.secrets as R[]) ?? []).length > 0 && <fieldset className="m-0 mt-2 p-0 border-0 flex flex-wrap gap-3 text-sm"><legend className="text-xs text-muted mb-1">Secrets (mounted at /run/secrets/&lt;name&gt;)</legend>
+                {((c.secrets as R[]) ?? []).map((x) => <label key={String(x.id)} className="flex items-center gap-1"><input type="checkbox" checked={svc.secrets.includes(String(x.name))}
+                  onChange={(e) => setSvc({ ...svc, secrets: e.target.checked ? [...svc.secrets, String(x.name)] : svc.secrets.filter((n) => n !== x.name) })} />{String(x.name)}</label>)}
+              </fieldset>}
+              <button type="button" className="btn btn-primary mt-2" disabled={busy || !svc.name.trim() || (!svc.app && !svc.image.trim()) || (!!svc.published !== !!svc.target) || (!!svc.volume !== !!svc.mountAt)}
                 onClick={() => run({ path: `/swarm/${c.id}/services`, label: `Deploy ${svc.name}`, body: {
-                  name: svc.name.trim(), image: svc.image.trim(), replicas: Number(svc.replicas || 1),
+                  name: svc.name.trim(), ...(svc.app ? { application_id: svc.app } : { image: svc.image.trim() }), replicas: Number(svc.replicas || 1),
+                  ...(svc.secrets.length ? { secrets: svc.secrets } : {}),
+                  ...(svc.volume && svc.mountAt ? { mounts: [{ source: svc.volume.trim(), target: svc.mountAt.trim() }] } : {}),
                   ...(svc.published && svc.target ? { ports: [{ published: Number(svc.published), target: Number(svc.target) }] } : {}),
                   ...(svc.constraint.trim() ? { constraints: [svc.constraint.trim()] } : {}),
-                } }).then(() => { setSvc({ name: '', image: '', replicas: '2', published: '', target: '', constraint: '' }); refetch() }).catch(() => {})}>Deploy</button>
+                } }).then(() => { setSvc({ name: '', image: '', app: '', replicas: '2', published: '', target: '', constraint: '', secrets: [], volume: '', mountAt: '' }); refetch() }).catch(() => {})}>Deploy</button>
             </div>}
-            <p className="m-0 mt-3 text-xs text-muted">Updates roll one replica at a time and stop if the health check fails. Volumes pin a service to its node unless shared storage is used.</p>
+            <p className="m-0 mt-3 text-xs text-muted">Updates roll one replica at a time and stop if the health check fails. Named volumes live on one node with the local driver, so a service using one stays on that node unless you use shared storage.</p>
           </Card>
         )
       })}

@@ -214,7 +214,17 @@ func (e *Executor) swarmInspect(ctx context.Context) (any, error) {
 		outServices = append(outServices, map[string]any{
 			"id": jstr(s["ID"]), "name": jstr(jpath(s, "Spec", "Name")), "image": jstr(jpath(s, "Spec", "TaskTemplate", "ContainerSpec", "Image")),
 			"replicas": replicas, "running": running[jstr(s["ID"])], "constraints": jpath(s, "Spec", "TaskTemplate", "Placement", "Constraints"),
+			"secrets": jpath(s, "Spec", "TaskTemplate", "ContainerSpec", "Secrets"), "mounts": jpath(s, "Spec", "TaskTemplate", "ContainerSpec", "Mounts"),
 		})
 	}
-	return map[string]any{"nodes": outNodes, "services": outServices}, nil
+	secrets, err := d.SwarmSecrets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	outSecrets := []map[string]any{}
+	for _, x := range secrets {
+		// Names and dates only: the Engine never returns a secret's value, and neither do we.
+		outSecrets = append(outSecrets, map[string]any{"id": jstr(x["ID"]), "name": jstr(jpath(x, "Spec", "Name")), "created_at": jstr(x["CreatedAt"])})
+	}
+	return map[string]any{"nodes": outNodes, "services": outServices, "secrets": outSecrets}, nil
 }

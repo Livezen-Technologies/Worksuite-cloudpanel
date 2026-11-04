@@ -19,7 +19,7 @@ class SwarmController extends Controller
             'id' => $c->id, 'name' => $c->name, 'status' => $c->status, 'error' => $c->error, 'advertise_addr' => $c->advertise_addr,
             'manager_server_id' => $c->manager_server_id,
             'servers' => Server::where('swarm_cluster_id', $c->id)->orderBy('name')->get(['id', 'name', 'ip', 'swarm_role', 'swarm_node_id'])->values(),
-            'nodes' => $c->snapshot['nodes'] ?? [], 'services' => $c->snapshot['services'] ?? [],
+            'nodes' => $c->snapshot['nodes'] ?? [], 'services' => $c->snapshot['services'] ?? [], 'secrets' => $c->snapshot['secrets'] ?? [],
             'refreshed_at' => $c->refreshed_at?->toIso8601ZuluString(), 'created_at' => $c->created_at?->toIso8601ZuluString(),
         ];
     }
@@ -29,6 +29,8 @@ class SwarmController extends Controller
         return $this->data([
             'clusters' => SwarmCluster::orderBy('name')->get()->map(fn ($c) => $this->present($c))->values(),
             'available_servers' => Server::whereNull('swarm_cluster_id')->orderBy('name')->get(['id', 'name', 'ip'])->values(),
+            // Apps whose builds push to a registry can be deployed here by their latest image.
+            'apps' => \App\Models\Application::whereNotNull('current_release_id')->orderBy('name')->get(['id', 'name'])->values(),
         ]);
     }
 
@@ -77,8 +79,12 @@ class SwarmController extends Controller
     {
         $v = $request->validate([
             'name' => ['required', 'string', 'max:63', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'],
-            'image' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._\/:@-]*$/i'],
+            'image' => ['required_without:application_id', 'nullable', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._\/:@-]*$/i'],
+            'application_id' => 'nullable|uuid',
             'replicas' => 'required|integer|between:0,100',
+            'secrets' => 'nullable|array|max:20', 'secrets.*' => ['string', 'max:64', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'],
+            'mounts' => 'nullable|array|max:10', 'mounts.*.source' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'],
+            'mounts.*.target' => ['required', 'string', 'max:255', 'regex:#^/[A-Za-z0-9._/-]*$#', 'not_regex:#(^/$|\.\.|//)#'], 'mounts.*.read_only' => 'nullable|boolean',
             'env' => 'nullable|array', 'env.*' => 'nullable|string|max:4096',
             'ports' => 'nullable|array|max:10', 'ports.*.target' => 'required|integer|between:1,65535', 'ports.*.published' => 'required|integer|between:1,65535',
             'ports.*.protocol' => 'nullable|in:tcp,udp',
@@ -91,7 +97,17 @@ class SwarmController extends Controller
             }
         }
 
-        return $this->accepted($this->swarm->createService(SwarmCluster::findOrFail($id), array_filter($v, fn ($x) => $x !== null)));
+        if (! empty($v['application_id'])) {
+            $v['image'] = SwarmService::appImage($v['application_id']);
+        }
+        unset($v['application_id']);
+        $c = SwarmCluster::findOrFail($id);
+        $known = collect($c->snapshot['secrets'] ?? [])->pluck('name');
+        if ($missing = collect($v['secrets'] ?? [])->diff($known)->values()->all()) {
+            throw \App\Exceptions\ApiException::validation(['secrets' => ['Unknown secret: '.implode(', ', $missing).'. Create it first.']]);
+        }
+
+        return $this->accepted($this->swarm->createService($c, array_filter($v, fn ($x) => $x !== null)));
     }
 
     public function serviceImage(Request $request, string $id, string $serviceId)
@@ -110,6 +126,18 @@ class SwarmController extends Controller
         }
 
         return $this->accepted($this->swarm->removeService($c, $serviceId));
+    }
+
+    public function storeSecret(Request $request, string $id)
+    {
+        $v = $request->validate(['name' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'], 'value' => 'required|string|max:512000']);
+
+        return $this->accepted($this->swarm->createSecret(SwarmCluster::findOrFail($id), $v['name'], $v['value']));
+    }
+
+    public function destroySecret(string $id, string $secretId)
+    {
+        return $this->accepted($this->swarm->removeSecret(SwarmCluster::findOrFail($id), $secretId));
     }
 
     public function destroy(Request $request, string $id)
