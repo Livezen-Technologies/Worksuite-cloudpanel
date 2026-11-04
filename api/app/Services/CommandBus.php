@@ -25,7 +25,7 @@ class CommandBus
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
         'container.remove', 'container.create', 'container.logs', 'container.prune', 'vps.create',
         'swarm.init', 'swarm.join', 'swarm.leave', 'swarm.inspect', 'swarm.node_update', 'swarm.service_scale',
-        'swarm.service_create', 'swarm.service_image', 'swarm.service_remove',
+        'swarm.service_create', 'swarm.service_image', 'swarm.service_remove', 'swarm.secret_create', 'swarm.secret_remove',
         'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove', 'network.connect', 'network.disconnect',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
         'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'proxy.scan', 'proxy.retire', 'proxy.restore', 'agent.update', 'agent.restart',

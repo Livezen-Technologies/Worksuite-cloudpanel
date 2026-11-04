@@ -139,6 +139,42 @@ class SwarmService
         return $this->run($this->managerOf($c), 'swarm.service_remove', ['service_id' => $serviceId], $c);
     }
 
+    /**
+     * SWARM: a secret goes into the cluster's own encrypted store. The value rides only in the
+     * (encrypted) command and is wiped from it once the agent has answered.
+     */
+    public function createSecret(SwarmCluster $c, string $name, string $value): Job
+    {
+        $this->active($c);
+        if (collect($c->snapshot['secrets'] ?? [])->pluck('name')->contains($name)) {
+            throw ApiException::conflict("A secret named {$name} already exists. Swarm secrets can't be changed; create one with a new name.");
+        }
+        $this->audit->log('swarm.secret_create', 'swarm_cluster', $c->id, ['name' => $name]);
+
+        return $this->run($this->managerOf($c), 'swarm.secret_create', ['name' => $name, 'data' => base64_encode($value)], $c);
+    }
+
+    public function removeSecret(SwarmCluster $c, string $secretId): Job
+    {
+        $this->active($c);
+        $this->audit->log('swarm.secret_remove', 'swarm_cluster', $c->id, ['secret' => $secretId]);
+
+        return $this->run($this->managerOf($c), 'swarm.secret_remove', ['secret_id' => $secretId], $c);
+    }
+
+    /** "Deploy from an app": the app's latest successful release image, which the build pipeline pushed. */
+    public static function appImage(string $applicationId): string
+    {
+        $app = \App\Models\Application::findOrFail($applicationId);
+        $image = \App\Models\Release::where('application_id', $app->id)->where('status', '!=', 'failed')->orderByDesc('version')->value('image');
+        $local = (string) config('platform.builds.local_repository');
+        if (! $image || ($local !== '' && str_starts_with((string) $image, $local.'/'))) {
+            throw ApiException::validation(['application_id' => ["{$app->name} has no image in a registry yet. Give it a push registry and deploy it once, then deploy it here."]]);
+        }
+
+        return (string) $image;
+    }
+
     /** Deleting the cluster record: only once the manager is its only node. */
     public function destroy(SwarmCluster $c): ?Job
     {
@@ -185,6 +221,10 @@ class SwarmService
         }
         $server = Server::allTenants()->find($cmd->server_id);
         $out = (array) ($cmd->output ?? []);
+        if ($cmd->type === 'swarm.secret_create') {
+            // Whatever the outcome, the value doesn't stay in the command record.
+            $cmd->forceFill(['payload' => array_diff_key((array) $cmd->payload, ['data' => true]) + ['data' => '[removed]']])->save();
+        }
         if (! $ok) {
             if ($cmd->type === 'swarm.init') {
                 $c->forceFill(['status' => 'failed', 'error' => mb_substr((string) ($cmd->message ?: 'swarm init failed'), 0, 500)])->save();
@@ -200,11 +240,11 @@ class SwarmService
             })(),
             'swarm.join' => $server?->forceFill(['swarm_cluster_id' => $c->id, 'swarm_role' => 'worker'])->save(),
             'swarm.leave' => $server?->forceFill(['swarm_cluster_id' => null, 'swarm_role' => null, 'swarm_node_id' => null])->save(),
-            'swarm.inspect' => $c->forceFill(['snapshot' => ['nodes' => $out['nodes'] ?? [], 'services' => $out['services'] ?? []], 'refreshed_at' => now()])->save(),
+            'swarm.inspect' => $c->forceFill(['snapshot' => ['nodes' => $out['nodes'] ?? [], 'services' => $out['services'] ?? [], 'secrets' => $out['secrets'] ?? []], 'refreshed_at' => now()])->save(),
             default => null,
         };
         // After a change to services, read the cluster again so the page shows it.
-        if (in_array($cmd->type, ['swarm.service_create', 'swarm.service_image', 'swarm.service_remove', 'swarm.service_scale', 'swarm.node_update', 'swarm.join', 'swarm.leave'], true) && $c->status === 'active') {
+        if (in_array($cmd->type, ['swarm.service_create', 'swarm.service_image', 'swarm.service_remove', 'swarm.secret_create', 'swarm.secret_remove', 'swarm.service_scale', 'swarm.node_update', 'swarm.join', 'swarm.leave'], true) && $c->status === 'active') {
             rescue(fn () => app(\App\Support\Tenant::class)->as($c->organization_id, fn () => $this->refresh($c)), null, report: false);
         }
     }

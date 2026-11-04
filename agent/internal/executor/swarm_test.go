@@ -40,6 +40,11 @@ func swarmSetup(t *testing.T) (*Executor, *fakeSwarm) {
 		json.Unmarshal(b, &fs.last)
 		fs.mu.Unlock()
 		switch {
+		case r.URL.Path == "/secrets" && r.Method == "GET":
+			w.Write([]byte(`[{"ID":"sec1abcdef1234","Spec":{"Name":"db_password"},"CreatedAt":"2026-11-04T00:00:00Z"}]`))
+		case r.URL.Path == "/secrets/create":
+			w.WriteHeader(201)
+			w.Write([]byte(`{"ID":"sec2abcdef1234"}`))
 		case r.URL.Path == "/services/create":
 			w.WriteHeader(201)
 			w.Write([]byte(`{"ID":"svcnewabcdef1234"}`))
@@ -182,6 +187,46 @@ func TestSwarmServiceCreateUpdateRemove(t *testing.T) {
 		r, _ := e.Handle(context.Background(), cmd("bad-s"+string(rune('a'+i)), "swarm.service_create", body, ts))
 		if r.Status == "succeeded" {
 			t.Errorf("case %d accepted: %s", i, body)
+		}
+	}
+}
+
+func TestSwarmSecretsAndMounts(t *testing.T) {
+	e, fs := swarmSetup(t)
+	ts := now.Add(-time.Minute)
+	r, _ := e.Handle(context.Background(), cmd("x1", "swarm.secret_create", `{"name":"api_key","data":"c2VjcmV0LXZhbHVl"}`, ts))
+	if r.Status != "succeeded" || fs.last["Name"] != "api_key" || fs.last["Data"] != "c2VjcmV0LXZhbHVl" {
+		t.Fatalf("secret create: %+v %v", r, fs.last)
+	}
+	if out, _ := json.Marshal(r.Output); strings.Contains(string(out), "c2VjcmV0") {
+		t.Fatal("the value must not be echoed back")
+	}
+	r, _ = e.Handle(context.Background(), cmd("x2", "swarm.service_create", `{"name":"api","image":"acme/api:1","replicas":1,"secrets":["db_password"],"mounts":[{"source":"api-data","target":"/data"}]}`, ts))
+	if r.Status != "succeeded" {
+		t.Fatalf("create with secret: %+v", r)
+	}
+	cs := fs.last["TaskTemplate"].(map[string]any)["ContainerSpec"].(map[string]any)
+	sec := cs["Secrets"].([]any)[0].(map[string]any)
+	if sec["SecretID"] != "sec1abcdef1234" || sec["File"].(map[string]any)["Mode"] != float64(0o400) {
+		t.Fatalf("secret ref %v", sec)
+	}
+	if m := cs["Mounts"].([]any)[0].(map[string]any); m["Type"] != "volume" || m["Target"] != "/data" {
+		t.Fatalf("mount %v", m)
+	}
+	r, _ = e.Handle(context.Background(), cmd("x3", "swarm.inspect", `{}`, ts))
+	if got, _ := json.Marshal(r.Output); !strings.Contains(string(got), `"name":"db_password"`) {
+		t.Fatalf("inspect lists secrets: %s", got)
+	}
+	for i, body := range []struct{ typ, b string }{
+		{"swarm.service_create", `{"name":"api","image":"x","secrets":["missing"]}`},
+		{"swarm.service_create", `{"name":"api","image":"x","mounts":[{"source":"/etc","target":"/data"}]}`},
+		{"swarm.service_create", `{"name":"api","image":"x","mounts":[{"source":"v","target":"/data/../etc"}]}`},
+		{"swarm.secret_create", `{"name":"k","data":"not base64!"}`},
+		{"swarm.secret_create", `{"name":"bad name","data":"eA=="}`},
+	} {
+		r, _ := e.Handle(context.Background(), cmd("bx"+string(rune('a'+i)), body.typ, body.b, ts))
+		if r.Status == "succeeded" {
+			t.Errorf("case %d accepted: %s", i, body.b)
 		}
 	}
 }

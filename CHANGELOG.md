@@ -9,6 +9,20 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-11-04
+
+### Added
+
+- **Swarm secrets, volumes and deploying from an app** — on the Cluster page:
+  - Create and remove Swarm secrets. The value goes into the cluster's own
+    encrypted store, is wiped from the panel's command record once the agent
+    has answered, and is never shown again. Attach secrets to a service; each
+    is mounted read-only at `/run/secrets/<name>`.
+  - Mount a named volume into a service (named volumes only, never a bind
+    mount of the host).
+  - "Deploy from an app": pick an app that builds from Git and pushes to a
+    registry, and its latest built image is deployed as a Swarm service.
+
 ## [1.5.0] — 2026-11-04
 
 ### Added

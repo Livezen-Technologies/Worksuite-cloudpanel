@@ -81,3 +81,19 @@ func (c *Client) SwarmServiceCreate(ctx context.Context, spec map[string]any) (s
 func (c *Client) SwarmServiceRemove(ctx context.Context, id string) error {
 	return c.call(ctx, "DELETE", "/services/"+url.PathEscape(id), nil, nil, nil)
 }
+
+func (c *Client) SwarmSecrets(ctx context.Context) ([]map[string]any, error) {
+	var out []map[string]any
+	return out, c.call(ctx, "GET", "/secrets", nil, nil, &out)
+}
+
+func (c *Client) SwarmSecretCreate(ctx context.Context, name, dataB64 string, labels map[string]string) (string, error) {
+	var out struct {
+		ID string `json:"ID"`
+	}
+	return out.ID, c.call(ctx, "POST", "/secrets/create", nil, map[string]any{"Name": name, "Data": dataB64, "Labels": labels}, &out)
+}
+
+func (c *Client) SwarmSecretRemove(ctx context.Context, id string) error {
+	return c.call(ctx, "DELETE", "/secrets/"+url.PathEscape(id), nil, nil, nil)
+}

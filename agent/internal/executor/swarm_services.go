@@ -2,8 +2,10 @@ package executor
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 )
@@ -18,7 +20,15 @@ type swarmPort struct {
 	Protocol  string `json:"protocol"`
 }
 
+type swarmMount struct {
+	Source   string `json:"source"`
+	Target   string `json:"target"`
+	ReadOnly bool   `json:"read_only"`
+}
+
 type swarmServiceSpec struct {
+	Secrets     []string          `json:"secrets"`
+	Mounts      []swarmMount      `json:"mounts"`
 	Name        string            `json:"name"`
 	Image       string            `json:"image"`
 	Replicas    int64             `json:"replicas"`
@@ -34,7 +44,8 @@ type swarmServiceSpec struct {
 // and rolls back if a new task fails to come up.
 var rollingUpdate = map[string]any{"Parallelism": 1, "Delay": int64(5e9), "FailureAction": "rollback", "Monitor": int64(15e9), "Order": "start-first"}
 
-func buildSwarmService(s *swarmServiceSpec) (map[string]any, error) {
+// buildSwarmService turns the payload into a service spec. secretIDs maps secret names to ids.
+func buildSwarmService(s *swarmServiceSpec, secretIDs map[string]string) (map[string]any, error) {
 	if err := checkRef("service name", s.Name); err != nil {
 		return nil, err
 	}
@@ -72,6 +83,29 @@ func buildSwarmService(s *swarmServiceSpec) (map[string]any, error) {
 		}
 		ports = append(ports, map[string]any{"TargetPort": p.Target, "PublishedPort": p.Published, "Protocol": proto, "PublishMode": "ingress"})
 	}
+	secrets := []map[string]any{}
+	for _, name := range s.Secrets {
+		if err := checkRef("secret name", name); err != nil {
+			return nil, err
+		}
+		id, ok := secretIDs[name]
+		if !ok {
+			return nil, fmt.Errorf("secret %q does not exist in the cluster", name)
+		}
+		// Mounted read-only at /run/secrets/<name>, owned by root, mode 0400.
+		secrets = append(secrets, map[string]any{"SecretID": id, "SecretName": name, "File": map[string]any{"Name": name, "UID": "0", "GID": "0", "Mode": 0o400}})
+	}
+	mounts := []map[string]any{}
+	for _, m := range s.Mounts {
+		if err := checkRef("volume", m.Source); err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(m.Target) || filepath.Clean(m.Target) != m.Target || m.Target == "/" {
+			return nil, fmt.Errorf("mount target %q must be a clean absolute path", m.Target)
+		}
+		// Named volumes only: no bind mounts of the host into a service.
+		mounts = append(mounts, map[string]any{"Type": "volume", "Source": m.Source, "Target": m.Target, "ReadOnly": m.ReadOnly})
+	}
 	labels := managedLabels(s.Labels)
 	res := map[string]any{}
 	if s.MemoryMB > 0 {
@@ -85,7 +119,7 @@ func buildSwarmService(s *swarmServiceSpec) (map[string]any, error) {
 		"Labels": labels,
 		"TaskTemplate": map[string]any{
 			// Same hardening as container.create: no added capabilities, no privilege escalation.
-			"ContainerSpec": map[string]any{"Image": s.Image, "Env": env, "Labels": labels, "Privileges": map[string]any{"NoNewPrivileges": true}, "CapabilityDrop": []string{"ALL"}},
+			"ContainerSpec": map[string]any{"Image": s.Image, "Env": env, "Labels": labels, "Privileges": map[string]any{"NoNewPrivileges": true}, "CapabilityDrop": []string{"ALL"}, "Secrets": secrets, "Mounts": mounts},
 			"Placement":     map[string]any{"Constraints": s.Constraints},
 			"Resources":     map[string]any{"Limits": res},
 			"RestartPolicy": map[string]any{"Condition": "any", "Delay": int64(5e9)},
@@ -105,7 +139,17 @@ func (e *Executor) swarmServices(ctx context.Context, typ string, raw []byte) (a
 		if err := decode(raw, &s); err != nil {
 			return nil, err
 		}
-		spec, err := buildSwarmService(&s)
+		ids := map[string]string{}
+		if len(s.Secrets) > 0 {
+			list, err := d.SwarmSecrets(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, x := range list {
+				ids[jstr(jpath(x, "Spec", "Name"))] = jstr(x["ID"])
+			}
+		}
+		spec, err := buildSwarmService(&s, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -139,6 +183,34 @@ func (e *Executor) swarmServices(ctx context.Context, typ string, raw []byte) (a
 			spec["UpdateConfig"] = rollingUpdate
 		}
 		return map[string]any{"service_id": p.ServiceID, "image": p.Image}, d.SwarmServiceUpdate(ctx, p.ServiceID, jnum(jpath(s, "Version", "Index")), spec)
+	case "swarm.secret_create":
+		var p struct {
+			Name string `json:"name"`
+			Data string `json:"data"` // base64
+		}
+		if err := decode(raw, &p); err != nil {
+			return nil, err
+		}
+		if err := checkRef("secret name", p.Name); err != nil {
+			return nil, err
+		}
+		if b, err := base64.StdEncoding.DecodeString(p.Data); err != nil || len(b) == 0 || len(b) > 500*1024 {
+			return nil, errors.New("secret data must be base64, 1 byte to 500 KB")
+		}
+		id, err := d.SwarmSecretCreate(ctx, p.Name, p.Data, managedLabels(nil))
+		// The value is never echoed back.
+		return map[string]any{"secret_id": id, "name": p.Name}, err
+	case "swarm.secret_remove":
+		var p struct {
+			SecretID string `json:"secret_id"`
+		}
+		if err := decode(raw, &p); err != nil {
+			return nil, err
+		}
+		if !reSwarmID.MatchString(p.SecretID) {
+			return nil, errors.New("invalid secret id")
+		}
+		return map[string]any{"removed": p.SecretID}, d.SwarmSecretRemove(ctx, p.SecretID)
 	case "swarm.service_remove":
 		var p struct {
 			ServiceID string `json:"service_id"`

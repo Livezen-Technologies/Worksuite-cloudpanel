@@ -136,4 +136,47 @@ class SwarmTest extends TestCase
         $this->api($token)->deleteJson("/api/v1/swarm/{$c['id']}/services/svcnewabcdef1234?confirm=web")->assertStatus(202);
         $this->assertSame('svcnewabcdef1234', $this->last('swarm.service_remove')->payload['service_id']);
     }
+
+    public function test_secrets_volumes_and_deploying_from_an_app(): void
+    {
+        [$token, $m, $ms] = $this->fleet();
+        $c = $this->api($token)->postJson('/api/v1/swarm', ['name' => 'prod', 'manager_server_id' => $m->id])->json('data.cluster');
+        $this->commandResult($ms, $this->last('swarm.init')->id, 'succeeded', ['output' => ['node_id' => 'node0abcdef1234', 'worker_token' => $this->joinToken]])->assertOk();
+
+        $value = 'pw-'.str_repeat('z', 10);
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/secrets", ['name' => 'db_password', 'value' => $value])->assertStatus(202);
+        $cmd = $this->last('swarm.secret_create');
+        $this->assertSame(base64_encode($value), $cmd->payload['data']);
+        $this->commandResult($ms, $cmd->id, 'succeeded', ['output' => ['secret_id' => 'sec1abcdef1234', 'name' => 'db_password']])->assertOk();
+        $this->assertSame('[removed]', $cmd->fresh()->payload['data'], 'the value does not stay in the command record');
+        $this->commandResult($ms, $this->last('swarm.inspect')->id, 'succeeded', ['output' => ['nodes' => [], 'services' => [], 'secrets' => [['id' => 'sec1abcdef1234', 'name' => 'db_password']]]])->assertOk();
+
+        $page = $this->api($token)->getJson('/api/v1/swarm')->json('data');
+        $this->assertSame('db_password', $page['clusters'][0]['secrets'][0]['name']);
+        $this->assertStringNotContainsString($value, json_encode($page));
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/secrets", ['name' => 'db_password', 'value' => 'again'])->assertStatus(409);
+
+        // A service using the secret and a named volume.
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'api', 'image' => 'acme/api:1', 'replicas' => 1,
+            'secrets' => ['db_password'], 'mounts' => [['source' => 'api-data', 'target' => '/data']]])->assertStatus(202);
+        $p = $this->last('swarm.service_create')->payload;
+        $this->assertSame(['db_password'], $p['secrets']);
+        $this->assertSame('/data', $p['mounts'][0]['target']);
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'x1', 'image' => 'a', 'replicas' => 1, 'secrets' => ['nope']])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'x2', 'image' => 'a', 'replicas' => 1, 'mounts' => [['source' => 'v', 'target' => '/data/../etc']]])->assertStatus(422);
+
+        // Deploy from an app: its latest registry image.
+        $org = \App\Models\Server::allTenants()->find($m->id)->organization_id;
+        [$app, $local] = app(\App\Support\Tenant::class)->as($org, function () {
+            $a = \App\Models\Application::create(['name' => 'shop', 'source_type' => 'git', 'image' => 'x', 'port' => 80]);
+            $b = \App\Models\Application::create(['name' => 'local-only', 'source_type' => 'git', 'image' => 'x', 'port' => 80]);
+            \App\Models\Release::create(['application_id' => $a->id, 'version' => 1, 'image' => 'reg.example.com:5000/acme/shop:abc', 'status' => 'active', 'config' => []]);
+            \App\Models\Release::create(['application_id' => $b->id, 'version' => 1, 'image' => config('platform.builds.local_repository').'/acme-local:1', 'status' => 'active', 'config' => []]);
+
+            return [$a, $b];
+        });
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'shop', 'application_id' => $app->id, 'replicas' => 2])->assertStatus(202);
+        $this->assertSame('reg.example.com:5000/acme/shop:abc', $this->last('swarm.service_create')->payload['image']);
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'lo', 'application_id' => $local->id, 'replicas' => 1])->assertStatus(422);
+    }
 }
