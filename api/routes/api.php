@@ -250,6 +250,15 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('swarm/{id}/refresh', [Admin\SwarmController::class, 'refresh'])->middleware('perm:servers.view|servers.manage')->name('swarm.refresh');
     Route::post('swarm/{id}/nodes/{nodeId}', [Admin\SwarmController::class, 'node'])->where('nodeId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.node');
     Route::post('swarm/{id}/services/{serviceId}/scale', [Admin\SwarmController::class, 'scale'])->where('serviceId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.scale');
+    // K8S: connected Kubernetes clusters (read: servers.view, write: servers.manage).
+    Route::get('kubernetes', [Admin\KubeController::class, 'index'])->middleware('perm:servers.view|servers.manage')->name('kube.index');
+    Route::post('kubernetes', [Admin\KubeController::class, 'store'])->middleware(['perm:servers.manage', 'throttle:10,1'])->name('kube.store');
+    Route::get('kubernetes/{id}', [Admin\KubeController::class, 'show'])->middleware('perm:servers.view|servers.manage')->name('kube.show');
+    Route::delete('kubernetes/{id}', [Admin\KubeController::class, 'destroy'])->middleware('perm:servers.manage')->name('kube.destroy');
+    Route::post('kubernetes/{id}/check', [Admin\KubeController::class, 'check'])->middleware(['perm:servers.view|servers.manage', 'throttle:20,1'])->name('kube.check');
+    Route::post('kubernetes/{id}/deployments', [Admin\KubeController::class, 'deploy'])->middleware('perm:servers.manage')->name('kube.deploy');
+    Route::post('kubernetes/{id}/namespaces/{ns}/deployments/{name}/{action}', [Admin\KubeController::class, 'action'])->where(['ns' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?', 'name' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?'])->whereIn('action', ['scale', 'restart'])->middleware('perm:servers.manage')->name('kube.action');
+    Route::delete('kubernetes/{id}/namespaces/{ns}/deployments/{name}', [Admin\KubeController::class, 'destroyDeployment'])->where(['ns' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?', 'name' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?'])->middleware('perm:servers.manage')->name('kube.deployments.destroy');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');

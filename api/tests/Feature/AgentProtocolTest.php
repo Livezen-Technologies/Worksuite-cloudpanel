@@ -37,6 +37,9 @@ class AgentProtocolTest extends TestCase
 
     public function test_heartbeat_reconciles_inventory_and_status(): void
     {
+        // Metrics are bucketed by time: heartbeats that straddle a bucket boundary would make two
+        // points where the assertion expects one. travel() below still moves the frozen clock.
+        $this->freezeTime();
         [, $org, $token] = $this->org();
         $server = $this->server($org, ['last_heartbeat_at' => null]);
         [$secret] = $this->enrollAgent($server, $token);
