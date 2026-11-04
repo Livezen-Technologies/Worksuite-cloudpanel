@@ -45,6 +45,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
     { label: 'Mail', to: '/admin/mail', icon: 'bell' },
     { label: 'Public pages', to: '/admin/public-pages', icon: 'file' },
+    { label: 'Sales leads', to: '/admin/leads', icon: 'file' },
   ] },
   { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },

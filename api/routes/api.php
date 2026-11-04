@@ -38,6 +38,7 @@ Route::get('webmail-sso/{token}', function (\Illuminate\Http\Request $request, s
     return $login ? response()->json(['data' => $login]) : response()->json(['error' => ['code' => 'not_found', 'message' => 'Expired or unknown token.']], 404);
 })->where('token', '[A-Za-z0-9]{40,80}')->middleware('throttle:api')->name('webmail.sso');
 Route::get('git/oauth/{provider}/callback', [\App\Http\Controllers\GitSourceController::class, 'oauthCallback'])->whereIn('provider', ['github', 'gitlab'])->middleware('throttle:20,1')->name('git.oauth.callback');
+Route::post('site/contact', [\App\Http\Controllers\SiteController::class, 'contact'])->middleware('throttle:5,1')->name('site.contact');
 Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('throttle:api')->name('hooks.git');
 Route::match(['get', 'post'], 'hooks/wake', [HookController::class, 'wake'])->middleware('throttle:20,1')->name('hooks.wake');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
@@ -264,6 +265,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('kubernetes/{id}/deployments', [Admin\KubeController::class, 'deploy'])->middleware('perm:servers.manage')->name('kube.deploy');
     Route::post('kubernetes/{id}/namespaces/{ns}/deployments/{name}/{action}', [Admin\KubeController::class, 'action'])->where(['ns' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?', 'name' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?'])->whereIn('action', ['scale', 'restart'])->middleware('perm:servers.manage')->name('kube.action');
     Route::delete('kubernetes/{id}/namespaces/{ns}/deployments/{name}', [Admin\KubeController::class, 'destroyDeployment'])->where(['ns' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?', 'name' => '[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?'])->middleware('perm:servers.manage')->name('kube.deployments.destroy');
+    // SITE: "Contact sales" requests from the marketing website (staff only).
+    Route::get('sales-leads', [Admin\SalesLeadController::class, 'index'])->middleware('perm:settings.manage')->name('sales-leads.index');
+    Route::post('sales-leads/{id}/handled', [Admin\SalesLeadController::class, 'handled'])->middleware('perm:settings.manage')->name('sales-leads.handled');
     // Images & registries
     Route::get('images', [Admin\ImageController::class, 'index'])->middleware('perm:resources.view')->name('images.index');
     Route::post('images/prune-preview', [Admin\ImageController::class, 'prunePreview'])->middleware('perm:resources.view')->name('images.prune-preview');
