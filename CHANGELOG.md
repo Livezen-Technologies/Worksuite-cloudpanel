@@ -31,6 +31,12 @@ Dates are the dates the work landed on `main`.
   `SSH_GATEWAY_ENABLED=true`. `SSH_GATEWAY_HOST` and `SSH_GATEWAY_PORT` set
   what the panel shows. (#175)
 
+### Changed
+
+- Building the agent and relay now needs Go 1.25 or newer, because the SSH
+  library (`golang.org/x/crypto` v0.52.0) requires it. That library version
+  also has the fixes for its known SSH server vulnerabilities. (#175)
+
 ## [1.12.0] — 2026-11-04
 
 ### Added
