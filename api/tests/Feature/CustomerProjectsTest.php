@@ -98,7 +98,7 @@ class CustomerProjectsTest extends TestCase
         $api = $this->app($org->id, 'api');
         $this->app($org->id, 'lonely');
         app(Tenant::class)->as($org->id, function () use ($web, $api) {
-            \App\Models\EnvVar::create(['application_id' => $web->id, 'key' => 'API_URL', 'value' => 'http://api:8080/v1', 'secret' => false]);
+            \App\Models\EnvVar::create(['application_id' => $web->id, 'key' => 'API_URL', 'value' => 'http://api:8080/v1-qzx', 'secret' => false]);
             \App\Models\EnvVar::create(['application_id' => $web->id, 'key' => 'NOTE', 'value' => 'rapid apis', 'secret' => false]);
             \App\Models\EnvVar::create(['application_id' => $api->id, 'key' => 'TOKEN', 'value' => 'secret-web-token', 'secret' => true]);
         });
@@ -110,7 +110,8 @@ class CustomerProjectsTest extends TestCase
         $c = $this->api($token)->getJson("/api/v1/app/projects/{$p['id']}/canvas")->assertOk()->json('data');
         $this->assertSame(['api', 'web'], array_column($c['nodes'], 'name'));
         $this->assertSame([['from' => $web->id, 'to' => $api->id, 'via' => 'API_URL']], $c['links'], 'only a host-like mention links two apps');
-        $this->assertStringNotContainsString('8080', json_encode($c), 'variable values never leave the server');
+        // A marker that cannot occur in a hex UUID: '8080' alone sometimes matched a random id.
+        $this->assertStringNotContainsString('qzx', json_encode($c), 'variable values never leave the server');
         $this->assertSame(1000, $this->api($token)->getJson('/api/v1/app/projects')->json('data.projects.0.cost_cents'));
 
         [, , $other] = $this->org();
