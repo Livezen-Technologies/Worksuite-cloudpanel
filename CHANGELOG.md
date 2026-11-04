@@ -9,6 +9,17 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-11-04
+
+### Changed
+
+- Website: the Changelog page now shows the real release notes from this
+  changelog, and the made-up customer logos, stats, team and blog posts are
+  gone (the Blog says posts are coming soon). Add real ones in
+  `web/src/site/content.ts`. (#167)
+- Website: Legal now has full draft texts for Privacy, Acceptable Use, Data
+  Processing, SLA and Security, marked as drafts until a lawyer reviews them. (#167)
+
 ## [1.7.0] — 2026-11-04
 
 ### Added

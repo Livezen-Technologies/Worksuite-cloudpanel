@@ -2,8 +2,8 @@
  * Marketing website copy, from the design canvas (Website page). Everything a person reads on the
  * public site is here, so it can be edited without touching layout code.
  *
- * PLACEHOLDER content to replace before launch: customer logos, the stats on Home and About, the
- * team, the blog posts and the changelog entries are design samples, not facts about the company.
+ * Customer logos, stats, team and blog posts start empty and their sections stay hidden until
+ * real entries are added. The Changelog page is built from CHANGELOG.md; legal texts are in legal.ts.
  */
 export const BRAND = { name: 'Livezen Cloud', company: 'Livezen Technologies (Pvt) Ltd', place: 'Colombo, Sri Lanka' }
 
@@ -20,7 +20,7 @@ export const HOME = {
   badge: 'New · Kubernetes and private networking are live',
   title: ['Deploy anything.', 'Forget the servers.'],
   sub: 'Push code, pick a template or drop in an image. Livezen builds it, runs it, puts it behind HTTPS and scales it — on our cloud or your own servers.',
-  logos: ['ACME', 'Northwind', 'Kandy Hotels', 'Studio Nila', 'Lanka Pay', 'Orbit'], // PLACEHOLDER
+  logos: [] as string[], // add real customer names here, with their permission
   canvas: [
     { k: 'web', d: 'Node 22 · 2 replicas', s: 'Online · acme-store.livezen.app', ab: 'WB', c: '#8B5CF6' },
     { k: 'api', d: 'Go 1.23 · 3 replicas', s: 'Online · 2.9k req/s', ab: 'AP', c: '#3B82F6' },
@@ -95,29 +95,12 @@ export const DOC_STEPS: { k: string; d: string; code?: string }[] = [
   { k: '4. Add a database', d: 'Connection variables are injected into your services automatically.' },
 ]
 
-export const CHANGES: { date: string; tag: 'Feature' | 'Improvement' | 'Security' | 'Fix'; k: string; d: string; items: string[] }[] = [
-  // PLACEHOLDER samples from the design: replace with real release notes (see CHANGELOG.md).
-  { date: '30 Oct 2026', tag: 'Feature', k: 'Kubernetes', d: 'Connect your own cluster — same dashboard for nodes, deployments and scaling.', items: ['Kubeconfig or token', 'Scale, restart and deploy', 'Encrypted tokens'] },
-  { date: '22 Oct 2026', tag: 'Feature', k: 'Project canvas', d: 'See every service in a project as a live graph.', items: ['Connections from variables', 'Per-service status and cost'] },
-  { date: '15 Oct 2026', tag: 'Improvement', k: 'Faster builds with BuildKit cache', d: 'Builds reuse layers across builders through your registry.', items: ['Shared layer cache per app'] },
-  { date: '8 Oct 2026', tag: 'Security', k: 'CrowdSec bot protection', d: 'Edge-level bot and brute-force blocking with community blocklists.', items: ['Under Attack mode', 'Email alerts to owners'] },
-  { date: '1 Oct 2026', tag: 'Fix', k: 'Certificate renewals', d: 'Renewals for DNS-01 wildcards now retry with backoff.', items: [] },
-]
-
-export const POSTS: { cat: string; k: string; d: string; meta: string; g: string }[] = [
-  // PLACEHOLDER samples from the design.
-  { cat: 'Engineering', k: 'How we built a WireGuard mesh for every customer', d: 'Encrypted private networking across regions without a VPN appliance.', meta: '12 min · 28 Oct', g: '#8B5CF6,#0EA5E9' },
-  { cat: 'Product', k: 'Introducing the project canvas', d: 'A new way to see and manage everything your app needs.', meta: '4 min · 22 Oct', g: '#F0ABFC,#8B5CF6' },
-  { cat: 'Guide', k: 'Moving 40 WordPress sites in a weekend', d: 'A migration playbook for agencies.', meta: '9 min · 18 Oct', g: '#21759B,#22C55E' },
-  { cat: 'Engineering', k: 'Per-second billing at scale', d: 'How we meter CPU and memory for thousands of containers.', meta: '10 min · 10 Oct', g: '#F59E0B,#DC2626' },
-  { cat: 'Company', k: 'Growing the team in Colombo', d: 'We are hiring engineers and support.', meta: '3 min · 2 Oct', g: '#16A34A,#0EA5E9' },
-  { cat: 'Guide', k: 'Zero-downtime deploys explained', d: 'Health checks, rolling updates and instant rollback.', meta: '7 min · 25 Sep', g: '#4F46E5,#EC4899' },
-]
+export const POSTS: { cat: string; k: string; d: string; meta: string; g: string }[] = [] // add posts here
 
 export const ABOUT = {
-  stats: [['12k+', 'apps deployed'], ['40+', 'countries'], ['99.98%', 'platform uptime'], ['2021', 'founded in Colombo']] as [string, string][], // PLACEHOLDER
+  stats: [] as [string, string][], // add real figures here
   values: [['Ship, don’t configure', 'Sensible defaults first, full control when you need it.'], ['No lock-in', 'Your servers, your data, standard Docker and Kubernetes.'], ['Honest pricing', 'Per-second usage and spend limits.'], ['Secure by default', 'Private networks, 2FA and audit logs on every plan.']] as [string, string][],
-  team: [['Hasarinda M.', 'Founder & CEO', '#8B5CF6'], ['Sara K.', 'Head of Engineering', '#0EA5E9'], ['Nimal P.', 'Platform', '#16A34A'], ['Dilan F.', 'Design', '#F59E0B']] as [string, string, string][], // PLACEHOLDER
+  team: [] as [string, string, string][], // add real people here, with their permission
 }
 
 export const CONTACT_WHY: [string, string][] = [

@@ -3,7 +3,10 @@ import { Link } from 'react-router'
 import { api, isApiError } from '../api/client'
 import { Captcha, type CaptchaConfig, type CaptchaHandle } from '../components/Captcha'
 import { PageHero } from './SiteLayout'
-import { ABOUT, BRAND, BUDGETS, CHANGES, CONTACT_WHY, DOC_NAV, DOC_STEPS, FAQ, HOME, LEGAL_NAV, PLANS, POSTS, RATES, TEMPLATE_CATS, TEMPLATES, TERMS, estimate } from './content'
+import { parseChangelog } from './changelog'
+import { LEGAL_DRAFT_NOTE, POLICIES } from './legal'
+import changelogMd from '../../../CHANGELOG.md?raw'
+import { ABOUT, BRAND, BUDGETS, CONTACT_WHY, DOC_NAV, DOC_STEPS, FAQ, HOME, LEGAL_NAV, PLANS, POSTS, RATES, TEMPLATE_CATS, TEMPLATES, TERMS, estimate } from './content'
 
 const ab = (s: string) => s.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase()
 
@@ -29,9 +32,9 @@ export function SiteHome() {
         </div>
       </div>
     </section>
-    <section className="lz-wrap" style={{ padding: '28px 20px', display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
+    {HOME.logos.length > 0 && <section className="lz-wrap" style={{ padding: '28px 20px', display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
       {HOME.logos.map((l) => <span key={l} className="lz-muted" style={{ fontWeight: 700, letterSpacing: '.05em' }}>{l}</span>)}
-    </section>
+    </section>}
     <section className="lz-sec"><div className="lz-wrap">
       <h2 className="lz-h2">Everything your app needs</h2>
       <div className="lz-grid" style={{ marginTop: 24 }}>
@@ -116,15 +119,18 @@ export function Docs() {
   </>
 }
 
-const TAG: Record<string, string> = { Feature: '#8B5CF6', Improvement: '#0EA5E9', Security: '#DC2626', Fix: '#16A34A' }
+const RELEASES = parseChangelog(changelogMd).slice(0, 15)
+const TAG: Record<string, string> = { Added: '#8B5CF6', Changed: '#0EA5E9', Security: '#DC2626', Fixed: '#16A34A', Removed: '#6B7280' }
 export function Changelog() {
   return <>
     <PageHero page="changelog" />
-    <section className="lz-sec"><div className="lz-wrap" style={{ maxWidth: 820 }}>
-      {CHANGES.map((c) => <div key={c.k} className="lz-side" style={{ gridTemplateColumns: '140px 1fr', marginBottom: 36 }}>
-        <div className="lz-muted">{c.date}</div>
-        <div><span className="lz-badge" style={{ color: TAG[c.tag], borderColor: TAG[c.tag] }}>{c.tag}</span><h3>{c.k}</h3><p style={{ color: 'var(--fg2)' }}>{c.d}</p>
-          {c.items.length > 0 && <ul style={{ color: 'var(--fg2)' }}>{c.items.map((i) => <li key={i}>{i}</li>)}</ul>}</div>
+    <section className="lz-sec"><div className="lz-wrap" style={{ maxWidth: 860 }}>
+      {RELEASES.map((r) => <div key={r.version} className="lz-side" style={{ gridTemplateColumns: '140px 1fr', marginBottom: 40 }}>
+        <div><b>v{r.version}</b><div className="lz-muted">{r.date}</div></div>
+        <div>{r.groups.map((g) => <div key={g.k} style={{ marginBottom: 14 }}>
+          <span className="lz-badge" style={{ color: TAG[g.k], borderColor: TAG[g.k] }}>{g.k}</span>
+          <ul style={{ color: 'var(--fg2)', margin: '8px 0 0' }}>{g.items.map((i) => <li key={i} style={{ marginBottom: 6 }}>{i}</li>)}</ul>
+        </div>)}</div>
       </div>)}
     </div></section>
   </>
@@ -134,6 +140,7 @@ export function Blog() {
   return <>
     <PageHero page="blog" />
     <section className="lz-sec"><div className="lz-wrap lz-grid">
+      {!POSTS.length && <p className="lz-muted">Posts are coming soon. Meanwhile, see what’s new in the <Link to="/changelog" style={{ textDecoration: 'underline' }}>changelog</Link>.</p>}
       {POSTS.map((p) => <article key={p.k} className="lz-card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ height: 140, background: `linear-gradient(135deg,${p.g})` }} />
         <div style={{ padding: 20 }}><div className="lz-eyebrow">{p.cat}</div><h3>{p.k}</h3><p>{p.d}</p><p className="lz-muted" style={{ marginTop: 10, fontSize: 13 }}>{p.meta}</p></div>
@@ -146,11 +153,11 @@ export function About() {
   return <>
     <PageHero page="about" />
     <section className="lz-sec"><div className="lz-wrap">
-      <div className="lz-grid">{ABOUT.stats.map(([n, l]) => <div key={l} className="lz-card" style={{ textAlign: 'center' }}><b style={{ fontSize: 32 }}>{n}</b><p>{l}</p></div>)}</div>
-      <h2 className="lz-h2" style={{ marginTop: 56 }}>What we believe</h2>
+      {ABOUT.stats.length > 0 && <div className="lz-grid" style={{ marginBottom: 56 }}>{ABOUT.stats.map(([n, l]) => <div key={l} className="lz-card" style={{ textAlign: 'center' }}><b style={{ fontSize: 32 }}>{n}</b><p>{l}</p></div>)}</div>}
+      <h2 className="lz-h2">What we believe</h2>
       <div className="lz-grid">{ABOUT.values.map(([k, d]) => <div key={k} className="lz-card"><h3 style={{ marginTop: 0 }}>{k}</h3><p>{d}</p></div>)}</div>
-      <h2 className="lz-h2" style={{ marginTop: 56 }}>The team</h2>
-      <div className="lz-grid">{ABOUT.team.map(([n, r, c]) => <div key={n} className="lz-card"><span className="lz-dot" style={{ background: c, width: 48, height: 48, borderRadius: 999 }}>{ab(n)}</span><h3>{n}</h3><p>{r}</p></div>)}</div>
+      {ABOUT.team.length > 0 && <><h2 className="lz-h2" style={{ marginTop: 56 }}>The team</h2>
+      <div className="lz-grid">{ABOUT.team.map(([n, r, c]) => <div key={n} className="lz-card"><span className="lz-dot" style={{ background: c, width: 48, height: 48, borderRadius: 999 }}>{ab(n)}</span><h3>{n}</h3><p>{r}</p></div>)}</div></>}
     </div></section>
   </>
 }
@@ -200,9 +207,10 @@ export function Legal() {
     <section className="lz-sec"><div className="lz-wrap lz-side">
       <nav aria-label="Legal">{LEGAL_NAV.map(([k, id]) => <a key={id} href={`#${id}`}>{k}</a>)}</nav>
       <article>
+        <p className="lz-badge" role="note">{LEGAL_DRAFT_NOTE}</p>
         <div id="terms">{TERMS.map(([k, d]) => <div key={k}><h3>{k}</h3><p style={{ color: 'var(--fg2)' }}>{d}</p></div>)}</div>
         {LEGAL_NAV.slice(1).map(([k, id]) => <div key={id} id={id} style={{ marginTop: 40 }}><h2 className="lz-h2" style={{ fontSize: 24 }}>{k}</h2>
-          <p style={{ color: 'var(--fg2)' }}>The full {k.toLowerCase()} is available on request from {BRAND.company}. Contact us through the <Link to="/contact" style={{ textDecoration: 'underline' }}>contact page</Link>.</p></div>)}
+          {POLICIES[id as keyof typeof POLICIES].map(([h, d]) => <div key={h}><h3>{h}</h3><p style={{ color: 'var(--fg2)' }}>{d}</p></div>)}</div>)}
       </article>
     </div></section>
   </>

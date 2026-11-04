@@ -67,3 +67,25 @@ describe('Marketing site', () => {
     expect(body).toMatchObject({ name: 'Ann', email: 'ann@example.com', website: '', budget: null })
   })
 })
+
+describe('Website changelog and policies', () => {
+  it('parses Keep a Changelog releases and skips Unreleased', async () => {
+    const { parseChangelog } = await import('../site/changelog')
+    const r = parseChangelog('# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Not yet\n\n## [1.2.0] — 2026-11-01\n\n### Added\n\n- A `thing` that\n  spans lines (#9)\n- **Bold** [link](https://x)\n\n### Fixed\n\n## [1.1.0] — 2026-10-01\n\n### Fixed\n\n- Bug\n')
+    expect(r).toEqual([
+      { version: '1.2.0', date: '2026-11-01', groups: [{ k: 'Added', items: ['A thing that spans lines (#9)', 'Bold link'] }] },
+      { version: '1.1.0', date: '2026-10-01', groups: [{ k: 'Fixed', items: ['Bug'] }] },
+    ])
+  })
+  it('the real CHANGELOG.md has the current release first', async () => {
+    const { parseChangelog } = await import('../site/changelog')
+    const md = (await import('../../../CHANGELOG.md?raw')).default
+    const version = (await import('../../../VERSION?raw')).default.trim()
+    expect(parseChangelog(md)[0].version).toBe(version)
+  })
+  it('every legal section has text', async () => {
+    const { POLICIES } = await import('../site/legal')
+    const { LEGAL_NAV } = await import('../site/content')
+    for (const [, id] of LEGAL_NAV.slice(1)) expect(POLICIES[id as keyof typeof POLICIES].length).toBeGreaterThan(2)
+  })
+})
