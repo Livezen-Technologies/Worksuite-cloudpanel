@@ -9,6 +9,25 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-11-04
+
+### Added
+
+- **Kubernetes** — connect existing clusters under Servers → Kubernetes, by
+  pasting a kubeconfig or an API address with a service-account token (and the
+  cluster CA). The panel checks the connection, then shows nodes (ready, roles,
+  capacity), namespaces and deployments (ready/desired replicas), and can
+  scale, restart (the same pod-template annotation `kubectl rollout restart`
+  uses) and delete a deployment, or deploy an image as a Deployment with an
+  optional ClusterIP Service. Tokens are stored encrypted and never returned.
+  API addresses must be https; private networks are allowed, loopback,
+  link-local and metadata addresses are not. Client-certificate and exec-plugin
+  kubeconfigs aren't supported yet.
+
+### Changed
+
+- `symfony/yaml` is now a direct API dependency (it parses kubeconfigs).
+
 ## [1.3.0] — 2026-11-03
 
 ### Added
