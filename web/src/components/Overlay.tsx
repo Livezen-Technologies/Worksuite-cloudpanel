@@ -2,15 +2,22 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 
 function useEscapeAndFocus(open: boolean, onClose: () => void, ref: React.RefObject<HTMLElement | null>) {
+  // Callers pass a new onClose on every render; read it through a ref so the effect below runs only
+  // when the overlay opens. Re-running it moved focus back to the first button on every keystroke.
+  const close = useRef(onClose)
+  useEffect(() => { close.current = onClose }, [onClose])
   useEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
     const el = ref.current
     const focusables = () => Array.from(el?.querySelectorAll<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])') ?? []).filter((x) => !x.hasAttribute('disabled'))
-    const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? focusables()[0]
+    // Start in the first field, not on the close button.
+    const first = el?.querySelector<HTMLElement>('[data-autofocus]')
+      ?? el?.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]):not([readonly]),select:not([disabled]),textarea:not([disabled])')
+      ?? focusables()[0]
     first?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+      if (e.key === 'Escape') { e.stopPropagation(); close.current() }
       if (e.key === 'Tab') {
         const f = focusables(); if (!f.length) return
         const a = f[0], b = f[f.length - 1]
@@ -34,7 +41,7 @@ function useEscapeAndFocus(open: boolean, onClose: () => void, ref: React.RefObj
       if (left <= 0) { body.style.overflow = prevOverflow; delete body.dataset.overlayDepth }
       prev?.focus?.()
     }
-  }, [open, onClose, ref])
+  }, [open, ref])
 }
 
 export function Drawer({ open, onClose, title, children, side = 'right', width = 440, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; side?: 'right' | 'left'; width?: number; footer?: ReactNode }) {
@@ -59,21 +66,21 @@ export function Drawer({ open, onClose, title, children, side = 'right', width =
   )
 }
 
-export function Modal({ open, onClose, title, children, footer, width = 520 }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; width?: number }) {
+export function Modal({ open, onClose, title, subtitle, children, footer, width = 520, fullOnMobile = false }: { open: boolean; onClose: () => void; title: string; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; width?: number; fullOnMobile?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const id = useId()
   useEscapeAndFocus(open, onClose, ref)
   if (!open) return null
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'var(--z-modal)' }}>
+    <div className={`fixed inset-0 flex items-center justify-center ${fullOnMobile ? 'p-0 sm:p-4' : 'p-4'}`} style={{ zIndex: 'var(--z-modal)' }}>
       <div className="absolute inset-0 bg-black/45 animate-[ovl-fade_var(--dur-base)_var(--ease-out)]" onClick={onClose} aria-hidden="true" />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className="relative card w-full max-h-[90vh] flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)]" style={{ maxWidth: width }}>
-        <div className="flex items-center justify-between px-5 pt-4">
-          <h2 id={id} className="m-0 text-base font-semibold">{title}</h2>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className={`relative card w-full flex flex-col shadow-over animate-[ovl-rise_var(--dur-slow)_var(--ease-out)] ${fullOnMobile ? 'h-full max-h-full rounded-none sm:h-auto sm:max-h-[92vh] sm:rounded-lg' : 'max-h-[90vh]'}`} style={{ maxWidth: width }}>
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line">
+          <div className="min-w-0"><h2 id={id} className="m-0 text-base font-semibold">{title}</h2>{subtitle && <p className="m-0 mt-0.5 text-sm text-muted">{subtitle}</p>}</div>
           <button type="button" aria-label="Close dialog" onClick={onClose} className="btn btn-sm border-0"><Icon name="close" /></button>
         </div>
-        <div className="p-5 overflow-y-auto text-sm">{children}</div>
-        {footer && <div className="px-5 pb-5 flex flex-wrap gap-2 justify-end">{footer}</div>}
+        <div className="p-5 overflow-y-auto text-sm flex-1 min-h-0">{children}</div>
+        {footer && <div className="px-5 py-3.5 border-t border-line bg-head/40 rounded-b-[inherit] flex flex-wrap gap-2 justify-end">{footer}</div>}
       </div>
     </div>
   )

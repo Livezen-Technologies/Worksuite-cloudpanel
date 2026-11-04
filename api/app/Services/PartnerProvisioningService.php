@@ -117,11 +117,9 @@ class PartnerProvisioningService
             foreach (($in['env'] ?? []) as $k => $v) {
                 $env[] = ['key' => $k, 'value' => (string) $v, 'secret' => true];
             }
-            $source = ['type' => 'template', 'template' => $template];
             $tpl = config('platform.app_templates')[$template];
-            if (! empty($in['version'])) {
-                $source = ['type' => 'image', 'image' => self::imageAt($tpl['image'], $in['version'])];
-            }
+            // By image: the template is partner-only, so the customer template path refuses it.
+            $source = ['type' => 'image', 'image' => empty($in['version']) ? $tpl['image'] : self::imageAt($tpl['image'], $in['version'])];
             $result = $this->hosting->host(User::findOrFail($account->service_user_id), [
                 'name' => $in['subdomain'], 'source' => $source, 'region' => $in['region'] ?? null, 'size' => $size,
                 'port' => $tpl['port'], 'volume_path' => $tpl['volume_path'], 'env' => $env,

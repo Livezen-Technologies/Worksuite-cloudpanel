@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: reactive-resume
+name: Reactive Resume
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A one-of-a-kind resume builder that keeps your privacy in mind.
+port: 3000
+source: coolify
+documentation: https://docs.rxresu.me/self-hosting/docker
+compose: "services:\n  reactive-resume:\n    image: amruthpillai/reactive-resume:v6\n    environment:\n      APP_URL: ${SERVICE_URL}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-reactive_resume}\n      AUTH_SECRET: ${SERVICE_PASSWORD_AUTHSECRET}\n      ENCRYPTION_SECRET: ${SERVICE_PASSWORD_ENCRYPTIONSECRET}\n      FLAG_DISABLE_SIGNUPS: ${FLAG_DISABLE_SIGNUPS:-false}\n      FLAG_DISABLE_EMAIL_AUTH: ${FLAG_DISABLE_EMAIL_AUTH:-false}\n    volumes:\n    - reactive-resume-data:/app/data\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - node\n      - -e\n      - 'fetch(''http://127.0.0.1:3000/api/health'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'\n      interval: 10s\n      timeout: 5s\n      retries: 10\n      start_period: 30s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgres:\n    image: postgres:18-alpine\n    environment:\n      POSTGRES_DB: ${POSTGRES_DB:-reactive_resume}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $reactive_resume\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  reactive-resume-data: {}\n  postgres-data: {}\n"

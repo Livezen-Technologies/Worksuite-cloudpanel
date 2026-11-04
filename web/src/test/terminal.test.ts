@@ -23,3 +23,14 @@ describe('terminal relay helpers', () => {
     expect(events).toEqual([[0.5, 'o', '$ '], [1.25, 'r', '120x40'], [2, 'o', 'hello\r\n']])
   })
 })
+
+describe('terminalSocketError', () => {
+  it('points at the web server when the socket never opened, and at the agent when it dropped', async () => {
+    const { terminalSocketError } = await import('../components/Terminal')
+    const before = terminalSocketError('wss://panel.example.com/relay/terminal/s1?token=secret-token&cols=80', false)
+    expect(before).toContain('wss://panel.example.com/relay/terminal/')
+    expect(before).toContain('forward /relay/')
+    expect(before).not.toContain('secret-token')
+    expect(terminalSocketError('wss://panel.example.com/relay/terminal/s1', true)).toContain('agent is online')
+  })
+})

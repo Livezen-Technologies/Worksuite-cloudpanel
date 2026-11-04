@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: snipe-it
+name: Snipe It
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Snipe-IT is an open-source asset management platform built for IT departments.
+port: 80
+source: coolify
+documentation: https://snipe-it.readme.io/docs/introduction
+compose: "services:\n  app:\n    image: snipe/snipe-it:v8.8.3\n    environment:\n      APP_ENV: production\n      APP_DEBUG: 'false'\n      APP_KEY: base64:${SERVICE_BASE64_APPKEY}\n      APP_URL: ${SERVICE_URL}\n      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}\n      APP_LOCALE: ${APP_LOCALE:-en-US}\n      DB_CONNECTION: mysql\n      DB_HOST: mariadb\n      DB_PORT: '3306'\n      DB_DATABASE: ${MYSQL_DATABASE:-snipeit}\n      DB_USERNAME: ${SERVICE_USER_MARIADB}\n      DB_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n      MAIL_MAILER: ${MAIL_MAILER:-smtp}\n      MAIL_HOST: ${MAIL_HOST:-null}\n      MAIL_PORT: ${MAIL_PORT:-1025}\n      MAIL_USERNAME: ${MAIL_USERNAME:-null}\n      MAIL_PASSWORD: ${MAIL_PASSWORD:-null}\n      MAIL_FROM_ADDR: ${MAIL_FROM_ADDR:-you@example.com}\n      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Snipe-IT}\n    volumes:\n    - storage:/var/lib/snipeit\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost/health\n      interval: 10s\n      timeout:\
+  \ 5s\n      retries: 5\n      start_period: 30s\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11.8\n    environment:\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-snipeit}\n      MYSQL_USER: ${SERVICE_USER_MARIADB}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n    volumes:\n    - db_data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 1s\n      retries: 5\nvolumes:\n  storage: {}\n  db_data: {}\n"

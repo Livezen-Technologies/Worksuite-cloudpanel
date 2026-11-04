@@ -37,8 +37,10 @@ class HostingTest extends TestCase
         $job = Job::allTenants()->find($response->json('data.job_id'));
         $this->assertSame(DeploymentService::CUSTOMER_STAGES, array_column($job->stages, 'name'));
 
-        $cmd = $this->heartbeat($secret)['commands'][0];
-        $this->assertSame('container.create', $cmd['type']);
+        // The environment's own network is created first, so pick the container
+        // command by type rather than by position in the queue.
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'container.create');
+        $this->assertNotNull($cmd);
         $this->assertSame([['type' => 'volume', 'source' => 'app-my-site-data', 'target' => '/data', 'read_only' => false]], $cmd['payload']['mounts'] ?? [['type' => 'volume', 'source' => 'app-my-site-data', 'target' => '/data', 'read_only' => false]]);
         $this->assertSame(512, $cmd['payload']['memory_mb']);
         $this->assertSame('Host(`my-site.livezen.app`)', $cmd['payload']['labels']['traefik.http.routers.app-my-site.rule']);
@@ -80,7 +82,7 @@ class HostingTest extends TestCase
         $this->host($token, 'bad', ['source' => ['type' => 'image', 'image' => 'acme/private-thing:1']])->assertStatus(422);
         $this->host($token, 'Bad_Name')->assertStatus(422)->assertJsonStructure(['error' => ['fields' => ['name']]]);
         $this->host($token, 'priv', ['privileged' => true])->assertStatus(422);
-        $this->host($token, 'wp', ['source' => ['type' => 'template', 'template' => 'wordpress'], 'size' => 'standard'])->assertStatus(202);
+        $this->host($token, 'wp', ['source' => ['type' => 'template', 'template' => 'wordpress', 'variables' => ['WORDPRESS_DB_HOST' => 'db:3306', 'WORDPRESS_DB_PASSWORD' => 'pw']], 'size' => 'standard'])->assertStatus(202);
         $this->host($token, 'wp')->assertStatus(422);
     }
 
@@ -107,5 +109,57 @@ class HostingTest extends TestCase
         $deleted = Application::allTenants()->withTrashed()->find($appId);
         $this->assertTrue($deleted->trashed());
         $this->assertTrue($deleted->purge_after->gt(now()->addDays(6)));
+    }
+
+    public function test_customers_host_catalogue_templates_with_generated_secrets(): void
+    {
+        [, $org, $token] = $this->org();
+        $this->server($org);
+        $this->host($token, 'pma', ['source' => ['type' => 'template', 'template' => 'phpmyadmin'], 'env' => []])->assertStatus(422)->assertSee('PMA_HOST');
+        $this->host($token, 'tool', ['source' => ['type' => 'template', 'template' => 'portainer'], 'env' => []])->assertStatus(422);
+
+        $this->host($token, 'stats', ['source' => ['type' => 'template', 'template' => 'grafana'], 'port' => null, 'env' => [['key' => 'GF_SECURITY_ADMIN_USER', 'value' => 'me']]])->assertStatus(202);
+        $app = Application::allTenants()->where('name', 'stats')->first();
+        $this->assertSame(['grafana/grafana:11.3.0', 3000, '/api/health', '/var/lib/grafana'], [$app->image, $app->port, $app->health_path, $app->volume_path]);
+        $this->assertArrayNotHasKey('variables', $app->source);
+        $env = \App\Models\EnvVar::allTenants()->where('application_id', $app->id)->get()->keyBy('key');
+        $this->assertSame('me', $env['GF_SECURITY_ADMIN_USER']->value, 'what the customer sets wins');
+        $this->assertSame(32, strlen($env['GF_SECURITY_ADMIN_PASSWORD']->value));
+        $this->assertTrue($env['GF_SECURITY_ADMIN_PASSWORD']->secret);
+        $this->assertSame('https://stats.'.config('platform.domain'), $env['GF_SERVER_ROOT_URL']->value);
+        $install = \App\Models\TemplateInstall::allTenants()->where('resource_id', $app->id)->first();
+        $this->assertSame(['grafana', 1], [$install->template_id, $install->version]);
+        $this->assertSame($env['GF_SECURITY_ADMIN_PASSWORD']->value, $install->values['SERVICE_PASSWORD_GRAFANA']);
+
+        $this->host($token, 'admin-db', ['source' => ['type' => 'template', 'template' => 'phpmyadmin', 'variables' => ['PMA_HOST' => 'db.internal']], 'env' => []])->assertStatus(202);
+        $this->assertSame('db.internal', \App\Models\EnvVar::allTenants()->where('key', 'PMA_HOST')->value('value'));
+        $list = collect($this->api($token)->getJson('/api/v1/app/templates')->json('data'))->keyBy('id');
+        $this->assertSame([3000, 1, 'Monitoring'], [$list['grafana']['port'], $list['grafana']['generates'], $list['grafana']['category']]);
+    }
+
+    public function test_customers_host_compose_stack_templates(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org, ['region' => 'eu-central']);
+        [$secret] = $this->enrollAgent($server, $token);
+        $list = collect($this->api($token)->getJson('/api/v1/app/templates')->json('data'))->keyBy('id');
+        $this->assertSame(['compose', ['ghost', 'db']], [$list['ghost-mysql']['type'], $list['ghost-mysql']['services']]);
+
+        $this->host($token, 'blog', ['source' => ['type' => 'template', 'template' => 'ghost-mysql'], 'port' => null, 'env' => [], 'size' => 'standard'])
+            ->assertStatus(202)->assertJsonPath('data.app.name', 'blog');
+        $app = Application::allTenants()->where('name', 'blog')->first();
+        $this->assertSame(['compose', $server->id], [$app->source_type, $app->server_id]);
+        $project = \App\Models\ComposeProject::allTenants()->find($app->source['compose_project_id']);
+        $this->assertSame($server->id, $project->server_id);
+        $install = \App\Models\TemplateInstall::allTenants()->where('resource_id', $project->id)->first();
+        $this->assertSame('compose_project', $install->resource_type);
+
+        $cmd = collect($this->heartbeat($secret)['commands'])->firstWhere('type', 'compose.up');
+        $this->assertNotNull($cmd);
+        $this->assertStringContainsString('Host(`blog.'.config('platform.domain').'`)', json_encode($cmd['payload']));
+        $this->assertStringNotContainsString('${SERVICE_PASSWORD', json_encode($cmd['payload']));
+
+        $this->api($token)->deleteJson("/api/v1/app/apps/{$app->id}")->assertNoContent();
+        $this->assertSame('compose.down', collect($this->heartbeat($secret)['commands'])->last()['type']);
     }
 }

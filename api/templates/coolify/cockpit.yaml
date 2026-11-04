@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: cockpit
+name: Cockpit
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Cockpit is a headless content platform that is lightweight, fast and ready for takeoff.
+port: 80
+source: coolify
+documentation: https://getcockpit.com/documentation/
+compose: "services:\n  cockpit:\n    image: cockpithq/cockpit:core-latest\n    environment: {}\n    volumes:\n    - cockpit-config:/var/www/html/config\n    - cockpit-spaces:/var/www/html/.spaces\n    - cockpit-storage:/var/www/html/storage\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1/api/system/healthcheck\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  cockpit-config: {}\n  cockpit-spaces: {}\n  cockpit-storage: {}\n"

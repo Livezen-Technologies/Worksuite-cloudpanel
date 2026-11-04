@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: openobserve
+name: Openobserve
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Cloud-native observability platform for logs, metrics, traces, RUM, errors and session replays — a 140x cheaper alternative to Elasticsearch, Splunk and Datadog.
+port: 5080
+source: coolify
+documentation: https://openobserve.ai/docs/
+compose: "services:\n  openobserve:\n    image: public.ecr.aws/zinclabs/openobserve:v0.90.0\n    environment:\n      ZO_DATA_DIR: /data\n      ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-root@example.com}\n      ZO_ROOT_USER_PASSWORD: ${SERVICE_PASSWORD_OPENOBSERVE}\n      ZO_TELEMETRY: ${ZO_TELEMETRY:-false}\n      ZO_COOKIE_SECURE_ONLY: ${ZO_COOKIE_SECURE_ONLY:-true}\n    volumes:\n    - openobserve-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - /openobserve\n      - node\n      - status\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 60s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5080'\nvolumes:\n  openobserve-data: {}\n"

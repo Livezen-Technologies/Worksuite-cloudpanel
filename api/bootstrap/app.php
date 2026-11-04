@@ -25,11 +25,13 @@ return Application::configure(basePath: dirname(__DIR__))
         then: function () {
             Route::prefix('agent/v1')->middleware(['api'])->group(base_path('routes/agent.php'));
             Route::prefix('partner/v1')->middleware(['api', 'throttle:api'])->group(base_path('routes/partner.php'));
+            Route::middleware(['api'])->group(base_path('routes/oauth.php'));
             Route::prefix('internal/relay')->middleware(['api', \App\Http\Middleware\VerifyRelaySecret::class])->group(base_path('routes/relay.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
         $middleware->alias([
             'tenant' => \App\Http\Middleware\SetTenant::class,
             'perm' => \App\Http\Middleware\RequirePermission::class,
@@ -37,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'audit' => \App\Http\Middleware\AuditMutations::class,
             'agent' => \App\Http\Middleware\AuthenticateAgent::class,
             'partner' => \App\Http\Middleware\AuthenticatePartner::class,
+            'admin.network' => \App\Http\Middleware\AdminNetwork::class,
         ]);
         $middleware->redirectGuestsTo(fn () => null);
         $middleware->trimStrings(except: ['yaml', 'source.compose', 'compose_yaml', 'password', 'value']);
@@ -68,6 +71,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 ]], 202),
                 $e instanceof ApiException => $error($request, $e->errorCode, $e->getMessage(), $e->status, $e->fields, $e->extra),
                 $e instanceof ValidationException => $error($request, 'validation_failed', $e->getMessage(), 422, $e->errors()),
+                // MCP clients find the sign-in flow from this header (MCP authorization, RFC 9728).
+                $e instanceof AuthenticationException && $request->is('api/v1/app/mcp') => $error($request, 'unauthenticated', 'Sign in to continue.', 401)
+                    ->header('WWW-Authenticate', 'Bearer resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1/app/mcp').'"'),
                 $e instanceof AuthenticationException => $error($request, 'unauthenticated', 'Sign in to continue.', 401),
                 $e instanceof AuthorizationException => $error($request, 'forbidden', $e->getMessage() ?: 'Forbidden.', 403),
                 $e instanceof ModelNotFoundException, $e instanceof NotFoundHttpException => $error($request, 'not_found', 'The requested resource was not found.', 404),

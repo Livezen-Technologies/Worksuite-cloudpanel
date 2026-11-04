@@ -163,8 +163,12 @@ func (e *Executor) runTerminal(target string, exp time.Time, p terminalPayload) 
 	go func() { <-ctx.Done(); conn.Close(ws.CloseNormal, "expired") }()
 
 	sendJSON := func(v any) { b, _ := json.Marshal(v); conn.WriteText(string(b)) }
+	user, changed := e.terminalUser(ctx, p.ContainerID, p.ShellUser, p.Shell)
+	if changed {
+		sendJSON(map[string]any{"type": "status", "message": fmt.Sprintf("This container has no user %q; using %q (never root)", p.ShellUser, user)})
+	}
 	cfg := docker.ExecConfig{
-		Cmd: []string{p.Shell}, User: p.ShellUser, Env: []string{"TERM=xterm-256color"},
+		Cmd: []string{p.Shell}, User: user, Env: []string{"TERM=xterm-256color"},
 		Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true,
 	}
 	if p.Rows > 0 && p.Cols > 0 {
@@ -181,8 +185,8 @@ func (e *Executor) runTerminal(target string, exp time.Time, p terminalPayload) 
 		return err
 	}
 	defer stream.Close()
-	sendJSON(map[string]any{"type": "ready", "exec_id": id})
-	e.logf("terminal %s attached to %s as %s (%s)", p.SessionID, p.ContainerID, p.ShellUser, p.Shell)
+	sendJSON(map[string]any{"type": "ready", "exec_id": id, "message": user})
+	e.logf("terminal %s attached to %s as %s (%s)", p.SessionID, p.ContainerID, user, p.Shell)
 
 	outDone := make(chan struct{})
 	go func() {
@@ -271,4 +275,50 @@ func (e *Executor) reapExec(id string) docker.ExecState {
 		}
 	}
 	return st
+}
+
+// terminalUser picks who the shell runs as. Many images (WordPress, databases) have no
+// user named like the configured one, so the exec would fail; it falls back to the
+// container's own non-root user, then common service users. Root is never chosen.
+func (e *Executor) terminalUser(ctx context.Context, container, wanted, shell string) (string, bool) {
+	cands := []string{wanted}
+	if ci, err := e.Docker.InspectContainer(ctx, container); err == nil && ci.Config.User != "" {
+		cands = append(cands, strings.SplitN(ci.Config.User, ":", 2)[0])
+	}
+	cands = append(cands, "www-data", "node", "nobody")
+	seen := map[string]bool{}
+	for _, u := range cands {
+		if u == "" || seen[u] || IsRootUser(u) || strings.ContainsAny(u, " \t\r\n/") {
+			continue
+		}
+		seen[u] = true
+		if e.userWorks(ctx, container, u, shell) {
+			return u, u != wanted
+		}
+	}
+	return wanted, false // let the real exec report Docker's own error
+}
+
+// userWorks runs `shell -c "exit 0"` as u; a missing user makes Docker fail it.
+func (e *Executor) userWorks(ctx context.Context, container, u, shell string) bool {
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	id, err := e.Docker.ExecCreate(pctx, container, docker.ExecConfig{Cmd: []string{shell, "-c", "exit 0"}, User: u})
+	if err != nil || e.Docker.ExecStartDetached(pctx, id) != nil {
+		return false
+	}
+	for {
+		st, err := e.Docker.ExecInspect(pctx, id)
+		if err != nil {
+			return false
+		}
+		if !st.Running {
+			return st.ExitCode == 0
+		}
+		select {
+		case <-pctx.Done():
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: lowcoder
+name: Lowcoder
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Lowcoder (forked from OpenBlocks) is a self-hosted, open-source, low-code platform for building internal tools.
+port: 3000
+source: coolify
+documentation: https://docs.lowcoder.cloud/
+compose: "services:\n  lowcoder:\n    image: lowcoderorg/lowcoder-ce\n    environment:\n      LOWCODER_EMAIL_SIGNUP_ENABLED: ${LOWCODER_EMAIL_SIGNUP_ENABLED:-true}\n      LOWCODER_DB_ENCRYPTION_PASSWORD: ${SERVICE_PASSWORD_ENCRYPTION}\n      LOWCODER_DB_ENCRYPTION_SALT: ${SERVICE_PASSWORD_SALT}\n    volumes:\n    - lowcoder_data:/lowcoder-stacks\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  lowcoder_data: {}\n"

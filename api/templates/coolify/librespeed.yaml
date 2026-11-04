@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: librespeed
+name: Librespeed
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Self-hosted lightweight Speed Test.
+port: 82
+source: coolify
+documentation: https://github.com/librespeed/speedtest
+compose: "services:\n  librespeed:\n    container_name: librespeed\n    image: ghcr.io/librespeed/speedtest:latest\n    environment:\n      MODE: standalone\n      TELEMETRY: 'false'\n      DISTANCE: km\n      WEBPORT: '82'\n    healthcheck:\n      test: curl 127.0.0.1:82 || exit 1\n      timeout: 1s\n      interval: 1m0s\n      retries: 1\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '82'\n"

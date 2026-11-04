@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,13 +31,29 @@ type BuildSpec struct {
 		Username string `json:"username"`
 		Token    string `json:"token"`
 	} `json:"git_auth"`
-	ImageTag string `json:"image_tag"`
-	Push     *struct {
+	// GitSSHKey is an OpenSSH private deploy key for ssh:// or git@host:path repositories.
+	GitSSHKey string `json:"git_ssh_key"`
+	ImageTag  string `json:"image_tag"`
+	Push      *struct {
 		Registry string `json:"registry"`
 		Username string `json:"username"`
 		Password string `json:"password"`
 	} `json:"push"`
 	Labels map[string]string `json:"labels"`
+	// Builder is "dockerfile" (default) or "auto": with "auto" a missing
+	// Dockerfile is generated from the detected stack (BLD-2).
+	Builder        string `json:"builder"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	NoCache        bool   `json:"no_cache"`
+	// CacheFrom (BLD-3) names earlier images of the app in the push registry.
+	// They are pulled and offered to the builder as layer cache, so a build on
+	// any builder can reuse layers another builder made.
+	CacheFrom []string `json:"cache_from"`
+	// CacheRef (BLD-3) is a BuildKit cache image in the push registry
+	// (registry/app:buildcache). When set, the build runs through docker buildx
+	// with --cache-from/--cache-to type=registry (mode=max, every stage cached)
+	// and pushes itself; without buildx it falls back to the Engine API build.
+	CacheRef string `json:"cache_ref"`
 }
 
 var (
@@ -54,14 +72,25 @@ func (e *Executor) checkRepo(repo string) error {
 	switch {
 	case strings.HasPrefix(repo, "https://"), strings.HasPrefix(repo, "http://"):
 		return nil
+	case isSSHRepo(repo):
+		return nil
 	case strings.HasPrefix(repo, "file://"), strings.HasPrefix(repo, "/"):
 		if !e.AllowLocalGit {
 			return errors.New("local repositories are disabled on this agent (set DOCKERMGR_ALLOW_LOCAL_GIT=1)")
 		}
 		return nil
 	}
-	return fmt.Errorf("repository must be an https:// URL, got %q", repo)
+	return fmt.Errorf("repository must be an https:// or SSH URL, got %q", repo)
 }
+
+// SSH repositories: ssh://user@host[:port]/path or the scp form user@host:path. The host
+// can never start with "-" and nothing here can smuggle ssh options.
+var (
+	reSSHURL = regexp.MustCompile(`^ssh://[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?/[A-Za-z0-9._/~-]+$`)
+	reSCP    = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~][A-Za-z0-9._/~-]*$`)
+)
+
+func isSSHRepo(repo string) bool { return reSSHURL.MatchString(repo) || reSCP.MatchString(repo) }
 
 // relInside cleans a payload path that must stay inside the checkout.
 func relInside(kind, p, def string) (string, error) {
@@ -78,6 +107,15 @@ func relInside(kind, p, def string) (string, error) {
 func (s *BuildSpec) validate(e *Executor) error {
 	if err := e.checkRepo(s.Repo); err != nil {
 		return err
+	}
+	if isSSHRepo(s.Repo) != (s.GitSSHKey != "") {
+		if s.GitSSHKey == "" {
+			return errors.New("an SSH repository needs a deploy key")
+		}
+		return errors.New("a deploy key is only used with an SSH repository")
+	}
+	if s.GitSSHKey != "" && (!strings.HasPrefix(s.GitSSHKey, "-----BEGIN OPENSSH PRIVATE KEY-----") || len(s.GitSSHKey) > 16384) {
+		return errors.New("invalid deploy key")
 	}
 	if s.Ref == "" {
 		s.Ref = "main"
@@ -101,6 +139,27 @@ func (s *BuildSpec) validate(e *Executor) error {
 		if !reLabelKey.MatchString(k) {
 			return fmt.Errorf("invalid label %q", k)
 		}
+	}
+	switch s.Builder {
+	case "":
+		s.Builder = "dockerfile"
+	case "dockerfile", "auto":
+	default:
+		return fmt.Errorf("invalid builder %q", s.Builder)
+	}
+	if len(s.CacheFrom) > 3 {
+		return errors.New("at most 3 cache_from images")
+	}
+	for _, ref := range s.CacheFrom {
+		if checkImage(ref) != nil || s.Push == nil || !strings.HasPrefix(ref, s.Push.Registry+"/") {
+			return fmt.Errorf("invalid cache_from %q (must be in the push registry)", ref)
+		}
+	}
+	if s.CacheRef != "" && (checkImage(s.CacheRef) != nil || s.Push == nil || !strings.HasPrefix(s.CacheRef, s.Push.Registry+"/") || strings.ContainsAny(s.CacheRef, ",=")) {
+		return fmt.Errorf("invalid cache_ref %q (must be in the push registry)", s.CacheRef)
+	}
+	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > 6*3600 {
+		return fmt.Errorf("invalid timeout_seconds %d", s.TimeoutSeconds)
 	}
 	if err := checkImage(s.ImageTag); err != nil || strings.Contains(s.ImageTag, "@") {
 		return fmt.Errorf("invalid image_tag %q", s.ImageTag)
@@ -185,11 +244,21 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if err := s.validate(e); err != nil {
 		return nil, err
 	}
+	if s.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	started := time.Now()
 	sink := &logSink{progress: progress}
 	out := map[string]any{"image": s.ImageTag}
 	fail := func(err error) (any, error) {
 		sink.flush()
 		out["log"] = sink.lines()
+		out["duration_seconds"] = int(time.Since(started).Seconds())
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("build exceeded the %d minute limit", s.TimeoutSeconds/60)
+		}
 		return out, err
 	}
 
@@ -210,6 +279,16 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 		user := firstNonEmpty(s.GitAuth.Username, "x-access-token")
 		basic := base64.StdEncoding.EncodeToString([]byte(user + ":" + s.GitAuth.Token))
 		env = append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=Authorization: Basic "+basic)
+	}
+	if s.GitSSHKey != "" {
+		keyFile := filepath.Join(dir, "deploy_key")
+		key := strings.TrimSpace(s.GitSSHKey) + "\n"
+		if err := os.WriteFile(keyFile, []byte(key), 0o600); err != nil {
+			return fail(err)
+		}
+		// Fixed options only: the key, no agent, no config file, first-use host keys kept per build.
+		env = append(env, "GIT_SSH_COMMAND=ssh -F /dev/null -i "+keyFile+" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"+
+			" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="+filepath.Join(dir, "known_hosts"))
 	}
 	repo := s.Repo
 	if strings.HasPrefix(repo, "/") {
@@ -243,6 +322,18 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 		return fail(fmt.Errorf("build context %q not found in the repository", s.Context))
 	}
 	df := filepath.Join(realSrc, s.DockerfilePath)
+	if _, err := os.Lstat(df); errors.Is(err, fs.ErrNotExist) && s.Builder == "auto" {
+		stack, content := detectStack(ctxDir)
+		if stack == "" {
+			return fail(errors.New("no Dockerfile and no supported stack detected (Node.js, Python, Go, PHP or static HTML)"))
+		}
+		df = filepath.Join(ctxDir, ".dockermgr.Dockerfile")
+		if err := os.WriteFile(df, []byte(content), 0o600); err != nil {
+			return fail(err)
+		}
+		out["stack"] = stack
+		sink.line("no Dockerfile found; detected " + stack + ", using a generated Dockerfile")
+	}
 	if st, err := os.Lstat(df); err != nil || !st.Mode().IsRegular() {
 		return fail(fmt.Errorf("dockerfile %q not found in the repository", s.DockerfilePath))
 	}
@@ -263,8 +354,48 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	if c, ok := out["commit"].(string); ok {
 		labels["io.dockermgr.commit"] = c
 	}
-	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels}, sink.line)
+	// BLD-3: BuildKit with a registry cache, when asked for and available.
+	if s.CacheRef != "" {
+		digest, used, err := e.buildx(ctx, s, ctxDir, dfRel, labels, sink)
+		if used {
+			pr.Close()
+			if err != nil {
+				return fail(err)
+			}
+			name, _ := splitImageTag(s.ImageTag)
+			out["builder_engine"], out["cache_ref"] = "buildkit", s.CacheRef
+			out["image_id"], out["digest"], out["repo_digest"] = digest, digest, name+"@"+digest
+			sink.line("built and pushed " + name + "@" + digest + " with BuildKit (cache " + s.CacheRef + ")")
+			sink.flush()
+			out["log"] = sink.lines()
+			out["duration_seconds"] = int(time.Since(started).Seconds())
+			return out, nil
+		}
+		sink.line("docker buildx is not available; building with the Engine API")
+	}
+	// BLD-3: earlier images as layer cache; a missing one is not an error.
+	var cacheFrom []string
+	for _, ref := range s.CacheFrom {
+		name, tag := splitImageTag(ref)
+		if at := strings.Index(ref, "@"); at > 0 {
+			name, tag = ref[:at], ref[at+1:]
+		}
+		auth := &docker.RegistryAuth{Username: s.Push.Username, Password: s.Push.Password, ServerAddress: s.Push.Registry}
+		if err := e.Docker.PullImage(ctx, name, tag, auth, nil); err != nil {
+			sink.line("cache image " + ref + " not available: " + err.Error())
+			continue
+		}
+		cacheFrom = append(cacheFrom, ref)
+		sink.line("using " + ref + " as layer cache")
+	}
+	out["cache_from"] = cacheFrom
+	cache := &cacheStats{}
+	id, err := e.Docker.BuildImage(ctx, pr, docker.BuildOptions{Tag: s.ImageTag, Dockerfile: filepath.ToSlash(dfRel), BuildArgs: s.BuildArgs, Labels: labels, NoCache: s.NoCache, CacheFrom: cacheFrom}, func(l string) {
+		cache.line(l)
+		sink.line(l)
+	})
 	pr.Close()
+	out["cache_steps"], out["cache_hits"] = cache.steps, cache.hits
 	if err != nil {
 		return fail(err)
 	}
@@ -285,10 +416,70 @@ func (e *Executor) buildImage(ctx context.Context, raw []byte, progress func(int
 	} else {
 		out["digest"] = id
 	}
-	sink.line("built " + s.ImageTag + " (" + id + ")")
+	sink.line(fmt.Sprintf("built %s (%s); %d of %d steps cached", s.ImageTag, id, cache.hits, cache.steps))
 	sink.flush()
 	out["log"] = sink.lines()
+	out["duration_seconds"] = int(time.Since(started).Seconds())
 	return out, nil
+}
+
+// buildx runs `docker buildx build` with a registry cache and --push. used is
+// false when buildx itself is missing, so the caller can fall back.
+func (e *Executor) buildx(ctx context.Context, s BuildSpec, ctxDir, dfRel string, labels map[string]string, sink *logSink) (digest string, used bool, err error) {
+	if _, err := e.run(ctx, "", baseEnv(), "docker", "buildx", "version"); err != nil {
+		return "", false, nil
+	}
+	cfg, err := os.MkdirTemp(firstNonEmpty(e.StateDir, os.TempDir()), "buildx-")
+	if err != nil {
+		return "", true, err
+	}
+	defer os.RemoveAll(cfg)
+	auth := base64.StdEncoding.EncodeToString([]byte(s.Push.Username + ":" + s.Push.Password))
+	conf, _ := json.Marshal(map[string]any{"auths": map[string]any{s.Push.Registry: map[string]string{"auth": auth}}})
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), conf, 0o600); err != nil {
+		return "", true, err
+	}
+	meta := filepath.Join(cfg, "meta.json")
+	args := []string{"buildx", "build", "--progress", "plain", "--file", filepath.Join(ctxDir, dfRel), "--tag", s.ImageTag,
+		"--cache-from", "type=registry,ref=" + s.CacheRef, "--cache-to", "type=registry,ref=" + s.CacheRef + ",mode=max",
+		"--push", "--metadata-file", meta}
+	if s.NoCache {
+		args = append(args, "--no-cache")
+	}
+	for _, k := range sortedKeys(s.BuildArgs) {
+		args = append(args, "--build-arg", k+"="+s.BuildArgs[k])
+	}
+	for _, k := range sortedKeys(labels) {
+		args = append(args, "--label", k+"="+labels[k])
+	}
+	args = append(args, ctxDir)
+	o, err := e.run(ctx, "", append(baseEnv(), "DOCKER_CONFIG="+cfg), "docker", args...)
+	for _, l := range strings.Split(strings.TrimSpace(string(o)), "\n") {
+		if l != "" {
+			sink.line(l)
+		}
+	}
+	if err != nil {
+		return "", true, fmt.Errorf("docker buildx build: %v", err)
+	}
+	var m map[string]any
+	if b, rerr := os.ReadFile(meta); rerr == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	digest, _ = m["containerimage.digest"].(string)
+	if !strings.HasPrefix(digest, "sha256:") {
+		return "", true, errors.New("docker buildx build did not report the pushed digest")
+	}
+	return digest, true, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func within(root, p string) bool {

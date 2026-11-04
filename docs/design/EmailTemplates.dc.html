@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Email templates — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#2563EB;text-decoration:none}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1154px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="EmailTemplates" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1100px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Email templates</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.sub}}">Every email the platform sends to admins and customers. Edits apply to new emails only.</p>
+      </div>
+      <button type="button" onClick="{{toggleBrand}}" style="{{btn}}">Branding &amp; sender</button>
+    </div>
+    <sc-if value="{{toast}}" hint-placeholder-val="{{ false }}"><div role="status" style="padding: 10px 14px; border-radius: 8px; background: {{c.okBg}}; color: {{c.okFg}}; font-size: 13px; font-weight: 500">{{toastText}}</div></sc-if>
+
+    <sc-if value="{{brandOpen}}" hint-placeholder-val="{{ false }}">
+      <section style="padding: 18px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px">
+        <label style="{{lbl}}">From name<input value="{{brand.from}}" onInput="{{onFrom}}" style="{{input}}"></label>
+        <label style="{{lbl}}">From address<input value="no-reply@livezen.app" style="{{input}}"></label>
+        <label style="{{lbl}}">Reply-to<input value="support@livezen.app" style="{{input}}"></label>
+        <label style="{{lbl}}">Brand colour<span style="display: flex; gap: 6px"><sc-for list="{{swatches}}" as="w" hint-placeholder-count="4"><button type="button" onClick="{{w.pick}}" aria-label="{{w.label}}" style="{{w.style}}"></button></sc-for></span></label>
+        <label style="{{lbl}}">Footer text<input value="{{brand.footer}}" onInput="{{onFooter}}" style="{{input}}"></label>
+        <label style="{{lbl}}">Mail driver<select style="{{input}}"><option>SMTP · smtp.livezen.app:587</option><option>Amazon SES</option><option>Postmark</option><option>Mailgun</option></select></label>
+        <div style="grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: {{c.sub}}"><span style="{{okPill}}">SPF OK</span><span style="{{okPill}}">DKIM OK</span><span style="{{warnPill}}">DMARC p=none</span><span>Customers on hosting packages can override the logo and colour for their own customers.</span></div>
+      </section>
+    </sc-if>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start">
+      <!-- list -->
+      <section aria-label="Templates" style="flex: 0 1 280px; min-width: 250px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+        <div style="padding: 10px; border-bottom: 1px solid {{c.line}}; background: {{c.head}}"><input aria-label="Search templates" value="{{q}}" onInput="{{onQ}}" placeholder="Search templates…" style="{{input}}"></div>
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+          <div style="padding: 10px 14px 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: {{c.sub}}">{{g.name}}</div>
+          <sc-for list="{{g.items}}" as="t" hint-placeholder-count="3">
+            <button type="button" onClick="{{t.pick}}" style="{{t.style}}"><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{t.name}}</span><span style="{{t.badge}}">{{t.state}}</span></button>
+          </sc-for>
+        </sc-for>
+      </section>
+
+      <!-- editor -->
+      <section style="flex: 1 1 380px; min-width: 0; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: flex; flex-direction: column">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid {{c.line}}">
+          <div style="flex: 1; min-width: 0"><div style="font-weight: 700; font-size: 15px">{{tpl.name}}</div><div style="font-size: 12px; color: {{c.sub}}">Sent {{tpl.when}} · to {{tpl.to}}</div></div>
+          <button type="button" onClick="{{toggleOn}}" aria-label="Enabled" style="{{onTrack}}"><span style="{{onKnob}}"></span></button>
+        </div>
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px">
+          <label style="{{lbl}}">Subject<input value="{{tpl.subject}}" onInput="{{onSubject}}" style="{{input}}"></label>
+          <label style="{{lbl}}">Preheader<input value="{{tpl.pre}}" onInput="{{onPre}}" style="{{input}}"></label>
+          <div style="{{lbl}}">Variables <span style="font-weight: 400; color: {{c.sub}}">· click to insert at the end of the body</span></div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{vars}}" as="v" hint-placeholder-count="6"><button type="button" onClick="{{v.insert}}" style="{{varChip}}">{{v.label}}</button></sc-for></div>
+          <label style="{{lbl}}">Heading<input value="{{tpl.heading}}" onInput="{{onHeading}}" style="{{input}}"></label>
+          <label style="{{lbl}}">Body<textarea value="{{tpl.body}}" onInput="{{onBody}}" rows="9" style="{{area}}"></textarea></label>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+            <label style="{{lbl}}">Button label<input value="{{tpl.cta}}" onInput="{{onCta}}" style="{{input}}"></label>
+            <label style="{{lbl}}">Button link<input value="{{tpl.link}}" style="{{inputMono}}"></label>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px">
+            <button type="button" onClick="{{save}}" style="{{btnPrimary}}">Save template</button>
+            <input aria-label="Test address" value="{{testTo}}" onInput="{{onTestTo}}" style="{{inputSm}}">
+            <button type="button" onClick="{{sendTest}}" style="{{btn}}">Send test</button>
+            <button type="button" onClick="{{reset}}" style="{{btnGhost}}">Reset to default</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- preview -->
+      <section style="flex: 1 1 380px; min-width: 0; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid {{c.line}}; background: {{c.head}}">
+          <span style="flex: 1; font-size: 13px; font-weight: 600">Preview</span>
+          <div style="display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: {{c.card}}; border: 1px solid {{c.line}}"><sc-for list="{{modes}}" as="m" hint-placeholder-count="3"><button type="button" onClick="{{m.pick}}" style="{{m.style}}">{{m.label}}</button></sc-for></div>
+        </div>
+        <div style="padding: 12px 14px; border-bottom: 1px solid {{c.line}}; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px">
+          <div><span style="color: {{c.sub}}">From</span> <b>{{brand.from}}</b> &lt;no-reply@livezen.app&gt;</div>
+          <div><span style="color: {{c.sub}}">Subject</span> <b>{{pv.subject}}</b></div>
+          <div style="color: {{c.sub}}">{{pv.pre}}</div>
+        </div>
+        <div style="padding: 20px 14px; background: #EEF2F6; display: flex; justify-content: center">
+          <sc-if value="{{isHtml}}" hint-placeholder-val="{{ true }}">
+            <div style="{{mailWidth}}">
+              <div style="padding: 18px 24px; display: flex; align-items: center; gap: 8px"><span style="width: 24px; height: 24px; border-radius: 6px; background: {{brand.color}}"></span><span style="font: 700 16px Inter; color: #0F172A">worksuite</span><span style="font: 600 11px Inter; color: {{brand.color}}">Cloud</span></div>
+              <div style="background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; padding: 28px 24px; display: flex; flex-direction: column; gap: 14px">
+                <sc-if value="{{pv.hasBanner}}" hint-placeholder-val="{{ false }}"><div style="{{pv.bannerStyle}}">{{pv.banner}}</div></sc-if>
+                <div style="font: 700 20px/1.3 Inter; color: #0F172A">{{pv.heading}}</div>
+                <div style="font: 14px/1.6 Inter; color: #334155; white-space: pre-line">{{pv.body}}</div>
+                <sc-if value="{{pv.hasCta}}" hint-placeholder-val="{{ true }}"><span style="{{ctaStyle}}">{{pv.cta}}</span></sc-if>
+                <div style="font: 12px/1.5 Inter; color: #64748B; border-top: 1px solid #F1F5F9; padding-top: 12px">If the button doesn’t work, paste this link into your browser: <span style="color: {{brand.color}}">{{pv.link}}</span></div>
+              </div>
+              <div style="padding: 16px 24px; font: 11.5px/1.5 Inter; color: #64748B; text-align: center">{{brand.footer}}<br>Manage notification emails in your account settings.</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{isText}}" hint-placeholder-val="{{ false }}">
+            <pre style="margin: 0; width: 100%; max-width: 560px; padding: 16px; border-radius: 8px; background: #FFFFFF; color: #0F172A; font: 12.5px/1.65 'JetBrains Mono', monospace; white-space: pre-wrap">{{pv.text}}</pre>
+          </sc-if>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1154}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    const T = (id, group, name, to, when, subject, pre, heading, body, cta, link, banner) => ({ id, group, name, to, when, subject, pre, heading, body, cta, link, banner: banner || '', on: true, edited: false });
+    const D = [
+      T('welcome','Account','Welcome','new users','when an account is created','Welcome to {{platform_name}}, {{user_name}}','Your workspace is ready.','Welcome aboard, {{user_name}}','Your {{org_name}} workspace is ready. Host your first app in four steps — we take care of servers, HTTPS and backups.','Open my dashboard','{{dashboard_url}}'),
+      T('invite','Account','Team invitation','invited users','when someone is invited','{{inviter_name}} invited you to {{org_name}}','Join the team on {{platform_name}}.','You’re invited to {{org_name}}','{{inviter_name}} added you as {{role}}. The invitation expires in 7 days.','Accept invitation','{{invite_url}}'),
+      T('verify','Account','Verify email address','users','after sign-up or email change','Confirm your email address','One click to finish.','Confirm your email','Confirm that {{user_email}} is yours. The link expires in 60 minutes.','Confirm email','{{verify_url}}'),
+      T('reset','Security','Password reset','users','on request','Reset your {{platform_name}} password','The link expires in 60 minutes.','Reset your password','We received a request to reset your password from {{ip_address}} ({{location}}). If it wasn’t you, ignore this email — your password stays the same.','Choose a new password','{{reset_url}}'),
+      T('newlogin','Security','New sign-in','users','on a new device','New sign-in to your account','{{device}} · {{location}}','New sign-in from {{device}}','We noticed a sign-in on {{login_time}} from {{location}} ({{ip_address}}). If this was you, there’s nothing to do.','Review activity','{{security_url}}','SECURITY'),
+      T('mfa','Security','Two-factor turned off','users','when MFA is disabled','Two-factor authentication was turned off','Was this you?','Two-factor authentication is off','Two-factor authentication was turned off for {{user_email}} on {{login_time}}. Your account is now less protected.','Turn it back on','{{security_url}}','SECURITY'),
+      T('malware','Security','Malware found','site owners, admins','when a scan finds an infected file','Malware found on {{site}}','{{count}} file(s) quarantined','We found malware on {{site}}','A scan on {{scan_time}} found {{count}} infected file(s) on {{site}}. They were quarantined automatically and your site is still online.','Review threats','{{security_url}}','CRITICAL'),
+      T('deployok','Deployments','Deployment succeeded','app owners','after a successful deploy','{{app_name}} {{release}} is live','Deployed to {{environment}}.','{{app_name}} is live','Release {{release}} was deployed to {{environment}} in {{duration}}. Commit {{commit}} by {{author}}.','View deployment','{{deployment_url}}','SUCCESS'),
+      T('deployfail','Deployments','Deployment failed','app owners','when a deploy fails','Deployment failed: {{app_name}} {{release}}','Rolled back automatically.','Deployment of {{app_name}} failed','The {{failed_step}} step failed. {{app_name}} was rolled back to {{previous_release}} and is still running.','View build logs','{{deployment_url}}','FAILED'),
+      T('preview','Deployments','Preview ready','PR authors','when a PR preview is live','Preview for PR #{{pr_number}} is ready','{{preview_url}}','Your preview is live','A preview of “{{pr_title}}” is running. It is removed when the pull request closes.','Open preview','{{preview_url}}'),
+      T('domainok','Domains','Domain verified','customers','when DNS verifies','{{domain}} is connected with HTTPS','Your certificate is active.','{{domain}} is live','DNS for {{domain}} is verified and an HTTPS certificate was issued. It renews automatically.','Visit site','https://{{domain}}','SUCCESS'),
+      T('sslexpiry','Domains','Certificate expiring','admins, customers','14 and 3 days before expiry','Certificate for {{domain}} expires in {{days_left}} days','Automatic renewal failed.','Certificate renewal failed','We couldn’t renew the certificate for {{domain}}: {{reason}}. It expires on {{expiry_date}}.','Fix renewal','{{domain_url}}','WARNING'),
+      T('backupfail','Backups','Backup failed','admins, app owners','when a backup run fails','Backup failed: {{target}}','{{destination}} · {{failed_at}}','Backup of {{target}} failed','The {{schedule}} backup to {{destination}} failed: {{reason}}. The last good backup is from {{last_success}}.','Open Backup manager','{{backups_url}}','FAILED'),
+      T('restoredone','Backups','Restore complete','requester','after a restore','{{target}} restored to {{snapshot_time}}','Health check passed.','Restore complete','{{target}} was restored from the snapshot of {{snapshot_time}}. A safety backup of the previous state was kept.','View {{target}}','{{target_url}}','SUCCESS'),
+      T('serverdown','Alerts','Server unreachable','admins','after heartbeat timeout','{{server_name}} is not responding','Apps on it may be down.','{{server_name}} is unreachable','No heartbeat from {{server_name}} ({{server_ip}}) for {{minutes}} minutes. {{app_count}} apps run on this server.','Open server','{{server_url}}','CRITICAL'),
+      T('alert','Alerts','Alert triggered','admins','when an alert rule fires','[{{severity}}] {{alert_title}}','{{resource}}','{{alert_title}}','{{alert_detail}} on {{resource}} since {{started_at}}.','Acknowledge','{{alert_url}}','WARNING'),
+      T('wpupdates','Alerts','WordPress security updates','site owners','weekly digest','{{count}} security updates for your WordPress sites','Install them with a restore point.','Security updates are waiting','{{site_list}} have security updates. Updates take a restore point first and roll back if the site breaks.','Review updates','{{wp_url}}','WARNING'),
+      T('invoice','Billing','Invoice issued','billing contacts','monthly','Your {{platform_name}} invoice {{invoice_number}}','{{amount}} due {{due_date}}','Invoice {{invoice_number}}','Your invoice for {{period}} is {{amount}}, due {{due_date}}. It will be charged to the card ending {{card_last4}}.','View invoice','{{invoice_url}}'),
+      T('payfail','Billing','Payment failed','billing contacts','when a charge fails','Payment failed for invoice {{invoice_number}}','Update your card to avoid suspension.','We couldn’t take your payment','The charge of {{amount}} failed: {{reason}}. We’ll retry on {{retry_date}}. Services are suspended after {{grace_days}} days.','Update payment method','{{billing_url}}','FAILED'),
+      T('limit','Billing','Plan limit reached','customers','at 90% and 100%','You’ve used {{percent}}% of your {{resource}}','Upgrade to keep growing.','You’re close to your plan limit','Your {{package}} plan includes {{limit}} {{resource}}; you’re using {{used}}. New apps can’t be created at 100%.','Compare plans','{{billing_url}}','WARNING'),
+    ];
+    this.state = { tpls: D, defaults: D.map(t => ({ ...t })), sel: 0, q: '', mode: 'html', toast: '', brandOpen: false, testTo: 'hasarinda@livezen.lk',
+      brand: { from: 'Livezen Cloud', color: '#2563EB', footer: 'Livezen Technologies (Pvt) Ltd · Colombo, Sri Lanka' } };
+  }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#2563EB';
+    const st = this.state;
+    const c = dark ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', sub:'#94A3B8', line:'#1E293B', soft:'#172554', okBg:'#052E1B', okFg:'#86EFAC' } : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', sub:'#475569', line:'#E2E8F0', soft:'#EFF6FF', okBg:'#DCFCE7', okFg:'#166534' };
+    const say = m => { this.setState({ toast: m }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2600); };
+    const pill = (bg, fg) => `display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;background:${dark?'#1F2937':bg};color:${fg}`;
+    const base = `display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:6px;font:600 13px Inter;cursor:pointer;`;
+    const input = `height:36px;padding:0 10px;border-radius:6px;border:1px solid ${dark?'#334155':'#CBD5E1'};background:${c.card};color:${c.text};font:13.5px Inter;box-sizing:border-box;width:100%`;
+    const cur = st.tpls[st.sel];
+    const patch = (k) => (ev) => this.setState({ tpls: st.tpls.map((t, i) => i === st.sel ? { ...t, [k]: ev.target.value, edited: true } : t) });
+    const q = st.q.trim().toLowerCase();
+    const order = ['Account','Security','Deployments','Domains','Backups','Alerts','Billing'];
+    const groups = order.map(name => ({ name: name.toUpperCase(), items: st.tpls.map((t, i) => ({ t, i })).filter(({ t }) => t.group === name && (!q || t.name.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q))).map(({ t, i }) => ({
+      name: t.name, state: !t.on ? 'OFF' : t.edited ? 'EDITED' : 'DEFAULT', badge: !t.on ? pill('#F1F5F9','#64748B') : t.edited ? pill('#EFF6FF','#1D4ED8') : pill('#F1F5F9','#334155'),
+      pick: () => this.setState({ sel: i }),
+      style: `display:flex;align-items:center;gap:8px;width:100%;height:38px;padding:0 14px;border:0;border-left:3px solid ${i===st.sel?accent:'transparent'};cursor:pointer;text-align:left;font:${i===st.sel?600:500} 13.5px Inter;color:${i===st.sel?(dark?'#93C5FD':'#1D4ED8'):c.text};background:${i===st.sel?c.soft:'transparent'}` })) })).filter(g => g.items.length);
+    const varNames = Array.from(new Set((cur.subject + ' ' + cur.pre + ' ' + cur.heading + ' ' + cur.body + ' ' + cur.cta + ' ' + cur.link).match(/\{\{[a-z0-9_]+\}\}/g) || [])).concat(['{{platform_name}}','{{support_url}}']).filter((v, i, a) => a.indexOf(v) === i);
+    const sample = { platform_name:'Livezen Cloud', user_name:'Nimal', user_email:'nimal@acme.lk', org_name:'Acme Lanka', inviter_name:'Hasarinda', role:'Developer', dashboard_url:'https://cloud.livezen.app', invite_url:'https://cloud.livezen.app/invite/7Hq2', verify_url:'https://cloud.livezen.app/verify/…', reset_url:'https://cloud.livezen.app/reset/…', ip_address:'112.134.8.77', location:'Colombo, LK', device:'Chrome on macOS', login_time:'30 Oct 2026, 09:14', security_url:'https://cloud.livezen.app/account/security', app_name:'acme-blog', release:'v1.4.0', environment:'production', duration:'2 min 41 s', commit:'a91f3c2', author:'Sara K.', deployment_url:'https://cloud.livezen.app/deployments/8812', failed_step:'health check', previous_release:'v1.3.2', pr_number:'131', pr_title:'Checkout redesign', preview_url:'https://pr-131.web.preview.example.com', domain:'shop.mybrand.lk', days_left:'9', reason:'DNS provider token expired', expiry_date:'8 Nov 2026', domain_url:'https://cloud.livezen.app/domains', target:'wp_content', destination:'S3 eu-central-1', failed_at:'03:00', schedule:'daily', last_success:'29 Oct, 03:00', backups_url:'https://cloud.livezen.app/backups', snapshot_time:'30 Oct, 02:00', target_url:'https://cloud.livezen.app/apps/acme-blog', server_name:'vps-us-01', server_ip:'45.32.9.18', minutes:'14', app_count:'9', server_url:'https://cloud.livezen.app/servers/6', severity:'WARNING', alert_title:'Disk above 85%', resource:'ded-eu-01 /var/lib/docker', alert_detail:'Disk at 88%', started_at:'14:02', alert_url:'https://cloud.livezen.app/alerts/41', count:'3', site_list:'blog.acme.lk and studionila.lk', wp_url:'https://cloud.livezen.app/wordpress', invoice_number:'INV-2026-010', amount:'$21.40', due_date:'1 Nov 2026', period:'October 2026', card_last4:'4242', invoice_url:'https://cloud.livezen.app/billing/invoices/10', retry_date:'3 Nov', grace_days:'7', billing_url:'https://cloud.livezen.app/billing', percent:'90', package:'Starter', limit:'2', used:'2 of 2', support_url:'https://livezen.app/support' };
+    const fill = s => String(s || '').replace(/\{\{([a-z0-9_]+)\}\}/g, (m, k) => sample[k] ?? m);
+    const bannerTone = { SUCCESS:['#DCFCE7','#166534'], FAILED:['#FEE2E2','#991B1B'], WARNING:['#FEF3C7','#92400E'], CRITICAL:['#FEE2E2','#991B1B'], SECURITY:['#EFF6FF','#1E40AF'] }[cur.banner] || ['#F1F5F9','#334155'];
+    const pv = { subject: fill(cur.subject), pre: fill(cur.pre), heading: fill(cur.heading), body: fill(cur.body), cta: fill(cur.cta), link: fill(cur.link), hasCta: !!cur.cta, hasBanner: !!cur.banner, banner: cur.banner,
+      bannerStyle: `align-self:flex-start;padding:3px 10px;border-radius:999px;font:700 11px Inter;letter-spacing:.06em;background:${bannerTone[0]};color:${bannerTone[1]}`,
+      text: `${fill(cur.heading)}\n\n${fill(cur.body)}\n\n${cur.cta ? fill(cur.cta) + ': ' + fill(cur.link) + '\n\n' : ''}—\n${st.brand.footer}` };
+    const modes = [['html','Desktop'],['mobile','Mobile'],['text','Plain text']].map(([k, l]) => ({ label: l, pick: () => this.setState({ mode: k }), style: `border:0;min-height:28px;padding:0 10px;border-radius:6px;font:600 12px Inter;cursor:pointer;color:${st.mode===k?'#FFFFFF':c.sub};background:${st.mode===k?'#0F172A':'transparent'}` }));
+    const swatches = ['#2563EB','#0D9488','#7C3AED','#EA580C'].map(col => ({ label: 'Brand colour ' + col, pick: () => this.setState({ brand: { ...st.brand, color: col } }), style: `width:32px;height:32px;border-radius:8px;cursor:pointer;background:${col};border:${st.brand.color===col?'3px solid '+c.text:'1px solid '+c.line}` }));
+    return { c, dark, accent, groups, modes, swatches, q: st.q, onQ: ev => this.setState({ q: ev.target.value }),
+      tpl: { name: cur.name, to: cur.to, when: cur.when, subject: cur.subject, pre: cur.pre, heading: cur.heading, body: cur.body, cta: cur.cta, link: cur.link },
+      vars: varNames.map(v => ({ label: v, insert: () => this.setState({ tpls: st.tpls.map((t, i) => i === st.sel ? { ...t, body: t.body + ' ' + v, edited: true } : t) }) })),
+      onSubject: patch('subject'), onPre: patch('pre'), onHeading: patch('heading'), onBody: patch('body'), onCta: patch('cta'),
+      pv, brand: st.brand, isHtml: st.mode !== 'text', isText: st.mode === 'text',
+      mailWidth: `width:100%;max-width:${st.mode==='mobile'?'360px':'560px'};font-family:Inter,Arial,sans-serif`,
+      ctaStyle: `align-self:flex-start;display:inline-block;padding:11px 18px;border-radius:6px;background:${st.brand.color};color:#FFFFFF;font:600 14px Inter`,
+      lbl: 'display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:600', input, inputMono: input + ";font-family:'JetBrains Mono',monospace;font-size:12.5px", inputSm: input.replace('width:100%', 'width:220px;flex:1 1 180px'),
+      area: input.replace('height:36px;', '') + ';padding:10px;line-height:1.55;resize:vertical',
+      varChip: `min-height:28px;padding:0 9px;border-radius:999px;border:1px solid ${c.line};background:${c.head};color:${dark?'#93C5FD':'#1D4ED8'};font:500 12px 'JetBrains Mono',monospace;cursor:pointer`,
+      btn: base + `border:1px solid ${dark?'#334155':'#CBD5E1'};background:${c.card};color:${c.text}`, btnPrimary: base + `border:0;background:${accent};color:#fff`, btnGhost: base + `border:0;background:transparent;color:${c.sub}`,
+      onTrack: `position:relative;width:44px;height:26px;border-radius:13px;border:0;cursor:pointer;flex:none;background:${cur.on?accent:(dark?'#374151':'#CBD5E1')}`, onKnob: `position:absolute;top:3px;left:${cur.on?21:3}px;width:20px;height:20px;border-radius:10px;background:#fff`,
+      toggleOn: () => { this.setState({ tpls: st.tpls.map((t, i) => i === st.sel ? { ...t, on: !t.on } : t) }); say(`${cur.name} ${cur.on ? 'turned off — this email will not be sent' : 'turned on'}`); },
+      save: () => { const bad = (cur.subject + cur.body).match(/\{\{[^}]*$|\{[^{][^}]*\}\}/); if (bad) return say('A variable is not closed — use {{name}}.'); say(`${cur.name} saved`); },
+      reset: () => { this.setState({ tpls: st.tpls.map((t, i) => i === st.sel ? { ...st.defaults[i] } : t) }); say(`${cur.name} reset to the default text`); },
+      testTo: st.testTo, onTestTo: ev => this.setState({ testTo: ev.target.value }), sendTest: () => /.+@.+\..+/.test(st.testTo) ? say(`Test of “${pv.subject}” sent to ${st.testTo}`) : say('Enter a valid email address.'),
+      brandOpen: st.brandOpen, toggleBrand: () => this.setState({ brandOpen: !st.brandOpen }),
+      onFrom: ev => this.setState({ brand: { ...st.brand, from: ev.target.value } }), onFooter: ev => this.setState({ brand: { ...st.brand, footer: ev.target.value } }),
+      okPill: pill('#DCFCE7','#166534'), warnPill: pill('#FEF3C7','#92400E'),
+      toast: !!st.toast, toastText: st.toast };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

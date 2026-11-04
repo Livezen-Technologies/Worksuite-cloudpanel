@@ -12,13 +12,22 @@ class Server extends Model
 
     protected $guarded = ['id'];
 
-    protected $appends = ['status', 'container_count', 'health_score'];
+    protected $appends = ['status', 'container_count', 'health_score', 'agent_latest', 'agent_outdated'];
 
     protected function casts(): array
     {
         return [
             'tags' => 'array',
+            'security' => 'array',
             'roles' => 'array',
+            'cleanup' => 'array',
+            'system_services' => 'array',
+            'system_services_at' => 'datetime',
+            'services_watch' => 'array',
+            'mesh_status' => 'array',
+            'mesh_ssh_lock' => 'array',
+            'mesh_joined_at' => 'datetime',
+            'disks' => 'array',
             'maintenance' => 'boolean',
             'shared_pool' => 'boolean',
             'last_heartbeat_at' => 'datetime',
@@ -140,5 +149,27 @@ class Server extends Model
     public function isOnline(): bool
     {
         return in_array($this->status, ['online', 'warning'], true);
+    }
+
+    /** SRV-UPD: the agent release the panel ships (signed manifest first, then config). */
+    public static function latestAgentVersion(): string
+    {
+        $manifest = config('platform.agent_binary_dir').'/release.json';
+        $meta = is_file($manifest) ? (json_decode((string) file_get_contents($manifest), true) ?: []) : [];
+
+        return (string) ($meta['version'] ?? config('platform.agent_latest_version'));
+    }
+
+    public function getAgentLatestAttribute(): string
+    {
+        return self::latestAgentVersion();
+    }
+
+    /** True when the agent reported an older version than the panel ships ("dev" builds never count). */
+    public function getAgentOutdatedAttribute(): bool
+    {
+        $v = ltrim((string) $this->agent_version, 'v');
+
+        return $v !== '' && $v !== 'dev' && preg_match('/^\d+(\.\d+)*/', $v) === 1 && version_compare($v, ltrim(self::latestAgentVersion(), 'v'), '<');
     }
 }

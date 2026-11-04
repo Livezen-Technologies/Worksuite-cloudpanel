@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: docuseal
+name: Docuseal
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Document Signing for Everyone free forever for individuals, extensible for businesses and developers. Open Source Alternative to DocuSign, PandaDoc and more.
+port: 3000
+source: coolify
+documentation: https://www.docuseal.co/
+compose: "services:\n  docuseal:\n    image: docuseal/docuseal:latest\n    environment:\n      HOST: ${SERVICE_URL}\n    volumes:\n    - docuseal-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:3000\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  docuseal-data: {}\n"

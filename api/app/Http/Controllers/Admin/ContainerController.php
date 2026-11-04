@@ -21,6 +21,8 @@ class ContainerController extends Controller
         $query = Container::query();
         app(Authorizer::class)->scopeAssigned($request->user(), 'resources.view', $query);
 
+        $query->with('application:id,name');
+
         return response()->json(Lists::paginate($query, $request, ['name', 'image'], ['name', 'state', 'cpu_pct', 'mem_mb', 'created_at', 'started_at'], [
             'server_id', 'health', 'application_id',
             'state' => fn ($q, $v) => match ($v) {
@@ -28,7 +30,18 @@ class ContainerController extends Controller
                 'stopped' => $q->whereIn('state', ['exited', 'created', 'dead']),
                 default => $q->where('state', $v),
             },
-        ]));
+        ], function ($c) {
+            // What people search the list by besides name and image: the app, and the Compose stack and service.
+            $labels = (array) ($c->labels ?? []);
+            $row = $c->toArray();
+            unset($row['application']);
+
+            return $row + [
+                'application_name' => $c->application?->name,
+                'compose_project' => $labels['com.docker.compose.project'] ?? null,
+                'compose_service' => $labels['com.docker.compose.service'] ?? null,
+            ];
+        }));
     }
 
     public function show(Request $request, string $id)

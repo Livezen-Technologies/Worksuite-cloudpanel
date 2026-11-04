@@ -30,11 +30,15 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="DNS_DRIVER" value="fake"/>
         <env name="SOURCE_VALIDATOR" value="fake"/>
+        <env name="AI_DRIVER" value="fake"/>
         <env name="PLATFORM_DOMAIN" value="livezen.app"/>
         <env name="PANEL_URL" value="https://panel.test"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Pinned so a developer .env (copied from .env.example) cannot change what the tests expect. -->
+        <env name="TERMINAL_WS_URL" value="/relay/terminal" force="true"/>
+        <env name="RELAY_PREFLIGHT" value="false" force="true"/>
     </php>
 </phpunit>

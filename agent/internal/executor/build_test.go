@@ -31,6 +31,7 @@ type buildDocker struct {
 	pushAuth  string
 	buildFail bool
 	inspect   string // JSON for GET /containers/{id}/json
+	pulls     []string
 	logs      string
 }
 
@@ -53,7 +54,16 @@ func (b *buildDocker) handler(t *testing.T) http.Handler {
 				w.Write([]byte(`{"stream":"Step 1/2 : FROM scratch\n"}` + "\n" + `{"errorDetail":{"message":"COPY failed: no such file"},"error":"COPY failed: no such file"}` + "\n"))
 				return
 			}
-			w.Write([]byte(`{"stream":"Step 1/2 : FROM scratch"}` + "\n" + `{"stream":"\n"}` + "\n" + `{"stream":"Step 2/2 : COPY app /app\n ---> abc\n"}` + "\n" + `{"aux":{"ID":"sha256:feed"}}` + "\n" + `{"stream":"Successfully built feed\n"}` + "\n"))
+			w.Write([]byte(`{"stream":"Step 1/2 : FROM scratch"}` + "\n" + `{"stream":"\n"}` + "\n" + `{"stream":"Step 2/2 : COPY app /app\n ---> Using cache\n ---> abc\n"}` + "\n" + `{"aux":{"ID":"sha256:feed"}}` + "\n" + `{"stream":"Successfully built feed\n"}` + "\n"))
+		case r.Method == "POST" && r.URL.Path == "/images/create":
+			ref := r.URL.Query().Get("fromImage") + ":" + r.URL.Query().Get("tag")
+			b.pulls = append(b.pulls, ref)
+			if strings.Contains(ref, "gone") {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"message":"manifest unknown"}`))
+				return
+			}
+			w.Write([]byte(`{"status":"Pulled"}` + "\n"))
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/push"):
 			b.pushAuth = r.Header.Get("X-Registry-Auth")
 			if r.URL.Path != "/images/reg.example.com:5000/org/app/push" || r.URL.Query().Get("tag") != "v1" {
@@ -101,6 +111,7 @@ type fakeGit struct {
 	calls [][]string
 	envs  [][]string
 	fail  bool
+	node  bool // clone a Node.js app without a Dockerfile
 }
 
 func (g *fakeGit) run(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
@@ -118,6 +129,11 @@ func (g *fakeGit) run(_ context.Context, dir string, env []string, name string, 
 			os.MkdirAll(filepath.Join(dst, ".git"), 0o755)
 			os.WriteFile(filepath.Join(dst, ".git", "HEAD"), []byte("ref"), 0o644)
 			os.MkdirAll(filepath.Join(dst, "svc"), 0o755)
+			if g.node {
+				os.WriteFile(filepath.Join(dst, "package.json"), []byte(`{"scripts":{"build":"vite build","start":"node server.js"}}`), 0o644)
+				os.WriteFile(filepath.Join(dst, "package-lock.json"), []byte(`{}`), 0o644)
+				return []byte("Cloning into 'src'...\n"), nil
+			}
 			os.WriteFile(filepath.Join(dst, "svc", "Dockerfile"), []byte("FROM scratch\nCOPY app /app\n"), 0o644)
 			os.WriteFile(filepath.Join(dst, "svc", "app"), []byte("bin"), 0o755)
 			os.Symlink("/etc/passwd", filepath.Join(dst, "svc", "link"))
@@ -309,5 +325,132 @@ func TestHealthCheck(t *testing.T) {
 	}
 	if _, err := e.Handle(context.Background(), cmd("h5", "container.healthcheck", `{"container_id":"app-x","path":"no-slash"}`, now)); err == nil {
 		t.Fatal("bad path accepted")
+	}
+}
+
+func TestImageBuildAutoDetectCacheAndTimeout(t *testing.T) {
+	e, bd, _ := buildSetup(t)
+	g := &fakeGit{node: true}
+	e.Run = g.run
+	r, err := e.Handle(context.Background(), cmd("a1", "image.build", `{"repo":"https://x/y","builder":"auto","timeout_seconds":600,"no_cache":true,"image_tag":"dmp/app:1"}`, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	out := r.Output.(map[string]any)
+	if out["stack"] != "node" || out["cache_steps"] != 2 || out["cache_hits"] != 1 {
+		t.Fatalf("%+v", out)
+	}
+	if _, ok := out["duration_seconds"].(int); !ok {
+		t.Fatalf("duration %+v", out)
+	}
+	if bd.buildQ.Get("dockerfile") != ".dockermgr.Dockerfile" || bd.buildQ.Get("nocache") != "1" {
+		t.Fatalf("query %v", bd.buildQ)
+	}
+	if !strings.Contains(strings.Join(bd.tarFiles, ","), ".dockermgr.Dockerfile") {
+		t.Fatalf("tar %v", bd.tarFiles)
+	}
+	// The default builder needs a real Dockerfile.
+	if _, err := e.Handle(context.Background(), cmd("a2", "image.build", `{"repo":"https://x/y","image_tag":"dmp/app:2"}`, now)); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatal(err)
+	}
+	if _, err := e.Handle(context.Background(), cmd("a3", "image.build", `{"repo":"https://x/y","builder":"buildpacks","image_tag":"dmp/app:3"}`, now)); err == nil {
+		t.Fatal("unknown builder accepted")
+	}
+}
+
+func TestDetectStack(t *testing.T) {
+	for marker, want := range map[string]string{"requirements.txt": "python", "go.mod": "go", "composer.json": "php", "index.html": "static", "README.md": ""} {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, marker), []byte("x"), 0o644)
+		if got, df := detectStack(dir); got != want || (want != "" && !strings.Contains(df, "EXPOSE 8080")) {
+			t.Errorf("%s: got %q", marker, got)
+		}
+	}
+}
+
+func TestImageBuildUsesRegistryImagesAsCache(t *testing.T) {
+	e, bd, _ := buildSetup(t)
+	e.Run = (&fakeGit{}).run
+	payload := `{"repo":"https://x/y","dockerfile_path":"svc/Dockerfile","context":"svc","image_tag":"reg.example.com:5000/org/app:v1",
+		"push":{"registry":"reg.example.com:5000","username":"u","password":"p"},
+		"cache_from":["reg.example.com:5000/org/app:v0","reg.example.com:5000/org/app:gone"]}`
+	r, err := e.Handle(context.Background(), cmd("cf1", "image.build", payload, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	if got := bd.buildQ.Get("cachefrom"); got != `["reg.example.com:5000/org/app:v0"]` {
+		t.Fatalf("cachefrom %q (pulls %v)", got, bd.pulls)
+	}
+	if fmt.Sprint(r.Output.(map[string]any)["cache_from"]) != "[reg.example.com:5000/org/app:v0]" {
+		t.Fatalf("%+v", r.Output)
+	}
+	bad := `{"repo":"https://x/y","image_tag":"reg.example.com:5000/org/app:v3","push":{"registry":"reg.example.com:5000"},"cache_from":["docker.io/evil/img:1"]}`
+	if _, err := e.Handle(context.Background(), cmd("cf2", "image.build", bad, now)); err == nil {
+		t.Fatal("cache image outside the push registry accepted")
+	}
+}
+
+func TestImageBuildWithBuildKitRegistryCache(t *testing.T) {
+	e, bd, _ := buildSetup(t)
+	g := &fakeGit{}
+	var bx []string
+	var conf string
+	e.Run = func(ctx context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
+		if name != "docker" {
+			return g.run(ctx, dir, env, name, args...)
+		}
+		if args[1] == "version" {
+			return []byte("github.com/docker/buildx v0.17.1\n"), nil
+		}
+		bx = args
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "DOCKER_CONFIG=") {
+				b, _ := os.ReadFile(filepath.Join(strings.TrimPrefix(kv, "DOCKER_CONFIG="), "config.json"))
+				conf = string(b)
+			}
+		}
+		for i, a := range args {
+			if a == "--metadata-file" {
+				os.WriteFile(args[i+1], []byte(`{"containerimage.digest":"sha256:abc123"}`), 0o600)
+			}
+		}
+		return []byte("#5 importing cache manifest from reg.example.com:5000/org/app:buildcache\n#9 DONE 1.2s\n"), nil
+	}
+	payload := `{"repo":"https://x/y","dockerfile_path":"svc/Dockerfile","context":"svc","image_tag":"reg.example.com:5000/org/app:v1","build_args":{"B":"2","A":"1"},
+		"push":{"registry":"reg.example.com:5000","username":"u","password":"p"},"cache_ref":"reg.example.com:5000/org/app:buildcache"}`
+	r, err := e.Handle(context.Background(), cmd("bk1", "image.build", payload, now))
+	if err != nil {
+		t.Fatal(err, r.Message)
+	}
+	joined := strings.Join(bx, " ")
+	for _, want := range []string{"buildx build --progress plain", "--tag reg.example.com:5000/org/app:v1",
+		"--cache-from type=registry,ref=reg.example.com:5000/org/app:buildcache", "--cache-to type=registry,ref=reg.example.com:5000/org/app:buildcache,mode=max",
+		"--push", "--build-arg A=1 --build-arg B=2", "--label io.dockermgr.managed=true"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "u:p") || !strings.Contains(conf, base64.StdEncoding.EncodeToString([]byte("u:p"))) {
+		t.Fatalf("credentials belong in DOCKER_CONFIG, not argv: %s / %s", joined, conf)
+	}
+	out := r.Output.(map[string]any)
+	if out["builder_engine"] != "buildkit" || out["repo_digest"] != "reg.example.com:5000/org/app@sha256:abc123" {
+		t.Fatalf("%+v", out)
+	}
+	if bd.buildQ != nil {
+		t.Fatal("the Engine API build must not run when buildx built the image")
+	}
+	if left, _ := filepath.Glob(filepath.Join(e.StateDir, "buildx-*")); len(left) != 0 {
+		t.Fatal("the temporary docker config must be removed")
+	}
+
+	// Without buildx the Engine API builds as before.
+	e.Run = (&fakeGit{}).run
+	if r, err := e.Handle(context.Background(), cmd("bk2", "image.build", payload, now)); err != nil || r.Output.(map[string]any)["builder_engine"] != nil {
+		t.Fatalf("fallback: %v %+v", err, r.Output)
+	}
+	bad := `{"repo":"https://x/y","image_tag":"reg.example.com:5000/org/app:v3","push":{"registry":"reg.example.com:5000"},"cache_ref":"docker.io/evil/cache:1"}`
+	if _, err := e.Handle(context.Background(), cmd("bk3", "image.build", bad, now)); err == nil {
+		t.Fatal("cache_ref outside the push registry accepted")
 	}
 }

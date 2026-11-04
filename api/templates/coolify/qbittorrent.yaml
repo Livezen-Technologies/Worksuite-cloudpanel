@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: qbittorrent
+name: Qbittorrent
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The qBittorrent project aims to provide an open-source software alternative to μTorrent.
+port: 8080
+source: coolify
+documentation: https://docs.linuxserver.io/images/docker-qbittorrent/
+compose: "services:\n  qbit:\n    image: lscr.io/linuxserver/qbittorrent:latest\n    environment:\n      WEBUI_PORT: ${WEBUI_PORT:-8080}\n      PUID: '1000'\n      PGID: '1000'\n    volumes:\n    - qbittorrent-config:/config\n    - qbittorrent-downloads:/downloads\n    - qbittorrent-torrents:/torrents\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  vuetorrent-backend:\n    image: ghcr.io/vuetorrent/vuetorrent-backend:latest\n    environment:\n      PORT: ${WEBUI_PORT:-8080}\n      QBIT_BASE: ${SERVICE_URL}\n      RELEASE_TYPE: ${RELEASE_TYPE:-stable}\n      UPDATE_VT_CRON: ${UPDATE_VT_CRON:-\"0 * * * *\"}\n    volumes:\n    - vuetorrent-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable:\
+  \ 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  qbittorrent-config: {}\n  qbittorrent-downloads: {}\n  qbittorrent-torrents: {}\n  vuetorrent-config: {}\n"

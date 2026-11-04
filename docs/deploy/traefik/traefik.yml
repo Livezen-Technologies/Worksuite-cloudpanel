@@ -51,6 +51,12 @@ certificatesResolvers:
       email: hasarinda@livezentech.com
       storage: /etc/dockermgr/traefik/acme.json
       dnsChallenge: { provider: hetzner }
+  # PowerDNS zones connected under DNS zones (DNS-013); the panel writes the PDNS_* secrets.
+  le-dns-pdns:
+    acme:
+      email: hasarinda@livezentech.com
+      storage: /etc/dockermgr/traefik/acme.json
+      dnsChallenge: { provider: pdns }
   le-dns-route53:
     acme:
       email: hasarinda@livezentech.com
@@ -68,3 +74,16 @@ accessLog:
 
 api:
   dashboard: false
+
+# FW-001: CrowdSec bouncer, used by the dmp-crowdsec-* middlewares the panel renders when
+# CROWDSEC_ENABLED=true (see ../crowdsec/README.md). Static config: restart Traefik after changing.
+experimental:
+  plugins:
+    bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      version: v1.8.1
+    # AV-9 web application firewall: OWASP Core Rule Set through Coraza (WASM). Set WAF_ENABLED=true on
+    # the panel once this is loaded; each domain then chooses Off, Detect only or Block.
+    coraza:
+      moduleName: github.com/jcchavezs/coraza-http-wasm-traefik
+      version: v0.3.0

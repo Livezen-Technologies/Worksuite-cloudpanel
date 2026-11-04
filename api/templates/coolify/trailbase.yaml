@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: trailbase
+name: Trailbase
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A blazingly fast Rust/SQLite/Wasmtime app server with type-safe APIs
+port: 4000
+source: coolify
+documentation: https://trailbase.io/
+compose: "services:\n  trailbase:\n    image: trailbase/trailbase:0.22.6\n    environment: {}\n    volumes:\n    - trailbase-data:/app/traildepot\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4000'\nvolumes:\n  trailbase-data: {}\n"

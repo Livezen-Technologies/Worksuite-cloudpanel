@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: onedev
+name: Onedev
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Git server with CI/CD, kanban, and packages. Seamless integration. Unparalleled experience.
+port: 6610
+source: coolify
+documentation: https://docs.onedev.io/
+compose: "services:\n  onedev:\n    image: 1dev/server:latest\n    volumes:\n    - onedev-docker-sock:/var/run/docker.sock\n    - onedev-data:/opt/onedev\n    environment:\n      hibernate_dialect: io.onedev.server.persistence.PostgreSQLDialect\n      hibernate_connection_driver_class: org.postgresql.Driver\n      hibernate_connection_url: jdbc:postgresql://postgres:5432/${POSTGRESQL_DATABASE:-onedev}\n      hibernate_connection_username: ${SERVICE_USER_DATABASE}\n      hibernate_connection_password: ${SERVICE_PASSWORD_DATABASE}\n      initial_user: ${SERVICE_USER_ONEDEV}\n      initial_password: ${SERVICE_PASSWORD_ONEDEV}\n      initial_email: ${ONEDEV_EMAIL:-mail@example.com}\n      initial_server_url: ${SERVICE_URL}\n      initial_ssh_root_url: ${SSH_ROOT_URL:-ssh://changeme:22}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - 'true'\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule:\
+  \ Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6610'\n  postgres:\n    image: postgres:16-alpine\n    volumes:\n    - onedev-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_DATABASE}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_DATABASE}\n      POSTGRES_DB: ${POSTGRESQL_DATABASE:-onedev}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  onedev-docker-sock: {}\n  onedev-data: {}\n  onedev-postgresql-data: {}\n"

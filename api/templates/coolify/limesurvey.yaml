@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: limesurvey
+name: Limesurvey
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Simple, quick and anonymous online survey tool that's bursting with juicy insights.
+port: 80
+source: coolify
+documentation: https://www.limesurvey.org/manual/
+compose: "services:\n  limesurvey:\n    image: adamzammit/limesurvey:latest\n    environment:\n      LIMESURVEY_DB_HOST: mariadb\n      LIMESURVEY_DB_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      LIMESURVEY_DB_USER: ${SERVICE_USER_MYSQL}\n      LIMESURVEY_DB_NAME: ${MYSQL_DATABASE:-limesurvey-db}\n      LIMESURVEY_ADMIN_USER: ${LIMESURVEY_ADMIN_USER:-admin}\n      LIMESURVEY_ADMIN_PASSWORD: ${SERVICE_PASSWORD_ADMIN}\n      LIMESURVEY_ADMIN_NAME: ${LIMESURVEY_ADMIN_NAME:-Admin}\n      LIMESURVEY_ADMIN_EMAIL: ${LIMESURVEY_ADMIN_EMAIL:-admin@example.com}\n      LIMESURVEY_FROM_EMAIL: ${LIMESURVEY_FROM_EMAIL}\n      LIMESURVEY_SMTP_HOST: ${LIMESURVEY_SMTP_HOST}\n      LIMESURVEY_SMTP_USER: ${LIMESURVEY_SMTP_USER}\n      LIMESURVEY_SMTP_PASSWORD: ${LIMESURVEY_SMTP_PASSWORD}\n      LIMESURVEY_SMTP_SSL: ${LIMESURVEY_SMTP_SSL}\n      LIMESURVEY_PHP_SESSION_SAVE_HANDLER: redis\n      LIMESURVEY_PHP_SESSION_SAVE_PATH: tcp://redis:6379\n      TZ: ${TZ:-America/Jamaica}\n    volumes:\n    - limesurvey_plugins_data:/var/www/html/plugins\n\
+  \    - limesurvey_upload_data:/var/www/html/upload\n    - limesurvey_config_data:/var/www/html/application/config\n    - limesurvey_sessions_data:/var/lime/sessions\n    depends_on:\n      mariadb:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1\n      interval: 2s\n      timeout: 10s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11\n    environment:\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-limesurvey-db}\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n    volumes:\n    - limesurvey_mariadb_data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n\
+  \      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:7-alpine\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 3s\n      retries: 3\nvolumes:\n  limesurvey_plugins_data: {}\n  limesurvey_upload_data: {}\n  limesurvey_config_data: {}\n  limesurvey_sessions_data: {}\n  limesurvey_mariadb_data: {}\n"

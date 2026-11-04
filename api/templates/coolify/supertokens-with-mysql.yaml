@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: supertokens-with-mysql
+name: Supertokens With Mysql
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An open-source authentication solution that simplifies the implementation of secure user authentication and session management for web and mobile applications.
+port: 3567
+source: coolify
+documentation: https://supertokens.com/docs/guides
+compose: "services:\n  supertokens:\n    image: registry.supertokens.io/supertokens/supertokens-mysql:latest\n    depends_on:\n      mysql:\n        condition: service_healthy\n    environment:\n      API_KEYS: ${API_KEYS:-}\n      MYSQL_CONNECTION_URI: mysql://${SERVICE_USER_MYSQL}:${SERVICE_PASSWORD_MYSQL}@mysql:3306/${MYSQL_DATABASE:-supertokens}\n    healthcheck:\n      test: 'bash -c ''exec 3<>/dev/tcp/127.0.0.1/3567 && echo -e \"GET /hello HTTP/1.1\\r\\nhost: 127.0.0.1:3567\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep \"Hello\"''\n\n        '\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3567'\n  mysql:\n    image: mysql:latest\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n\
+  \      MYSQL_DATABASE: ${MYSQL_DATABASE:-supertokens}\n    volumes:\n    - supertokens-mysql-data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - localhost\n      timeout: 20s\n      retries: 10\nvolumes:\n  supertokens-mysql-data: {}\n"

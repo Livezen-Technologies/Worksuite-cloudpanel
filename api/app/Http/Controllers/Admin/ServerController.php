@@ -26,7 +26,7 @@ class ServerController extends Controller
             'environment' => ['sometimes', Rule::in(['production', 'staging', 'development'])],
             'region' => 'nullable|string|max:60',
             'tags' => 'nullable|array', 'tags.*' => 'string|max:40',
-            'roles' => 'sometimes|array|min:1', 'roles.*' => 'in:app,builder',
+            'roles' => 'sometimes|array|min:1', 'roles.*' => 'in:app,builder,vps',
             'provider' => 'nullable|string|max:40',
             'server_group_id' => 'nullable|uuid|exists:server_groups,id',
             'scheduling_weight' => 'sometimes|integer|min:0|max:1000',
@@ -64,6 +64,25 @@ class ServerController extends Controller
         return $this->data($server->fresh(), 201);
     }
 
+    /** SRV-UPD: send the agent update to every online server running an older agent. */
+    public function updateAllAgents(Request $request)
+    {
+        $targets = Server::all()->filter(fn (Server $s) => $s->agent_outdated && $s->isOnline() && ! $s->maintenance);
+        $jobs = [];
+        $skipped = [];
+        foreach ($targets as $server) {
+            // One server that cannot take the command must not stop the rest.
+            try {
+                $jobs[] = ['server_id' => $server->id, 'name' => $server->name, 'job_id' => $this->servers->agentCommand($server, 'update')->id];
+            } catch (\App\Exceptions\ApiException $e) {
+                $skipped[] = ['server_id' => $server->id, 'name' => $server->name, 'reason' => $e->getMessage()];
+            }
+        }
+        app(\App\Services\AuditLogger::class)->log('servers.agent_update_all', 'servers', null, ['servers' => count($jobs), 'skipped' => count($skipped), 'version' => Server::latestAgentVersion()]);
+
+        return $this->data(['version' => Server::latestAgentVersion(), 'updating' => $jobs, 'skipped' => $skipped]);
+    }
+
     public function show(string $id)
     {
         return $this->data(Server::withCount('containers')->with('agent:id,server_id,version,enrolled_at,last_seen_at')->findOrFail($id));
@@ -83,6 +102,12 @@ class ServerController extends Controller
         $server->environment === 'production'
             ? $approvals->gate($request->user(), 'production.delete', 'server.delete', $server, [], $request->input('approval_id'))
             : $this->authorizeFor($request, 'servers.manage');
+        // Deleting removes its volume records and strands its apps and databases: refuse while anything lives there.
+        $left = app(\App\Services\ServerDrainService::class)->residents($server);
+        if ($left['apps'] || $left['databases']) {
+            throw \App\Exceptions\ApiException::conflict(sprintf('%s still runs %d app(s) and %d database(s). Drain it first, then move databases and apps with data volumes with a backup and restore.',
+                $server->name, count($left['apps']), count($left['databases'])), ['residents' => $left]);
+        }
         $server->delete();
 
         return response()->noContent();
@@ -93,6 +118,40 @@ class ServerController extends Controller
         $data = $request->validate(['server_id' => 'required|uuid']);
 
         return $this->data($this->servers->createEnrollment(Server::findOrFail($data['server_id'])), 201);
+    }
+
+    /** Move this server's stateless apps elsewhere and list what has to be moved by hand. */
+    public function drain(Request $request, string $id)
+    {
+        $server = Server::findOrFail($id);
+        $this->authorizeFor($request, 'servers.manage');
+
+        return $this->data(app(\App\Services\ServerDrainService::class)->drain($server, $request->user()));
+    }
+
+    /**
+     * Cut a server's agent off (compromised host, machine handed back): its secret and client
+     * certificates stop working at once. The server waits for a fresh enrolment token.
+     */
+    public function revokeAgent(Request $request, string $id)
+    {
+        $server = Server::findOrFail($id);
+        $this->authorizeFor($request, 'servers.manage');
+        $request->validate(['confirm' => 'required|in:'.$server->name]);
+        $agent = \App\Models\Agent::allTenants()->where('server_id', $server->id)->first();
+        if ($agent) {
+            \App\Models\AgentCertificate::allTenants()->where('agent_id', $agent->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+            $agent->delete();
+        }
+        $server->forceFill(['last_heartbeat_at' => null])->save();
+        app(\App\Services\AuditLogger::class)->log('server.agent_revoked', 'servers', $server->id, ['name' => $server->name, 'had_agent' => (bool) $agent]);
+
+        return $this->data($server->fresh());
+    }
+
+    public function residents(string $id)
+    {
+        return $this->data(app(\App\Services\ServerDrainService::class)->residents(Server::findOrFail($id)));
     }
 
     public function maintenance(Request $request, string $id)

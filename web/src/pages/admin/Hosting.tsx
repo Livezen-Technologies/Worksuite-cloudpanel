@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router'
 import { useState } from 'react'
 import { useAction, useList } from '../../api/hooks'
 import { Field, PageHeader, Empty } from '../../components/Card'
@@ -15,6 +16,7 @@ type Customer = {
   id: string; name: string; slug: string; billing_email: string | null
   plan: { id: string; code: string; name: string } | null
   subscription_status: string | null; users: number
+  status?: "active" | "suspended" | "closed"; apps?: number; app_limit?: number | null; over_limit?: boolean
 }
 
 const money = (cents: number, ccy: string) =>
@@ -97,6 +99,10 @@ export function Packages() {
 
       {!plans.isLoading && plans.rows.length === 0 && <Empty>No packages yet. Create one to start selling hosting.</Empty>}
       <DataTable label="Packages" rows={plans.rows} loading={plans.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => edit(r) },
+          { label: r.subscribers > 0 ? 'Delete (move its customers first)' : 'Delete', icon: 'trash', danger: true, disabled: busy || r.subscribers > 0, confirm: `The package ${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/plans/${r.id}`, label: `Delete ${r.name}`, success: 'Package deleted' }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Package', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'code', header: 'Code', render: (r) => <span className="font-mono text-xs text-muted">{r.code}</span> },
@@ -106,18 +112,6 @@ export function Packages() {
           { key: 'storage_gb', header: 'Storage', render: (r) => <span className="tabular-nums">{r.storage_gb} GB</span> },
           { key: 'apps', header: 'Apps', value: (r) => r.limits?.apps ?? 0 },
           { key: 'subscribers', header: 'Customers', render: (r) => <Badge tone={r.subscribers ? 'b' : 'n'}>{r.subscribers}</Badge> },
-          {
-            key: 'actions', header: '', sortable: false, render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm" onClick={() => edit(r)}>Edit</button>
-                <button type="button" className="btn btn-sm" disabled={busy || r.subscribers > 0}
-                        title={r.subscribers > 0 ? 'Move its customers to another package first' : 'Delete package'}
-                        onClick={() => run({ method: 'DELETE', path: `/plans/${r.id}`, label: `Delete ${r.name}`, success: 'Package deleted' }).catch(() => {})}>
-                  Delete
-                </button>
-              </span>
-            ),
-          },
         ]} />
     </>
   )
@@ -136,6 +130,7 @@ function generatePassword(length = 20): string {
 const NEW_CUSTOMER = { name: '', billing_email: '', plan_id: '', owner_name: '', owner_email: '', owner_password: '' }
 
 export function Customers() {
+  const nav = useNavigate()
   const customers = useList<Customer>('/customers')
   const plans = useList<Plan>('/plans')
   const { run, busy } = useAction()
@@ -205,24 +200,35 @@ export function Customers() {
 
       {!customers.isLoading && customers.rows.length === 0 && <Empty>No hosting customers yet.</Empty>}
       <DataTable label="Customers" rows={customers.rows} loading={customers.isLoading} rowKey={(r) => r.id}
+        onRowClick={(r) => nav(`/admin/customers/${r.id}`)} actions={(r) => [{ label: `Open ${r.name}`, icon: 'eye', onClick: () => nav(`/admin/customers/${r.id}`) }]}
+        filters={[
+          { id: 'active', label: 'Active', test: (r) => r.status === 'active' },
+          { id: 'suspended', label: 'Suspended', test: (r) => r.status === 'suspended' },
+          { id: 'over', label: 'Over limit', test: (r) => !!r.over_limit },
+          { id: 'closed', label: 'Closed', test: (r) => r.status === 'closed' },
+        ]}
         columns={[
           { key: 'name', header: 'Customer', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'slug', header: 'Slug', render: (r) => <span className="font-mono text-xs text-muted">{r.slug}</span> },
           { key: 'billing_email', header: 'Billing email', value: (r) => r.billing_email ?? '—' },
           { key: 'users', header: 'Users', render: (r) => <span className="tabular-nums">{r.users}</span> },
           {
-            key: 'status', header: 'Status', render: (r) =>
-              <Badge tone={r.subscription_status === 'active' ? 'g' : 'n'}>{r.subscription_status ?? 'none'}</Badge>,
+            key: 'apps', header: 'Apps', value: (r) => r.apps ?? 0,
+            render: (r) => <span className={`tabular-nums ${r.over_limit ? 'font-semibold text-r-fg' : ''}`} title={r.over_limit ? 'More apps than the package allows' : undefined}>{r.apps ?? 0}{r.app_limit != null ? ` / ${r.app_limit}` : ''}{r.over_limit ? ' · over' : ''}</span>,
+          },
+          {
+            key: 'status', header: 'Status', value: (r) => r.status ?? r.subscription_status ?? 'none', render: (r) =>
+              <Badge tone={r.status === 'closed' ? 'n' : r.status === 'suspended' ? 'r' : 'g'}>{r.status ?? r.subscription_status ?? 'none'}</Badge>,
           },
           {
             key: 'plan', header: 'Package', sortable: false, value: (r) => r.plan?.name ?? '—',
             render: (r) => (
-              <Select className="input !w-auto !min-h-8 text-xs" value={r.plan?.id ?? ''}
+              <span onClick={(e) => e.stopPropagation()}><Select className="input !w-auto !min-h-8 text-xs" value={r.plan?.id ?? ''}
                       aria-label={`Package for ${r.name}`}
                       onChange={(e) => run({ path: `/customers/${r.id}/plan`, body: { plan_id: e.target.value }, label: `Move ${r.name}`, success: 'Package changed' }).catch(() => {})}>
                 {!r.plan && <option value="">Choose…</option>}
                 {plans.rows.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
+              </Select></span>
             ),
           },
         ]} />

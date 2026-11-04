@@ -64,4 +64,26 @@ class BillingInvoiceTest extends TestCase
         $this->artisan('billing:invoice', ['--org' => $org->id])->assertSuccessful();
         $this->assertSame('paid', Invoice::allTenants()->first()->status);
     }
+
+    public function test_extra_copies_are_billed_by_the_hour_at_the_apps_size(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        $app = app(Tenant::class)->as($org->id, fn () => Application::create(['name' => 'shop', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'standard', 'server_id' => $server->id, 'replicas' => 3]));
+        $this->api($token)->getJson('/api/v1/app/billing')->assertOk();
+
+        $month = Carbon::parse('2026-09-01');
+        app(Tenant::class)->set(null);
+        $invoices = app(InvoiceService::class);
+        foreach (range(1, 73) as $h) { // 2 extra copies x 73 h = 146 copy-hours = a fifth of a Standard month
+            $invoices->meter($month->copy()->addHours($h));
+        }
+        $this->assertSame(146.0, (float) UsageRecord::allTenants()->where('metric', 'replica_hours.standard')->sum('quantity'));
+
+        $this->artisan('billing:invoice', ['--month' => '2026-09'])->assertSuccessful();
+        $lines = collect(Invoice::allTenants()->firstOrFail()->line_items)->keyBy('kind');
+        $this->assertSame(['Extra copies of shop (Standard)', 146.0, 'copy-hours', 240], [$lines['copies']['description'], (float) $lines['copies']['quantity'], $lines['copies']['unit'], $lines['copies']['amount_cents']]);
+        $this->assertSame(120, $lines['app']['amount_cents'], 'the first copy stays on the app line');
+    }
 }

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: triliumnext
+name: Triliumnext
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Build your personal knowledge base with TriliumNext Notes.
+port: 8080
+source: coolify
+documentation: https://github.com/TriliumNext/Trilium
+compose: "services:\n  triliumnext:\n    image: ghcr.io/triliumnext/trilium:stable\n    environment:\n      TZ: ${TZ:-Europe/Berlin}\n    volumes:\n    - triliumnext_data:/home/node/trilium-data\n    healthcheck:\n      test:\n      - CMD\n      - node\n      - /usr/src/app/docker_healthcheck.cjs\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  triliumnext_data: {}\n"

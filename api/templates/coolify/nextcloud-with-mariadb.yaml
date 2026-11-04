@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nextcloud-with-mariadb
+name: Nextcloud With Mariadb
+category: Storage
+version: 1
+type: compose
+accent: '#6B16ED'
+description: NextCloud is a self-hosted, open-source platform that provides file storage, collaboration, and communication tools for seamless data management.
+port: 80
+source: coolify
+documentation: https://docs.nextcloud.com
+compose: "services:\n  nextcloud:\n    image: lscr.io/linuxserver/nextcloud:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-Europe/Paris}\n      MYSQL_DATABASE: ${MARIADB_DATABASE:-nextcloud}\n      MYSQL_USER: ${SERVICE_USER_MARIADB}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n      MYSQL_HOST: nextcloud-db\n      REDIS_HOST: redis\n      REDIS_PORT: '6379'\n    volumes:\n    - nextcloud-config:/config\n    - nextcloud-data:/data\n    depends_on:\n      nextcloud-db:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80/status.php\n      interval: 30s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  nextcloud-db:\n    image: mariadb:11\n    volumes:\n\
+  \    - nextcloud-mariadb-data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MYSQL_DATABASE: ${MARIADB_DATABASE:-nextcloud}\n      MYSQL_USER: ${SERVICE_USER_MARIADB}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MARIADB}\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:7.4-alpine\n    volumes:\n    - nextcloud-redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - PING\n      interval: 5s\n      timeout: 10s\n      retries: 20\nvolumes:\n  nextcloud-config: {}\n  nextcloud-data: {}\n  nextcloud-mariadb-data: {}\n  nextcloud-redis-data: {}\n"

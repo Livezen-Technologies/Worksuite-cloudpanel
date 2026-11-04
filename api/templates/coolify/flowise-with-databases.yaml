@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: flowise-with-databases
+name: Flowise With Databases
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Flowise is an open source low-code tool for developers to build customized LLM orchestration flows & AI agents. Also deploys Redis, Postgres and other services.
+port: 3001
+source: coolify
+documentation: https://docs.flowiseai.com/
+compose: "services:\n  flowise:\n    image: flowiseai/flowise:latest\n    depends_on:\n      pg-record-manager:\n        condition: service_healthy\n      redis-cache:\n        condition: service_healthy\n      qdrant:\n        condition: service_healthy\n    environment:\n      DEBUG: ${DEBUG:-false}\n      DISABLE_FLOWISE_TELEMETRY: ${DISABLE_FLOWISE_TELEMETRY:-true}\n      PORT: ${PORT:-3001}\n      DATABASE_PATH: /root/.flowise\n      APIKEY_PATH: /root/.flowise\n      SECRETKEY_PATH: /root/.flowise\n      LOG_PATH: /root/.flowise/logs\n      BLOB_STORAGE_PATH: /root/.flowise/storage\n      FLOWISE_USERNAME: ${SERVICE_USER_FLOWISE}\n      FLOWISE_PASSWORD: ${SERVICE_PASSWORD_FLOWISE}\n    volumes:\n    - flowise-data:/root/.flowise\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:3001 || exit 1\n      interval: 5s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n\
+  \      traefik.http.services.${STACK}.loadbalancer.server.port: '3001'\n  pg-record-manager:\n    image: postgres:16\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-pg-record-manager}\n    volumes:\n    - pg-record-manager-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -h localhost -U $${POSTGRES_USER} -d $pg-record-manager\n      interval: 5s\n      timeout: 5s\n      retries: 10\n      start_period: 20s\n  redis-cache:\n    image: redis:7\n    volumes:\n    - flowise-redis-cache-data:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli -h localhost -p 6379 ping\n      interval: 5s\n      timeout: 5s\n      retries: 3\n  qdrant:\n    image: qdrant/qdrant:latest\n    environment:\n      QDRANT__SERVICE__API_KEY: ${SERVICE_PASSWORD_QDRANTAPIKEY}\n    volumes:\n    - flowise-qdrant-data:/qdrant/storage\n    healthcheck:\n\
+  \      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1\n      interval: 5s\n      timeout: 5s\n      retries: 3\nvolumes:\n  flowise-data: {}\n  pg-record-manager-data: {}\n  flowise-redis-cache-data: {}\n  flowise-qdrant-data: {}\n"

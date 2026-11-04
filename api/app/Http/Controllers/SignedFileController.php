@@ -49,4 +49,52 @@ class SignedFileController extends Controller
             'Content-Disposition' => 'inline; filename="'.$invoice->number.'.pdf"',
         ]));
     }
+
+    /**
+     * FM-003 / FM-012: what a finished download job left behind. A preview job of a
+     * safe type is served inline (with byte ranges, for video); everything else is an
+     * attachment, so a customer's HTML or SVG can never run on the panel's origin.
+     */
+    public function fileDownload(string $id)
+    {
+        $job = \App\Models\Job::allTenants()->where('type', 'files')->where('status', 'succeeded')->findOrFail($id);
+        abort_unless(($job->payload['operation'] ?? null) === 'download', 404);
+        $disk = Storage::disk('local');
+        $path = \App\Services\FileService::downloadPath($job->id);
+        abort_unless($disk->exists($path), 404);
+        $name = str_replace(['/', '\\', '"'], '_', (string) ($job->result['name'] ?? 'download'));
+        $headers = ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store'];
+        $type = ($job->result['format'] ?? '') === 'file' ? \App\Services\FileService::previewType($name) : null;
+        if (($job->payload['inline'] ?? false) && $type) {
+            $headers['Content-Type'] = $type;
+            if ($type !== 'application/pdf') {
+                // Images and media need no script; the browser's PDF viewer does not run under a sandbox.
+                $headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox";
+            }
+
+            return response()->file($disk->path($path), $headers + ['Content-Disposition' => 'inline; filename="'.$name.'"']);
+        }
+
+        return $disk->download($path, $name, $headers + ['Content-Type' => ($job->result['format'] ?? '') === 'zip' ? 'application/zip' : 'application/octet-stream']);
+    }
+
+    /** FM-003: the agent sends a download here (signed relative URL, PUT body = the file or ZIP). */
+    public function fileTransferPut(Request $request, string $id)
+    {
+        $job = \App\Models\Job::allTenants()->where('type', 'files')->findOrFail($id);
+        abort_if($job->isFinished() || ($job->payload['operation'] ?? null) !== 'download', 409);
+        Storage::disk('local')->put(\App\Services\FileService::downloadPath($job->id), $request->getContent(true));
+
+        return response()->json(['data' => ['stored' => true]], 201);
+    }
+
+    /** FM-002: the agent fetches an uploaded file from here (signed relative URL). */
+    public function fileTransferGet(string $id, string $n)
+    {
+        $path = \App\Services\FileService::TRANSFER_DIR.'/'.$id.'/'.$n;
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($path), 404);
+
+        return $disk->download($path, $n, ['Content-Type' => 'application/octet-stream']);
+    }
 }

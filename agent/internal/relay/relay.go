@@ -284,6 +284,10 @@ func (s *Server) browser(w http.ResponseWriter, r *http.Request) {
 	if check == nil {
 		check = ws.SameOrigin
 	}
+	if isInternal(r) {
+		// The SSH gateway's own in-process connection: no browser, no Origin.
+		check = func(*http.Request) bool { return true }
+	}
 	conn, err := ws.Accept(w, r, &ws.AcceptOptions{CheckOrigin: check})
 	if err != nil {
 		return

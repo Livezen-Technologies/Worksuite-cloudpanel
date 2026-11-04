@@ -1,0 +1,11 @@
+# Traefik writes JSON access logs here (accessLog in ../traefik/traefik.yml).
+filenames:
+  - /var/log/traefik/access.log
+labels:
+  type: traefik
+---
+# AV-8: SSH brute force.
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog

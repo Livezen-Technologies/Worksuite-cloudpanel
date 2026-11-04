@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nitropage
+name: Nitropage
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Nitropage is an extensible, visual website builder, offering a growing library of versatile building blocks, focal-point image cropping and sovereign font management.
+port: 3000
+source: coolify
+documentation: https://nitropage.org
+compose: "services:\n  nitropage:\n    image: nitropage/nitropage:sqlite\n    environment:\n      NP_AUTH_SALT: ${SERVICE_BASE64_SALT}\n      NP_AUTH_PASSWORD: ${SERVICE_PASSWORD_SESSION}\n      DATABASE_URL: file:../.data/dev.db\n    volumes:\n    - nitropage-data:/app/.data\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/admin\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  nitropage-data: {}\n"

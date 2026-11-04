@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: portabase
+name: Portabase
+category: Other
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Self-hosted database backup & monitoring platform
+port: 80
+source: coolify
+documentation: https://portabase.io/docs
+compose: "services:\n  portabase:\n    image: portabase/portabase:1.28.1\n    restart: always\n    environment:\n      PROJECT_URL: ${SERVICE_URL}\n      PROJECT_SECRET: ${SERVICE_PASSWORD_PORTABASE}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-portabase}?schema=public\n      PROJECT_NAME: ${PROJECT_NAME:-Portabase}\n      TZ: ${TZ:-Europe/Paris}\n      LOG_LEVEL: ${LOG_LEVEL:-info}\n      RETENTION_CRON: ${RETENTION_CRON:-0 7 * * *}\n      STALE_BACKUP_THRESHOLD_HOURS: ${STALE_BACKUP_THRESHOLD_HOURS:-6}\n      BACKUP_FOLDER_NAME: ${BACKUP_FOLDER_NAME:-backups}\n      TELEMETRY: ${TELEMETRY:-true}\n      SKIP_ONBOARDING: ${SKIP_ONBOARDING:-false}\n      API_ENABLED: ${API_ENABLED:-false}\n      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-false}\n      MCP_ENABLED: ${MCP_ENABLED:-false}\n      SMTP_HOST: ${SMTP_HOST}\n      SMTP_PORT: ${SMTP_PORT}\n      SMTP_USER: ${SMTP_USER}\n      SMTP_PASSWORD: ${SMTP_PASSWORD}\n      SMTP_FROM:\
+  \ ${SMTP_FROM}\n      SMTP_SECURE: ${SMTP_SECURE:-false}\n    volumes:\n    - portabase-data:/data\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -f http://localhost/api/health\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 60s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  postgres:\n    image: postgres:18-alpine\n    volumes:\n    - postgres-data:/var/lib/postgresql\n    environment:\n      POSTGRES_DB: ${POSTGRES_DB:-portabase}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $POSTGRES_USER -d portabase\n      interval: 10s\n      timeout: 5s\n      retries: 5\nvolumes:\n  portabase-data: {}\n  postgres-data:\
+  \ {}\n"

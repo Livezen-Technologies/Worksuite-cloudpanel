@@ -25,9 +25,11 @@ describe('validateAppName', () => {
 function json(status: number, body: unknown) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }) }
 
 describe('Host an app wizard', () => {
+  const sent: string[] = []
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.includes('/app/apps/validate-source')) return json(200, { data: { ok: true } })
+      if (url.includes('/app/apps/validate-source')) { sent.push(String(init?.body)); return json(200, { data: { ok: true } }) }
+      if (url.endsWith('/app/git')) return json(200, { data: { connections: [{ id: 'c1', provider: 'github', account: 'me', status: 'connected' }], keys: [{ id: 'k1', name: 'shop-key' }] } })
       if (url.includes('/app/templates')) return json(200, { data: [], meta: { page: 1, per_page: 100, total: 0 } })
       if (url.includes('/app/billing/plans')) return json(200, { data: [] })
       if (url.endsWith('/app/apps') && init?.method === 'POST') return json(402, { error: { code: 'quota_exceeded', message: 'You have used all 5 apps on Starter.' } })
@@ -64,5 +66,18 @@ describe('Host an app wizard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Deploy my app' }))
     expect(await screen.findByText(/does not fit in your current plan/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Upgrade plan' })).toHaveAttribute('href', '/app/billing')
+  })
+
+  it('hosts a private Git repository through a connection or a deploy key', async () => {
+    sent.length = 0
+    renderIt()
+    await userEvent.click(screen.getByRole('button', { name: /Git repository/ }))
+    await userEvent.type(screen.getByRole('textbox', { name: /Repository URL/ }), 'https://github.com/me/shop')
+    await userEvent.click(screen.getByText('Public repository', { selector: 'button *, button' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'github · me' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(JSON.parse(sent[0]).source).toMatchObject({ type: 'git', repo: 'https://github.com/me/shop', git_connection_id: 'c1' })
+
   })
 })

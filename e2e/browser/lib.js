@@ -85,6 +85,17 @@ async function dashCount(page) {
   return page.evaluate(() => [...document.querySelectorAll('main *')].filter((e) => e.children.length === 0 && e.textContent.trim() === '—').length)
 }
 
+/** Picks an option in a native <select> or in the app's listbox (Select.tsx), by value or by { label }. */
+async function choose(locator, value) {
+  if (await locator.evaluate((e) => e.tagName === 'SELECT')) return locator.selectOption(value)
+  await locator.click()
+  const page = locator.page()
+  const opt = typeof value === 'object' && value.label
+    ? page.getByRole('option', { name: value.label, exact: true })
+    : page.locator(`[role=option][data-value="${String(value).replace(/"/g, '\\"')}"]`)
+  await opt.first().click()
+}
+
 function assert(cond, msg) { if (!cond) throw new Error(msg) }
 async function expectText(page, re, msg) {
   const t = await mainText(page)
@@ -115,4 +126,4 @@ async function run(title) {
   process.exit(failed ? 1 : 0)
 }
 
-module.exports = { test, run, login, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB, API, OUT }
+module.exports = { test, run, login, choose, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB, API, OUT }

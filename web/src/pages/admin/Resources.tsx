@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAction, useList, useServerName } from '../../api/hooks'
 import type { Server } from '../../api/types'
-import { Card, Meter, PageHeader, StatTile, Empty } from '../../components/Card'
+import { Card, Meter, PageHeader, StatTile, Empty, Loading } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -10,6 +10,7 @@ import { FormModal } from '../../components/FormModal'
 import { useToast } from '../../components/Toasts'
 import { ago, daysUntil, mb, str, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import Select from '../../components/Select'
 
 const mono = (v: unknown) => <span className="font-mono text-[11.5px] text-muted">{str(v)}</span>
 function useServerOptions() {
@@ -78,7 +79,17 @@ export function Images() {
           <div key={r.id} className="card p-4 flex flex-col gap-1.5">
             <div className="flex justify-between items-center gap-2"><span className="font-semibold">{r.name}</span><StatusBadge status={r.status ?? 'connected'} /></div>
             <div className="text-xs text-muted font-mono truncate">{r.url ?? r.type}</div>
-            <button type="button" className="btn btn-sm btn-danger self-start mt-1" onClick={() => setDel(r)}>Remove</button>
+            <span className="flex gap-2 mt-1">
+              {r.type === 'private' && <button type="button" className="btn btn-sm" onClick={async () => {
+                const prev = await run<R>({ path: `/registries/${r.id}/gc`, body: { dry_run: true }, label: 'Check old images', silent: true }).catch(() => null)
+                const n = ((prev as R)?.data?.images as R[] | undefined)?.length ?? 0
+                if (!n) { window.alert('Nothing to clean up: only the last releases of each app are stored.'); return }
+                if (window.confirm(`Delete ${n} old app image${n === 1 ? '' : 's'} from ${r.name}? The last 5 releases of each app are kept; older ones can no longer be rolled back to.`)) {
+                  run({ path: `/registries/${r.id}/gc`, body: { dry_run: false }, label: 'Clean up registry', success: 'Old images deleted' }).catch(() => {})
+                }
+              }}>Clean up</button>}
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Remove</button>
+            </span>
           </div>
         ))}
         {regs.rows.length === 0 && !regs.isLoading && <Card><Empty>No registries connected.</Empty></Card>}
@@ -86,6 +97,7 @@ export function Images() {
       <Card title="Images" pad={false} actions={<><span className="text-xs text-muted">{dangling.length} dangling</span><button type="button" className="btn btn-sm" onClick={() => setPrune(true)}>Prune unused</button></>}>
         <DataTable label="Images" rows={images.rows} loading={images.isLoading} rowKey={(r) => r.id} minWidth={900}
           filters={[{ id: 'vuln', label: 'Critical / high', test: (r) => num((r.scan_result ?? r.scan)?.critical ?? r.critical) + num((r.scan_result ?? r.scan)?.high ?? r.high) > 0 }, { id: 'dangling', label: 'Dangling', test: (r) => !!r.dangling || r.tag === '<none>' }]}
+          actions={(r) => [{ label: `Scan ${r.repository ?? r.name}`, icon: 'shield', onClick: () => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {}) }]}
           columns={[
             { key: 'repository', header: 'Repository', value: (r) => r.repository ?? r.name, render: (r) => <span className="font-semibold">{r.repository ?? r.name}</span> },
             { key: 'tag', header: 'Tag', render: (r) => mono(r.tag ?? imageTags(r)) },
@@ -94,7 +106,6 @@ export function Images() {
             { key: 'containers', header: 'Used by', value: (r) => num(r.users ?? r.container_count ?? r.containers), render: (r) => `${num(r.users ?? r.container_count ?? r.containers)} containers` },
             { key: 'server', header: 'Server', value: (r) => serverName(r) },
             { key: 'scan', header: 'Scan', render: (r) => { const sr = r.scan_result ?? r.scan; const c = num(sr?.critical ?? r.critical), h = num(sr?.high ?? r.high), m = num(sr?.medium ?? r.medium); const scanned = sr || r.scanned_at || (r.scan_status && r.scan_status !== 'not_scanned'); if (r.scan_status === 'scanning') return <Badge tone="b">scanning…</Badge>; if (r.scan_status === 'failed') return <Badge tone="y">scan failed</Badge>; return !scanned ? <Badge tone="n">not scanned</Badge> : <span className="inline-flex gap-1.5 flex-wrap"><Badge tone={c ? 'r' : h ? 'r' : m ? 'y' : 'g'}>{c || h || m ? `${c} critical · ${h} high · ${m} medium · ${num(sr?.low ?? r.low)} low` : 'clean'}</Badge>{r.blocks_deploy && <Badge tone="r">blocks deploys</Badge>}</span> } },
-            { key: 'act', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/images/${r.id}/scan`, label: `Scan ${r.repository ?? r.name}` }).catch(() => {})}>Scan</button> },
           ]} />
       </Card>
       <FormModal open={addReg} onClose={() => setAddReg(false)} title="Add registry" submitLabel="Connect registry"
@@ -133,6 +144,7 @@ export function Networks() {
         <StatTile label="Mesh peers" value={rows.filter((n) => /wireguard/i.test(String(n.driver))).length} />
       </div>
       <DataTable label="Networks" rows={rows} loading={isLoading} rowKey={(r) => r.id}
+        actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) }]}
         columns={[
           { key: 'name', header: 'Name', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'driver', header: 'Driver' },
@@ -140,7 +152,6 @@ export function Networks() {
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'containers', header: 'Containers', value: (r) => num(r.container_count ?? r.containers) },
           { key: 'exposure', header: 'Exposure', render: (r) => <Badge tone={/public/i.test(String(r.exposure)) ? 'b' : /approved|exception/i.test(String(r.exposure)) ? 'y' : 'g'}>{r.exposure ?? 'private'}</Badge> },
-          { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button> },
         ]} />
       <p className="m-0 text-xs text-muted">Every network change is audited and checked for port conflicts, IP conflicts and accidental public exposure before it is applied.</p>
       <FormModal open={create} onClose={() => setCreate(false)} title="Create network" submitLabel="Create network" initial={{ driver: 'bridge' }}
@@ -187,6 +198,7 @@ export function Volumes() {
       </div>
       <DataTable label="Volumes" rows={rows} loading={isLoading} rowKey={(r) => r.id}
         filters={[{ id: 'nobackup', label: 'No backup policy', test: (r) => !r.backup_policy && !r.backup_policy_id }]}
+        actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) }]}
         columns={[
           { key: 'name', header: 'Volume', render: (r) => <span className="font-mono text-xs font-semibold">{r.name}</span> },
           { key: 'type', header: 'Type' },
@@ -194,7 +206,6 @@ export function Volumes() {
           { key: 'size', header: 'Size', value: (r) => num(r.size_mb ?? r.size_gb), render: (r) => r.size ?? (r.size_gb ? `${r.size_gb} GB` : mb(r.size_mb)) },
           { key: 'consumers', header: 'Used by', value: (r) => str(r.consumers ?? r.containers) },
           { key: 'backup', header: 'Backup', render: (r) => (r.backup_policy || r.backup_policy_id) ? <StatusBadge status={r.backup_status ?? 'protected'} /> : <Badge tone="y">no policy</Badge> },
-          { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => setDel(r)}>Delete</button> },
         ]} />
       <FormModal open={create} onClose={() => setCreate(false)} title="Create volume" submitLabel="Create volume" initial={{ type: 'named' }}
         fields={[{ name: 'name', label: 'Name', required: true, mono: true }, { name: 'server_id', label: 'Server', type: 'select', options: servers, required: true }, { name: 'type', label: 'Type', type: 'select', options: [{ value: 'named', label: 'Named volume' }, { value: 'bind', label: 'Bind mount' }, { value: 'nfs', label: 'NFS mount' }], required: true }, { name: 'path', label: 'Host path', mono: true, show: (v) => v.type === 'bind' }, { name: 'nfs_server', label: 'NFS server', mono: true, show: (v) => v.type === 'nfs' }, { name: 'nfs_path', label: 'NFS export path', mono: true, show: (v) => v.type === 'nfs' }, { name: 'quota_gb', label: 'Quota (GB)', type: 'number' }]}
@@ -221,13 +232,18 @@ export function Domains() {
   const { rows, isLoading } = useList<R>('/domains')
   const apps = useList<R>('/applications')
   const { run } = useAction()
+  const toast = useToast()
   const [add, setAdd] = useState(false)
   const [del, setDel] = useState<R | null>(null)
   const expiring = rows.filter((d) => ['expiring', 'expired'].includes(certState(d)))
+  const failed = rows.filter((d) => d.last_error && !expiring.includes(d))
+  const { run: renewRun, busy: renewing } = useAction()
+  const renewNow = () => renewRun<{ data?: { renewed?: number; failed?: number } }>({ path: '/domains/certificates/renew', label: 'Renew expiring certificates', silent: true })
+    .then((r) => r?.data && toast.success(`Renewed ${r.data.renewed ?? 0}${r.data.failed ? `, ${r.data.failed} failed` : ''}`)).catch(() => {})
   return (
     <>
       <PageHeader title="Domains & SSL" subtitle="Traefik routes, Let’s Encrypt certificates and DNS readiness for every organisation"
-        actions={<button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add domain</button>} />
+        actions={<>{expiring.length > 0 && <button type="button" className="btn" disabled={renewing} onClick={renewNow}>{renewing ? 'Renewing…' : 'Renew expiring now'}</button>}<button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add domain</button></>} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         <StatTile label="Domains" value={rows.length} />
         <StatTile label="Valid certificates" value={rows.filter((d) => certState(d) === 'valid').length} />
@@ -240,6 +256,11 @@ export function Domains() {
           { id: 'pending', label: 'Pending', test: (d) => certState(d).startsWith('pending') },
           { id: 'wildcard', label: 'Wildcard', test: (d) => String(domainName(d)).startsWith('*') || !!d.wildcard },
         ]}
+        actions={(r) => [
+          { label: `Check DNS for ${domainName(r)}`, icon: 'globe', onClick: () => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {}) },
+          { label: `Issue certificate for ${domainName(r)}`, icon: 'shield', onClick: () => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {}) },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setDel({ ...r, name: domainName(r) }) },
+        ]}
         columns={[
           { key: 'hostname', header: 'Domain', value: (r) => domainName(r), render: (r) => <span className="font-mono text-xs font-semibold">{domainName(r)}</span> },
           { key: 'app', header: 'Application', value: (r) => r.app_name ?? r.application_name ?? r.application?.name ?? '—' },
@@ -247,18 +268,19 @@ export function Domains() {
           { key: 'port', header: 'Port', value: (r) => r.target_port ?? r.port ?? '—' },
           { key: 'cert', header: 'Certificate', value: (r) => certState(r), render: (r) => <Badge tone={toneFor(certState(r).split(' ')[0])}>{certState(r)}</Badge> },
           { key: 'expires', header: 'Expires', value: (r) => certDays(r) ?? 9999, render: (r) => { const d = certDays(r); return d === null ? (r.https_status === 'active' ? 'n/a' : 'no certificate') : `${d} days` } },
-          { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ?? '—' },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Check DNS for ${domainName(r)}` }).catch(() => {})}>Check DNS</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${domainName(r)}` }).catch(() => {})}>Issue cert</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel({ ...r, name: domainName(r) })}>Delete</button>
-            </span>) },
+          { key: 'waf', header: 'WAF', render: (r) => (
+            <Select className="input h-8 text-sm" aria-label={`Web application firewall for ${domainName(r)}`} value={String(r.options?.waf?.mode ?? 'off')}
+              onChange={(e) => run({ path: `/domains/${r.id}/waf`, method: 'PATCH', body: { mode: e.target.value }, label: `WAF for ${domainName(r)}` }).catch(() => {})}>
+              <option value="off">Off</option><option value="detect">Detect only</option><option value="block">Block</option>
+            </Select>
+          ) },
+          { key: 'challenge', header: 'Challenge', value: (r) => r.challenge ? `${r.challenge}${r.dns_zone ? ` via ${r.dns_zone.name}` : ''}` : '—' },
         ]} />
-      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — ${d.last_error}` : ''}.</div>)}
-      <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'http-01', target_port: 80 }}
-        fields={[{ name: 'name', label: 'Domain', required: true, mono: true, placeholder: 'app.example.com' }, { name: 'application_id', label: 'Application', type: 'select', options: apps.rows.map((a) => ({ value: a.id, label: a.name })), required: true }, { name: 'target_port', label: 'Internal port', type: 'number' }, { name: 'challenge', label: 'Certificate challenge', type: 'select', options: ['http-01', 'dns-01'], required: true }, { name: 'wildcard', label: 'Wildcard certificate', type: 'checkbox', hint: 'requires DNS-01' }, { name: 'dns_provider', label: 'DNS provider (DNS-01)', type: 'select', options: ['cloudflare', 'digitalocean', 'hetzner', 'route53', 'gandiv5'], show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'dns_token', label: 'DNS API token', type: 'password', hint: 'write-only, stored encrypted; route53: JSON {"AWS_ACCESS_KEY_ID":…,"AWS_SECRET_ACCESS_KEY":…}', show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'www_redirect', label: 'Redirect www', type: 'checkbox' }, { name: 'websocket', label: 'WebSocket routing', type: 'checkbox' }, { name: 'headers', label: 'Custom headers', type: 'textarea', mono: true, placeholder: 'X-Frame-Options: DENY' }]}
-        onSubmit={(v) => run({ path: '/domains', body: { name: v.name, application_id: v.application_id, target_port: v.target_port ? Number(v.target_port) : null, challenge: v.wildcard ? 'dns-01' : v.challenge, www_redirect: !!v.www_redirect, ...(v.dns_provider ? { dns_provider: v.dns_provider } : {}), ...(v.dns_token ? { dns_token: v.dns_token } : {}), options: { websocket: !!v.websocket, headers: String(v.headers ?? '').split('\n').filter(Boolean) } }, label: `Add ${v.name}`, success: 'Domain added — DNS check started' })} />
+      {expiring.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--y-bg)', color: 'var(--y-fg)' }}>{domainName(d)}: the certificate expires in {certDays(d)} days{d.last_error ? ` — last attempt failed: ${d.last_error}` : ''}.</div>)}
+      {failed.map((d) => <div key={d.id} role="alert" className="card p-3 text-sm" style={{ background: 'var(--r-bg)', color: 'var(--r-fg)' }}>{domainName(d)}: the certificate could not be issued — {d.last_error}. Fix it, then use “Issue certificate”.</div>)}
+      <FormModal open={add} onClose={() => setAdd(false)} title="Add domain" submitLabel="Add domain" initial={{ challenge: 'auto', target_port: 80 }}
+        fields={[{ name: 'name', label: 'Domain', required: true, mono: true, placeholder: 'app.example.com' }, { name: 'application_id', label: 'Application', type: 'select', options: apps.rows.map((a) => ({ value: a.id, label: a.name })), required: true }, { name: 'target_port', label: 'Internal port', type: 'number' }, { name: 'challenge', label: 'Certificate challenge', type: 'select', options: ['auto', 'http-01', 'dns-01'], required: true, hint: 'auto: DNS-01 through the DNS zone when the domain is in one, otherwise HTTP-01' }, { name: 'wildcard', label: 'Wildcard certificate', type: 'checkbox', hint: 'requires DNS-01' }, { name: 'dns_provider', label: 'DNS provider (DNS-01)', type: 'select', options: ['cloudflare', 'digitalocean', 'hetzner', 'route53', 'gandiv5'], show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'dns_token', label: 'DNS API token', type: 'password', hint: 'write-only, stored encrypted; route53: JSON {"AWS_ACCESS_KEY_ID":…,"AWS_SECRET_ACCESS_KEY":…}', show: (v) => v.challenge === 'dns-01' || !!v.wildcard }, { name: 'www_redirect', label: 'Redirect www', type: 'checkbox' }, { name: 'websocket', label: 'WebSocket routing', type: 'checkbox' }, { name: 'headers', label: 'Custom headers', type: 'textarea', mono: true, placeholder: 'X-Frame-Options: DENY' }]}
+        onSubmit={(v) => run({ path: '/domains', body: { name: v.name, application_id: v.application_id, target_port: v.target_port ? Number(v.target_port) : null, ...(v.wildcard ? { challenge: 'dns-01' } : v.challenge !== 'auto' ? { challenge: v.challenge } : {}), www_redirect: !!v.www_redirect, ...(v.dns_provider ? { dns_provider: v.dns_provider } : {}), ...(v.dns_token ? { dns_token: v.dns_token } : {}), options: { websocket: !!v.websocket, headers: String(v.headers ?? '').split('\n').filter(Boolean) } }, label: `Add ${v.name}`, success: 'Domain added — DNS check started' })} />
       <DeleteConfirm target={del} onClose={() => setDel(null)} path={(r) => `/domains/${r.id}`} noun="domain" />
     </>
   )
@@ -276,7 +298,7 @@ export function Databases() {
     <>
       <PageHeader title="Databases" subtitle="Managed database containers with application-consistent backups"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>New database</button>} />
-      {isLoading ? <Card>Loading…</Card> : rows.length === 0 ? <Card><Empty>No databases yet.</Empty></Card> : (
+      {isLoading ? <Loading label="Loading…" /> : rows.length === 0 ? <Card><Empty>No databases yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
           {rows.map((d) => (
             <li key={d.id} className="card p-5 flex flex-col gap-3">

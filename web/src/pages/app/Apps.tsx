@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { StatusBadge } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { ConfirmDialog } from '../../components/Overlay'
 import { LogView } from '../../components/LogView'
 import { ago, mb } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
+import { BuildUsage } from '../../components/BuildUsage'
 
 /** Customer-friendly state words (no Docker jargon). */
 export function appState(s?: string): string {
@@ -24,8 +26,9 @@ export function MyApps() {
     <>
       <PageHeader title="My apps" subtitle="Everything you host, with its address and health"
         actions={<Link to="/app/host" className="btn btn-primary no-underline">+ Host a Docker app</Link>} />
+      {rows.some((a) => a.source_type === 'git') && <BuildUsage path="/app/builds/usage" />}
       {error && <div role="alert" className="card p-4 text-danger text-sm">We could not load your apps. Refresh the page to try again.</div>}
-      {isLoading ? <Card>Loading your apps…</Card> : rows.length === 0 ? (
+      {isLoading ? <Loading label="Loading your apps…" /> : rows.length === 0 ? (
         <Card><Empty>You are not hosting anything yet. <Link to="/app/host" className="font-semibold">Host your first app</Link> — it takes about two minutes.</Empty></Card>
       ) : (
         <ul className="list-none m-0 p-0 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
@@ -37,7 +40,7 @@ export function MyApps() {
                 <StatusBadge status={appState(a.state ?? a.status)} />
               </div>
               {appDomain(a) && <a href={`https://${appDomain(a)}`} target="_blank" rel="noreferrer" className="font-mono text-xs truncate">{appDomain(a)}</a>}
-              <div className="flex flex-wrap gap-4 text-xs text-muted"><span>CPU {a.cpu_pct != null ? `${Math.round(a.cpu_pct)}%` : '—'}</span><span>RAM {mb(a.mem_mb ?? a.ram_mb)}</span><span>Updated {ago(a.last_deploy_at ?? a.updated_at)}</span></div>
+              <div className="flex flex-wrap gap-4 text-xs text-muted"><span>CPU {a.cpu_pct != null ? `${Math.round(a.cpu_pct)}%` : '—'}</span><span>RAM {mb(a.mem_mb ?? a.ram_mb)}</span><span>{a.replicas ?? 1} {(a.replicas ?? 1) === 1 ? 'copy' : 'copies'}</span>{a.rps != null ? <span>{a.rps < 10 ? Number(a.rps).toFixed(1) : Math.round(a.rps)} req/s</span> : null}<span>Updated {ago(a.last_deploy_at ?? a.updated_at)}</span></div>
               <div className="flex gap-2 flex-wrap">
                 <button type="button" className="btn btn-primary flex-1" onClick={() => nav(`/app/apps/${a.id}`)}>Manage</button>
                 <button type="button" className="btn flex-1" onClick={() => nav(`/app/apps/${a.id}?tab=logs`)}>Logs</button>
@@ -51,7 +54,7 @@ export function MyApps() {
   )
 }
 
-type Tab = 'overview' | 'logs' | 'env' | 'releases' | 'settings'
+type Tab = 'overview' | 'scaling' | 'logs' | 'env' | 'releases' | 'settings'
 interface Env { key: string; value: string; secret: boolean; masked?: boolean }
 
 const SIZES = [['small', 'Small — 0.5 vCPU · 512 MB · 5 GB'], ['standard', 'Standard — 1 vCPU · 1 GB · 10 GB'], ['pro', 'Pro — 2 vCPU · 4 GB · 40 GB']] as const
@@ -100,18 +103,15 @@ export function AppDetail() {
   }
   return (
     <>
-      <Link to="/app" className="text-sm font-semibold inline-flex items-center min-h-[44px]">← My apps</Link>
-      <div className="flex flex-wrap items-center gap-3">
-        <span aria-hidden="true" className="w-12 h-12 rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>
-        <div className="flex-1 min-w-[200px]">
-          <h1 className="m-0 text-[26px] font-bold">{a.name}</h1>
-          <div className="text-sm text-muted"><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</div>
-        </div>
-        <StatusBadge status={appState(a.state ?? a.status)} />
-        <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
-      </div>
-      <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
+      <PageHeader title={a.name} back={<Link to="/app/apps" className="link-action inline-flex items-center min-h-[44px]">← My apps</Link>}
+        icon={<span aria-hidden="true" className="w-12 h-12 flex-none rounded-xl bg-sel text-accent-fg font-bold text-lg flex items-center justify-center">{String(a.name)[0]?.toUpperCase()}</span>}
+        badge={<StatusBadge status={appState(a.state ?? a.status)} />}
+        subtitle={<><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</>}
+        actions={<>
+          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
+        </>} />
+      <Tabs value={tab} onChange={(t) => setParams({ tab: t })} label="App sections" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'scaling', label: 'Scaling' }, { id: 'logs', label: 'Logs' }, { id: 'env', label: 'Environment' }, { id: 'releases', label: 'Releases' }, { id: 'settings', label: 'Settings' }]} />
       {tab === 'overview' && (
         <>
           {a.last_deployment?.status === 'failed' && (
@@ -131,6 +131,7 @@ export function AppDetail() {
           </Card>
         </>
       )}
+      {tab === 'scaling' && <ScalingPanel path={`/app/apps/${a.id}/scaling`} />}
       {tab === 'logs' && <Card><LogView path={`/app/apps/${a.id}/logs`} title="What your app is printing" height={420} /></Card>}
       {tab === 'env' && (
         <Card title="Environment variables">
@@ -171,7 +172,7 @@ export function AppDetail() {
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_deploy} onChange={(v) => setSettings({ ...settings, auto_deploy: v })} label="Auto-deploy when I push" /><span className="text-sm">Auto-deploy when I push to my main branch</span></div>
             <Field label="Health check path" hint="Requested on your app's port after each deploy; 2xx or 3xx means healthy."><input className="input font-mono" value={settings.health_path ?? '/'} onChange={(e) => setSettings({ ...settings, health_path: e.target.value })} /></Field>
             <div className="flex items-center gap-3 min-h-[44px]"><Toggle checked={!!settings.auto_restart} onChange={(v) => setSettings({ ...settings, auto_restart: v })} label="Restart automatically if it crashes" /><span className="text-sm">Restart automatically if it crashes</span></div>
-            <button type="button" className="btn btn-primary self-start" disabled={busy} onClick={() => run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: settings, label: 'Save settings', success: 'Settings saved' }).catch(() => {})}>Save settings</button>
+            <FormActions><button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ method: 'PATCH', path: `/app/apps/${a.id}`, body: settings, label: 'Save settings', success: 'Settings saved' }).catch(() => {})}>Save settings</button></FormActions>
             <div className="flex flex-wrap items-center gap-3 justify-between p-4 rounded-xl border border-danger-line mt-4">
               <div><div className="font-semibold text-danger">Delete this app</div><div className="text-sm text-muted">The app is removed. Your data is kept for 7 days in case you change your mind.</div></div>
               <button type="button" className="btn btn-danger" onClick={() => setDel(true)}>Delete app</button>
@@ -180,7 +181,7 @@ export function AppDetail() {
         </Card>
       )}
       <ConfirmDialog open={del} onClose={() => setDel(false)} danger confirmText={a.name} title={`Delete ${a.name}?`} confirmLabel="Delete app" busy={busy}
-        onConfirm={() => run({ method: 'DELETE', path: `/app/apps/${a.id}`, label: `Delete ${a.name}`, success: `${a.name} deleted. Data is kept for 7 days.` }).then(() => nav('/app')).catch(() => {})}>
+        onConfirm={() => run({ method: 'DELETE', path: `/app/apps/${a.id}`, label: `Delete ${a.name}`, success: `${a.name} deleted. Data is kept for 7 days.` }).then(() => nav('/app/apps')).catch(() => {})}>
         <p className="m-0">Your app stops and its address goes offline. Your data is kept for 7 days, then deleted for good.</p>
       </ConfirmDialog>
       <ConfirmDialog open={!!rollback} onClose={() => setRollback(null)} title={`Go back to ${rollback?.version ?? 'this version'}?`} confirmLabel="Roll back" busy={busy}

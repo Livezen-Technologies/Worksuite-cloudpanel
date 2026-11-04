@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: fider
+name: Fider
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Fider is a feedback platform for collecting and managing user feedback.
+port: 3000
+source: coolify
+documentation: https://fider.io
+compose: "services:\n  fider:\n    image: getfider/fider:stable\n    environment:\n      BASE_URL: ${SERVICE_URL}\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@database:5432/fider?sslmode=disable\n      JWT_SECRET: ${SERVICE_PASSWORD_FIDER}\n      EMAIL_NOREPLY: ${EMAIL_NOREPLY:-noreply@example.com}\n      EMAIL_MAILGUN_API: $EMAIL_MAILGUN_API\n      EMAIL_MAILGUN_DOMAIN: $EMAIL_MAILGUN_DOMAIN\n      EMAIL_MAILGUN_REGION: $EMAIL_MAILGUN_REGION\n      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-smtp.mailgun.com}\n      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}\n      EMAIL_SMTP_USERNAME: ${EMAIL_SMTP_USERNAME:-postmaster@mailgun.com}\n      EMAIL_SMTP_PASSWORD: $EMAIL_SMTP_PASSWORD\n      EMAIL_SMTP_ENABLE_STARTTLS: $EMAIL_SMTP_ENABLE_STARTTLS\n      EMAIL_AWSSES_REGION: $EMAIL_AWSSES_REGION\n      EMAIL_AWSSES_ACCESS_KEY_ID: $EMAIL_AWSSES_ACCESS_KEY_ID\n      EMAIL_AWSSES_SECRET_ACCESS_KEY: $EMAIL_AWSSES_SECRET_ACCESS_KEY\n    healthcheck:\n      test:\n  \
+  \    - CMD\n      - /app/fider\n      - ping\n      interval: 2s\n      timeout: 10s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  database:\n    image: postgres:12\n    volumes:\n    - pg_data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-fider}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -d $fider -U $${POSTGRES_USER}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  pg_data: {}\n"

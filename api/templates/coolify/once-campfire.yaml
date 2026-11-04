@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: once-campfire
+name: Once Campfire
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Super simple group chat, without a subscription.
+port: 80
+source: coolify
+documentation: https://github.com/basecamp/once-campfire
+compose: "services:\n  campfire:\n    image: ghcr.io/basecamp/once-campfire:${TAG:-main}\n    restart: unless-stopped\n    volumes:\n    - campfire-storage:/rails/storage\n    environment:\n      SECRET_KEY_BASE: ${SERVICE_BASE64_CAMPFIRE}\n      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}\n      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}\n      DISABLE_SSL: ${DISABLE_SSL:-true}\n      SSL_DOMAIN: ${SSL_DOMAIN:-false}\n      SKIP_TELEMETRY: ${SKIP_TELEMETRY:-true}\n      SENTRY_DSN: ${SENTRY_DSN}\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://localhost/up\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  campfire-storage: {}\n"

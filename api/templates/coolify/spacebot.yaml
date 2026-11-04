@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: spacebot
+name: Spacebot
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An agentic AI system with specialized processes for thinking, working, and remembering.
+port: 19898
+source: coolify
+documentation: https://docs.spacebot.sh/docker
+compose: "services:\n  spacebot:\n    image: ghcr.io/spacedriveapp/spacebot:full\n    environment:\n      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}\n      OPENAI_API_KEY: ${OPENAI_API_KEY}\n      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}\n      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}\n      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}\n      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}\n      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY}\n      SPACEBOT_CHANNEL_MODEL: ${SPACEBOT_CHANNEL_MODEL}\n      SPACEBOT_WORKER_MODEL: ${SPACEBOT_WORKER_MODEL}\n    volumes:\n    - spacebot-data:/data\n    security_opt:\n    - seccomp=unconfined\n    shm_size: 1g\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -sf\n      - http://localhost:19898/api/health\n      interval: 30s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '19898'\nvolumes:\n\
+  \  spacebot-data: {}\n"

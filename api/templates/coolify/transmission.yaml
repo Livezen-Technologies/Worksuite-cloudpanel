@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: transmission
+name: Transmission
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Fast, easy, and free BitTorrent client.
+port: 9091
+source: coolify
+documentation: https://docs.linuxserver.io/images/docker-transmission/
+compose: "services:\n  transmission:\n    image: lscr.io/linuxserver/transmission:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      USER: ${SERVICE_USER_ADMIN}\n      PASS: ${SERVICE_PASSWORD_ADMIN}\n    volumes:\n    - transmission-config:/config\n    - transmission-downloads:/downloads\n    - transmission-watch:/watch\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -sSfL\n      - -u\n      - ${SERVICE_USER_ADMIN}:${SERVICE_PASSWORD_ADMIN}\n      - http://localhost:9091/\n      interval: 30s\n      timeout: 10s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '9091'\nvolumes:\n  transmission-config: {}\n  transmission-downloads: {}\n  transmission-watch: {}\n"

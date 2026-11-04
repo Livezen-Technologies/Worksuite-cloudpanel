@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: duplicati
+name: Duplicati
+category: Storage
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Duplicati is a backup solution, allowing you to make scheduled backups with encryption.
+port: 8200
+source: coolify
+documentation: https://duplicati.readthedocs.io
+compose: "services:\n  duplicati:\n    image: lscr.io/linuxserver/duplicati:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-Europe/London}\n      SETTINGS_ENCRYPTION_KEY: ${SERVICE_PASSWORD_ENCRYPT}\n      DUPLICATI__WEBSERVICE_PASSWORD: ${SERVICE_PASSWORD_WEB}\n    volumes:\n    - duplicati-config:/config\n    - duplicati-backups:/backups\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8200\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8200'\nvolumes:\n  duplicati-config: {}\n  duplicati-backups: {}\n"

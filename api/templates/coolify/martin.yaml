@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: martin
+name: Martin
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Martin is a tile server able to generate and serve vector tiles on the fly from large PostGIS databases, PMTiles (local or remote), and MBTiles files, allowing multiple tile sources to be dynamically combined into one.
+port: 3000
+source: coolify
+documentation: https://maplibre.org/martin/introduction.html/
+compose: "services:\n  martin:\n    image: ghcr.io/maplibre/martin:v0.13.0\n    environment:\n      HOST: ${SERVICE_URL}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/${POSTGRES_DB:-martin-db}\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:3000\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgis/postgis:16-3.4-alpine\n    platform: linux/amd64\n    volumes:\n    - martin-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-martin-db}\n\
+  \    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $martin-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  martin-postgresql-data: {}\n"

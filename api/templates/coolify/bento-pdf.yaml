@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: bento-pdf
+name: Bento Pdf
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Process PDFs entirely in your browser. No uploads. No servers. Complete privacy.
+port: 8080
+source: coolify
+documentation: https://bentopdf.com/docs
+compose: "services:\n  bento-pdf:\n    image: ghcr.io/alam00000/bentopdf:v1.16.1\n    environment: {}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8080\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n"

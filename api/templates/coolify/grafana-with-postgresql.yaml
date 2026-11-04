@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: grafana-with-postgresql
+name: Grafana With Postgresql
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Grafana is the open source analytics & monitoring solution for every database.
+port: 3000
+source: coolify
+documentation: https://grafana.com
+compose: "services:\n  grafana:\n    image: grafana/grafana-oss\n    environment:\n      GF_SERVER_ROOT_URL: ${SERVICE_URL}\n      GF_SERVER_DOMAIN: ${SERVICE_FQDN}\n      GF_SECURITY_ADMIN_PASSWORD: ${SERVICE_PASSWORD_GRAFANA}\n      GF_DATABASE_TYPE: postgres\n      GF_DATABASE_HOST: postgresql\n      GF_DATABASE_USER: ${SERVICE_USER_POSTGRES}\n      GF_DATABASE_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      GF_DATABASE_NAME: ${POSTGRES_DB:-grafana}\n    volumes:\n    - grafana-data:/var/lib/grafana\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/api/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n    - postgresql\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n\
+  \    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-grafana}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $grafana\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  grafana-data: {}\n  postgresql-data: {}\n"

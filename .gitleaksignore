@@ -1,0 +1,33 @@
+# Test fixtures reviewed in docs/security-audit.md (public WireGuard keys, a placeholder SSH key, a test-only relay secret).
+85cbb1437e2f55ed588da102350381f7d7925102:api/tests/Feature/PrivateNetworkTest.php:generic-api-key:12
+85cbb1437e2f55ed588da102350381f7d7925102:api/tests/Feature/PrivateNetworkTest.php:generic-api-key:14
+005bbad0c47b45bf9d75e9598a42e1e9aba1c9ae:api/tests/Feature/BackupManagerTest.php:private-key:149
+11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:14
+11d585c56c39736a147a1a5a429711b5621c69ce:api/tests/Feature/TerminalRelayTest.php:generic-api-key:49
+# ServiceSettingsTest: a fake Stripe test key (sk_test_abcd1234) used to check secrets are never returned.
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:22
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:22
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:25
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:25
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:29
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:29
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:33
+16699cd05ded57e59cab45d77c1d98178c6532ed:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:33
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:22
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:22
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:25
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:25
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:29
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:29
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:generic-api-key:33
+9bf03bb3dfe03417776e7b372f13e80ae824fcd0:api/tests/Feature/ServiceSettingsTest.php:stripe-access-token:33
+# addServerWizard.test.tsx: a fake enrolment token (abcdef123456) in a mocked API response.
+7242635caca72985b0923863a6fdba85a9b9fe54:web/src/test/addServerWizard.test.tsx:generic-api-key:19
+aa036b7ba062a1fe8d03187c21bdad535abbb671:web/src/test/addServerWizard.test.tsx:generic-api-key:19
+# Git sources (#151), commit c1dd80c: no real secrets. SshKeys.php held the PEM armour strings of the key generator,
+# GitSourcesTest a fake token (ghp_testtoken123), build_ssh_test.go a placeholder key. All rewritten in the next commit.
+c1dd80c2b04a42cf36c972c17d7540790576727f:api/app/Support/SshKeys.php:private-key:28
+c1dd80c2b04a42cf36c972c17d7540790576727f:api/tests/Feature/GitSourcesTest.php:generic-api-key:69
+c1dd80c2b04a42cf36c972c17d7540790576727f:agent/internal/executor/build_ssh_test.go:private-key:10
+# Docker Swarm (#162), commit f35dbed: a placeholder join token in SwarmTest, rewritten in the next commit.
+f35dbede97e685489b7f8aa2d53c2ce347f7fc8a:api/tests/Feature/SwarmTest.php:generic-api-key:13

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: langflow
+name: Langflow
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Langflow is an open-source, Python-based, customizable framework for building AI applications.
+port: 7860
+source: coolify
+documentation: https://docs.langflow.org
+compose: "services:\n  langflow:\n    image: langflowai/langflow:1.7.2\n    environment:\n      LANGFLOW_AUTO_LOGIN: ${LANGFLOW_AUTO_LOGIN:-false}\n      LANGFLOW_SUPERUSER: ${SERVICE_USER_LANGFLOW}\n      LANGFLOW_SUPERUSER_PASSWORD: ${SERVICE_PASSWORD_LANGFLOW}\n      LANGFLOW_DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-langflow-db}\n      LANGFLOW_CONFIG_DIR: app/langflow\n      LANGFLOW_HOST: 0.0.0.0\n      PORT: '7860'\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -f http://127.0.0.1:7860/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    depends_on:\n      postgres:\n        condition: service_healthy\n    volumes:\n    - langflow-data:/app/langflow\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '7860'\n  postgres:\n    image: postgres:18-alpine\n    environment:\n\
+  \      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-langflow-db}\n    volumes:\n    - langflow-postgres:/var/lib/postgres/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $langflow-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  langflow-data: {}\n  langflow-postgres: {}\n"

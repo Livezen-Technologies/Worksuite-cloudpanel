@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Firewall — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#2563EB;text-decoration:none}a:hover{color:#1D4ED8}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1100px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="Firewall" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1046px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 20px; box-sizing: border-box; max-width: 1168px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+      <div style="flex: 1; min-width: 240px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Firewall</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Web application firewall at the Traefik edge: rate limits, challenges, country rules and reCAPTCHA</p>
+      </div>
+      <select aria-label="Scope" style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 14px Inter"><option>All domains</option><option>api.example.com</option><option>app.example.com</option><option>shop.mybrand.lk</option></select>
+      <button type="button" onClick="{{toggleUam}}" style="{{uamStyle}}">{{uamLabel}}</button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+        <div style="padding: 18px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}"><div style="font-size: 13px; color: {{c.muted}}">{{t.k}}</div><div style="font-size: 24px; font-weight: 700; margin-top: 6px">{{t.v}}</div><div style="font-size: 12px; color: {{c.muted}}; margin-top: 2px">{{t.s}}</div></div>
+      </sc-for>
+    </div>
+
+    <div role="tablist" style="display: flex; flex-wrap: wrap; gap: 24px; border-bottom: 1px solid {{c.line}}">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button type="button" role="tab" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+    </div>
+
+    <!-- RATE LIMITS -->
+    <sc-if value="{{t0}}" hint-placeholder-val="{{ true }}">
+      <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px"><h2 style="margin: 0; font-size: 15px">Rate-limit rules</h2><button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 13px Inter">Add rule</button></div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px">
+            <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><th style="padding: 10px 16px; font-weight: 600">Rule</th><th style="padding: 10px 16px; font-weight: 600">Match</th><th style="padding: 10px 16px; font-weight: 600">Limit</th><th style="padding: 10px 16px; font-weight: 600">Counted by</th><th style="padding: 10px 16px; font-weight: 600">Then</th><th style="padding: 10px 16px; font-weight: 600">Hits (24 h)</th><th style="padding: 10px 16px; font-weight: 600">On</th></tr></thead>
+            <tbody>
+              <sc-for list="{{rules}}" as="r" hint-placeholder-count="5">
+                <tr style="border-top: 1px solid {{c.line}}">
+                  <td style="padding: 12px 16px; font-weight: 600">{{r.name}}</td>
+                  <td style="padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{c.muted}}">{{r.match}}</td>
+                  <td style="padding: 12px 16px">{{r.limit}}</td>
+                  <td style="padding: 12px 16px; color: {{c.muted}}">{{r.key}}</td>
+                  <td style="padding: 12px 16px"><span style="{{r.badge}}">{{r.action}}</span></td>
+                  <td style="padding: 12px 16px; font-variant-numeric: tabular-nums">{{r.hits}}</td>
+                  <td style="padding: 12px 16px"><button type="button" onClick="{{r.toggle}}" aria-label="Enable {{r.name}}" style="{{r.track}}"><span style="{{r.knob}}"></span></button></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </sc-if>
+
+    <!-- CHALLENGES -->
+    <sc-if value="{{t1}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+        <section style="flex: 1 1 360px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 12px">
+          <h2 style="margin: 0; font-size: 15px">Challenge type</h2>
+          <sc-for list="{{chTypes}}" as="o" hint-placeholder-count="3">
+            <button type="button" onClick="{{o.pick}}" style="{{o.style}}"><span style="font-weight: 700; font-size: 14px">{{o.name}}</span><span style="font-size: 12px; color: {{c.muted}}">{{o.sub}}</span></button>
+          </sc-for>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Clearance lasts<select style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>30 minutes</option><option>1 hour</option><option>24 hours</option></select></label>
+        </section>
+        <section style="flex: 1 1 360px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+          <h2 style="margin: 0 0 6px; font-size: 15px">Challenge visitors when</h2>
+          <sc-for list="{{triggers}}" as="g" hint-placeholder-count="5">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid {{c.line}}">
+              <div style="flex: 1"><div style="font-size: 14px; font-weight: 600">{{g.label}}</div><div style="font-size: 12px; color: {{c.muted}}">{{g.sub}}</div></div>
+              <button type="button" onClick="{{g.toggle}}" aria-label="{{g.label}}" style="{{g.track}}"><span style="{{g.knob}}"></span></button>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- COUNTRY BLOCK -->
+    <sc-if value="{{t2}}" hint-placeholder-val="{{ false }}">
+      <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+          <h2 style="flex: 1; margin: 0; font-size: 15px">Country rules</h2>
+          <div style="display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: {{c.head}}; border: 1px solid {{c.line}}">
+            <sc-for list="{{modes}}" as="m" hint-placeholder-count="2"><button type="button" onClick="{{m.pick}}" style="{{m.style}}">{{m.label}}</button></sc-for>
+          </div>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: {{c.muted}}">{{modeNote}}</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px">
+          <sc-for list="{{countries}}" as="k" hint-placeholder-count="12">
+            <button type="button" onClick="{{k.pick}}" style="{{k.style}}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{c.muted}}; min-width: 22px">{{k.code}}</span><span style="flex: 1; text-align: left">{{k.name}}</span><span style="{{k.badge}}">{{k.state}}</span></button>
+          </sc-for>
+        </div>
+        <div style="font-size: 12px; color: {{c.muted}}">GeoIP database: MaxMind GeoLite2 · updated weekly · admin IPs on the allow list are never blocked</div>
+      </section>
+    </sc-if>
+
+    <!-- RECAPTCHA -->
+    <sc-if value="{{t3}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+        <section style="flex: 1 1 380px; padding: 24px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 16px">
+          <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px">reCAPTCHA settings</h2><span style="{{connected}}">connected</span></div>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Provider<select style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px Inter"><option>Google reCAPTCHA v3 (score)</option><option>Google reCAPTCHA v2 (checkbox)</option><option>Cloudflare Turnstile</option><option>hCaptcha</option></select></label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Site key<input value="6Lc…[SITE KEY]" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace"></label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">Secret key<input value="••••••••••••••••" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 13px 'JetBrains Mono', monospace"></label>
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600"><span>Minimum score to pass</span><span>{{scoreLabel}}</span></div>
+            <div style="display: flex; gap: 6px; margin-top: 8px"><sc-for list="{{scores}}" as="s" hint-placeholder-count="5"><button type="button" onClick="{{s.pick}}" style="{{s.style}}">{{s.label}}</button></sc-for></div>
+            <div style="font-size: 12px; color: {{c.muted}}; margin-top: 6px">Below the score: show the v2 checkbox. No token at all: block.</div>
+          </div>
+        </section>
+        <section style="flex: 1 1 320px; padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
+          <h2 style="margin: 0 0 6px; font-size: 15px">Protected paths</h2>
+          <sc-for list="{{paths}}" as="p" hint-placeholder-count="5">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid {{c.line}}">
+              <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{p.path}}</span>
+              <span style="font-size: 12px; color: {{c.muted}}">{{p.domain}}</span>
+              <button type="button" onClick="{{p.toggle}}" aria-label="Protect {{p.path}}" style="{{p.track}}"><span style="{{p.knob}}"></span></button>
+            </div>
+          </sc-for>
+          <button type="button" style="margin-top: 12px; min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px dashed {{c.line}}; background: transparent; color: {{c.text}}; font: 600 13px Inter">+ Add path</button>
+        </section>
+      </div>
+    </sc-if>
+
+    <!-- EVENTS -->
+    <sc-if value="{{t4}}" hint-placeholder-val="{{ false }}">
+      <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px">
+            <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><th style="padding: 10px 16px; font-weight: 600">Time</th><th style="padding: 10px 16px; font-weight: 600">Action</th><th style="padding: 10px 16px; font-weight: 600">Source IP</th><th style="padding: 10px 16px; font-weight: 600">Country</th><th style="padding: 10px 16px; font-weight: 600">Request</th><th style="padding: 10px 16px; font-weight: 600">Rule</th><th style="padding: 10px 16px; font-weight: 600"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Actions</span></th></tr></thead>
+            <tbody>
+              <sc-for list="{{events}}" as="e" hint-placeholder-count="8">
+                <tr style="border-top: 1px solid {{c.line}}">
+                  <td style="padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{c.muted}}">{{e.t}}</td>
+                  <td style="padding: 12px 16px"><span style="{{e.badge}}">{{e.action}}</span></td>
+                  <td style="padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{e.ip}}</td>
+                  <td style="padding: 12px 16px; color: {{c.muted}}">{{e.cc}}</td>
+                  <td style="padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{c.muted}}">{{e.req}}</td>
+                  <td style="padding: 12px 16px">{{e.rule}}</td>
+                  <td style="padding: 12px 16px; white-space: nowrap"><a href="#" style="font-weight: 600; font-size: 12px; margin-right: 12px">Allow IP</a><a href="#" style="font-weight: 600; font-size: 12px; color: {{c.danger}}">Block IP</a></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p){ super(p); this.state = { tab: 0, off: {}, ch: 0, trig: [true, true, true, false, true], mode: 'block', blocked: { RU: true, KP: true, IR: true }, score: 2, paths: [true, true, true, true, false], uam: false }; }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#2563EB';
+    const st = { tab: 0, off: {}, ch: 0, trig: [true,true,true,false,true], mode: 'block', blocked: {}, score: 2, paths: [true,true,true,true,false], uam: false, ...(this.state || {}) };
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B', track:'#334155', soft:'#172554', danger:'#F87171' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#475569', line:'#E2E8F0', track:'#CBD5E1', soft:'#EFF6FF', danger:'#B91C1C' };
+    const tones = dark
+      ? { g:['#052E1B','#4ADE80'], y:['#3A2A05','#FACC15'], r:['#3B0D0D','#F87171'], b:['#0C2340','#60A5FA'], n:['#23262E','#CBD5E1'] }
+      : { g:['#ECFDF3','#15803D'], y:['#FEF9C3','#854D0E'], r:['#FEF2F2','#B91C1C'], b:['#EFF6FF','#1D4ED8'], n:['#F1F5F9','#475569'] };
+    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
+    const sw = on => ({ track:`position:relative;width:44px;height:26px;border-radius:13px;border:0;cursor:pointer;flex:none;background:${on?accent:c.track}`, knob:`position:absolute;top:3px;left:${on?21:3}px;width:20px;height:20px;border-radius:10px;background:#fff` });
+    const pickCard = on => `display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px;border-radius:10px;text-align:left;cursor:pointer;font-family:Inter;color:${c.text};background:${on?c.soft:c.card};border:${on?'2px solid '+accent:'1px solid '+c.line}`;
+    const tabs = ['Rate limits','Challenges','Country block','reCAPTCHA','Events'].map((label, i) => ({ label, pick: () => this.setState({ tab: i }),
+      style:`min-height:44px;padding:0 2px;border:0;border-bottom:2px solid ${st.tab===i?accent:'transparent'};margin-bottom:-1px;background:transparent;cursor:pointer;font:600 14px Inter;color:${st.tab===i?accent:c.muted}` }));
+    const actTone = a => ({ Block:'r', Challenge:'y', 'reCAPTCHA':'b', Log:'n', Throttle:'y', Allow:'g' })[a] || 'n';
+    const rules = [
+      ['Login brute force','POST /login, /wp-login.php','5 / minute','IP','Block','r','1,284'],
+      ['API burst','/api/*','600 / minute','API token, else IP','Throttle','y','9,410'],
+      ['Checkout abuse','POST /checkout','20 / 10 min','IP + session','reCAPTCHA','b','37'],
+      ['Search scraping','/search?*','120 / minute','IP','Challenge','y','2,206'],
+      ['Global flood guard','all paths','3,000 / minute','IP','Block','r','12'],
+    ].map((r, i) => { const on = !st.off[i]; return { name:r[0], match:r[1], limit:r[2], key:r[3], action:r[4], badge:B(r[5]), hits:r[6], ...sw(on),
+      toggle: () => this.setState({ off: { ...st.off, [i]: on } }) }; });
+    const chTypes = [['Managed challenge','Invisible browser check first, interactive only if it fails'],['JavaScript challenge','5-second proof-of-work page'],['reCAPTCHA challenge','Score check, checkbox when the score is low']]
+      .map(([name, sub], i) => ({ name, sub, pick: () => this.setState({ ch: i }), style: pickCard(st.ch===i) }));
+    const triggers = [['Threat score is high','IP reputation lists and abuse history'],['Known bad bots and scanners','User-agent and fingerprint signatures'],['A rate limit is exceeded','Rules set to Challenge'],['Visitor uses Tor or a VPN','Anonymising networks'],['Country set to Challenge','From the Country block tab']]
+      .map(([label, sub], i) => ({ label, sub, ...sw(st.trig[i]), toggle: () => { const n = st.trig.slice(); n[i] = !n[i]; this.setState({ trig: n }); } }));
+    const modeIsBlock = st.mode === 'block';
+    const modes = [['block','Block listed'],['allow','Allow only listed']].map(([id, label]) => ({ label, pick: () => this.setState({ mode: id }),
+      style:`border:0;min-height:32px;padding:0 12px;border-radius:6px;font:600 12px Inter;cursor:pointer;color:${st.mode===id?c.text:c.muted};background:${st.mode===id?c.card:'transparent'}` }));
+    const cycle = { undefined: 'challenge', challenge: 'block', block: undefined };
+    const list = [['LK','Sri Lanka'],['US','United States'],['GB','United Kingdom'],['IN','India'],['SG','Singapore'],['DE','Germany'],['AU','Australia'],['CN','China'],['RU','Russia'],['BR','Brazil'],['KP','North Korea'],['IR','Iran']];
+    const countries = list.map(([code, name]) => { const s = st.blocked[code]; const label = modeIsBlock ? (s==='challenge'?'challenge':s?'blocked':'allowed') : (s?'allowed':'blocked');
+      return { code, name, state: label, badge: B(label==='blocked'?'r':label==='challenge'?'y':'g'),
+        pick: () => this.setState({ blocked: { ...st.blocked, [code]: modeIsBlock ? (s===true ? undefined : s==='challenge' ? true : 'challenge') : !s } }),
+        style:`display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border-radius:8px;cursor:pointer;font:500 13px Inter;color:${c.text};background:${c.card};border:1px solid ${label==='allowed'?c.line:(label==='blocked'?'#DC2626':'#D97706')}` }; });
+    const scoreVals = [0.1, 0.3, 0.5, 0.7, 0.9];
+    const scores = scoreVals.map((v, i) => ({ label: String(v), pick: () => this.setState({ score: i }),
+      style:`flex:1;min-height:36px;border-radius:8px;cursor:pointer;font:600 13px Inter;border:1px solid ${st.score===i?accent:c.line};background:${st.score===i?accent:c.card};color:${st.score===i?'#fff':c.text}` }));
+    const paths = [['/login','all domains'],['/register','all domains'],['/contact','app.example.com'],['/checkout','shop.mybrand.lk'],['/api/auth/*','api.example.com']]
+      .map(([path, domain], i) => ({ path, domain, ...sw(st.paths[i]), toggle: () => { const n = st.paths.slice(); n[i] = !n[i]; this.setState({ paths: n }); } }));
+    const events = [
+      ['14:22:08','Block','185.220.101.4','RU','POST /wp-login.php','Country block'],
+      ['14:22:03','Challenge','45.83.64.19','NL','GET /search?q=…','Search scraping'],
+      ['14:21:57','Throttle','34.89.12.200','US','GET /api/v1/products','API burst'],
+      ['14:21:41','reCAPTCHA','112.134.8.77','LK','POST /checkout','Checkout abuse'],
+      ['14:21:30','Block','91.240.118.6','DE','POST /login','Login brute force'],
+      ['14:21:12','Challenge','104.244.76.13','—','GET /','Tor exit node'],
+      ['14:20:58','Block','5.188.62.140','RU','GET /.env','Bad bot signature'],
+      ['14:20:44','Log','203.94.66.3','LK','GET /admin','Admin path watch'],
+    ].map(e => ({ t:e[0], action:e[1], badge:B(actTone(e[1])), ip:e[2], cc:e[3], req:e[4], rule:e[5] }));
+    const nBlocked = Object.values(st.blocked).filter(v => v===true).length;
+    return { c, dark, accent, tabs, rules, chTypes, triggers, modes, countries, scores, paths, events,
+      t0: st.tab===0, t1: st.tab===1, t2: st.tab===2, t3: st.tab===3, t4: st.tab===4,
+      modeNote: modeIsBlock ? 'Click a country to cycle: allowed → challenge → blocked. Everyone else is allowed.' : 'Only the countries marked allowed can reach your sites. Everyone else is blocked.',
+      scoreLabel: String(scoreVals.at(st.score)), connected: B('g'),
+      tiles: [{k:'Requests (24 h)',v:'4.82 M',s:'all protected domains'},{k:'Blocked',v:'38,210',s:'0.8% of traffic'},{k:'Challenged',v:'6,944',s:'71% solved'},{k:'Countries blocked',v:String(nBlocked),s: modeIsBlock ? 'block-list mode' : 'allow-list mode'}],
+      toggleUam: () => this.setState({ uam: !st.uam }),
+      uamLabel: st.uam ? 'Under attack mode: ON' : 'Under attack mode',
+      uamStyle: `height:40px;padding:0 14px;border-radius:8px;font:600 14px Inter;cursor:pointer;border:${st.uam?'0':'1px solid '+c.line};background:${st.uam?'#DC2626':c.card};color:${st.uam?'#fff':c.text}` };
+  }
+}
+</script>
+</body>
+</html>

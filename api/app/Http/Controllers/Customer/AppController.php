@@ -29,9 +29,12 @@ class AppController extends Controller
             'source.registry_auth' => 'nullable|array', 'source.registry_auth.username' => 'nullable|string', 'source.registry_auth.password' => 'nullable|string',
             'source.repo' => 'required_if:source.type,git|nullable|string|max:255',
             'source.branch' => 'nullable|string|max:120',
+            'source.git_connection_id' => 'nullable|uuid', 'source.git_ssh_key_id' => 'nullable|uuid', // GIT: private repositories
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
+            'source.builder' => 'nullable|in:dockerfile,auto', 'source.no_cache' => 'nullable|boolean',
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',
-            'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(array_filter(config('platform.app_templates'), fn ($t) => empty($t['partner_only']))))],
+            'source.template' => ['required_if:source.type,template', 'nullable', 'string', 'max:80', fn ($attr, $v, $fail) => $v && ! HostingService::template((string) $v) ? $fail('Unknown template.') : null],
+            'source.variables' => 'nullable|array', 'source.variables.*' => 'nullable|string|max:4096',
         ];
     }
 
@@ -53,6 +56,9 @@ class AppController extends Controller
             'name' => ['required', 'string', 'min:2', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'port' => 'nullable|integer|between:1,65535',
             'region' => 'nullable|string|max:60',
+            // Where the app lives. Omitted, it lands in the default project's production environment.
+            'project_id' => 'nullable|uuid',
+            'environment' => ['nullable', \Illuminate\Validation\Rule::in(\App\Services\EnvironmentService::KINDS)],
             'env' => 'nullable|array', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string|max:10000', 'env.*.secret' => 'nullable|boolean',
             'volume_path' => 'nullable|string|max:255|starts_with:/',
             'size' => 'required|in:small,standard,pro',
@@ -109,6 +115,10 @@ class AppController extends Controller
     public function destroy(string $id)
     {
         $app = $this->find($id);
+        // A stack template: stop its containers; volumes stay for the retention window.
+        if ($stack = $this->stack($app)) {
+            app(\App\Services\ComposeService::class)->action($stack, 'stop');
+        }
         // UDET-005: data kept 7 days, then purged.
         $app->retire();
 
@@ -118,13 +128,26 @@ class AppController extends Controller
     public function restart(string $id, ContainerService $containers)
     {
         $app = $this->find($id);
+        if ($stack = $this->stack($app)) {
+            return $this->accepted(app(\App\Services\ComposeService::class)->action($stack, 'restart'));
+        }
         $container = Container::where('application_id', $app->id)->firstOrFail();
 
         return $this->accepted($containers->perform($container, 'restart'));
     }
 
+    private function stack(\App\Models\Application $app): ?\App\Models\ComposeProject
+    {
+        $id = $app->source_type === 'compose' ? ($app->source['compose_project_id'] ?? null) : null;
+
+        return $id ? \App\Models\ComposeProject::find($id) : null;
+    }
+
     public function redeploy(Request $request, string $id)
     {
+        if ($stack = $this->stack($this->find($id))) {
+            return $this->accepted(app(\App\Services\ComposeService::class)->deploy($stack, null, true));
+        }
         $deployment = $this->deployments->start($this->find($id), $request->user(), 'redeploy');
 
         return $this->accepted($deployment->job, ['deployment_id' => $deployment->id]);

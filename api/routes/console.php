@@ -18,6 +18,126 @@ Artisan::command('deployments:resume {--stale=10}', function (DeploymentService 
     $this->info('Re-driven deployments: '.$deployments->resumeInterrupted((int) $this->option('stale')));
 })->purpose('Resume or roll back interrupted deployments (SRS 8.3)');
 
+Artisan::command('antivirus:scan-all', function (\App\Services\AntivirusService $antivirus) {
+    $this->info('Queued '.$antivirus->scanAll().' scan(s).');
+})->purpose('AV-3: scan every local volume on every online server');
+
+Artisan::command('antivirus:scan-due', function (\App\Services\AntivirusService $antivirus) {
+    $this->info('Queued '.$antivirus->scanDue().' scheduled scan(s).');
+})->purpose('AV-3: start the full scans whose scheduled time has come');
+
+Artisan::command('integrity:check-all', function (\App\Services\IntegrityService $integrity) {
+    $this->info('Queued '.$integrity->checkAll().' integrity check(s).');
+})->purpose('AV-10: compare every baselined volume with its baseline');
+
+Artisan::command('images:scan-stale', function (\App\Services\ScanService $scans) {
+    $this->info('Queued '.$scans->scanStale().' image scan(s).');
+})->purpose('AV-11: rescan images not scanned in the last day');
+
+Artisan::command('antivirus:realtime-events', function (\App\Services\ServerSecurityService $security) {
+    $this->info('Collecting real-time detections from '.$security->collectEvents().' server(s).');
+})->purpose('AV-2: turn clamonacc detections into threats');
+
+Artisan::command('antivirus:reapply', function (\App\Services\ServerSecurityService $security) {
+    $this->info('Re-applied server security on '.$security->reapplyAll().' server(s).');
+})->purpose('AV-2 / AV-12: push real-time scanning and outbound limits again (they do not survive a reboot)');
+
+Artisan::command('wordpress:detect', function (\App\Services\WordPressService $wp) {
+    $this->info('Inventory queued for '.$wp->detect().' WordPress site(s).');
+})->purpose('WP-001: find WordPress apps and refresh their versions, plugins, themes and vulnerabilities');
+
+Artisan::command('mail:health', function (\App\Services\MailService $mail) {
+    foreach (\App\Models\MailServer::allTenants()->where('status', 'running')->get() as $m) {
+        $mail->checkHealth($m);
+        $mail->refreshCerts($m); // MAIL-005: pick up renewed certificates
+    }
+})->purpose('MAIL-010: reverse DNS and blocklist checks for every mail server');
+
+Artisan::command('wordpress:cron', function (\App\Services\WordPressService $wp) {
+    $this->info('Ran WP-Cron for '.$wp->runCron().' site(s).');
+})->purpose('WP-003: run due WP-Cron events for sites using platform-run cron');
+
+Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
+    $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
+})->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
+
+Artisan::command('firewall:expire-ips', function (\App\Services\TraefikConfigService $traefik) {
+    $n = \App\Models\FirewallIpList::allTenants()->whereNotNull('expires_at')->where('expires_at', '<=', now())->delete();
+    $n && $traefik->push();
+    $this->info("Removed {$n} expired firewall IP entr".($n === 1 ? 'y' : 'ies').'.');
+})->purpose('FW-011: drop expired allow/block list entries and re-render the edge');
+
+Artisan::command('scaling:evaluate', function (\App\Services\ScalingService $scaling) {
+    $this->info('Apps rescaled: '.$scaling->evaluate());
+})->purpose('SCL-2: autoscale on CPU and follow scaling schedules');
+
+Artisan::command('cleanup:evaluate', function (\App\Services\CleanupService $cleanup) {
+    $this->info('Cleanups started: '.$cleanup->evaluate());
+})->purpose('CLN-2: clean servers whose disk use crossed the policy threshold');
+
+Artisan::command('environments:sleep', function (\App\Services\EnvironmentService $envs) {
+    $this->info('Apps put to sleep: '.$envs->sleepIdle());
+})->purpose('ENV-7: stop idle apps in environments with a sleep window');
+
+Artisan::command('templates:sync', function (\App\Services\TemplateService $templates) {
+    $s = $templates->sync();
+    $this->info("bundled {$s['bundled']}, remote {$s['remote']}, invalid ".count($s['invalid']).(isset($s['remote_error']) ? "; remote error: {$s['remote_error']}" : ''));
+})->purpose('TPL-4: load template manifests (bundled and TEMPLATES_REMOTE_URL)');
+
+Artisan::command('templates:validate', function (\App\Services\TemplateService $templates) {
+    $failed = 0;
+    foreach ($templates->bundled() as $m) {
+        $r = $templates->lint($m);
+        foreach ($r['errors'] as $e) {
+            $this->error(($m['id'] ?? '?').": {$e}");
+        }
+        foreach ($r['warnings'] as $w) {
+            $this->warn(($m['id'] ?? '?').": {$w}");
+        }
+        $failed += $r['errors'] ? 1 : 0;
+    }
+    $this->info(count($templates->bundled())." templates checked, {$failed} failed");
+
+    return $failed ? 1 : 0;
+})->purpose('TPL-6: render and check every bundled template');
+
+// CRON: refresh each server's own runner schedule (apps can move servers; a missed sync heals here).
+Artisan::command('cron:sync-runners', function (\App\Services\ScheduledJobService $cron) {
+    $n = 0;
+    foreach (\App\Models\Server::allTenants()->get() as $server) {
+        if ($server->isOnline()) {
+            app(\App\Support\Tenant::class)->as($server->organization_id, fn () => $cron->syncRunner($server));
+            $n++;
+        }
+    }
+    $this->info("Runner schedules sent: {$n}");
+})->purpose('Send each online server the schedule its agent runs while the panel is unreachable');
+
+Artisan::command('tunnels:sync', function (\App\Services\CloudflareTunnelService $tunnels) {
+    $this->info('Tunnels synced: '.$tunnels->syncAll());
+})->purpose('CFT-3..5: refresh Cloudflare Tunnel hostnames, DNS and health');
+
+Artisan::command('services:check', function (\App\Services\SystemServiceService $svc) {
+    $this->info('System services checked on '.$svc->checkAll().' servers');
+})->purpose('SVC-4: refresh watched systemd services and alert when one is down');
+
+Artisan::command('mesh:status', function (\App\Services\MeshService $mesh) {
+    $this->info('Mesh status requested from '.$mesh->refreshStatus().' servers');
+})->purpose('PNET-5: WireGuard handshakes and traffic per server');
+
+Artisan::command('mail:watch', function (\App\Services\MailGuardService $guard) {
+    $this->info('Mail servers checked: '.$guard->watchAll());
+})->purpose('MCL: delivery log, and holds for mailboxes or domains sending too much or bouncing');
+
+Artisan::command('registry:gc', function (\App\Services\RegistryGcService $gc) {
+    $this->info('Old images deleted: '.$gc->collectAll());
+})->purpose('BLD: delete pushed images older than the last BUILD_REGISTRY_KEEP releases of each app');
+
+Artisan::command('edge:failover', function (\App\Services\EdgeFailoverService $edge) {
+    $r = $edge->check();
+    $this->info('Online edge servers: '.implode(', ', $r['online']).'; changes: '.(implode(', ', $r['changes']) ?: 'none'));
+})->purpose('SCL-8: DNS failover between ingress servers');
+
 Artisan::command('alerts:evaluate', function (AlertService $alerts) {
     $stats = $alerts->evaluateAll();
     $this->info("Alerts opened: {$stats['opened']}, resolved: {$stats['resolved']}");
@@ -53,6 +173,9 @@ Artisan::command('servers:check-heartbeats', function () {
         $last = AgentEvent::allTenants()->where('server_id', $server->id)->latest('created_at')->value('type');
         if ($last !== 'disconnected') {
             AgentEvent::create(['organization_id' => $server->organization_id, 'server_id' => $server->id, 'type' => 'disconnected', 'data' => ['last_heartbeat_at' => $server->last_heartbeat_at], 'created_at' => now()]);
+            app(\App\Services\EmailTemplateService::class)->notifyOrganization($server->organization_id, 'server_unreachable', [
+                'server' => $server->name, 'since' => $server->last_heartbeat_at->toDayDateTimeString().' UTC',
+            ]);
         }
     }
 })->purpose('Record servers that went offline (no heartbeat for 90 s)');
@@ -62,6 +185,59 @@ Artisan::command('domains:check-dns', function (DomainService $domains) {
         app(Tenant::class)->as($domain->organization_id, fn () => rescue(fn () => $domains->verify($domain)));
     }
 })->purpose('Re-check pending DNS every 2 minutes (UDOM-003)');
+
+Artisan::command('networks:reconcile', function (\App\Services\NetworkService $networks) {
+    // PRJ-NET: make sure every environment that has running apps owns a Docker
+    // network on each server those apps sit on. Deployments only ever *join* a
+    // network that already exists, so without this the first deployment after
+    // a change would have to go without one.
+    $made = 0;
+    $skipped = [];
+    $apps = \App\Models\Application::allTenants()->whereNotNull('environment_id')->whereNotNull('server_id')
+        ->whereNull('deleted_at')->get(['organization_id', 'environment_id', 'server_id']);
+    foreach ($apps->groupBy(fn ($a) => $a->environment_id.'|'.$a->server_id) as $key => $pair) {
+        $app = $pair->first();
+        app(Tenant::class)->as($app->organization_id, function () use ($app, $key, $networks, &$made, &$skipped) {
+            $environment = \App\Models\Environment::find($app->environment_id);
+            // A server can belong to one organisation and host another's apps,
+            // so it must be resolved outside the tenant scope: the scoped
+            // lookup returned null and skipped those environments in silence.
+            $server = \App\Models\Server::allTenants()->find($app->server_id);
+            if (! $environment || ! $server) {
+                $skipped[] = $key;
+
+                return;
+            }
+            if ($networks->forEnvironment($environment, $server)->wasRecentlyCreated) {
+                $made++;
+            }
+        });
+    }
+    // Networks that already exist still need the ingress on them: the three on
+    // the live panel were created before the attach existed, and an attach that
+    // failed once must be retried rather than waiting for a new network.
+    $attached = 0;
+    foreach (\App\Models\Network::allTenants()->whereNotNull('environment_id')->where('status', 'active')->get() as $network) {
+        app(Tenant::class)->as($network->organization_id, function () use ($network, $networks, &$attached) {
+            $attached += $networks->attachIngress($network);
+        });
+    }
+    $this->info("Environment networks requested: {$made}; ingress attachments dispatched: {$attached}");
+    if ($skipped) {
+        // Never silent: an environment or server that cannot be resolved means
+        // an environment stays without a network, and nothing else would say so.
+        $this->warn('Could not resolve environment or server for: '.implode(', ', $skipped));
+    }
+})->purpose('Create the Docker network each environment needs on each of its servers');
+
+Artisan::command('certificates:renew', function (DomainService $domains) {
+    $r = $domains->renewExpiring();
+    $this->info("Certificates renewed: {$r['renewed']}, failed: {$r['failed']}");
+})->purpose('Renew certificates that expire within 21 days');
+
+Artisan::command('migrations:cleanup', function (\App\Services\MigrationService $migrations) {
+    $this->info('Migration archives removed: '.$migrations->cleanupArchives());
+})->purpose('Free disk space: remove downloaded backup archives of finished or failed migrations');
 
 Artisan::command('apps:purge', function () {
     $purged = 0;
@@ -111,6 +287,11 @@ Artisan::command('backups:recovery-key {policy : backup policy id} {--key= : BAC
     $this->warn('restic repository: '.(new \App\Support\BackupDestination($policy, $policy->organization_id))->repository());
 })->purpose('Print the escrowed restic password of a policy (BAK-004 recovery; run on the panel host only)');
 
+Artisan::command('billing:dunning', function (\App\Services\InvoiceService $invoices) {
+    [$retried, $paid] = $invoices->retryDue();
+    $this->info("Failed invoices retried: {$retried}, now paid: {$paid}");
+})->purpose('Retry failed invoice payments (3 attempts, 3 days apart)');
+
 Artisan::command('billing:meter', function (\App\Services\InvoiceService $invoices) {
     $this->info('Usage records written: '.$invoices->meter());
 })->purpose('Record one app-hour per running customer app (usage_records)');
@@ -125,6 +306,20 @@ Artisan::command('billing:invoice {--month= : YYYY-MM, default previous month} {
     }
     $this->info('Invoices generated: '.$invoices->generateAll($month));
 })->purpose('Roll usage_records into monthly invoices with PDFs (UBIL-004)');
+
+Artisan::command('finance:demo {--force : run even though customers already exist}', function () {
+    // Demo rows mixed into real books are worse than no demo rows, so this
+    // stops unless the panel is empty or the operator insists.
+    $customers = \App\Models\Organization::count();
+    if ($customers > 1 && ! $this->option('force')) {
+        $this->error("This panel already has {$customers} organisations. Re-run with --force if you are sure.");
+
+        return 1;
+    }
+    $this->call('db:seed', ['--class' => \Database\Seeders\FinanceDemoSeeder::class, '--force' => true]);
+
+    return 0;
+})->purpose('Fill the finance screens with realistic demonstration data (FIN-11)');
 
 Artisan::command('proxy:push {--force}', function (\App\Services\TraefikConfigService $traefik) {
     $this->info('proxy.config commands queued: '.$traefik->push((bool) $this->option('force')));
@@ -157,12 +352,51 @@ Artisan::command('monitoring:prune', function () {
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
+Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
+Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
+Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('templates:sync')->daily();
+Schedule::command('registry:gc')->dailyAt('03:30');
+Schedule::command('cron:sync-runners')->hourly()->withoutOverlapping();
+Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('mesh:status')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('services:check')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('edge:failover')->everyMinute()->withoutOverlapping();
+// AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
+Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
+// AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).
+Schedule::command('wordpress:detect')->dailyAt('04:10')->withoutOverlapping();
+Schedule::command('mail:health')->dailyAt('05:20')->withoutOverlapping();
+Schedule::command('wordpress:cron')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('antivirus:realtime-events')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('antivirus:reapply')->hourly()->withoutOverlapping();
+Schedule::command('integrity:check-all')->dailyAt('03:40')->withoutOverlapping();
+Schedule::command('images:scan-stale')->dailyAt('01:20')->withoutOverlapping();
+// FM-002/003: transfer folders left by finished or abandoned uploads and downloads.
+Schedule::call(function () {
+    $disk = \Illuminate\Support\Facades\Storage::disk('local');
+    $cutoff = now()->subHours(config('files.download_ttl_hours'))->getTimestamp();
+    foreach ($disk->directories(\App\Services\FileService::TRANSFER_DIR) as $dir) {
+        $times = array_map(fn ($f) => $disk->lastModified($f), $disk->allFiles($dir));
+        if (! $times || max($times) < $cutoff) {
+            $disk->deleteDirectory($dir);
+        }
+    }
+})->hourly()->name('files:prune-transfers');
+// FM File Sharing: ended links lose their stored copy.
+Schedule::call(fn () => app(\App\Services\FileShareService::class)->prune())->hourly()->name('files:prune-shares');
 Schedule::command('scheduled-jobs:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('backups:run-due')->everyMinute()->withoutOverlapping();
 Schedule::command('alerts:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('servers:check-heartbeats')->everyMinute();
 Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
+Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
+Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();
 Schedule::command('metrics:prune')->daily();
@@ -186,6 +420,7 @@ Artisan::command('agent:publish {--from= : directory holding install.sh and dock
 
 Schedule::command('backups:restore-tests')->everyMinute()->withoutOverlapping();
 Schedule::command('billing:meter')->hourly();
+Schedule::command('billing:dunning')->dailyAt('09:10')->withoutOverlapping();
 Schedule::command('billing:invoice')->monthlyOn(1, '02:15');
 Schedule::command('proxy:push')->everyTenMinutes()->withoutOverlapping();
 Schedule::command('proxy:sync-certs')->everySixHours()->withoutOverlapping();

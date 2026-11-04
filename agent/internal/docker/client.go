@@ -135,6 +135,7 @@ type ContainerSummary struct {
 	ID      string            `json:"Id"`
 	Names   []string          `json:"Names"`
 	Image   string            `json:"Image"`
+	ImageID string            `json:"ImageID"`
 	State   string            `json:"State"`
 	Status  string            `json:"Status"`
 	Created int64             `json:"Created"`
@@ -148,9 +149,10 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerSummary, error)
 }
 
 type ContainerInspect struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	State struct {
+	ID      string `json:"Id"`
+	Name    string `json:"Name"`
+	LogPath string `json:"LogPath"`
+	State   struct {
 		Status   string `json:"Status"`
 		Running  bool   `json:"Running"`
 		ExitCode int    `json:"ExitCode"`
@@ -323,12 +325,26 @@ func (c *Client) CreateContainer(ctx context.Context, name string, body any) (st
 }
 
 // ConnectNetwork attaches a container to an additional network.
-func (c *Client) ConnectNetwork(ctx context.Context, network, container string, aliases []string) error {
+func (c *Client) ConnectNetwork(ctx context.Context, network, container string, aliases []string, ipv4 string) error {
 	body := map[string]any{"Container": container}
+	ep := map[string]any{}
 	if len(aliases) > 0 {
-		body["EndpointConfig"] = map[string]any{"Aliases": aliases}
+		ep["Aliases"] = aliases
+	}
+	if ipv4 != "" {
+		ep["IPAMConfig"] = map[string]string{"IPv4Address": ipv4}
+	}
+	if len(ep) > 0 {
+		body["EndpointConfig"] = ep
 	}
 	return c.call(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", nil, body, nil)
+}
+
+// DisconnectNetwork detaches a container from a network. Force applies to a
+// container that is not running, which Docker otherwise refuses to detach.
+func (c *Client) DisconnectNetwork(ctx context.Context, network, container string, force bool) error {
+	body := map[string]any{"Container": container, "Force": force}
+	return c.call(ctx, "POST", "/networks/"+url.PathEscape(network)+"/disconnect", nil, body, nil)
 }
 
 // Logs returns the last `tail` lines of stdout+stderr as text.
@@ -390,6 +406,18 @@ func (c *Client) PruneContainers(ctx context.Context, filters map[string][]strin
 	return c.prune(ctx, "/containers/prune", filters)
 }
 
+// PruneBuildCache removes BuildKit/classic build cache (all=false keeps
+// cache still referenced by images).
+func (c *Client) PruneBuildCache(ctx context.Context, all bool, until string) (PruneReport, error) {
+	q := url.Values{"all": {fmt.Sprint(all)}}
+	if until != "" {
+		f, _ := json.Marshal(map[string][]string{"until": {until}})
+		q.Set("filters", string(f))
+	}
+	var out PruneReport
+	return out, c.call(ctx, "POST", "/build/prune", q, nil, &out)
+}
+
 func (c *Client) PruneImages(ctx context.Context, filters map[string][]string) (PruneReport, error) {
 	return c.prune(ctx, "/images/prune", filters)
 }
@@ -397,10 +425,11 @@ func (c *Client) PruneImages(ctx context.Context, filters map[string][]string) (
 // ---- images ----
 
 type ImageSummary struct {
-	ID       string   `json:"Id"`
-	RepoTags []string `json:"RepoTags"`
-	Size     int64    `json:"Size"`
-	Created  int64    `json:"Created"`
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	RepoDigests []string `json:"RepoDigests"`
+	Size        int64    `json:"Size"`
+	Created     int64    `json:"Created"`
 }
 
 func (c *Client) ListImages(ctx context.Context) ([]ImageSummary, error) {
@@ -529,4 +558,14 @@ func (c *Client) CreateVolume(ctx context.Context, body any) (*VolumeSummary, er
 
 func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
 	return c.call(ctx, "DELETE", "/volumes/"+url.PathEscape(name), url.Values{"force": {fmt.Sprint(force)}}, nil, nil)
+}
+
+// Info is the subset of GET /info the agent needs: which OCI runtimes the daemon has.
+type Info struct {
+	Runtimes map[string]any `json:"Runtimes"`
+}
+
+func (c *Client) Info(ctx context.Context) (*Info, error) {
+	var i Info
+	return &i, c.call(ctx, "GET", "/info", nil, nil, &i)
 }

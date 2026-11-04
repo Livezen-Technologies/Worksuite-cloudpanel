@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nocodb
+name: Nocodb
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: NocoDB is an open source Airtable alternative. Turns any MySQL, PostgreSQL, SQL Server, SQLite & MariaDB into a smart-spreadsheet.
+port: 8080
+source: coolify
+documentation: https://nocodb.com/
+compose: "services:\n  nocodb:\n    image: nocodb/nocodb\n    environment: {}\n    volumes:\n    - nocodb-data:/usr/app/data/\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:8080/api/v1/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  nocodb-data: {}\n"

@@ -58,6 +58,26 @@ The organisation is the token user's current organisation (`users.current_organi
 | CRUD | /registries | credentials write-only |
 | CRUD | /networks ; POST /networks/check | conflict check |
 | CRUD | /volumes ; GET /storage-pools | |
+| GET | /volumes/{id}/files?path= | FM: list a folder → 202 {job_id}; job result {path, entries:[{name, type: dir|file|symlink|other, size, mode, modified}], truncated} |
+| GET / PUT | /volumes/{id}/files/content | read ?path= → result {path, content, size, mode, modified} (text files up to 1 MiB); write {path, content, create?} |
+| POST | /volumes/{id}/files/folders · /volumes/{id}/files/rename | {path} · {path, new_name} (a single name, no "/") |
+| DELETE | /volumes/{id}/files?path=&recursive= | a folder needs recursive=true; the volume root is refused |
+| POST | /volumes/{id}/files/upload | multipart: path (folder), files[], relative_paths[] (per file, its path inside an uploaded folder), overwrite? → 202 job. The panel keeps the bytes; the agent fetches each over a signed URL (FM-002) |
+| POST | /volumes/{id}/files/download | {paths:[...]} → 202 job; result {format: file\|zip, name, bytes, files, download_url (signed, 1 h), expires_at}. One file is sent as is, anything else as a ZIP (FM-003) |
+| POST | /volumes/{id}/files/copy · /files/move | {paths:[...], dest} — within the volume; a copy into the same folder becomes "name (copy)"; symlinks are skipped (FM-006) |
+| POST | /volumes/{id}/files/compress · /files/extract | compress {paths, dest, format: zip\|tar\|tar.gz, name?}; extract {path, dest, overwrite?} — entries outside the folder and links are refused or skipped; 10 GB / 100,000 entry limits (FM-008) |
+| POST · GET · DELETE | /volumes/{id}/files/trash | POST {paths} moves items to the agent's trash (outside the volume, kept 7 days); GET lists {items:[{id, path, type, size, deleted_at, expires_at}]}; DELETE {ids} deletes forever; POST /files/trash/restore {ids} puts items back (FM-007) |
+| POST | /volumes/{id}/files/chmod | {paths, mode: "644" (three octal digits; setuid/setgid/sticky refused), recursive?} (FM-009) |
+| POST | /volumes/{id}/files/chown | {paths, uid?, gid?, recursive?} — platform staff only (403 for organisation roles) (FM-010). Listings now include each entry's uid and gid |
+| GET | /volumes/{id}/files/search?path=&name=&extensions[]=&min_size=&max_size=&modified_after=&modified_before=&type= | at least one condition; walks from path down without following links; result {hits:[{path, name, type, size, mode, modified}], truncated} capped at 500 hits / 200,000 entries (FM-011) |
+| POST | /volumes/{id}/files/preview | {path} for images, PDF, audio and video only → job whose download_url is served inline with nosniff and a sandbox CSP. HTML, SVG and text are previewed through GET /files/content instead (FM-012) |
+| POST | /volumes/{id}/files/scan | {path?, recent_days? (1–90, default 7)} → job result {findings:[{path, rule, severity: critical\|high\|medium\|info, detail, type, size, mode, modified}], counts, files, folders, truncated}. Rules: malware_pattern, script_in_uploads, double_extension, hidden_script, world_writable, sensitive_readable, recently_changed. Read-only; audited (FM-017) |
+| GET · POST | /volumes/{id}/files/history?path= · /files/history/version?path=&id= · /files/history/restore {path, id} | the agent keeps the previous content before every edit, replacing upload and permanent delete (last 20 per file, 30 days, ≤ 10 MB, outside the volume); history returns {job_id, changes:[{action, actor, at}]} with the versions on the job; a restore saves the current file first (FM-014) |
+| GET · POST · DELETE | /volumes/{id}/files/shares · /files/shares {paths, expires_in_hours 1–720, max_downloads?, password? (6+)} · /files/shares/{shareId} | File Sharing: a link shares a snapshot. The selection is downloaded from the agent once, kept on the panel until the link ends, and later edits are not served. Create returns `url` once; only a sha256 of its token is stored. List rows are `{id, paths, name, format, size, status active\|preparing\|failed\|expired\|revoked\|used up, expires_at, max_downloads, download_count, password}`. Revoking deletes the stored copy. Creating and revoking are audited with paths, never the token |
+| POST | /volumes/{id}/files/copy · /files/move with `dest_id` | Copy or move into another volume on the **same server**. `dest_id` is addressed like the route id: a volume in the admin API, an app in the customer API (`/app/apps/{id}/files/...`). The agent opens both volumes through their own roots, refuses to overwrite an existing item, and removes a half-made copy on failure. A different server or an NFS volume returns 422; a volume the caller can't open returns 404. The audit records `dest_volume` |
+| POST | /volumes/{id}/files/extract with `paths[]` | Bulk extract: up to 100 archives in one command, into `dest` or, with `separate: true`, each into a folder named after its archive. It stops at the first archive that fails and reports the ones already done. A single `path` still works as before |
+| GET · POST | /shares/{token} (public, no auth) | Downloads the shared file or ZIP and counts it. A password goes in the POST body `{password}`. Responses: 401 `password_required` (no or wrong password), 409 while the copy is being prepared, 410 when the link is expired, revoked or used up. Ended links lose their copy in an hourly prune |
+| GET · POST | /volumes/{id}/files/transfers · /files/transfers/{jobId}/retry · /files/transfers/{jobId}/cancel | Transfer Manager: the last 50 uploads, downloads, copies, moves, compresses and extracts on the volume as `{id, operation, status, progress, paths, error, retry_of, can_retry, can_cancel, created_at, finished_at}`. Retry runs a failed transfer again as a new job; a failed upload keeps its files on the panel for this until the hourly prune. Cancel works only while the server has not picked the command up (409 after). Both are audited |
 | CRUD | /domains ; POST /domains/{id}/verify ; POST /domains/{id}/certificate | |
 | CRUD | /databases ; POST /databases/{id}/backup, /databases/{id}/restore | |
 | CRUD | /backup-policies ; GET /backup-jobs ; POST /backup-jobs {policy_id} ; POST /restore-jobs {artifact_id} | |
@@ -67,6 +87,12 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET | /users ; POST /users/invite ; PATCH /users/{id} {role} ; DELETE /users/{id} | |
 | GET | /roles ; GET /roles/{name} → permission matrix | |
 | GET/PATCH | /settings | general + security policies |
+| POST | /settings/smtp/test | `{to?}` (defaults to your own email; 6 per minute). Sends a test email with the saved SMTP settings. Returns 409 without a host, or 502 with the SMTP server's error. Audited. |
+| GET | /email-templates | EML-1/3: `{brand {sender_name, logo_url, color, footer}, groups[{id, name, mandatory, templates[{key, name, subject, enabled, mandatory, customised}]}]}`. 20 templates in 7 groups (account, security, deployments, domains, backups, alerts, billing), defined in `config/email_templates.php`. Needs `settings.manage`. |
+| GET \| PATCH | /email-templates/{key} | EML-2: `{subject, preview, heading, body, button_label, button_url, secondary_label, secondary_url, enabled}`. An empty subject, heading or body falls back to the default. `{{variables}}` outside the template's list (plus `platform_name`, `user_name`, `panel_url`) are refused with 422. Security and billing templates cannot be switched off. `GET` adds `variables`, `details`, `sample` and `customised`. |
+| POST | /email-templates/{key}/reset \| /preview \| /test | `reset` drops the overrides. `preview {vars?}` returns `{subject, preview, html, text}` rendered with sample values. `test {to?}` sends a "[Test]" copy, even when the template is off (6 per minute; 502 with the SMTP error). |
+| PATCH | /email-templates/brand | EML-3 `{sender_name?, logo_url? (https), color (#RRGGBB), footer?}`, stored on the platform organisation. |
+| GET \| PATCH | /me/email-preferences | EML-5 `{opt_out: [keys]}`. Security and billing keys are dropped silently, because they are always sent. |
 | CRUD | /notification-channels ; CRUD /integrations | |
 | GET/POST/DELETE | /api-tokens | {name, abilities[], expires_at} → token shown once |
 | GET | /audit-logs | |
@@ -91,6 +117,28 @@ The organisation is the token user's current organisation (`users.current_organi
 WorkSuite Cloud's server-to-server provisioning of WorkSuite Business / CMS — HMAC-signed, scoped, idempotent. See [PARTNER_API.md](PARTNER_API.md).
 Staff: `GET /partner-overview` (platform staff), `PATCH /partner-clients/{id}` {active, webhook_url, allowed_ips[]} (`settings.manage`).
 
+### Customer file manager (User · Files)
+
+`GET /app/files` lists the customer's apps that keep files: `[{id, name, volume_path, ready}]` (`ready` once the server has reported the app's volume). Every admin file route also exists under `/app/apps/{app_id}/files…` with the same bodies and results, addressed by app instead of volume, except `chown` and `scan`. The app is found through the tenant scope, so only the customer's own apps resolve; jobs belong to the customer's organisation even on shared-pool servers.
+
+### Antivirus (SRS 4.25)
+
+`GET /antivirus` summary {open, quarantined, resolved, last_detected_at, auto_quarantine, schedule} · `GET /antivirus/threats` list {id, path, signature, sha256, size, status: infected|quarantined|restored|deleted|cleaned|ignored, volume, server, detected_at} · `POST /antivirus/scan` {volume_id} → 202 job (no volume_id: fleet scan, platform staff only) · `POST /antivirus/threats/{id}/quarantine|restore|delete|ignore|clean` (ignore = "not a threat": allow-lists the sha256 for the organisation, restores a quarantined copy; audited). Threats in an app volume belong to the app's owner. Agent commands: av.scan (clamdscan via the `clamav` container, allow-listed hashes skipped), av.quarantine, av.restore, av.delete.
+
+- **Schedule (AV-3):** each organisation sets `PATCH /settings {antivirus: {schedule: daily|weekly|off, day: 0–6, time: "HH:MM", notify}}`. The default is weekly, Sunday 02:00. `antivirus:scan-due` runs every 15 minutes and scans each volume at most once per day or week, by the schedule of the organisation that owns the volume.
+- **Clean (AV-6):** `clean` works only on WordPress core files (`wp-admin/`, `wp-includes/`, root `wp-*.php`, `index.php`, `xmlrpc.php`, under any site folder); any other file returns 409 "restore from a backup". The job reads `wp-includes/version.php` (`fs.read`), fetches `api.wordpress.org/core/checksums/1.0` and the file from `core.svn.wordpress.org/tags/{version}`, checks the md5, and writes the file in place (`fs.upload`, overwrite). If the checksum doesn't match, nothing is written and the job fails. Success sets the threat to `cleaned`; the audit records the version and md5.
+- **Score (AV-13):** `GET /antivirus/score` returns `{score, lowest, fixes[], volumes[{volume_id, volume, score, last_scan_at, fixes[{points, fix}]}]}`. Each volume starts at 100 and loses points for infected files (30 each, at most 60), undecided quarantined files (5 each, at most 15), no successful scan in 8 days (15), scheduled scans off (10), two-factor not required (10), and CrowdSec off (5). Each deduction comes with its fix.
+- **Quarantine encryption (AV-5):** quarantined files are stored on the agent as `file.enc`. The format is `WSQ1` | IV | AES-256-CTR | HMAC-SHA256, encrypted then MACed and streamed. The keys come from a per-server master key at `<state>/quarantine.key` (0600, never sent to the panel). Restore checks the tag before writing anything and removes a partly written file on failure. Items quarantined before this change, stored as a plain `file`, still restore.
+- **File integrity (AV-10):** the agent commands `fim.baseline` and `fim.check` hash the volume's code files (`.php`, `.js`, `.html`, `.htaccess`, `.user.ini`, `.py`, `.sh`, …; symlinks never followed) into a baseline kept outside the volume. A baseline is taken after every successful deployment of an app with storage, and by `POST /antivirus/integrity/{volumeId}/baseline`. `integrity:check-all` runs daily at 03:40, and `…/check` runs a check on demand. New added, changed or removed files become open `integrity_changes`, notified once. `…/accept` marks them accepted and takes a new baseline. `GET /antivirus/integrity` returns `{volumes[{id, name, baseline_at, checked_at, open}], changes[]}`. Open changes cost 10 points each (at most 20) in the score.
+- **Image CVEs (AV-11):** image scanning (Trivy through `image.scan`), scan-on-deploy and the `block_critical_cves` policy already existed. `images:scan-stale` now rescans every image not scanned in the last day, nightly at 01:20, with the Trivy driver only. An image that newly has critical CVEs notifies the owning organisation. Each image with critical CVEs costs 10 points (at most 20) in the score.
+- **Real-time scanning (AV-2) and outbound limits (AV-12):** `GET|PATCH /antivirus/servers/{id}` with `{realtime, egress: {enabled, block_mining, smtp_per_minute 0–10000}}`. Platform staff only (403 otherwise). Saving pushes two agent commands:
+  - `egress.apply`: its own nftables table `ws_egress`, hooked on forward and output at priority −5 with policy accept. It drops stratum ports 3333, 4444, 5555, 6666, 7777, 9999, 14433, 14444, 45560 and 45700, drops the addresses in `ANTIVIRUS_POOL_ADDRESSES`, and limits new port-25 connections per source to N a minute. Turning it off deletes the table.
+  - `av.realtime`: restarts `clamonacc` in the ClamAV container with the server's volumes as its watch list.
+
+  `antivirus:realtime-events` (every 5 minutes) collects `av.events` detections into threats, using the allow-list, dedupe, auto-quarantine and notifications as for scans. `antivirus:reapply` (hourly) pushes both again after a reboot. Setup: `docs/deploy/clamav/README.md`.
+- **WAF (AV-9):** `PUT|PATCH /domains/{id}/waf {mode: off|detect|block, exclusions?: [CRS rule ids]}`. With `WAF_ENABLED=true` and the `coraza` plugin in `traefik.yml`, the domain's routers get a Coraza middleware right after the CrowdSec bouncer. It loads the OWASP CRS with `SecRuleEngine On` (block) or `DetectionOnly` (detect), plus one `SecRuleRemoveById` per exclusion. The WAF setting is only changed here: the `options.waf` key in domain create and update is ignored, so editing other options never changes it. The change is audited from and to. When the WAF is installed, each domain not set to Block costs 5 points in the score.
+- **Notifications (AV-14):** a scan with new detections sends one message to the owning organisation's enabled channels, unless `antivirus.notify` is off. Files already known are not reported again.
+
 ## Agent protocol (`/agent/v1`, outside the user API)
 - `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.
@@ -100,7 +148,7 @@ Staff: `GET /partner-overview` (platform staff), `PATCH /partner-clients/{id}` {
   signature = hex(HMAC-SHA256(hmac_key, id + "." + type + "." + canonical_json(payload) + "." + issued_at)).
   canonical_json = JSON with object keys sorted recursively, no whitespace.
 - Types: terminal.open, container.start|stop|restart|pause|unpause|remove|create|logs|prune, image.pull|remove|prune,
-  network.create|remove, volume.create|remove, compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
+  network.create|remove, volume.create|remove, fs.list|read|write|mkdir|rename|delete|upload|download|copy|move|compress|extract|trash|trash_list|trash_restore|trash_purge|chmod|chown|search|scan|history_list|history_read|history_restore (confined to one volume), crowdsec.apply (scenarios/dmp-*.yaml + profiles.yaml, checked with crowdsec -t, rolled back on failure, then SIGHUP), crowdsec.alerts (recent alerts for the firewall event log), compose.up|down|restart, backup.run, restore.run, agent.update, agent.restart,
   image.build, image.scan, container.healthcheck, backup.test, backup.export, proxy.config, proxy.certs (payloads in `agent/README.md`).
 - `image.build` streams build log lines as `running` results (`message` = new lines, batched ~1/s); the API keeps the last 1000
   lines in the command output and exposes them as the deployment job's `build_log`.
@@ -214,3 +262,148 @@ Field names as returned by the Laravel API. Timestamps are ISO-8601 UTC; `{t,v}`
   verification, attestation `none`, ES256/RS256. Challenges are single use, 5 min.
 - **Passkey** `{id, name, aaguid, transports[], backup_eligible, created_at, last_used_at}`. Audit `auth.login` carries `meta.method`
   (`password`, `password+totp`, `password+passkey`, `passkey`).
+
+## DNS zones (SRS 4.18, DNS-001..013)
+
+Providers: Cloudflare and PowerDNS. Every change is sent to the provider, and the panel's mirror is updated only once the provider accepts it. Reads need `resources.view|servers.view`; changes need `deploy|settings.manage`.
+
+**Domains & SSL use these zones (DNS-013).** A domain whose name falls inside one of the organisation's zones (the longest match wins) is handled through that zone:
+
+- With no `challenge` and no `dns_token` given, the domain defaults to DNS-01.
+- On create and on every `verify`, the panel writes the records the domain needs (A, the `www` CNAME, the `_acme-challenge` TXT) into the zone, unproxied. Records already there are left alone. A different value under the same name is reported in the `verify` response as `zone_records[{name, type, status: created|present|conflict|failed, message?}]` and is never overwritten.
+- Traefik gets the zone's credentials for the challenge: `CF_DNS_API_TOKEN` for Cloudflare, or `PDNS_API_URL`/`PDNS_API_KEY`/`PDNS_SERVER_NAME` with the `le-dns-pdns` resolver for PowerDNS.
+- A token given on a domain still wins.
+- Domain responses carry `dns_zone {id, name, provider}`, or `null`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/dns/providers` | Lists accounts as `{id, name, type, account, created_at}`. Credentials are never returned. |
+| POST | `/dns/providers` | Cloudflare: `{name, type: cloudflare, token, account_id?}`. PowerDNS: `{name, type: powerdns, api_url, api_key, server_id? (localhost), nameservers[]}`; the nameservers are set as NS on new zones. The credentials are checked first; a rejection returns 502 `provider_error`. |
+| DELETE | `/dns/providers/{id}` | Returns 409 while the account still has zones in the panel. |
+| GET | `/dns/zones` | Lists zones as `{id, name, status pending\|active, nameservers[], records_count, provider, last_synced_at, dnssec {status, ds[]}, supports_proxy}`. |
+| POST | `/dns/zones` | Body `{dns_provider_id, name, defaults_to?}`. A zone that already exists at the provider is adopted. `defaults_to` (IPv4) adds an apex A record and a `www` CNAME. |
+| GET | `/dns/zones/{id}` | The zone plus its `records[]` `{id, type, name, content, ttl (1 = Auto), priority, proxied}`. |
+| DELETE | `/dns/zones/{id}` | Removes the zone from the panel only; it stays at the provider. |
+| POST | `/dns/zones/{id}/check-nameservers` | Returns `{status, expected[], found[], delegated}` and sets the zone active once its nameservers are delegated. |
+| POST | `/dns/zones/{id}/sync` | Returns `{added[], removed[], changed[], in_sync}` comparing the panel with the provider, then adopts the provider's records. |
+| GET | `/dns/zones/{id}/dnssec` | DNS-009. Returns `{status disabled\|pending\|active, ds[]}` and stores it on the zone. `pending` (Cloudflare) means the DS record is not yet at the registrar. |
+| PUT/PATCH | `/dns/zones/{id}/dnssec` | Body `{enabled}`. Cloudflare turns DNSSEC on through its API. PowerDNS creates one active ECDSA P-256 CSK, rectifies the zone and signs it straight away; turning it off deletes the zone's keys. |
+| GET | `/dns/zones/{id}/settings` | DNS-010, Cloudflare only (409 on PowerDNS). Returns `{ssl off\|flexible\|full\|strict, always_use_https, min_tls_version 1.0..1.3, cache_level basic\|simplified\|aggressive}`. |
+| PUT/PATCH | `/dns/zones/{id}/settings` | Any subset of the settings above. The change is audited with old and new values. |
+| GET | `/dns/zones/{id}/export` | DNS-011. The provider's current records as a BIND file (`text/dns` attachment), or `{filename, content}` with `Accept: application/json`. SOA is left out. Auto TTL is written as 300. |
+| POST | `/dns/zones/{id}/import` | DNS-011. Body `{zone_file, dry_run?}`. Understands `$ORIGIN`, `$TTL`, relative and `@` names, blank names (same name as the line above), parenthesised continuations, comments and multi-string TXT. Records already in the zone are left as they are, and TTLs snap to the nearest panel value. Returns `{dry_run, created[], unchanged, skipped[{line, reason}]}`; every skipped line says why (SOA is skipped silently). |
+| POST | `/dns/zones/{id}/records` | Body `{type, name, content, ttl?, priority?, proxied?}`. The name is relative to the zone (`@` = apex). Types: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS. TTL is 1, 300, 3600 or 86400. Only A, AAAA and CNAME can be proxied, only on Cloudflare, and proxied records always use Auto TTL. PowerDNS has no Auto TTL, so Auto is stored as 3600. New PowerDNS zones use `SOA-EDIT-API: INCREASE`, so the serial goes up on every change (DNS-008); its record ids are derived from name, type and content, and each change rewrites the whole record set. A CNAME at the apex is refused. |
+| PUT/PATCH | `/dns/zones/{id}/records/{recordId}` | Same body; the type cannot change. |
+| DELETE | `/dns/zones/{id}/records/{recordId}` | |
+
+
+## Public pages (SRS PUB)
+
+An unprivileged nginx container, `ws-pages` (`nginxinc/nginx-unprivileged`, read-only root filesystem, 64 MB), runs on every ingress server and serves static pages from the volumes `ws-pages-html` and `ws-pages-conf`. Traefik reaches it as `ws-pages@docker`. The pages are files, so the edge serves them even when the app, its server or the control plane is down (PUB-4). Each page is under 50 KB, has inline styles and dark mode, and no scripts; the busy page refreshes every 30 seconds.
+
+Routing (added to the Traefik file provider once the container is installed):
+- Every app router gets `dmp-pages-errors` (an errors middleware for 502–504). The original status stays and the body is the busy page. Apps keep their own 404 pages.
+- `dmp-pages-catchall` (`HostRegexp(.+)`, priority 1): unknown hosts get the 404 page.
+- A `<router>-page` router (priority 100000) takes a domain over with the maintenance page (503 with `Retry-After`), suspended (403, when the app's status is `suspended`), expired (402, when the subscription is expired or cancelled and the grace period after its end has passed), or welcome (verified domains without an app).
+- Maintenance bypass (PUB-3): `?ws_bypass=<token>` on the site hits `<router>-bypass`, which sets an `HttpOnly` cookie for 12 hours, and the maintenance router excludes requests carrying that cookie.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/public-pages` | `{installed, maintenance, retry_after, grace_days, bypass_query, pages[{key, status, title, message}], sites[{id, name, maintenance, showing, custom}]}` |
+| PATCH | `/public-pages` | PUB-2 `{maintenance?, retry_after? (30–86400), grace_days? (0–90), pages?: {key: {title?, message?, link_label?, link_url? (http/https)}}}` (needs `settings.manage`). Rewrites the pages, restarts the container and pushes the routing. |
+| PATCH | `/public-pages/sites/{domain}` | PUB-2/3 site level: `{maintenance?, pages?}`; site texts are written to `sites/<host>/`. |
+| POST | `/public-pages/install` | Starts `ws-pages` on every online ingress server that does not run it yet (needs `servers.manage`). |
+| GET | `/public-pages/preview/{key}` | `{html}`, the page as visitors see it. |
+
+Not built: the bot-check page (CrowdSec's own challenge is used).
+
+## Customer panel: email, security, scheduled jobs (SRS UMAIL, USEC, UCRON)
+
+These need `app.manage` and only ever see the customer's own organisation.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/app/cron` | UCRON-1 `{jobs[{id, name, action: app_command\|url, app, command, url, cron, enabled, timeout, last_run_at, last_status, last_result, next_run_at}], limit, used, min_interval_minutes, apps[]}`. Limits come from the package (`limits.cron_jobs`, default 10; `limits.cron_min_minutes`, default 1). |
+| POST \| PATCH \| DELETE | `/app/cron[/{id}]` | UCRON-2 `{name, action, application_id + command \| url, cron (5 fields), timeout? (10–3600 s), enabled?}`. An invalid expression returns 422; a schedule tighter than the plan allows returns 422; going over the job count returns 402. `app_command` runs `cron.exec` in the app's container as a numeric non-root user (33:33 for PHP/WordPress images, otherwise 1000:1000) with `sh -c`. `url` makes a GET request (at most 60 s). |
+| POST | `/app/cron/{id}/run` | UCRON-3: run now (20 per minute). |
+| GET | `/app/cron/{id}/runs` | CRON-3: the last 50 runs `{status, exit_code, duration_ms, source: schedule\|manual, output (last 64 KB), started_at}`, kept 30 days. |
+| GET | `/app/security` | USEC-1/5 `{score, sites[{site, score, fixes, last_scan_at}], open_threats, quarantined, scans_30d, scanning, threats[{id, site, path, signature, status, detected_at}]}`, limited to the data volumes of the customer's own apps. |
+| POST | `/app/security/scan` | USEC-3: scans every one of the customer's sites; 409 while a scan is running. |
+| POST | `/app/security/threats/{id}/quarantine` \| `/ignore` | USEC-2: other actions return 404. |
+| GET | `/app/mail` | UMAIL-001/004/005 `{available, limit, used, settings{imap, smtp, username}, domains[{id, name, records[{type, name, value, purpose, status: set\|missing\|wrong\|not checked}], mailboxes[], aliases[]}]}`. Mailboxes live on the platform's first running mail server; the limit is `limits.mailboxes` (default 5). |
+| POST | `/app/mail/domains` | `{name}`. The domain must already be one of the customer's domains (422 otherwise); DKIM and DNS work as in Mail hosting. |
+| POST \| PATCH \| DELETE | `/app/mail/domains/{id}/mailboxes[/{box}]` | UMAIL-002: `{local_part, password (10+), quota_mb?}`; 402 at the plan limit. `PATCH {password}` resets the password. |
+| PATCH | `/app/mail/domains/{id}/mailboxes/{box}/autoresponder` | UMAIL-006 `{enabled, subject, body, until?}` |
+| POST \| DELETE | `/app/mail/domains/{id}/aliases[/{alias}]` | UMAIL-006: forwarding. |
+| POST | `/app/mail/domains/{id}/dns/check` | UMAIL-005: each record in plain words. |
+
+## Email templates (SRS EML)
+
+Every email has an HTML part and a plain-text part (EML-4). The HTML is a 600 px table layout with inline styles, fluid down to 360 px, with a `prefers-color-scheme: dark` stylesheet and hidden preview text. Values are HTML-escaped; only `http(s)` links become buttons, and the link is repeated as a fallback under the button. `EmailTemplateService::send($key, $userOrAddress, $vars)` skips a template that is off, or one the user opted out of; security and billing emails are always sent. Today the email notification channel sends the `alert` template, and user invitations send `invite`.
+
+## Mail hosting (SRS MAIL)
+
+One [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/) container (`mailserver`) per mail server runs Postfix, Dovecot, OpenDKIM and Rspamd. It publishes ports 25, 465, 587 and 993 and uses the volumes `mailserver-data`, `mailserver-state` and `mailserver-config` (mounted at `/tmp/docker-mailserver`). The panel owns the config files in that volume and rewrites them all after every change, using `fs.mkdir` and `fs.write`; the container picks the changes up by itself. File contents (password hashes, DKIM keys) are read when each command is dispatched, so jobs never store them. Reads need `resources.view|servers.view`; changes need `deploy` (install and server settings: `servers.manage`).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/mail` | `{servers[{id, server, hostname, status: installing\|running\|failed, error, synced_at}], domains[{id, name, mailboxes, aliases, dns_ok, dns_checked_at}]}` |
+| POST | `/mail/servers` | MAIL-001 `{server_id, hostname}`: the hostname is the MX target and HELO name (`OVERRIDE_HOSTNAME`). One per server (409). TLS is self-signed for now. |
+| POST | `/mail/domains` | MAIL-002 `{mail_server_id, name}` creates the domain with a 2048-bit DKIM key (selector `mail`) and writes the records into a managed DNS zone that holds the domain, never replacing an existing MX or SPF record. Returns the records. |
+| GET \| PATCH \| DELETE | `/mail/domains/{id}` | `GET` adds `records`, `dns` (last check), `mailbox_list` and `alias_list`. `PATCH {catch_all}` sets the address that gets mail for unknown local parts (null turns it off). `DELETE` removes the domain with its mailboxes and aliases. |
+| POST | `/mail/domains/{id}/dns/check` | MAIL-005 looks up MX, SPF, DKIM (`mail._domainkey`) and DMARC (`_dmarc`, `p=quarantine`), plus the optional autoconfiguration records (SRS MAIL-003): SRV `_submission._tcp` (587) and `_imaps._tcp` (993), and CNAME `autoconfig` pointing at the mail host. Each record gets a status `ok\|wrong\|missing` with what was found. |
+| POST | `/mail/domains/{id}/dns/publish` | Publishes again; each record is reported as `present\|created\|conflict\|failed`. |
+| POST | `/mail/domains/{id}/mailboxes` | MAIL-003 `{local_part, password (10+), quota_mb?=1024}`. The password is stored only as `{SHA512-CRYPT}` (in `postfix-accounts.cf`); quotas go to `dovecot-quotas.cf`. |
+| PATCH \| DELETE | `/mail/domains/{id}/mailboxes/{box}` | `{password?, quota_mb?, enabled?}`; a disabled mailbox is left out of the accounts file. |
+| POST \| DELETE | `/mail/domains/{id}/aliases[/{alias}]` | MAIL-004 `{local_part, destinations[]}` (up to 50 addresses) goes to `postfix-virtual.cf`. A name cannot be both a mailbox and an alias. |
+| PATCH | `/mail/servers/{id}` | MAIL-008/009 `{send_per_hour?, spam_reject?, spam_header?, relay?: {host, port (25\|465\|587\|2525), username, password?} \| null}`. Defaults: 200 per hour, header at 6, reject at 15; the header score must be below the reject score. These write `rspamd/override.d/ratelimit.conf` (per authenticated user) and `actions.conf` (greylist at header − 2). A relay writes `postfix-main.cf` (`relayhost`, SASL, `smtp_tls_security_level = encrypt`) and `postfix-sasl-password.cf`. The relay password is stored encrypted, returned only as `password_set`, and kept when omitted. The container restarts afterwards. |
+| POST | `/mail/servers/{id}/health` | MAIL-010 (also daily at 05:20, `mail:health`): reverse DNS of the server's IPv4 must equal the hostname (`ptr_ok`), the hostname's A record must be the server (`a_ok`), and `listed[]` names the DNS blocklists that list it (Spamhaus ZEN, SpamCop, Barracuda, SORBS; `127.255.255.x` refusals are ignored). A new listing is audited as `mail.blocklisted` and sent to the organisation's alert channels (SRS MAIL-008). |
+| POST | `/mail/servers/{id}/certs` | SRS MAIL-005 (also daily with `mail:health`): `mail.certs` copies the certificate Traefik holds for the mail hostname (or a wildcard covering it) from `acme.json` into the config volume as `ssl/cert.pem` and `ssl/key.pem` (0600). The mail server runs with `SSL_TYPE=manual` and restarts only when the certificate changed. At install, a self-signed certificate is created if Traefik has none yet; `tls {source: acme\|self-signed, not_after}` on the server row says which one is in use. Adding the mail hostname as a domain makes Traefik issue one. |
+| POST | `/mail/servers/{id}/backups` | SRS MAIL-010 `{schedule?='30 2 * * *', retention_days?=14, copy_destination_from?: policy id}` creates or updates a restic backup policy for the `mailserver-data` volume (all mailboxes) in the Backup manager, to local disk or to the destination of another policy. Restores go through Backups. |
+| GET | `/mail/servers/{id}/logs?tail=200` | MAIL-014: the mail container's logs (Postfix, Dovecot, Rspamd), through the container log fetch. |
+| POST | `/mail/domains/{id}/dkim/rotate` \| `/complete` | MAIL-006: `rotate` creates a 2048-bit key under selector `mailYYYYMM` and publishes its TXT record (listed in `records` with `next: true`); the old key keeps signing. `complete` (409 until DNS shows the new record) switches signing and keeps `dkim_previous_selector`, whose record can be deleted a few days later. |
+| PATCH | `/mail/domains/{id}/mailboxes/{box}/autoresponder` | MAIL-012 `{enabled, subject, body, until?}` writes a per-user Sieve vacation script (`<address>.dovecot.sieve`), at most one reply per sender per day, stopping after `until`. Off writes an empty script. |
+
+## Migration wizard (SRS MIG)
+
+Moves cPanel accounts onto the platform. The agent fetches a cPanel full backup (`cpmove-<user>.tar.gz`) into its state directory (`migrations/<id>/`) and reads it without running anything from it. Each site becomes a new app on the target server. The app is deployed on a temporary platform hostname and then filled with the site's files and database. DNS is not changed. Reads need `resources.view|servers.view`; actions need `deploy`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/migrations` | `[{id, source, status, server, account, sites, migrated, created_at}]` |
+| POST | `/migrations` | MIG-001 `{server_id, archive_url, sha256?}` returns 202. `migrate.fetch` downloads the backup and checks the SHA-256 if one is given; a finished download is reused when the job is retried. Then `migrate.inspect` reads `userdata/main` (main, addon and sub domains), `userdata/<domain>` (document roots), `mysql/*.sql` and the file count and size, and flags document roots holding `wp-config.php`. Status: `fetching` → `ready`, or `failed` with `error`. The URL is stored encrypted and never returned. |
+| GET | `/migrations/{id}` | `{status, inventory{user, sites, databases, files, bytes}, sites[], preflight[], timeline[{at, event}], error}`. Each site has `{domain, kind, docroot, wordpress, enabled, app_name, database, target_database_id, status: pending\|deploying\|copying\|migrated\|failed, app_id?, temp_url?, error?}`. |
+| PATCH | `/migrations/{id}/sites` | MIG-003 `{sites[{domain, enabled?, app_name?, docroot?, database?, target_database_id?}]}`, allowed while the status is `ready`. `target_database_id` must be a MySQL or MariaDB database on the target server. Pre-flight (MIG-002) runs on each read: the domain or app name is already taken, there is no document root, the database is not in the backup, there is no target database, or WordPress has no database. |
+| POST | `/migrations/{id}/start` | MIG-004/005 returns 409 while a pre-flight check fails. For each enabled site it creates an app (`wordpress:6` for WordPress, otherwise `php:8.3-apache`) with `/var/www/html` as its volume, adds `<app>.<platform domain>` as the temporary hostname, and deploys it. A WordPress app gets `WORDPRESS_DB_*` pointing at the target database. When a deployment succeeds, the copy job runs: `migrate.extract` unpacks `homedir/<docroot>/` (regular files and folders only, owned by 33:33; files already present with the same size are skipped, so a copy resumes), `migrate.import_db` creates the database (named after the app) and streams `mysql/<db>.sql` into it, and for WordPress `wp config set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD`. The database password is added only when the agent command is sent; job payloads hold a placeholder. When every site is `migrated`, the migration is `migrated`. |
+| POST | `/migrations/{id}/sites/{index}/retry` | Re-runs one site's copy (failed or migrated); it resumes. |
+| POST | `/migrations/{id}/sites/{index}/cutover` | MIG-007/010: the site must be `migrated` and its temporary address must answer without a 5xx (409 otherwise). If the domain is in a DNS zone the panel manages, its A, AAAA and CNAME records are saved in `previous_records` and deleted, then the domain is added to the app, which writes the new records (DNS-013). Otherwise the domain is added and `dns_records` lists what to set at the DNS host. The site becomes `live`. |
+| POST | `/migrations/{id}/sites/{index}/rollback` | MIG-008: deletes the domain from the app and puts the saved records back in the zone. The site returns to `migrated`; the new app is kept for another try. |
+| POST | `/migrations/{id}/resync` | MIG-009 `{archive_url, sha256?}`: a newer backup of the same account. `migrate.cleanup` and `migrate.fetch` run, then every `migrated`, `live` or `failed` site is copied again (files of the same size are skipped, databases re-imported). A live site stays live. |
+| POST | `/migrations/bulk` | MIG-011 `{server_id, archives[{url, sha256?}]}`, up to 50: one migration each, returns `{queued, ids}`. |
+| POST | `/migrations/{id}/approve` \| `/reject` | UMIG-002: `approve {server_id}` starts the fetch of a customer's request; `reject {reason?}` stores the reason, which the customer sees. Only `requested` migrations. Platform administrators see every organisation's requests. |
+| GET \| POST | `/app/migrations` | UMIG-001/003 (customer, `app.manage`): `POST {archive_url, sha256?, notes?}` returns 201 with `status: requested`, and nothing runs until approval. At most five may be waiting at once. `GET` lists the customer's requests with their sites, temporary addresses, timeline and decision. |
+
+## WordPress toolkit (SRS WP)
+
+Every action is WP-CLI, run by the agent in a short-lived `wordpress:cli` container. That container shares the site container's files (`--volumes-from`) and network (`--network container:`), so it uses the site's own `wp-config.php` and database. It runs as www-data (33) and never through a shell. Only these WP-CLI commands are allowed: `core plugin theme option config cache search-replace user cron maintenance-mode cli rewrite transient language redis db`, where `db` is only `db export|import wp-content/ws-restore/<id>.sql`. The options `--exec`, `--require`, `--ssh`, `--http`, `--path` and `--context` are refused. An action with several steps is one job; each step is dispatched after the one before it succeeds. Reads need `resources.view|servers.view`; actions need `deploy`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/wordpress` | WP-001/002: `{summary {sites, updates, security, outdated_php, staging}, sites[{id, url, app, server, version, php_version, core_update, updates, security, score, staging, settings, error, inventoried_at}]}` |
+| POST | `/wordpress/detect` | Creates a site row for every app running a `wordpress*` image and inventories each (also daily at 04:10). |
+| GET | `/wordpress/{id}` | Adds `plugins[]`, `themes[]` and `vulnerabilities[{type, slug, version, name, fixed_in}]`. |
+| POST | `/wordpress/{id}/refresh` | `wp.inventory`: core and PHP version, plugins, themes, core update, blog_public, WP_DEBUG, WP_AUTO_UPDATE_CORE, DISABLE_WP_CRON, maintenance. A probe that fails leaves its field out. The vulnerability scan follows (WP-008): WPVulnerability.net for the installed core, plugin and theme versions. Score: 100, minus 25 per vulnerability (at most 75), minus 5 per waiting update (at most 15), minus 10 for PHP below 8.1. |
+| PATCH | `/wordpress/{id}/settings` | WP-003 `{setting: maintenance\|debug\|indexing\|auto_minor\|platform_cron\|redis, on}`. `platform_cron` sets `DISABLE_WP_CRON`, and `wordpress:cron` runs due events every 5 minutes. `redis` needs `WORDPRESS_REDIS_HOST` (409 otherwise); it sets `WP_REDIS_HOST`, installs and activates `redis-cache`, then runs `wp redis enable`. |
+| POST | `/wordpress/{id}/tools/{tool}` | WP-004/007: `flush_cache`, `verify_checksums`, `search_replace {search, replace, dry_run=true}` (skips `guid`; the dry run is the default), `plugin_activate\|plugin_deactivate {plugin}`, `theme_activate {theme}`, `rotate_salts` (`config shuffle-salts`; everyone is logged out). Slugs must match `^[a-z0-9][a-z0-9_.-]*$`. Activations refresh the site afterwards. The WP-CLI output is on the job. |
+| POST | `/wordpress/{id}/update` | WP-005 `{scope: core\|plugins\|themes\|all, items?[]}`. Only items with an update are touched (409 if none). Steps: restore point (below), `core update` + `core update-db` and/or `plugin\|theme update <names>`, then an HTTP health check of the site URL (5xx, no answer, or WordPress's "critical error" page fails it), then a refresh. If an update command or the health check fails, the rest of the plan becomes a rollback: `db import` of the dump and `install <name> --version=<old> --force` for what was updated (`core update --version=<old> --force` for core). The job then fails with the reason and the point becomes `restored`. |
+| POST | `/wordpress/update-all` | WP-006 `{scope}`: one update job per site with updates on an online server; returns `{queued, job_ids}`. |
+| PATCH | `/wordpress/{id}/hardening` | WP-009 any of `{xmlrpc, file_edit, user_enum, security_headers, limit_logins}` (booleans). Writes one must-use plugin, `wp-content/mu-plugins/ws-hardening.php`, holding all switches; `file_edit` sets or deletes `DISALLOW_FILE_EDIT`. `limit_logins`: 5 failures per IP lock it for 15 minutes. State is in `hardening` on the site rows. |
+| GET | `/wordpress/{id}/restore-points` | WP-011 `[{id, reason: manual\|update, status: pending\|ready\|failed\|restored, version, plugins, themes, created_at, restored_at}]`. |
+| POST | `/wordpress/{id}/restore-points` | A manual point: `wp db export` into `wp-content/ws-restore/` (blocked from the web by `.htaccess` and an `index.php`) and the core, plugin and theme versions. Five points are kept per site; older dumps are deleted. |
+| POST | `/wordpress/{id}/restore-points/{point}/restore` | Imports the dump and reinstalls the core, plugin and theme versions that differ from the point, then refreshes. |
+| POST | `/wordpress/{id}/reset-password` | `{user}` returns `{job_id, password}`. A random 20-character password is shown once. The job payload holds only a redacted copy; the real one travels in the encrypted agent command. The audit has the user name only. |
+| POST | `/wordpress/{id}/staging` | WP-010: returns `{staging_id, url, user: "staging", password}`. Needs `WORDPRESS_DB_HOST` in the app's environment (409 otherwise). Creates the app `<name>-staging` on the same server and image, with the same environment plus `WORDPRESS_TABLE_PREFIX=stg_` and a `WORDPRESS_CONFIG_EXTRA` guard (HTTP basic auth, user `staging`, password checked by its sha256; `X-Robots-Tag: noindex`). The domain is `staging.<first custom domain>`, or `<name>-staging.<platform domain>`. Then it deploys. When the deployment succeeds, the staging site is filled automatically (refresh, below). The staging site is its own row (`production_id`, `staging_status: provisioning\|cloning\|ready\|failed`); `GET /wordpress/{id}` of a staging site includes `staging_password`. |
+| POST | `/wordpress/{id}/staging/refresh` | Run on the staging site. `wp.copy_tables` copies the live prefix to `stg_` in the same database (it drops the old `stg_` tables and renames the prefixed option and user-meta keys). The staging `wp-content` goes to the Trash and the live one is copied in (without `ws-restore`). Then `search-replace` live URL → staging URL, `blog_public=0`, and a refresh. |
+| POST | `/wordpress/{id}/staging/push` | Run on the staging site; it must be `ready`. The live site gets a restore point (`reason: push`). Then `stg_` is copied to the live prefix, the live `wp-content` goes to the Trash (its restore dumps are kept), staging's `wp-content` is copied in, `search-replace` runs back, and `blog_public` returns to the live setting. |
+| POST | `/wordpress/{id}/staging/delete` | `wp.drop_tables` (the agent drops only `stg…_` prefixes), then the staging app is retired and its row removed. |
+| POST | `/wordpress/{id}/login-link` | WP-012 returns `{job_id, url, expires_in: 60}`. It writes the must-use plugin `wp-content/mu-plugins/ws-login.php` and stores `sha256(token):expiry` in the option `ws_login_token`. The plugin checks the token with `hash_equals`, deletes the option on any use, signs in the first administrator and redirects to wp-admin. Audited. |

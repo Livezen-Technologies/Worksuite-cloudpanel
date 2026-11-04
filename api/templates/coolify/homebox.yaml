@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: homebox
+name: Homebox
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Homebox is the inventory and organization system built for the Home User.
+port: 7745
+source: coolify
+documentation: https://github.com/sysadminsmedia/homebox
+compose: "services:\n  homebox:\n    image: ghcr.io/sysadminsmedia/homebox:latest\n    environment:\n      HBOX_OPTIONS_ALLOW_REGISTRATION: ${HBOX_OPTIONS_ALLOW_REGISTRATION:-false}\n      HBOX_LOG_LEVEL: ${HBOX_LOG_LEVEL:-info}\n      HBOX_LOG_FORMAT: ${HBOX_LOG_FORMAT:-text}\n      HBOX_WEB_MAX_UPLOAD_SIZE: ${HBOX_WEB_MAX_UPLOAD_SIZE:-10}\n      HBOX_MAILER_HOST: ${HBOX_MAILER_HOST}\n      HBOX_MAILER_PORT: ${HBOX_MAILER_PORT:-587}\n      HBOX_MAILER_USERNAME: ${HBOX_MAILER_USERNAME}\n      HBOX_MAILER_PASSWORD: ${HBOX_MAILER_PASSWORD}\n      HBOX_MAILER_FROM: ${HBOX_MAILER_FROM}\n    volumes:\n    - homebox-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - sh\n      - -c\n      - wget --method=GET -qO- http://localhost:7745/api/v1/status > /dev/null || exit 1\n      interval: 30s\n      timeout: 5s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port:\
+  \ '7745'\nvolumes:\n  homebox-data: {}\n"

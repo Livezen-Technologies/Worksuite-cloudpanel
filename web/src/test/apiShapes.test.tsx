@@ -47,7 +47,7 @@ const wrap = (ui: ReactNode) => render(
 describe('pages use the implemented API field names', () => {
   it('Overview: KPIs, status cards, deployments and top consumers', async () => {
     wrap(<Overview />)
-    expect(await screen.findByText('3 / 4')).toBeInTheDocument()
+    expect(await screen.findByText('3 online of 4')).toBeInTheDocument()
     expect(screen.getByText('5 succeeded · 1 failed')).toBeInTheDocument()
     expect(screen.getByText('2 expiring soon')).toBeInTheDocument()
     expect(screen.getByText('manual')).toBeInTheDocument()

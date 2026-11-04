@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: mage-ai
+name: Mage Ai
+category: Automation
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Build, run, and manage data pipelines for integrating and transforming data.
+port: 6789
+source: coolify
+documentation: https://docs.mage.ai
+compose: "services:\n  mage-ai:\n    image: mageai/mageai:0.9.78\n    command: mage start default_project\n    environment:\n      PROJECT_NAME: default_project\n      USER_CODE_PATH: /home/src/default_project\n      ENV: production\n    volumes:\n    - mageai_data:/home/src/\n    restart: unless-stopped\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -s\n      - -f\n      - -o\n      - /dev/null\n      - http://127.0.0.1:6789\n      interval: 30s\n      timeout: 10s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6789'\nvolumes:\n  mageai_data: {}\n"

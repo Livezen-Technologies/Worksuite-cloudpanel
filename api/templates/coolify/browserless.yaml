@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: browserless
+name: Browserless
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A headless Chrome browser as a service.
+port: 3000
+source: coolify
+documentation: https://docs.browserless.io/
+compose: "services:\n  browserless:\n    image: ghcr.io/browserless/chromium\n    environment:\n      TOKEN: ${SERVICE_PASSWORD_BROWSERLESS}\n    expose:\n    - 3000\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/docs\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n"

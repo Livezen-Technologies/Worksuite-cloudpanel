@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import { Icon } from './Icon'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 export function Card({ title, subtitle, actions, children, className = '', pad = true, id }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; id?: string }) {
   return (
@@ -19,16 +21,49 @@ export function Card({ title, subtitle, actions, children, className = '', pad =
   )
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+/**
+ * The one page heading every page uses: optional back link, leading icon, title with a status badge,
+ * a subtitle, and the page's actions on the right.
+ */
+export function PageHeader({ title, subtitle, actions, back, icon, badge, center }: {
+  title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: ReactNode
+  icon?: ReactNode; badge?: ReactNode; center?: boolean
+}) {
+  useDocumentTitle(title)
   return (
-    <div className="flex flex-wrap items-end gap-4">
-      <div className="flex-1 min-w-[220px]">
-        <h1 className="m-0 text-[28px] font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1.5 mb-0 text-sm text-muted">{subtitle}</p>}
+    <div className="flex flex-col gap-2">
+      {back && <div className="self-start text-sm">{back}</div>}
+      <div className={`flex flex-wrap items-end gap-4 ${center ? 'justify-center text-center' : ''}`}>
+        <div className={`flex items-center gap-3 min-w-[220px] ${center ? '' : 'flex-1'}`}>
+          {icon}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="m-0 text-[26px] leading-8 font-semibold tracking-tight break-words">{title}</h1>
+              {badge}
+            </div>
+            {subtitle && <p className="mt-1.5 mb-0 text-sm text-muted">{subtitle}</p>}
+          </div>
+        </div>
+        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
   )
+}
+
+/** The footer every form ends with: actions on the right, divided from the fields. */
+/** Placeholder while a section loads: shimmering lines in a card, with the message for screen readers. */
+export function Loading({ label = 'Loading…', lines = 3 }: { label?: string; lines?: number }) {
+  return (
+    <section className="card p-5 flex flex-col gap-3" aria-busy="true" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <span aria-hidden="true" className="h-4 w-1/3 rounded bg-head animate-pulse" />
+      {Array.from({ length: lines }, (_, i) => <span key={i} aria-hidden="true" className="h-3 rounded bg-head animate-pulse" style={{ width: `${90 - i * 15}%` }} />)}
+    </section>
+  )
+}
+
+export function FormActions({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`flex flex-wrap items-center justify-end gap-2 pt-4 mt-1 border-t border-line ${className}`}>{children}</div>
 }
 
 export function Meter({ value, label, color, thick = false }: { value: number; label?: string; color?: string; thick?: boolean }) {
@@ -42,43 +77,95 @@ export function Meter({ value, label, color, thick = false }: { value: number; l
   )
 }
 
-export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string }) {
+const TONE_CHIP = { g: 'bg-g-bg text-g-fg', y: 'bg-y-bg text-y-fg', r: 'bg-r-bg text-r-fg', b: 'bg-b-bg text-b-fg', n: 'bg-n-bg text-n-fg' } as const
+
+/** Icon for a stat label when the page gives none, so every KPI card matches the dashboard. */
+const AUTO_ICON: [RegExp, string][] = [
+  [/threat|malware|attack|blocked|firewall|security|score|protect|rule|enforc|countr/i, 'shield'],
+  [/alert|incident|fail|error|warning/i, 'warn'],
+  [/backup|stored|snapshot|archive|quarantin|restore/i, 'archive'],
+  [/next run|last|time|uptime|schedul|expir|cron|detection/i, 'clock'],
+  [/cpu|load|traffic|success|rate|health/i, 'pulse'],
+  [/memory|ram|database|db/i, 'db'],
+  [/disk|volume|storage|cloud/i, 'disk'],
+  [/domain|dns|certificate|site|network|exposed|mesh|peer/i, 'globe'],
+  [/container|image|app|stack/i, 'box'],
+  [/server|host/i, 'server'],
+  [/mail|alias|inbox|blocklist/i, 'inbox'],
+  [/user|member|customer|team/i, 'users'],
+  [/update|upgrade|php|wordpress|staging|copies/i, 'refresh'],
+  [/resolved|clean|valid|enabled|connected/i, 'check'],
+]
+const autoIcon = (label: string) => AUTO_ICON.find(([re]) => re.test(label))?.[1] ?? 'grid'
+
+/** A KPI card (WorkSuite family): tinted icon chip + label, the figure, a grey line under it. */
+export function StatTile({ label, value, delta, deltaTone, valueTone, pct, barColor, icon, iconTone }: { label: string; value: ReactNode; delta?: string; deltaTone?: 'g' | 'y' | 'r' | 'n'; valueTone?: 'g' | 'y' | 'r' | 'n'; pct?: number; barColor?: string; icon?: ReactNode; iconTone?: keyof typeof TONE_CHIP }) {
   // A figure that is its own status needs no separate badge.
   const tone = valueTone && valueTone !== 'n' ? { g: 'text-g-fg', y: 'text-y-fg', r: 'text-r-fg' }[valueTone] : ''
+  // No icon given: pick one from the label, tinted like the value (blue when neutral).
+  const chipTone = iconTone ?? (valueTone && valueTone !== 'n' ? valueTone : deltaTone && deltaTone !== 'n' && deltaTone !== 'g' ? deltaTone : 'b')
+  const glyph = icon ?? <Icon name={autoIcon(label)} size={16} />
   return (
-    <div className="card p-5">
-      <div className="text-[13px] text-muted font-medium">{label}</div>
-      <div className="flex items-baseline gap-2 mt-2 flex-wrap">
-        <span className={`text-[30px] font-bold tracking-tight ${tone}`}>{value}</span>
-        {delta && <span className="text-[13px] font-semibold" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</span>}
+    <div className="card stat-tile px-4 py-4 min-w-0">
+      <div className="flex items-center gap-2.5 text-sm text-muted font-medium">
+        <span aria-hidden="true" className={`w-7 h-7 rounded-md flex items-center justify-center flex-none ${TONE_CHIP[chipTone]}`}>{glyph}</span>
+        <span className="min-w-0 leading-tight">{label}</span>
       </div>
-      {pct !== undefined && <div className="mt-3.5"><Meter value={pct} label={label} color={barColor} /></div>}
+      <div className={`mt-2.5 text-[28px] leading-8 font-bold tracking-tight tabular-nums ${tone}`}>{value}</div>
+      {delta && <div className="mt-1 text-[13px]" style={{ color: deltaTone && deltaTone !== 'n' ? `var(--${deltaTone}-fg)` : 'var(--muted)' }}>{delta}</div>}
+      {pct !== undefined && <div className="mt-3"><Meter value={pct} label={label} color={barColor} /></div>}
     </div>
   )
 }
 
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  // Exact px sizes: the theme remaps Tailwind's spacing steps (h-6 is 32px here).
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="relative w-11 h-[26px] rounded-full border-0 cursor-pointer flex-none disabled:opacity-50"
-      style={{ background: checked ? 'var(--accent)' : 'var(--track)' }}>
-      <span className="absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all" style={{ left: checked ? 21 : 3 }} />
+      className="group relative inline-flex flex-none items-center w-[44px] h-[24px] p-[2px] rounded-full border-0 cursor-pointer appearance-none
+                 transition-[background-color,box-shadow] duration-200 ease-out
+                 shadow-[inset_0_1px_2px_rgba(15,23,42,.15)] hover:brightness-[.97]
+                 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+      style={{ background: checked ? 'var(--accent)' : 'var(--ctl-ring)', minHeight: 0, minWidth: 0 }}>
+      <span aria-hidden="true" className={`grid place-items-center w-[20px] h-[20px] rounded-full bg-white shadow-[0_1px_3px_rgba(15,23,42,.25),0_1px_1px_rgba(15,23,42,.08)] transition-transform duration-200 ease-[cubic-bezier(.3,1.4,.6,1)] group-active:scale-95 ${checked ? 'translate-x-[20px]' : 'translate-x-0'}`}>
+        <svg viewBox="0 0 12 12" className={`w-[10px] h-[10px] transition-opacity duration-150 ${checked ? 'opacity-100' : 'opacity-0'}`} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2 5 8.5l4.5-5" /></svg>
+      </span>
     </button>
   )
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="p-6 text-center text-sm text-muted">{children}</div>
+/** Split "No servers yet. Add your first…" into a heading and its explanation. */
+export function splitEmpty(text: string): [string, string] {
+  const m = text.match(/^(.+?[.!?])\s+(.+)$/)
+  return m ? [m[1], m[2]] : [text, '']
 }
 
-export function Field({ label, error, hint, children }: { label: string; error?: string; hint?: ReactNode; children: ReactNode }) {
+/** Empty state: an icon, a short heading, an explanation and an optional call to action. */
+export function Empty({ children, icon = 'inbox', action, compact }: { children: ReactNode; icon?: string; action?: ReactNode; compact?: boolean }) {
+  // Progress text ("Loading…", "Scanning…") is not an empty state: keep it quiet.
+  if (typeof children === 'string' && children.endsWith('…')) return <div className="p-6 text-center text-sm text-muted" aria-live="polite">{children}</div>
+  const [title, body] = typeof children === 'string' ? splitEmpty(children) : [null, null]
+  return (
+    <div className={`flex flex-col items-center text-center gap-1 ${compact ? 'p-4' : 'px-6 py-10'}`}>
+      {!compact && <span className="grid place-items-center w-12 h-12 rounded-full bg-head text-muted mb-2" aria-hidden="true"><Icon name={icon} size={22} /></span>}
+      {title !== null
+        ? <><div className="text-sm font-semibold text-fg">{title}</div>{body && <div className="text-sm text-muted max-w-md">{body}</div>}</>
+        : <div className="text-sm text-muted max-w-md">{children}</div>}
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  )
+}
+
+export function Field({ label, error, hint, required, children }: { label: string; error?: string; hint?: ReactNode; required?: boolean; children: ReactNode }) {
+  const star = required || / \*$/.test(label)
   return (
     <label className="label">
-      <span>{label}</span>
+      <span className="flex items-center gap-1">{label.replace(/ \*$/, '')}{star && <span aria-hidden="true" className="text-danger font-semibold">*</span>}{star && <span className="sr-only">(required)</span>}</span>
       {children}
       {hint && !error && <span className="text-xs font-normal text-muted">{hint}</span>}
-      {error && <span role="alert" className="text-xs font-semibold text-danger">{error}</span>}
+      {error && <span role="alert" className="flex items-center gap-1 text-xs font-semibold text-danger"><Icon name="warn" size={13} />{error}</span>}
     </label>
   )
 }

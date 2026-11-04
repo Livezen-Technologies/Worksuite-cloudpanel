@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: readeck
+name: Readeck
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Simple web application that lets you save the precious readable content of web pages you like and want to keep forever.
+port: 8000
+source: coolify
+documentation: https://readeck.org/en/docs/
+compose: "services:\n  readeck:\n    image: codeberg.org/readeck/readeck:latest\n    environment:\n      READECK_USE_X_FORWARDED: ${READECK_USE_X_FORWARDED:-true}\n    volumes:\n    - readeck_data:/readeck\n    healthcheck:\n      test:\n      - CMD\n      - /bin/readeck\n      - healthcheck\n      - -config\n      - config.toml\n      interval: 30s\n      timeout: 2s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\nvolumes:\n  readeck_data: {}\n"

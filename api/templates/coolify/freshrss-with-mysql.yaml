@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: freshrss-with-mysql
+name: Freshrss With Mysql
+category: Personal
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A free, self-hostable feed aggregator.
+port: 80
+source: coolify
+documentation: https://freshrss.org/index.html
+compose: "services:\n  freshrss:\n    image: freshrss/freshrss:latest\n    environment:\n      CRON_MIN: ${CRON_MIN:-1,31}\n      MYSQL_DB: ${MYSQL_DATABASE:-freshrss}\n      MYSQL_USER: ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n    volumes:\n    - freshrss-data:/var/www/FreshRSS/data\n    - freshrss-extensions:/var/www/FreshRSS/extensions\n    depends_on:\n      freshrss-db:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  freshrss-db:\n    image: mysql:8\n    volumes:\n    - mysql-data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-freshrss}\n      MYSQL_USER:\
+  \ ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  freshrss-data: {}\n  freshrss-extensions: {}\n  mysql-data: {}\n"

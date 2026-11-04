@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: gowa
+name: Gowa
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Golang WhatsApp - Built with Go for efficient memory use
+port: 3000
+source: coolify
+documentation: https://github.com/aldinokemal/go-whatsapp-web-multidevice
+compose: "services:\n  gowa:\n    image: aldinokemal2104/go-whatsapp-web-multidevice:latest\n    environment:\n      SERVICE_USER_GOWA: null\n      SERVICE_PASSWORD_GOWA: null\n      APP_BASIC_AUTH: ${SERVICE_USER_GOWA}:${SERVICE_PASSWORD_GOWA}\n      APP_PORT: '3000'\n      APP_DEBUG: ${APP_DEBUG:-false}\n      APP_ACCOUNT_VALIDATION: ${APP_ACCOUNT_VALIDATION:-false}\n      WHATSAPP_WEBHOOK: ${WHATSAPP_WEBHOOK}\n      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET}\n    volumes:\n    - gowa_data:/app/storages\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  gowa_data: {}\n"

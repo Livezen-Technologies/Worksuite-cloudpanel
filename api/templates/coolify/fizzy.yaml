@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: fizzy
+name: Fizzy
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Kanban tracking tool for issues and ideas by 37signals
+port: 80
+source: coolify
+documentation: https://github.com/basecamp/fizzy
+compose: "services:\n  fizzy:\n    image: ghcr.io/basecamp/fizzy:main\n    environment:\n      SECRET_KEY_BASE: ${SERVICE_PASSWORD_FIZZY}\n      RAILS_MASTER_KEY: ${SERVICE_PASSWORD_MASTERKEY}\n      RAILS_ENV: production\n      RAILS_LOG_TO_STDOUT: 'true'\n      RAILS_SERVE_STATIC_FILES: 'true'\n      DATABASE_ADAPTER: sqlite\n      SOLID_QUEUE_CONNECTS_TO: 'false'\n      VAPID_PRIVATE_KEY: $VAPID_PRIVATE_KEY\n      VAPID_PUBLIC_KEY: $VAPID_PUBLIC_KEY\n    volumes:\n    - fizzy-data:/rails/db\n    - fizzy-storage:/rails/storage\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80/up\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  fizzy-data: {}\n  fizzy-storage: {}\n"

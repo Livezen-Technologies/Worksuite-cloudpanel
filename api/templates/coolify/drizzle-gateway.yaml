@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: drizzle-gateway
+name: Drizzle Gateway
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Free self-hosted Drizzle Studio on steroids
+port: 4983
+source: coolify
+documentation: https://gateway.drizzle.team/
+compose: "services:\n  drizzle-gateway:\n    image: ghcr.io/drizzle-team/gateway:latest\n    environment:\n      STORE_PATH: /app\n      MASTERPASS: ${SERVICE_PASSWORD_DRIZZLE}\n    volumes:\n    - drizzle-gateway-data:/app\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4983'\nvolumes:\n  drizzle-gateway-data: {}\n"

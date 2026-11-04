@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: prefect
+name: Prefect
+category: Automation
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Prefect is an orchestration and observability platform that empowers developers to build and scale workflows quickly.
+port: 4200
+source: coolify
+documentation: https://www.prefect.io/
+compose: "services:\n  prefect:\n    image: prefecthq/prefect:3-latest\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    environment:\n      PREFECT_API_URL: ${SERVICE_URL}/api\n      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/${POSTGRES_DB:-prefect}\n      PREFECT_API_KEY: ${SERVICE_PASSWORD_APIKEY}\n      PREFECT_EXPERIMENTAL_WARN: ${PREFECT_EXPERIMENTAL_WARN:-false}\n      PREFECT_EXPERIMENTAL_ENABLE_SCHEDULE_CONCURRENCY: ${PREFECT_EXPERIMENTAL_ENABLE_SCHEDULE_CONCURRENCY:-false}\n      PREFECT_RUNNER_SERVER_ENABLE: ${PREFECT_RUNNER_SERVER_ENABLE:-false}\n      PREFECT_DEFAULT_WORK_POOL_NAME: ${DEFAULT_POOL_NAME:-default}\n    command:\n    - prefect\n    - server\n    - start\n    - --host\n    - 0.0.0.0\n    - --port\n    - '4200'\n    healthcheck:\n      test:\n      - CMD\n      - python\n      - -c\n      - import requests as r;r.get('http://127.0.0.1:4200/api/health').raise_for_status()\n\
+  \      interval: 5s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4200'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - pg-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-prefect}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $prefect\n      interval: 5s\n      timeout: 5s\n      retries: 3\n  agent:\n    image: prefecthq/prefect:3-python3.12\n    depends_on:\n      prefect:\n        condition: service_healthy\n    entrypoint:\n    - /opt/prefect/entrypoint.sh\n    - prefect\n    - worker\n    - start\n    - --pool=default\n    - --with-healthcheck\n    - --name=worker1\n    - --limit=1\n    environment:\n      PREFECT_API_URL:\
+  \ http://prefect:4200/api\n      PREFECT_API_KEY: ${SERVICE_PASSWORD_APIKEY}\n      DEFAULT_POOL_NAME: ${DEFAULT_POOL_NAME:-default}\n      DEFAULT_POOL_LIMIT: ${DEFAULT_POOL_LIMIT:-1}\n      DEFAULT_WORKER_NAME: ${DEFAULT_WORKER_NAME:-worker1}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pwd\n      interval: 5s\n      timeout: 5s\n      retries: 3\nvolumes:\n  pg-data: {}\n"

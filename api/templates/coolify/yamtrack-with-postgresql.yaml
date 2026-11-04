@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: yamtrack-with-postgresql
+name: Yamtrack With Postgresql
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Yamtrack is a self hosted media tracker for movies, tv shows, anime, manga, video games and books.
+port: 8000
+source: coolify
+documentation: https://github.com/FuzzyGrim/Yamtrack/wiki
+compose: "services:\n  yamtrack:\n    image: ghcr.io/fuzzygrim/yamtrack\n    environment:\n      URLS: ${SERVICE_URL}\n      TZ: ${TZ:-Europe/Berlin}\n      SECRET: ${SERVICE_PASSWORD_SECRET}\n      REGISTRATION: ${REGISTRATION_ENABLED:-true}\n      REDIS_URL: redis://redis:6379\n      DB_HOST: postgres\n      DB_NAME: ${POSTGRESQL_DATABASE:-yamtrack-db}\n      DB_USER: ${SERVICE_USER_POSTGRESQL}\n      DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      DB_PORT: '5432'\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --no-verbose\n      - --tries=1\n      - --spider\n      - http://127.0.0.1:8000/health/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\n  postgres:\n\
+  \    image: postgres:16-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      POSTGRES_DB: ${POSTGRESQL_DATABASE:-yamtrack-db}\n    volumes:\n    - yamtrack_postgres_data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n    image: redis:7-alpine\n    volumes:\n    - yamtrack_redis_data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  yamtrack_postgres_data: {}\n  yamtrack_redis_data: {}\n"

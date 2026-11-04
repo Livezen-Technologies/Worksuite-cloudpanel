@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Backups — Docker Manager</title>
+<title>Backup manager — Docker Manager</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -11,73 +11,239 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
 <style>
 body{margin:0}
-a{color:#4F46E5;text-decoration:none}a:hover{color:#4338CA}
+a{color:#2563EB;text-decoration:none}
 </style>
 </helmet>
-<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1000px; display: flex; flex-wrap: wrap">
-  <div style="flex: 1 1 260px; max-width: 272px"><dc-import name="Sidebar" active="10" dark="{{dark}}" accent="{{accent}}" hint-size="272px,1000px"></dc-import></div>
-  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box; max-width: 1168px">
-    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 1054px; display: flex; flex-wrap: wrap; align-content: flex-start">
+  <div style="flex: 1 1 100%"><dc-import name="TopBar" hint-size="100%,56px"></dc-import></div>
+  <div style="flex: 0 0 336px"><dc-import name="Sidebar" active="Backups" dark="{{dark}}" accent="{{accent}}" hint-size="336px,1000px"></dc-import></div>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px">
       <div style="flex: 1; min-width: 240px">
-        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Backups</h1>
-        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.muted}}">Encrypted, integrity-checked and restore-tested</p>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Backup manager</h1>
+        <p style="margin: 6px 0 0; font-size: 14px; color: {{c.sub}}">Policies, snapshots, restores and storage destinations — encrypted and verified</p>
       </div>
-      <button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 14px Inter">Restore…</button>
-      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #fff; font: 600 14px Inter">New backup policy</button>
+      <button type="button" onClick="{{goRestore}}" style="{{btn}}">Restore…</button>
+      <button type="button" onClick="{{runAll}}" style="{{btnPrimary}}">Run all due now</button>
     </div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
-      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
-        <div style="padding: 18px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}"><div style="font-size: 13px; color: {{c.muted}}">{{t.k}}</div><div style="font-size: 24px; font-weight: 700; margin-top: 6px">{{t.v}}</div><div style="font-size: 12px; color: {{c.muted}}; margin-top: 2px">{{t.s}}</div></div>
-      </sc-for>
+    <sc-if value="{{toast}}" hint-placeholder-val="{{ false }}"><div role="status" style="padding: 10px 14px; border-radius: 8px; background: {{c.okBg}}; color: {{c.okFg}}; font-size: 13px; font-weight: 500">{{toastText}}</div></sc-if>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="5"><div style="padding: 16px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}"><div style="font-size: 13px; color: {{c.sub}}">{{t.k}}</div><div style="font-size: 24px; font-weight: 700; margin-top: 4px">{{t.v}}</div><div style="font-size: 12.5px; color: {{c.sub}}">{{t.s}}</div></div></sc-for>
     </div>
-    <section style="padding: 20px; border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}">
-      <h2 style="margin: 0; font-size: 15px; font-weight: 600">Last 14 days</h2>
-      <div style="display: flex; gap: 6px; margin-top: 14px; align-items: flex-end; height: 64px">
-        <sc-for list="{{days}}" as="d" hint-placeholder-count="14"><span title="{{d.label}}" style="{{d.style}}"></span></sc-for>
+
+    <div role="tablist" style="display: flex; flex-wrap: wrap; gap: 22px; border-bottom: 1px solid {{c.line}}">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button type="button" role="tab" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+    </div>
+
+    <!-- POLICIES -->
+    <sc-if value="{{t0}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <section style="padding: 18px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}">
+          <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px">Last 14 days</h2><span style="font-size: 12.5px; color: {{c.sub}}">runs per day · red = at least one failure</span></div>
+          <div style="display: flex; gap: 6px; margin-top: 14px; align-items: flex-end; height: 72px">
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="14"><span title="{{d.label}}" style="{{d.style}}"></span></sc-for>
+          </div>
+        </section>
+        <section style="border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid {{c.line}}"><h2 style="margin: 0; font-size: 15px">Backup policies</h2><button type="button" onClick="{{toggleNew}}" style="{{btnPrimary}}">+ New policy</button></div>
+          <sc-if value="{{newOpen}}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 16px; border-bottom: 1px solid {{c.line}}; background: {{c.head}}">
+              <label style="{{lbl}}">Target<select style="{{input}}"><option>Application · acme-blog</option><option>Database · postgres-main</option><option>Volume · minio_data</option><option>Whole server · vps-eu-02</option></select></label>
+              <label style="{{lbl}}">Method<select style="{{input}}"><option>Restic snapshot (files)</option><option>pg_dump / mariadb-dump</option><option>Volume snapshot</option></select></label>
+              <label style="{{lbl}}">Schedule<select style="{{input}}"><option>Daily at 02:00</option><option>Every 6 hours</option><option>Hourly</option><option>Weekly · Sunday</option><option>Monthly · 1st</option><option>Custom cron…</option></select></label>
+              <label style="{{lbl}}">Destination<select style="{{input}}"><option>Cloudflare R2 · backups-eu</option><option>Backblaze B2</option><option>S3 · eu-central-1</option><option>Google Drive</option><option>SFTP · storage box</option><option>Local disk</option></select></label>
+              <label style="{{lbl}}">Keep<select style="{{input}}"><option>7 daily · 4 weekly · 6 monthly</option><option>14 daily</option><option>30 daily · 12 monthly</option></select></label>
+              <label style="{{lbl}}">Restore test<select style="{{input}}"><option>Monthly in a sandbox</option><option>Weekly</option><option>Off</option></select></label>
+              <div style="display: flex; align-items: flex-end"><button type="button" onClick="{{createPolicy}}" style="{{btnPrimary}}">Create policy</button></div>
+            </div>
+          </sc-if>
+          <div style="overflow-x: auto">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px">
+              <thead><tr style="text-align: left; color: {{c.sub}}; font-size: 12px; background: {{c.head}}"><th style="{{th}}">Target</th><th style="{{th}}">Method</th><th style="{{th}}">Schedule</th><th style="{{th}}">Destination</th><th style="{{th}}">Retention</th><th style="{{th}}">Last run</th><th style="{{th}}">On</th><th style="{{th}}"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Actions</span></th></tr></thead>
+              <tbody>
+                <sc-for list="{{policies}}" as="p" hint-placeholder-count="6">
+                  <tr style="border-top: 1px solid {{c.line}}">
+                    <td style="{{td}}"><div style="font-weight: 600">{{p.target}}</div><div style="font-size: 12px; color: {{c.sub}}">{{p.kind}}</div></td>
+                    <td style="{{td}}; color: {{c.sub}}">{{p.method}}</td>
+                    <td style="{{td}}">{{p.schedule}}</td>
+                    <td style="{{td}}; color: {{c.sub}}">{{p.dest}}</td>
+                    <td style="{{td}}; color: {{c.sub}}">{{p.keep}}</td>
+                    <td style="{{td}}"><span style="{{p.badge}}">{{p.last}}</span><div style="font-size: 12px; color: {{c.sub}}; margin-top: 3px">{{p.when}}</div></td>
+                    <td style="{{td}}"><button type="button" onClick="{{p.toggle}}" aria-label="Enable {{p.target}}" style="{{p.track}}"><span style="{{p.knob}}"></span></button></td>
+                    <td style="{{td}}; white-space: nowrap"><button type="button" onClick="{{p.run}}" style="{{btnSm}}">{{p.runLabel}}</button></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
-      <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: {{c.muted}}"><span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: {{accent}}"></span>all succeeded</span><span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #DC2626"></span>one or more failed</span></div>
-    </section>
-    <section style="border-radius: 12px; background: {{c.card}}; border: 1px solid {{c.line}}; overflow: hidden">
-      <h2 style="margin: 0; padding: 18px 20px 10px; font-size: 15px; font-weight: 600">Policies</h2>
-      <div style="overflow-x: auto">
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px">
-          <thead><tr style="text-align: left; color: {{c.muted}}; font-size: 12px; background: {{c.head}}"><sc-for list="{{cols}}" as="h" hint-placeholder-count="7"><th style="padding: 10px 16px; font-weight: 600">{{h}}</th></sc-for></tr></thead>
-          <tbody><sc-for list="{{rows}}" as="r" hint-placeholder-count="5"><tr style="border-top: 1px solid {{c.line}}"><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td style="padding: 12px 16px"><span style="{{x.s}}">{{x.t}}</span></td></sc-for></tr></sc-for></tbody>
-        </table>
+    </sc-if>
+
+    <!-- SNAPSHOTS -->
+    <sc-if value="{{t1}}" hint-placeholder-val="{{ false }}">
+      <section style="border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px; border-bottom: 1px solid {{c.line}}; background: {{c.head}}">
+          <sc-for list="{{snapFilters}}" as="f" hint-placeholder-count="5"><button type="button" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button></sc-for>
+        </div>
+        <sc-for list="{{snaps}}" as="s" hint-placeholder-count="8">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid {{c.line}}; font-size: 13.5px">
+            <span style="flex: 1 1 220px"><span style="display: block; font-weight: 600">{{s.target}}</span><span style="display: block; font-size: 12px; color: {{c.sub}}; font-family: 'JetBrains Mono', monospace">{{s.id}} · {{s.dest}}</span></span>
+            <span style="color: {{c.sub}}; min-width: 140px">{{s.when}}</span>
+            <span style="min-width: 70px; font-variant-numeric: tabular-nums">{{s.size}}</span>
+            <span style="{{s.badge}}">{{s.state}}</span>
+            <button type="button" onClick="{{s.download}}" style="{{btnSm}}">Download</button>
+            <button type="button" onClick="{{s.restore}}" style="{{btnSmAccent}}">Restore</button>
+          </div>
+        </sc-for>
+      </section>
+    </sc-if>
+
+    <!-- RESTORE -->
+    <sc-if value="{{t2}}" hint-placeholder-val="{{ false }}">
+      <section style="padding: 20px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: flex; flex-direction: column; gap: 18px">
+        <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+          <sc-for list="{{rSteps}}" as="r" hint-placeholder-count="4"><li style="{{r.style}}"><span style="font-size: 12px; font-weight: 600; color: {{r.numColor}}">Step {{r.n}}</span><span style="font-size: 14px; font-weight: 600">{{r.label}}</span></li></sc-for>
+        </ol>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px">
+          <label style="{{lbl}}">Snapshot<select style="{{input}}"><option>{{restoreSnap}}</option><option>postgres-main · yesterday 02:00</option><option>minio-data · today 06:00</option></select></label>
+          <label style="{{lbl}}">Restore to<select style="{{input}}"><option>Same location (replace)</option><option>New app or database (side by side)</option><option>Download as archive</option></select></label>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px">
+          <sc-for list="{{scopes}}" as="o" hint-placeholder-count="3"><button type="button" onClick="{{o.pick}}" style="{{o.style}}"><span style="font-weight: 700; font-size: 14px">{{o.name}}</span><span style="font-size: 12px; color: {{c.sub}}">{{o.sub}}</span></button></sc-for>
+        </div>
+        <label style="display: flex; gap: 10px; align-items: center; font-size: 13.5px"><input type="checkbox" checked>Take a safety backup of the current state first</label>
+        <label style="display: flex; gap: 10px; align-items: center; font-size: 13.5px"><input type="checkbox">Stop the app during restore (recommended for databases)</label>
+        <sc-if value="{{restoring}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{rProgress}}" as="g" hint-placeholder-count="5"><div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px"><span style="{{g.dot}}"></span><span style="{{g.text}}">{{g.label}}</span></div></sc-for>
+          </div>
+        </sc-if>
+        <div style="display: flex; justify-content: flex-end; gap: 10px"><button type="button" onClick="{{startRestore}}" style="{{btnPrimary}}">{{restoreLabel}}</button></div>
+      </section>
+    </sc-if>
+
+    <!-- DESTINATIONS -->
+    <sc-if value="{{t3}}" hint-placeholder-val="{{ false }}">
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px">
+        <sc-for list="{{dests}}" as="d" hint-placeholder-count="6">
+          <section style="padding: 16px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 10px"><span style="{{d.logo}}">{{d.abbr}}</span><div style="flex: 1; min-width: 0"><div style="font-weight: 700">{{d.name}}</div><div style="font-size: 12px; color: {{c.sub}}; font-family: 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{d.where}}</div></div><span style="{{d.badge}}">{{d.state}}</span></div>
+            <div><div style="display: flex; justify-content: space-between; font-size: 12.5px"><span style="color: {{c.sub}}">Used</span><span style="font-weight: 600">{{d.used}}</span></div><div style="margin-top: 6px; height: 5px; border-radius: 3px; background: {{c.line}}"><div style="height: 5px; border-radius: 3px; width: {{d.pct}}; background: {{d.bar}}"></div></div></div>
+            <div style="font-size: 12px; color: {{c.sub}}">{{d.note}}</div>
+            <button type="button" onClick="{{d.test}}" style="{{btnSm}}">Test connection</button>
+          </section>
+        </sc-for>
+        <button type="button" style="min-height: 180px; border-radius: 10px; border: 1px dashed {{c.line}}; background: transparent; color: {{accent}}; font: 600 14px Inter; cursor: pointer">+ Add destination</button>
       </div>
-    </section>
+    </sc-if>
+
+    <!-- RESTORE TESTS -->
+    <sc-if value="{{t4}}" hint-placeholder-val="{{ false }}">
+      <section style="border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden">
+        <sc-for list="{{tests}}" as="t" hint-placeholder-count="4">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid {{c.line}}; font-size: 13.5px">
+            <span style="flex: 1 1 220px"><span style="display: block; font-weight: 600">{{t.target}}</span><span style="display: block; font-size: 12px; color: {{c.sub}}">{{t.detail}}</span></span>
+            <span style="color: {{c.sub}}">{{t.when}}</span><span style="{{t.badge}}">{{t.state}}</span>
+          </div>
+        </sc-for>
+        <div style="padding: 14px 16px; font-size: 12.5px; color: {{c.sub}}">Each test restores into an isolated sandbox, starts the app, runs its health check and a row-count query, then deletes the sandbox.</div>
+      </section>
+    </sc-if>
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1000}}'>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB","options":["#2563EB","#0284C7","#0D9488","#EA580C"]},"$preview":{"width":1440,"height":1054}}'>
 class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    const P = (target, kind, method, schedule, dest, keep, last, when) => ({ target, kind, method, schedule, dest, keep, last, when, on: true, running: false });
+    this.state = {
+      tab: 0, toast: '', newOpen: false, sf: 'All', scope: 0, restoreSnap: 'acme-blog · today 02:00', rStep: 0,
+      policies: [
+        P('postgres-main','Database · ded-eu-01','pg_dump','Daily 02:00','Cloudflare R2','7d · 4w · 6m','verified','6 h ago'),
+        P('acme-blog','Application · vps-sg-01','Restic (files + DB)','Daily 02:00','Backblaze B2','14 daily','success','6 h ago'),
+        P('minio_data','Volume · ded-eu-01','Restic snapshot','Every 6 h','Backblaze B2','7d · 4w','success','1 h ago'),
+        P('wp_content','Volume · vps-sg-01','Restic snapshot','Daily 03:00','S3 eu-central-1','14 daily','failed','5 h ago'),
+        P('compose definitions','Config · all servers','Git revision','On change','Gitea','unlimited','success','12 min ago'),
+        P('vps-eu-02','Whole server · config','Encrypted archive','Weekly Sun','Local + R2','8 weekly','restore-tested','2 d ago'),
+      ],
+    };
+  }
   renderVals() {
     const dark = this.props.dark ?? false;
-    const accent = this.props.accent ?? '#4F46E5';
+    const accent = this.props.accent ?? '#2563EB';
+    const st = this.state;
     const c = dark
-      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F1F5F9', muted:'#94A3B8', line:'#1E293B' }
-      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', muted:'#5B6475', line:'#E2E8F0' };
-    const tones = dark
-      ? { g:['#052E1B','#4ADE80'], r:['#3B0D0D','#F87171'], n:['#1E293B','#CBD5E1'], b:['#0C2340','#60A5FA'] }
-      : { g:['#ECFDF3','#15803D'], r:['#FEF2F2','#B91C1C'], n:['#F1F5F9','#475569'], b:['#EFF6FF','#1D4ED8'] };
-    const B = t => `display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;background:${tones[t][0]};color:${tones[t][1]}`;
-    const T = (t, s) => ({ t, s: s || `color:${c.muted};white-space:nowrap` });
-    const S = t => T(t, `font-weight:600;color:${c.text};white-space:nowrap`);
-    const data = [
-      ['postgres-main','pg_dump','Daily 02:00','Cloudflare R2','success','g','verified','g','6 h ago'],
-      ['minio-data','Restic snapshot','Every 6 h','Backblaze B2','success','g','verified','g','1 h ago'],
-      ['wordpress volume','Restic snapshot','Daily 03:00','S3 (eu)','failed','r','—','n','5 h ago'],
-      ['compose definitions','Git revision','On change','Gitea','success','g','verified','g','12 min ago'],
-      ['server config','Encrypted archive','Weekly · Sun','Local + R2','success','g','restore-tested','b','2 d ago'],
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F3F4F6', sub:'#9CA3AF', line:'#1E293B', soft:'#172554', okBg:'#052E1B', okFg:'#86EFAC' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', sub:'#475569', line:'#E2E8F0', soft:'#EFF6FF', okBg:'#DCFCE7', okFg:'#166534' };
+    const say = m => { this.setState({ toast: m }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2800); };
+    const pill = (bg, fg) => `display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.03em;white-space:nowrap;border:1px solid ${fg}33;background:${dark?'#1F2937':bg};color:${fg}`;
+    const tone = s => ({ success: pill('#DCFCE7','#15803D'), verified: pill('#DCFCE7','#15803D'), 'restore-tested': pill('#DBEAFE','#1D4ED8'), failed: pill('#FEE2E2','#B91C1C'), running: pill('#FEF3C7','#B45309'), paused: pill('#F3F4F6','#4B5563'), passed: pill('#DCFCE7','#15803D'), connected: pill('#DCFCE7','#15803D'), 'nearly full': pill('#FEF3C7','#B45309') })[s] || pill('#F3F4F6','#4B5563');
+    const base = `display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 13px;border-radius:8px;font:600 13.5px Inter;cursor:pointer;`;
+    const btn = base + `border:1px solid ${c.line};background:${c.card};color:${c.text}`;
+    const btnPrimary = base + `border:0;background:${accent};color:#fff`;
+    const btnSm = `min-height:32px;padding:0 12px;border-radius:7px;border:1px solid ${c.line};background:${c.card};color:${c.text};font:600 12.5px Inter;cursor:pointer`;
+    const tabs = ['Policies','Snapshots','Restore','Destinations','Restore tests'].map((l, i) => ({ label: l, pick: () => this.setState({ tab: i }),
+      style: `min-height:44px;padding:0 2px;border:0;border-bottom:2px solid ${st.tab===i?accent:'transparent'};margin-bottom:-1px;background:transparent;cursor:pointer;font:600 14px Inter;color:${st.tab===i?accent:c.sub}` }));
+    const setP = (i, patch) => this.setState({ policies: st.policies.map((p, j) => j === i ? { ...p, ...patch } : p) });
+    const run = (i) => { const p = st.policies[i]; if (!p.on) return say('Turn the policy on first.'); setP(i, { running: true, last: 'running', when: 'now' });
+      setTimeout(() => { this.setState({ policies: this.state.policies.map((q, j) => j === i ? { ...q, running: false, last: 'success', when: 'just now' } : q) }); say(`${p.target} backed up · integrity check passed`); }, 1400); };
+    const policies = st.policies.map((p, i) => ({ ...p, badge: tone(p.on ? p.last : 'paused'), last: p.on ? p.last : 'paused', runLabel: p.running ? 'Running…' : 'Run now', run: () => run(i),
+      toggle: () => { setP(i, { on: !p.on }); say(`${p.target} ${p.on ? 'paused' : 'resumed'}`); },
+      track: `position:relative;width:44px;height:26px;border-radius:13px;border:0;cursor:pointer;background:${p.on?accent:(dark?'#374151':'#CBD5E1')}`,
+      knob: `position:absolute;top:3px;left:${p.on?21:3}px;width:20px;height:20px;border-radius:10px;background:#fff` }));
+    const hist = [9,9,9,8,9,9,9,9,7,9,9,9,9,8]; const fails = [0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+    const days = hist.map((v, i) => ({ label: fails[i] ? 'one or more failed' : 'all succeeded', style: `flex:1;height:${v*7}px;border-radius:4px;background:${fails[i]?'#DC2626':accent}` }));
+    const snapsAll = [
+      ['acme-blog','snap 4f9a21c','Backblaze B2','Today, 02:00','412 MB','verified'],['postgres-main','dump 20261030','Cloudflare R2','Today, 02:00','2.4 GB','verified'],
+      ['minio_data','snap 9c03e7d','Backblaze B2','Today, 06:00','41 GB','verified'],['wp_content','snap —','S3 eu-central-1','Today, 03:00','—','failed'],
+      ['acme-blog','snap 1be77f0','Backblaze B2','Yesterday, 02:00','409 MB','verified'],['postgres-main','dump 20261029','Cloudflare R2','Yesterday, 02:00','2.4 GB','verified'],
+      ['vps-eu-02','archive w44','Local + R2','Oct 27, 01:00','88 MB','restore-tested'],
     ];
-    const hist = [9,9,9,8,9,9,9,9,7,9,9,9,9,8];
-    const fails = [false,false,false,true,false,false,false,false,true,false,false,false,false,true];
-    return { c, dark, accent,
-      tiles: [{k:'Protected targets',v:'23',s:'across 6 servers'},{k:'Success rate (30 d)',v:'98.6%',s:'3 failed runs'},{k:'Stored',v:'4.4 TB',s:'encrypted at rest'},{k:'Last restore test',v:'4 days ago',s:'postgres-main · passed'}],
-      days: hist.map((v, i) => ({ label: fails[i] ? 'failure' : 'all succeeded', style:`flex:1;height:${v*7}px;border-radius:4px;background:${fails[i]?'#DC2626':accent}` })),
-      cols: ['Target','Method','Schedule','Destination','Last run','Integrity','When'],
-      rows: data.map(d => ({ cells: [S(d[0]), T(d[1]), T(d[2]), T(d[3]), T(d[4], B(d[5])), T(d[6], B(d[7])), T(d[8])] })) };
+    const targets = ['All', 'acme-blog', 'postgres-main', 'minio_data', 'wp_content'];
+    const snapFilters = targets.map(t => ({ label: t, pick: () => this.setState({ sf: t }), style: `min-height:30px;padding:0 10px;border-radius:999px;font:600 12px Inter;cursor:pointer;border:1px solid ${st.sf===t?accent:c.line};background:${st.sf===t?accent:c.card};color:${st.sf===t?'#fff':c.text}` }));
+    const snaps = snapsAll.filter(s => st.sf === 'All' || s[0] === st.sf).map(s => ({ target: s[0], id: s[1], dest: s[2], when: s[3], size: s[4], state: s[5], badge: tone(s[5]),
+      download: () => s[5] === 'failed' ? say('This run failed — there is nothing to download.') : say(`Preparing ${s[0]} ${s[1]} for download (decrypted on the fly)`),
+      restore: () => s[5] === 'failed' ? say('Pick a successful snapshot to restore.') : this.setState({ tab: 2, restoreSnap: `${s[0]} · ${s[3].toLowerCase()}`, rStep: 0 }) }));
+    const scopes = [['Everything','Files, database and configuration'],['Files only','Restore the volume, keep the database'],['Database only','Restore the dump, keep the files']].map(([name, sub], i) => ({ name, sub, pick: () => this.setState({ scope: i }),
+      style: `display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px;border-radius:10px;text-align:left;cursor:pointer;font-family:Inter;color:${c.text};background:${st.scope===i?c.soft:c.card};border:${st.scope===i?'2px solid '+accent:'1px solid '+c.line}` }));
+    const rLabels = ['Choose snapshot','What to restore','Safety backup','Restore & verify'];
+    const step = st.rStep || 0;
+    const rSteps = rLabels.map((label, i) => ({ n: i + 1, label, numColor: i <= step ? accent : c.sub, style: `display:flex;flex-direction:column;gap:2px;padding-top:10px;border-top:4px solid ${i<=step?accent:c.line}` }));
+    const prog = ['Safety backup of the current state','Download and decrypt snapshot','Restore files and database','Start the app','Health check and row counts'];
+    const rProgress = prog.map((label, i) => { const done = i < (st.rDone || 0); return { label, dot: `width:12px;height:12px;border-radius:6px;flex:none;background:${done?'#16A34A':(dark?'#374151':'#CBD5E1')}`, text: done ? 'font-weight:500' : `color:${c.sub}` }; });
+    const startRestore = () => { if (st.restoring) return; this.setState({ restoring: true, rDone: 0, rStep: 3 }); let n = 0; clearInterval(this._r);
+      this._r = setInterval(() => { n++; this.setState({ rDone: n }); if (n >= prog.length) { clearInterval(this._r); this.setState({ restoring: false }); say(`Restore complete · ${st.restoreSnap} is live and healthy`); } }, 600); };
+    const dests = [
+      ['R2','Cloudflare R2','backups-eu · auto','1.9 TB of 2.5 TB',76,'connected','#F38020','Object lock on · 30-day immutability'],
+      ['B2','Backblaze B2','livezen-backups · eu-central','1.6 TB','40','connected','#E21E29','Lifecycle: keep last 90 days'],
+      ['S3','Amazon S3','s3://lz-wp-backups · eu-central-1','612 GB','28','connected','#FF9900','Last write failed at 03:00 · credentials expired'],
+      ['GD','Google Drive','Shared drive · Customer backups','184 GB of 2 TB',9,'connected','#1A73E8','Used for customer-downloadable copies'],
+      ['SF','SFTP storage box','u412@storagebox.de:/backups','4.6 TB of 5 TB',92,'nearly full','#4B5563','Offsite copy of weekly archives'],
+      ['LD','Local disk','/var/backups on each server','88 GB','12','connected','#16A34A','Fast restore copy · 2 days'],
+    ].map(d => ({ abbr: d[0], name: d[1], where: d[2], used: d[3], pct: d[4] + '%', state: d[5], badge: tone(d[5]), note: d[7], bar: d[4] >= 85 ? '#DC2626' : accent,
+      logo: `width:36px;height:36px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font:700 12px Inter;color:#fff;background:${d[6]}`,
+      test: () => say(`${d[1]}: write, read and delete test passed in 1.2 s`) }));
+    const tests = [['postgres-main','pg_restore into sandbox · 18.2 M rows matched','Oct 28','passed'],['acme-blog','WordPress home page returned 200 · DB 412 tables','Oct 27','passed'],['minio_data','6,104 objects restored · checksums matched','Oct 20','passed'],['wp_content','No successful snapshot in the last 24 h','due now','failed']]
+      .map(t => ({ target: t[0], detail: t[1], when: t[2], state: t[3], badge: tone(t[3]) }));
+    return { c, dark, accent, btn, btnPrimary, btnSm, btnSmAccent: btnSm.replace(`color:${c.text}`, `color:${accent}`).replace(`border:1px solid ${c.line}`, `border:1px solid ${accent}`),
+      lbl: 'display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600',
+      input: `height:38px;padding:0 10px;border-radius:8px;border:1px solid ${c.line};background:${c.bg};color:${c.text};font:13px Inter`,
+      th: 'padding:10px 14px;font-weight:600', td: 'padding:12px 14px',
+      tabs, policies, days, snaps, snapFilters, scopes, rSteps, rProgress, dests, tests,
+      t0: st.tab===0, t1: st.tab===1, t2: st.tab===2, t3: st.tab===3, t4: st.tab===4,
+      tiles: [{ k:'Protected targets', v:'23', s:'apps, databases, volumes, servers' }, { k:'Success rate · 30 d', v:'98.6%', s:'3 failed runs' }, { k:'Stored', v:'8.9 TB', s:'encrypted at rest' }, { k:'Last restore test', v:'2 days ago', s:'postgres-main · passed' }, { k:'Next run', v:'02:00', s:'5 policies due' }],
+      newOpen: !!st.newOpen, toggleNew: () => this.setState({ newOpen: !st.newOpen }),
+      createPolicy: () => { this.setState({ newOpen: false, policies: [...st.policies, { target: 'acme-blog', kind: 'Application · vps-sg-01', method: 'Restic snapshot', schedule: 'Daily 02:00', dest: 'Cloudflare R2', keep: '7d · 4w · 6m', last: 'scheduled', when: 'first run 02:00', on: true, running: false }] }); say('Policy created · first run tonight at 02:00'); },
+      runAll: () => { st.policies.forEach((p, i) => { if (p.on && p.last !== 'success') run(i); }); say('Running every policy that is due or failed'); },
+      goRestore: () => this.setState({ tab: 2, rStep: 0 }), restoreSnap: st.restoreSnap, restoring: !!st.restoring || (st.rDone || 0) > 0, startRestore,
+      restoreLabel: st.restoring ? 'Restoring…' : 'Start restore',
+      toast: !!st.toast, toastText: st.toast,
+    };
   }
+  componentWillUnmount() { clearTimeout(this._t); clearInterval(this._r); }
 }
 </script>
 </body>

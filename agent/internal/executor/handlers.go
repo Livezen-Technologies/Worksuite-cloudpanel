@@ -83,6 +83,56 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			}
 			return map[string]any{"logs": s}, nil
 		}
+	case "fs.list", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.delete":
+		return e.files(ctx, c.Type, c.Payload)
+	case "fs.upload", "fs.download":
+		return e.transfer(ctx, c.Type, c.Payload)
+	case "fs.copy", "fs.move", "fs.compress", "fs.extract", "fs.trash", "fs.trash_list", "fs.trash_restore", "fs.trash_purge":
+		return e.fileOps(ctx, c.Type, c.Payload)
+	case "fs.chmod", "fs.chown":
+		return e.perms(ctx, c.Type, c.Payload)
+	case "fs.search":
+		return e.search(ctx, c.Payload)
+	case "fs.scan":
+		return e.scanFiles(ctx, c.Payload)
+	case "av.scan", "av.quarantine", "av.restore", "av.delete":
+		return e.antivirus(ctx, c.Type, c.Payload)
+	case "wp.cli":
+		return e.wpCLI(ctx, c.Payload)
+	case "wp.inventory":
+		return e.wpInventory(ctx, c.Payload)
+	case "wp.copy_tables":
+		return e.wpCopyTables(ctx, c.Payload)
+	case "migrate.fetch", "migrate.inspect", "migrate.extract", "migrate.import_db", "migrate.cleanup":
+		return e.migrate(ctx, c.Type, c.Payload)
+	case "mail.certs":
+		return e.mailCerts(ctx, c.Payload)
+	case "svc.list", "svc.action", "svc.install", "svc.create", "svc.delete", "svc.logs":
+		return e.systemServices(ctx, c.Type, c.Payload, progress)
+	case "cron.exec":
+		return e.cronExec(ctx, c.Payload)
+	case "mail.import":
+		return e.mailImport(ctx, c.Payload, progress)
+	case "cron.schedule":
+		return e.cronSchedule(c.Payload)
+	case "cron.stop":
+		return e.cronStop(ctx, c.Payload)
+	case "wp.drop_tables":
+		return e.wpDropTables(ctx, c.Payload)
+	case "egress.apply":
+		return e.applyEgress(ctx, c.Payload)
+	case "av.realtime":
+		return e.avRealtime(ctx, c.Payload)
+	case "av.events":
+		return e.avEvents(ctx, c.Payload)
+	case "fim.baseline", "fim.check":
+		return e.integrity(ctx, c.Type, c.Payload)
+	case "crowdsec.apply":
+		return e.crowdsecApply(ctx, c.Payload)
+	case "crowdsec.alerts":
+		return e.crowdsecAlerts(ctx, c.Payload)
+	case "fs.history_list", "fs.history_read", "fs.history_restore":
+		return e.history(ctx, c.Type, c.Payload)
 	case "firewall.apply":
 		return e.applyFirewall(ctx, c.Payload, progress)
 	case "firewall.confirm":
@@ -95,6 +145,12 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.healthCheck(ctx, c.Payload, progress)
 	case "container.create":
 		return e.createContainer(ctx, c.Payload, progress)
+	case "vps.create":
+		return e.createVPS(ctx, c.Payload, progress)
+	case "swarm.init", "swarm.join", "swarm.leave", "swarm.inspect", "swarm.node_update", "swarm.service_scale":
+		return e.swarm(ctx, c.Type, c.Payload)
+	case "swarm.service_create", "swarm.service_image", "swarm.service_remove", "swarm.secret_create", "swarm.secret_remove":
+		return e.swarmServices(ctx, c.Type, c.Payload)
 	case "container.prune":
 		var p struct {
 			Until  string            `json:"until"`
@@ -131,6 +187,16 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 			return nil, err
 		}
 		return d.RemoveImage(ctx, p.Image, p.Force)
+	case "mesh.apply":
+		return e.meshApply(ctx, c.Payload, progress)
+	case "mesh.status":
+		return e.meshStatus(ctx)
+	case "tunnel.lockdown":
+		return e.tunnelLock(ctx, c.Payload)
+	case "mesh.confirm":
+		return e.meshConfirm()
+	case "server.cleanup":
+		return e.cleanup(ctx, c.Payload, progress)
 	case "image.prune":
 		var p struct {
 			All    bool              `json:"all"` // false: dangling only
@@ -147,6 +213,54 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return d.PruneImages(ctx, pruneFilters(p.Until, p.Labels, map[string][]string{"dangling": {dangling}}))
 	case "network.create":
 		return e.createNetwork(ctx, c.Payload)
+	case "network.connect":
+		var p struct {
+			Network   string   `json:"network"`
+			Container string   `json:"container"`
+			Aliases   []string `json:"aliases"`
+			IPv4      string   `json:"ipv4_address"`
+		}
+		if err := decode(c.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := checkRef("network", p.Network); err != nil {
+			return nil, err
+		}
+		if err := checkRef("container", p.Container); err != nil {
+			return nil, err
+		}
+		// Attaching a container that is already attached is how the panel keeps
+		// the ingress on every environment network, so "already exists" is the
+		// expected answer on every run after the first, not a failure.
+		if err := d.ConnectNetwork(ctx, p.Network, p.Container, p.Aliases, p.IPv4); err != nil && !isAlreadyAttached(err) {
+			return nil, err
+		}
+		return map[string]any{"network": p.Network, "container": p.Container, "attached": true}, nil
+	case "network.disconnect":
+		var p struct {
+			Network   string `json:"network"`
+			Container string `json:"container"`
+			Force     bool   `json:"force"`
+		}
+		if err := decode(c.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := checkRef("network", p.Network); err != nil {
+			return nil, err
+		}
+		if err := checkRef("container", p.Container); err != nil {
+			return nil, err
+		}
+		// Taking a container off `proxy` is how it loses public reachability, so
+		// the built-in networks are refused here the way network.remove refuses
+		// to delete them: a typo must not be able to black-hole the ingress.
+		if p.Network == "bridge" || p.Network == "host" || p.Network == "none" {
+			return nil, fmt.Errorf("refusing to detach from built-in network %s", p.Network)
+		}
+		if err := d.DisconnectNetwork(ctx, p.Network, p.Container, p.Force); err != nil {
+			return nil, err
+		}
+		return map[string]any{"network": p.Network, "container": p.Container, "attached": false}, nil
 	case "network.remove":
 		var p struct {
 			NetworkID string `json:"network_id"`
@@ -201,10 +315,14 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.restoreRun(ctx, c.ID, c.Payload, progress)
 	case "backup.test":
 		return e.backupTest(ctx, c.ID, c.Payload, progress)
+	case "backup.probe":
+		return e.backupProbe(ctx, c.Payload)
 	case "backup.export":
 		return e.backupExport(ctx, c.ID, c.Payload, progress)
 	case "proxy.config":
 		return e.proxyConfig(c.Payload)
+	case "proxy.scan", "proxy.retire", "proxy.restore":
+		return e.proxyAdopt(c.Type, c.Payload)
 	case "proxy.certs":
 		return e.ProxyCerts()
 	case "agent.update":
@@ -300,6 +418,16 @@ func managedLabels(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// isAlreadyAttached reports whether Docker refused a connect because the
+// container is on that network already, which is not an error for us.
+func isAlreadyAttached(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists in network") || strings.Contains(msg, "already attached")
 }
 
 func (e *Executor) createNetwork(ctx context.Context, raw []byte) (any, error) {

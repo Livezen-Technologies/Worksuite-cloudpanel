@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
+import { api, isApiError } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, StatTile, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, StatTile, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog } from '../../components/Overlay'
@@ -58,6 +59,14 @@ const TRIGGERS: [string, string, string][] = [
   ['trigger_country', 'Country set to Challenge', 'From the Country block tab'],
 ]
 
+/** FW-011 expiry choices, in hours; empty means the entry never expires. */
+const CLEARANCE: [string, string][] = [['30', '30 minutes'], ['60', '1 hour'], ['1440', '24 hours']]
+
+const EXPIRY: { value: string; label: string }[] = [
+  { value: '', label: 'Never' }, { value: '1', label: '1 hour' }, { value: '24', label: '24 hours' },
+  { value: '168', label: '7 days' }, { value: '720', label: '30 days' },
+]
+
 const toList = (v: unknown): string[] =>
   String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 
@@ -65,7 +74,15 @@ const toList = (v: unknown): string[] =>
  * Says plainly that a part of the screen is configurable but not yet enforced,
  * rather than letting the page imply the proxy is acting on it.
  */
-function NotEnforced({ what, needs }: { what: string; needs: string }) {
+function NotEnforced({ what, needs, crowdsec }: { what: string; needs: string; crowdsec?: boolean }) {
+  if (crowdsec) {
+    return (
+      <div className="flex gap-3 items-start p-3 rounded-[10px] bg-head border border-line">
+        <Badge tone="g">enforced</Badge>
+        <p className="m-0 text-sm text-muted">{what} is applied to traffic by CrowdSec on the ingress servers.</p>
+      </div>
+    )
+  }
   return (
     <div className="flex gap-3 items-start p-3 rounded-[10px] bg-head border border-line">
       <Badge tone="y">not enforced</Badge>
@@ -80,6 +97,7 @@ function NotEnforced({ what, needs }: { what: string; needs: string }) {
 export default function Firewall() {
   const [tab, setTab] = useState('rules')
   const { item, isLoading, refetch } = useOne<R>('/firewall')
+  const crowdsec = item?.challenge_enforcement === 'crowdsec'
   const rules = useList<R>('/firewall-rules')
   const events = useList<R>('/firewall/events', undefined, { enabled: tab === 'events' })
   const domains = useList<R>('/domains')
@@ -90,6 +108,9 @@ export default function Firewall() {
   // Select is a controlled listbox, so the provider form is held in state
   // rather than read from the DOM with FormData.
   const [prov, setProv] = useState<R | null>(null)
+  const [ipForm, setIpForm] = useState<R | null>(null)
+  // FW-014: a block entry that covers the admin's own address waits here for confirmation.
+  const [selfBlock, setSelfBlock] = useState<{ body: R; message: string } | null>(null)
 
   const settings = (item?.settings ?? {}) as R
   const unsupported = (item?.unsupported ?? []) as R[]
@@ -105,7 +126,6 @@ export default function Firewall() {
     site_key: String(settings.site_key ?? ''),
     secret_key: '',
     min_score: String(settings.min_score ?? 0.5),
-    clearance_minutes: num(settings.clearance_minutes) || 30,
   }
   const setP = (patch: R) => setProv({ ...p, ...patch })
 
@@ -169,17 +189,67 @@ export default function Firewall() {
       .then(() => { setNewPath(''); refetch() }).catch(() => {})
   }
 
+  const ipLists = (item?.ip_lists ?? []) as R[]
+  const underAttack = !!settings.under_attack
+
+  const sendIp = (body: R) =>
+    run({ path: '/firewall/ips', body, label: body.list === 'allow' ? 'Allow IP' : 'Block IP', success: `${String(body.cidr)} added to the ${String(body.list)} list` })
+      .then(() => refetch())
+      .catch((e) => {
+        if (isApiError(e) && e.status === 409 && /your own address/.test(e.message)) {
+          setSelfBlock({ body, message: e.message })
+          return
+        }
+        throw e
+      })
+
+  const saveIp = (v: Record<string, unknown>) => {
+    const hours = num(v.expires_in)
+    return sendIp({
+      list: v.list || 'block', cidr: String(v.cidr ?? '').trim(), note: v.note || null,
+      domain_id: v.domain_id || null,
+      expires_at: hours ? new Date(Date.now() + hours * 3600_000).toISOString() : null,
+    })
+  }
+
+  const quickIp = (list: string, ip: string) =>
+    sendIp({ list, cidr: ip, note: 'From the event log' }).catch(() => {})
+
+  const exportEvents = async () => {
+    try {
+      const res = await api.get<{ data: { filename: string; csv: string } }>('/firewall/events/export')
+      const url = URL.createObjectURL(new Blob([res.data.csv], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url; a.download = res.data.filename; document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch { /* the request layer reports the error */ }
+  }
+
   const blockedCount = Object.values(countries).filter((s) => s === 'block').length
   const challengeCount = Object.values(countries).filter((s) => s === 'challenge').length
 
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
 
   return (
     <>
-      <PageHeader title="Firewall" subtitle="Rate limits, challenges and country rules at the edge"
-        actions={tab === 'rules' ? <button type="button" className="btn btn-primary" onClick={() => setForm({})}>Add rule</button> : undefined} />
+      <PageHeader title="Firewall" subtitle="Web application firewall at the edge: rate limits, challenges, country rules and reCAPTCHA"
+        actions={<>
+          <Select className="input !w-auto" aria-label="Under attack scope" value={String(settings.under_attack_domain_id ?? '')}
+            onChange={(e) => run({ method: 'PATCH', path: '/firewall/under-attack', body: { enabled: underAttack, domain_id: e.target.value || null }, label: 'Under attack scope', success: 'Scope saved' }).then(() => refetch()).catch(() => {})}>
+            {domainOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+          <button type="button" aria-pressed={underAttack} disabled={busy} className={`btn ${underAttack ? 'btn-danger' : ''}`}
+            title="Every visitor on the chosen scope must pass a challenge. Allow-listed IPs are never challenged."
+            onClick={() => run({ method: 'PATCH', path: '/firewall/under-attack', body: { enabled: !underAttack, domain_id: settings.under_attack_domain_id ?? null }, label: 'Under attack mode', success: !underAttack ? 'Under attack mode on' : 'Under attack mode off' }).then(() => refetch()).catch(() => {})}>
+            {underAttack ? 'Under attack mode: on' : 'Under attack mode'}
+          </button>
+        </>} />
 
-      <div className="flex flex-wrap gap-4">
+      {underAttack && <div className="mt-4">{crowdsec
+        ? <NotEnforced what="Under attack mode" needs="" crowdsec />
+        : <NotEnforced what="Under attack mode" needs="CrowdSec at the edge" />}</div>}
+
+      <div className="mt-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         <StatTile label="Rules" value={num(item?.rules_total)} />
         <StatTile label="Enforced" value={num(item?.rules_total) - unsupported.length}
           valueTone={unsupported.length ? 'y' : 'g'} />
@@ -204,20 +274,26 @@ export default function Firewall() {
         </div>
       )}
 
-      <div className="mt-4">
+      <div className="mt-5">
         <Tabs value={tab} onChange={setTab} label="Firewall sections" tabs={[
           { id: 'rules', label: 'Rate limits' },
           { id: 'challenges', label: 'Challenges' },
           { id: 'countries', label: 'Country block' },
           { id: 'recaptcha', label: 'reCAPTCHA' },
+          { id: 'ips', label: 'IP lists' },
           { id: 'events', label: 'Events' },
         ]} />
       </div>
 
       {tab === 'rules' && (
+        <Card title="Rate-limit rules" pad={false} actions={<button type="button" className="btn btn-primary" onClick={() => setForm({})}>Add rule</button>}>
         <DataTable label="Rate limit rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
           searchKeys={(r) => `${r.name} ${(r.paths as string[] ?? []).join(' ')}`}
           empty={<Empty>No rules yet. Add one to rate-limit a path.</Empty>}
+          actions={(r) => [
+              { label: `Edit ${String(r.name ?? 'rule')}`, icon: 'pencil', onClick: () => setForm({ ...r, paths_text: ((r.paths as string[]) ?? []).join(', '), methods_text: ((r.methods as string[]) ?? []).join(', '), domain_id: r.domain_id ?? '' }) },
+              { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setRemove(r) },
+            ]}
           columns={[
             { key: 'name', header: 'Rule', sortable: true, render: (r) => (
               <div>
@@ -235,7 +311,7 @@ export default function Firewall() {
             { key: 'action', header: 'Action', render: (r) => (
               <span className="flex items-center gap-2">
                 <Badge tone={ACTION_TONE[String(r.action)] ?? 'n'}>{String(r.action)}</Badge>
-                {!ENFORCED.includes(String(r.action)) && <Badge tone="y">not enforced</Badge>}
+                {!crowdsec && !ENFORCED.includes(String(r.action)) && <Badge tone="y">not enforced</Badge>}
               </span>
             ) },
             { key: 'hits', header: 'Hits', sortable: true, value: (r) => num(r.hits) },
@@ -243,35 +319,36 @@ export default function Firewall() {
               <Toggle checked={!!r.enabled} label={`Enable ${String(r.name)}`}
                 onChange={(v) => run({ method: 'PATCH', path: `/firewall-rules/${r.id}`, body: { enabled: v }, label: 'Toggle rule', success: v ? 'Rule on' : 'Rule off' }).then(() => rules.refetch()).catch(() => {})} />
             ) },
-            { key: 'act', header: '', render: (r) => (
-              <span className="flex gap-2">
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({
-                  ...r,
-                  paths_text: ((r.paths as string[]) ?? []).join(', '),
-                  methods_text: ((r.methods as string[]) ?? []).join(', '),
-                  domain_id: r.domain_id ?? '',
-                })}>Edit</button>
-                <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemove(r)}>Delete</button>
-              </span>
-            ) },
           ]} />
+        </Card>
       )}
 
       {tab === 'challenges' && (
         <div className="flex flex-wrap gap-4 items-start">
           <Card className="flex-[1_1_340px]" title="Challenge type">
-            <NotEnforced what="The challenge configuration" needs="CrowdSec or Cloudflare Turnstile at the edge" />
+            <NotEnforced what="The challenge configuration" needs="CrowdSec or Cloudflare Turnstile at the edge" crowdsec={crowdsec} />
             <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label="Challenge type">
-              {CHALLENGE_TYPES.map(([id, name, sub]) => (
-                <label key={id} className="flex gap-3 items-start py-2 min-h-[44px] cursor-pointer">
-                  <input type="radio" name="challenge_type" className="mt-1" checked={settings.challenge_type === id}
-                    onChange={() => saveSetting({ challenge_type: id }, 'Challenge type saved')} />
-                  <span><span className="block font-semibold text-sm">{name}</span><span className="block text-xs text-muted">{sub}</span></span>
-                </label>
-              ))}
+              {CHALLENGE_TYPES.map(([id, name, sub]) => {
+                const on = settings.challenge_type === id
+                return (
+                  <button key={id} type="button" role="radio" aria-checked={on} disabled={busy}
+                    onClick={() => saveSetting({ challenge_type: id }, 'Challenge type saved')}
+                    className={`flex flex-col items-start gap-0.5 text-left p-3 min-h-[44px] rounded-lg border cursor-pointer ${on ? 'border-accent bg-[var(--sel)]' : 'border-line bg-card hover:bg-head'}`}>
+                    <span className="font-bold text-sm">{name}</span><span className="text-xs text-muted">{sub}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-3">
+              <Field label="Clearance lasts" hint="How long a visitor stays cleared after passing.">
+                <Select className="input" aria-label="Clearance lasts" value={String(num(settings.clearance_minutes) || 30)}
+                  onChange={(e) => saveSetting({ clearance_minutes: Number(e.target.value) }, 'Clearance saved')}>
+                  {CLEARANCE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </Field>
             </div>
           </Card>
-          <Card className="flex-[1_1_340px]" title="When to challenge">
+          <Card className="flex-[1_1_340px]" title="Challenge visitors when">
             {TRIGGERS.map(([key, label, sub]) => (
               <div key={key} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">
                 <div className="flex-1"><div className="font-semibold text-sm">{label}</div><div className="text-xs text-muted">{sub}</div></div>
@@ -279,7 +356,79 @@ export default function Firewall() {
               </div>
             ))}
           </Card>
-          <Card className="flex-[1_1_340px]" title="Protected paths"
+        </div>
+      )}
+
+      {tab === 'countries' && (
+        <Card title="Country rules" actions={
+          <div role="group" aria-label="Country policy mode" className="flex gap-1 p-[3px] rounded-lg bg-head border border-line">
+            {([['block', 'Block listed'], ['allow', 'Allow only listed']] as const).map(([v, l]) => (
+              <button key={v} type="button" aria-pressed={mode === v} disabled={busy}
+                onClick={() => mode !== v && saveSetting({ country_mode: v }, 'Policy mode saved')}
+                className={`btn btn-sm ${mode === v ? 'btn-primary' : 'btn-ghost'}`}>{l}</button>
+            ))}
+          </div>
+        }>
+          <NotEnforced what="The country policy" needs="a GeoIP plugin such as traefik-geoip2, or CrowdSec" crowdsec={item?.country_enforcement === 'crowdsec'} />
+          <p className="mt-3 text-sm text-muted">
+            {mode === 'block'
+              ? 'Every country is allowed except the ones you mark. Click a country to cycle allowed → challenge → blocked.'
+              : 'Every country is blocked except the ones you mark. Click a country to allow or block it.'}
+          </p>
+          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+            {COUNTRIES.map(([code, name]) => {
+              const label = countryLabel(code)
+              return (
+                <button key={code} type="button" onClick={() => cycleCountry(code)} disabled={busy}
+                  className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-lg bg-card border border-line text-left text-[13px] font-medium cursor-pointer hover:bg-head">
+                  <span className="font-mono text-xs text-muted w-6">{code}</span>
+                  <span className="flex-1 truncate">{name}</span>
+                  <Badge tone={label === 'blocked' ? 'r' : label === 'challenge' ? 'y' : 'g'}>{label}</Badge>
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-4 mb-0 text-xs text-muted">Addresses on the allow list are never blocked by country rules.</p>
+        </Card>
+      )}
+
+      {tab === 'recaptcha' && (
+        <div className="flex flex-wrap gap-4 items-start">
+          <Card className="flex-[1_1_380px]" title="reCAPTCHA settings" actions={settings.secret_key_set ? <Badge tone="g">connected</Badge> : <Badge tone="n">not set up</Badge>}>
+            <NotEnforced what="The provider configuration" needs="a challenge middleware at the edge" />
+            <form className="mt-3 flex flex-col gap-4" onSubmit={(e) => {
+              e.preventDefault()
+              const patch: R = { provider: p.provider, site_key: p.site_key, min_score: Number(p.min_score) }
+              // An empty box keeps the stored secret rather than clearing it.
+              if (String(p.secret_key ?? '')) patch.secret_key = p.secret_key
+              saveSetting(patch, 'Provider settings saved').then(() => setProv(null))
+            }}>
+              <Field label="Provider">
+                <Select className="input" value={String(p.provider)} onChange={(e) => setP({ provider: e.target.value })}>
+                  <option value="turnstile">Cloudflare Turnstile</option>
+                  <option value="hcaptcha">hCaptcha</option>
+                  <option value="recaptcha">Google reCAPTCHA</option>
+                </Select>
+              </Field>
+              <Field label="Site key"><input className="input font-mono" value={String(p.site_key)} onChange={(e) => setP({ site_key: e.target.value })} /></Field>
+              <Field label="Secret key" hint={settings.secret_key_set ? 'A key is saved. Leave blank to keep it.' : 'Stored encrypted and never shown again.'}>
+                <input className="input font-mono" type="password" autoComplete="new-password" value={String(p.secret_key ?? '')}
+                  placeholder={settings.secret_key_set ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : ''} onChange={(e) => setP({ secret_key: e.target.value })} />
+              </Field>
+              <div>
+                <div className="flex justify-between text-[13px] font-semibold"><span>Minimum score to pass</span><span>{String(p.min_score)}</span></div>
+                <div role="radiogroup" aria-label="Minimum score to pass" className="flex gap-1.5 mt-2">
+                  {['0.1', '0.3', '0.5', '0.7', '0.9'].map((v) => (
+                    <button key={v} type="button" role="radio" aria-checked={String(p.min_score) === v} onClick={() => setP({ min_score: v })}
+                      className={`btn btn-sm flex-1 ${String(p.min_score) === v ? 'btn-primary' : ''}`}>{v}</button>
+                  ))}
+                </div>
+                <div className="text-xs text-muted mt-1.5">Below this score, the visitor is challenged.</div>
+              </div>
+              <FormActions><button className="btn btn-primary" disabled={busy}>Save provider</button></FormActions>
+            </form>
+          </Card>
+          <Card className="flex-[1_1_320px]" title="Protected paths"
             actions={<span className="flex gap-2">
               <input className="input !w-44 font-mono" value={newPath} placeholder="/login" aria-label="Path to protect"
                 onChange={(e) => setNewPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPath() } }} />
@@ -301,74 +450,34 @@ export default function Firewall() {
         </div>
       )}
 
-      {tab === 'countries' && (
-        <Card title="Country policy" actions={
-          <Select className="input !w-auto" aria-label="Country policy mode" value={mode}
-            onChange={(e) => saveSetting({ country_mode: e.target.value }, 'Policy mode saved')}>
-            <option value="block">Block listed</option>
-            <option value="allow">Allow only listed</option>
-          </Select>
-        }>
-          <NotEnforced what="The country policy" needs="a GeoIP plugin such as traefik-geoip2, or CrowdSec" />
-          <p className="mt-3 text-sm text-muted">
-            {mode === 'block'
-              ? 'Every country is allowed except the ones you mark. Click a country to cycle allowed → challenge → blocked.'
-              : 'Every country is blocked except the ones you mark. Click a country to allow or block it.'}
-          </p>
-          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-            {COUNTRIES.map(([code, name]) => {
-              const label = countryLabel(code)
-              return (
-                <button key={code} type="button" onClick={() => cycleCountry(code)} disabled={busy}
-                  className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-lg bg-card border border-line text-left text-[13px] font-medium cursor-pointer hover:bg-head">
-                  <span className="font-mono text-xs text-muted w-6">{code}</span>
-                  <span className="flex-1 truncate">{name}</span>
-                  <Badge tone={label === 'blocked' ? 'r' : label === 'challenge' ? 'y' : 'g'}>{label}</Badge>
-                </button>
-              )
-            })}
-          </div>
-        </Card>
-      )}
-
-      {tab === 'recaptcha' && (
-        <div className="flex flex-wrap gap-4 items-start">
-          <Card className="flex-[1_1_360px]" title="Challenge provider">
-            <NotEnforced what="The provider configuration" needs="a challenge middleware at the edge" />
-            <form className="mt-3 flex flex-col gap-4" onSubmit={(e) => {
-              e.preventDefault()
-              const patch: R = { provider: p.provider, site_key: p.site_key, min_score: Number(p.min_score), clearance_minutes: Number(p.clearance_minutes) }
-              // An empty box keeps the stored secret rather than clearing it.
-              if (String(p.secret_key ?? '')) patch.secret_key = p.secret_key
-              saveSetting(patch, 'Provider settings saved').then(() => setProv(null))
-            }}>
-              <Field label="Provider">
-                <Select className="input" value={String(p.provider)} onChange={(e) => setP({ provider: e.target.value })}>
-                  <option value="turnstile">Cloudflare Turnstile</option>
-                  <option value="hcaptcha">hCaptcha</option>
-                  <option value="recaptcha">Google reCAPTCHA</option>
-                </Select>
-              </Field>
-              <Field label="Site key"><input className="input font-mono" value={String(p.site_key)} onChange={(e) => setP({ site_key: e.target.value })} /></Field>
-              <Field label="Secret key" hint={settings.secret_key_set ? 'A key is saved. Leave blank to keep it.' : 'Stored encrypted and never shown again.'}>
-                <input className="input font-mono" type="password" autoComplete="new-password" value={String(p.secret_key ?? '')}
-                  placeholder={settings.secret_key_set ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : ''} onChange={(e) => setP({ secret_key: e.target.value })} />
-              </Field>
-              <Field label="Minimum score" hint="Below this, the visitor is challenged. Between 0 and 1.">
-                <Select className="input" value={String(p.min_score)} onChange={(e) => setP({ min_score: e.target.value })}>
-                  {['0.1', '0.3', '0.5', '0.7', '0.9'].map((v) => <option key={v} value={v}>{v}</option>)}
-                </Select>
-              </Field>
-              <Field label="Clearance (minutes)" hint="How long a visitor stays cleared after passing.">
-                <input className="input" type="number" min={1} max={1440} value={num(p.clearance_minutes)} onChange={(e) => setP({ clearance_minutes: e.target.value })} />
-              </Field>
-              <button className="btn btn-primary self-start" disabled={busy}>Save provider</button>
-            </form>
+      {tab === 'ips' && (
+        <>
+          {!crowdsec && <div className="mb-3"><NotEnforced what="The IP allow and block lists" needs="CrowdSec at the edge" /></div>}
+          <Card title="IP allow and block lists" pad={false} actions={<button type="button" className="btn btn-primary" onClick={() => setIpForm({ list: 'block' })}>Add IP</button>}>
+          <DataTable label="IP allow and block lists" rows={ipLists} rowKey={(r) => String(r.id)} pageSize={25}
+            searchKeys={(r) => `${r.cidr} ${r.note ?? ''}`}
+            empty={<Empty>No addresses listed. Your address is {String(item?.your_ip ?? 'unknown')}.</Empty>}
+            filters={[
+              { id: 'allow', label: 'Allowed', test: (r) => r.list === 'allow' },
+              { id: 'block', label: 'Blocked', test: (r) => r.list === 'block' },
+            ]}
+            actions={(r) => [
+                { label: `Remove ${String(r.cidr)}`, icon: 'trash', danger: true, confirm: `${String(r.cidr)} is taken off the list.`, onClick: () => run({ method: 'DELETE', path: `/firewall/ips/${r.id}`, label: 'Remove IP', success: `${String(r.cidr)} removed` }).then(() => refetch()).catch(() => {}) },
+              ]}
+            columns={[
+              { key: 'cidr', header: 'Address or range', sortable: true, render: (r) => <span className="font-mono text-xs">{String(r.cidr)}</span> },
+              { key: 'list', header: 'List', render: (r) => <Badge tone={r.list === 'allow' ? 'g' : 'r'}>{String(r.list)}</Badge> },
+              { key: 'scope', header: 'Applies to', render: (r) => String(r.scope ?? 'all domains') },
+              { key: 'note', header: 'Note', render: (r) => String(r.note ?? '—') },
+              { key: 'expires_at', header: 'Expires', render: (r) => r.expired ? <Badge tone="n">expired</Badge>
+                : <span className="font-mono text-xs">{r.expires_at ? String(r.expires_at).replace('T', ' ').slice(0, 16) : 'never'}</span> },
+            ]} />
           </Card>
-        </div>
+        </>
       )}
 
       {tab === 'events' && (
+        <Card title="Events" pad={false} actions={<button type="button" className="btn" onClick={exportEvents}>Export CSV</button>}>
         <DataTable label="Firewall events" rows={events.rows} loading={events.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
           searchKeys={(r) => `${r.ip} ${r.request} ${r.rule}`}
           empty={<Empty>No events recorded. Events appear once a rule is enforced at the edge.</Empty>}
@@ -377,6 +486,10 @@ export default function Firewall() {
             { id: 'throttle', label: 'Throttled', test: (r) => r.action === 'throttle' },
             { id: 'challenge', label: 'Challenged', test: (r) => r.action === 'challenge' || r.action === 'recaptcha' },
           ]}
+          actions={(r) => [
+              { label: `Allow ${String(r.ip)}`, icon: 'check', disabled: busy, onClick: () => quickIp('allow', String(r.ip)) },
+              { label: `Block ${String(r.ip)}`, icon: 'shield', danger: true, confirm: `Block ${String(r.ip)} on every site?`, disabled: busy, onClick: () => quickIp('block', String(r.ip)) },
+            ]}
           columns={[
             { key: 'occurred_at', header: 'Time', sortable: true, render: (r) => <span className="font-mono text-xs">{String(r.occurred_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
             { key: 'action', header: 'Action', render: (r) => <Badge tone={ACTION_TONE[String(r.action)] ?? 'n'}>{String(r.action)}</Badge> },
@@ -386,10 +499,26 @@ export default function Firewall() {
             { key: 'domain', header: 'Domain', render: (r) => String(r.domain ?? 'all') },
             { key: 'rule', header: 'Rule', render: (r) => String(r.rule ?? '—') },
           ]} />
+        </Card>
       )}
 
       <FormModal open={!!form} onClose={() => setForm(null)} title={form?.id ? 'Edit rule' : 'Add rule'}
         fields={fields} initial={form ?? {}} submitLabel={form?.id ? 'Save rule' : 'Add rule'} onSubmit={saveRule} />
+
+      <FormModal open={!!ipForm} onClose={() => setIpForm(null)} title="Add an IP address or range"
+        initial={ipForm ?? {}} submitLabel="Add" onSubmit={saveIp} fields={[
+          { name: 'list', label: 'List', type: 'select', options: [{ value: 'block', label: 'Block list' }, { value: 'allow', label: 'Allow list' }] },
+          { name: 'cidr', label: 'Address or CIDR range', required: true, mono: true, placeholder: '203.0.113.0/24', hint: `Your address is ${String(item?.your_ip ?? 'unknown')}.` },
+          { name: 'domain_id', label: 'Applies to', type: 'select', options: domainOptions },
+          { name: 'expires_in', label: 'Expires', type: 'select', options: EXPIRY },
+          { name: 'note', label: 'Note', placeholder: 'Why it is listed' },
+        ]} />
+
+      <ConfirmDialog open={!!selfBlock} onClose={() => setSelfBlock(null)} title="Block your own address?"
+        confirmLabel="Block anyway" danger
+        onConfirm={() => { const b = selfBlock?.body; setSelfBlock(null); if (b) sendIp({ ...b, confirm: true }).then(() => setIpForm(null)).catch(() => {}) }}>
+        {selfBlock?.message} You may lose access to the sites in scope until the entry is removed or expires.
+      </ConfirmDialog>
 
       <ConfirmDialog open={!!remove} onClose={() => setRemove(null)} title="Delete this rule?"
         confirmLabel="Delete rule" danger

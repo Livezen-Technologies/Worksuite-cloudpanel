@@ -97,7 +97,12 @@ func TestRunLoop(t *testing.T) {
 	}))
 	defer panel.Close()
 
-	cfg := &config.Config{PanelURL: panel.URL, AgentSecret: "sec", HMACKey: "hk", DockerSocket: sock, StateDir: t.TempDir(), HeartbeatInterval: 15}
+	dir := t.TempDir()
+	// Without an explicit path, ApplyDefaults points the policy store at
+	// /etc/dockermgr/policy.json. On a host that runs the agent, that directory is
+	// 0700 root, so os.Stat returns EACCES rather than ENOENT, the store fails
+	// closed, and every command is rejected before it runs.
+	cfg := &config.Config{PanelURL: panel.URL, AgentSecret: "sec", HMACKey: "hk", DockerSocket: sock, StateDir: dir, PolicyPath: filepath.Join(dir, "policy.json"), HeartbeatInterval: 15}
 	cfg.ApplyDefaults()
 	a, err := newAgent(cfg, filepath.Join(t.TempDir(), "agent"), log.New(io.Discard, "", 0))
 	if err != nil {
@@ -135,5 +140,19 @@ func TestRunLoop(t *testing.T) {
 	}
 	if restarts != 1 {
 		t.Fatalf("restarts=%d calls=%v", restarts, dcalls)
+	}
+}
+
+// Executor.Run is a func field, and the exported e.Run(...) call sites in
+// crowdsec, firewall, egress, cron, antivirus, realtime, wordpress, mailimport
+// and sysservices call it directly instead of going through the e.run fallback.
+// Left nil it is a nil func value, so the first such command segfaults the agent.
+func TestNewAgentSetsTheCommandRunner(t *testing.T) {
+	a, err := newAgent(&config.Config{}, "/usr/local/bin/dockermgr-agent", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("newAgent: %v", err)
+	}
+	if a.exec.Run == nil {
+		t.Fatal("Executor.Run is nil; every direct e.Run(...) call site panics with a nil pointer dereference")
 	}
 }

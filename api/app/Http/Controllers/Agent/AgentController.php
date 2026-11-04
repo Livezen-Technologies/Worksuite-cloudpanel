@@ -34,7 +34,15 @@ class AgentController extends Controller
             'stats' => 'nullable|array',
             'containers' => 'nullable|array', 'images' => 'nullable|array', 'networks' => 'nullable|array', 'volumes' => 'nullable|array',
             'docker_error' => 'nullable|string|max:2000',
+            'cron_results' => 'nullable|array|max:500', 'cron_results.*.job_id' => 'required|string|max:64', 'cron_results.*.exit_code' => 'nullable|integer',
+            'cron_results.*.output' => 'nullable|string|max:70000', 'cron_results.*.started_at' => 'required|date', 'cron_results.*.finished_at' => 'nullable|date',
+            'cron_results.*.duration_ms' => 'nullable|integer', 'cron_results.*.timed_out' => 'nullable|boolean',
         ]);
+        // CRON: runs the server made on its own while the panel was unreachable.
+        if (! empty($data['cron_results'])) {
+            app(\App\Services\ScheduledJobService::class)->recordRunnerResults($request->attributes->get('agent')->server, $data['cron_results']);
+        }
+        unset($data['cron_results']);
         // Preserve explicit nulls (Docker unreachable) vs. empty lists.
         foreach (['containers', 'images', 'networks', 'volumes'] as $key) {
             $data[$key] = $request->json($key);

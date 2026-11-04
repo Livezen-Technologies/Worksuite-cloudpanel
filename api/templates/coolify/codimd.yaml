@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: codimd
+name: Codimd
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Realtime collaborative markdown notes on all platforms
+port: 3000
+source: coolify
+documentation: https://hackmd.io/c/codimd-documentation
+compose: "services:\n  codimd:\n    image: nabo.codimd.dev/hackmdio/hackmd:latest\n    environment:\n      CMD_DOMAIN: ${SERVICE_FQDN}\n      CMD_PROTOCOL_USESSL: ${CMD_PROTOCOL_USESSL:-true}\n      CMD_SESSION_SECRET: ${SERVICE_PASSWORD_SESSIONSECRET}\n      CMD_USECDN: ${CMD_USECDN:-false}\n      CMD_DB_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-codimd-db}\n      CMD_EMAIL: ${CMD_EMAIL:-true}\n      CMD_ALLOW_EMAIL_REGISTER: ${CMD_ALLOW_EMAIL_REGISTER:-true}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - curl -f http://localhost:3000/ || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 5\n    volumes:\n    - uploads_data:/home/hackmd/app/public/uploads\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgres:\n\
+  \    image: postgres:16-alpine\n    volumes:\n    - codimd_postgres_data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-codimd-db}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $codimd-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  uploads_data: {}\n  codimd_postgres_data: {}\n"

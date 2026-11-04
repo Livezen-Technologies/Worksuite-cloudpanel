@@ -1,0 +1,36 @@
+id: wordpress-mariadb
+name: WordPress + MariaDB
+category: CMS
+version: 1
+type: compose
+accent: "#21759B"
+description: WordPress with its own MariaDB, credentials generated.
+port: 80
+compose: |
+  services:
+    wordpress:
+      image: wordpress:6-apache
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        WORDPRESS_DB_HOST: db:3306
+        WORDPRESS_DB_NAME: wordpress
+        WORDPRESS_DB_USER: ${SERVICE_USER_WP}
+        WORDPRESS_DB_PASSWORD: ${SERVICE_PASSWORD_WP}
+      volumes: [wp-data:/var/www/html]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "80"
+    db:
+      image: mariadb:11
+      restart: unless-stopped
+      environment:
+        MARIADB_DATABASE: wordpress
+        MARIADB_USER: ${SERVICE_USER_WP}
+        MARIADB_PASSWORD: ${SERVICE_PASSWORD_WP}
+        MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}
+      volumes: [db-data:/var/lib/mysql]
+  volumes:
+    wp-data: {}
+    db-data: {}

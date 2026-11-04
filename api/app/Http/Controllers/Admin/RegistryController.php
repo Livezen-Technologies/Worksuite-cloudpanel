@@ -35,4 +35,13 @@ class RegistryController extends CrudController
 
         return $data;
     }
+
+    /** BLD: preview or run the registry clean-up for this registry. */
+    public function gc(\Illuminate\Http\Request $request, string $id)
+    {
+        $v = $request->validate(['dry_run' => 'sometimes|boolean', 'keep' => 'sometimes|integer|min:1|max:50']);
+        $rows = app(\App\Services\RegistryGcService::class)->collect(\App\Models\Registry::findOrFail($id), (int) ($v['keep'] ?? config('platform.builds.registry_keep', 5)), (bool) ($v['dry_run'] ?? true));
+
+        return $this->data(['images' => $rows, 'deleted' => collect($rows)->where('deleted', true)->count()]);
+    }
 }

@@ -53,4 +53,15 @@ class RelayController extends Controller
 
         return response()->json(['data' => ['id' => $session->id, 'bytes' => $session->recording_bytes]]);
     }
+
+    /** SSH-GW: the relay's SSH listener asks for a shell (or the list of shells) for a key. */
+    public function sshSession(Request $request, \App\Services\SshGatewayService $gw)
+    {
+        $v = $request->validate(['fingerprint' => ['required', 'string', 'max:80', 'regex:#^SHA256:[A-Za-z0-9+/]{43}$#'], 'target' => 'required|string|max:200', 'ip' => 'nullable|string|max:64']);
+        if (in_array($v['target'], ['list', 'help'], true)) {
+            return response()->json(['data' => $gw->list($v['fingerprint'])]);
+        }
+
+        return response()->json(['data' => $gw->open($v['fingerprint'], $v['target'], $v['ip'] ?? null)]);
+    }
 }

@@ -18,9 +18,7 @@ class RestoreJob extends Model
 
     protected function casts(): array
     {
-        return [
-
-        ];
+        return ['stop_app' => 'boolean', 'health_check' => 'boolean'];
     }
 
     public function artifact() { return $this->belongsTo(BackupArtifact::class, 'backup_artifact_id'); }

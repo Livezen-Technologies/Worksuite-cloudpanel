@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: emqx-enterprise
+name: Emqx Enterprise
+category: Network
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open-source MQTT broker for IoT, IIoT, and connected vehicles.
+port: 18083
+source: coolify
+documentation: https://www.emqx.io/docs/en/latest/deploy/install-docker.html
+compose: "services:\n  emqx:\n    image: emqx/emqx-enterprise:6.2.2\n    environment:\n      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${SERVICE_PASSWORD_EMQX}\n    volumes:\n    - emqx_data:/opt/emqx/data\n    - emqx_log:/opt/emqx/log\n    healthcheck:\n      test:\n      - CMD\n      - /opt/emqx/bin/emqx\n      - ctl\n      - status\n      interval: 10s\n      timeout: 30s\n      retries: 5\n      start_period: 30s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '18083'\nvolumes:\n  emqx_data: {}\n  emqx_log: {}\n"

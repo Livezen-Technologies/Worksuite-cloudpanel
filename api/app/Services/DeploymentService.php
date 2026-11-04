@@ -16,6 +16,7 @@ use App\Models\EnvVar;
 use App\Models\Job;
 use App\Models\Plan;
 use App\Models\Release;
+use App\Models\Environment;
 use App\Models\Server;
 use App\Models\User;
 use App\Support\ScanReport;
@@ -43,7 +44,11 @@ class DeploymentService implements HandlesCommandResults
             throw ApiException::conflict("Server {$app->server->name} is in maintenance mode; deployments are blocked.");
         }
         $customer = $app->kind === 'customer';
+        if (! $release && $this->builds->needsBuild($app)) {
+            $this->builds->assertWithinMinutes($app);
+        }
         $needsApproval = ! $customer && $source !== 'rollback' && ($app->requires_approval
+            || ($app->environment_id && $app->environmentModel?->requires_approval)
             || ($app->environment === 'production' && $app->organization->setting('security.require_production_deploy_approval')));
 
         $stages = $customer ? self::CUSTOMER_STAGES : self::ADMIN_STAGES;
@@ -172,6 +177,12 @@ class DeploymentService implements HandlesCommandResults
         $customer = $app->kind === 'customer';
         $out = (array) ($command->output ?? []);
         $log = array_values(array_filter((array) ($out['log'] ?? []), 'is_string'));
+        $deployment->update(array_filter([
+            'build_seconds' => isset($out['duration_seconds']) ? (int) $out['duration_seconds'] : null,
+            'build_cache_steps' => isset($out['cache_steps']) ? (int) $out['cache_steps'] : null,
+            'build_cache_hits' => isset($out['cache_hits']) ? (int) $out['cache_hits'] : null,
+            'build_stack' => isset($out['stack']) ? substr((string) $out['stack'], 0, 20) : null,
+        ], fn ($v) => $v !== null));
         if ($command->status !== 'succeeded') {
             $deployment->update(['logs_tail' => array_slice($log, -50)]);
             $cloneFailed = str_contains((string) $command->message, 'git clone') || str_contains((string) $command->message, 'repositor');
@@ -194,12 +205,28 @@ class DeploymentService implements HandlesCommandResults
         $app->update(['image' => $image]);
         $this->phase($job, 'built', ['pushed' => $pushed, 'commit' => $out['commit'] ?? null]);
         if ($customer) {
-            $this->jobs->stage($job, 'build', 'succeeded', 'Built '.$command->payload['image_tag'].($commit ? " from {$commit}" : ''));
+            $this->jobs->stage($job, 'build', 'succeeded', 'Built '.$command->payload['image_tag'].($commit ? " from {$commit}" : '').$this->cacheNote($deployment));
         } else {
             $this->jobs->stage($job, 'checkout', 'succeeded', 'Checked out '.$command->payload['repo'].'@'.$command->payload['ref'].($commit ? " ({$commit})" : ''));
-            $this->jobs->stage($job, 'build_scan', 'running', 'Built '.$command->payload['image_tag'].' ('.substr((string) ($out['image_id'] ?? ''), 0, 19).'); scanning');
+            $this->jobs->stage($job, 'build_scan', 'running', 'Built '.$command->payload['image_tag'].' ('.substr((string) ($out['image_id'] ?? ''), 0, 19).')'.$this->cacheNote($deployment).'; scanning');
         }
         $this->imageReady($deployment, $app, $job, $image, $command->server);
+    }
+
+    private function cacheNote(Deployment $deployment): string
+    {
+        $parts = [];
+        if ($deployment->build_stack) {
+            $parts[] = "detected {$deployment->build_stack}";
+        }
+        if ($deployment->build_cache_steps) {
+            $parts[] = "{$deployment->build_cache_hits}/{$deployment->build_cache_steps} steps cached";
+        }
+        if ($deployment->build_seconds !== null) {
+            $parts[] = "{$deployment->build_seconds}s";
+        }
+
+        return $parts ? ' ('.implode(', ', $parts).')' : '';
     }
 
     /** Image exists (built or prebuilt): scan it (IMG-003), then place and deploy. */
@@ -254,7 +281,7 @@ class DeploymentService implements HandlesCommandResults
                     throw ApiException::conflict("Image {$image} has {$scan['critical']} critical vulnerabilities; deploy blocked by policy.");
                 }
             }
-            $this->jobs->stage($job, 'build_scan', 'succeeded', ($built ? 'Built on an isolated builder; ' : '').($scan ? 'scan: '.ScanReport::summary($scan) : ($scanNote ?? 'not scanned')));
+            $this->jobs->stage($job, 'build_scan', 'succeeded', ($built ? 'Built on an isolated builder'.$this->cacheNote($deployment).'; ' : '').($scan ? 'scan: '.ScanReport::summary($scan) : ($scanNote ?? 'not scanned')));
             $this->jobs->stage($job, 'push', $built && $pushed ? 'succeeded' : 'skipped', match (true) {
                 $built && $pushed => 'Pushed '.$image,
                 $built => 'Not pushed: local image on the builder, deployed there',
@@ -286,7 +313,7 @@ class DeploymentService implements HandlesCommandResults
         $this->dispatchDeploy($deployment, $app, $server, $config, $job);
     }
 
-    private function placement(Application $app): Server
+    public function placement(Application $app): Server
     {
         if ($app->server_id && ($server = $app->server)) {
             if ($server->maintenance) {
@@ -316,7 +343,7 @@ class DeploymentService implements HandlesCommandResults
             'read_only_rootfs' => false,
             'memory_mb' => $config['memory_mb'] ?? null,
             'cpus' => $config['cpus'] ?? null,
-            'networks' => [['name' => 'proxy']],
+            'networks' => $this->networks($app),
             'mounts' => ! empty($config['volume_path']) ? [['type' => 'volume', 'source' => 'app-'.$app->name.'-data', 'target' => $config['volume_path']]] : [],
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.deployment' => $deployment->id],
             'pull' => $config['pull'] ?? 'always',
@@ -341,10 +368,38 @@ class DeploymentService implements HandlesCommandResults
         $app->update(['status' => 'deploying']);
     }
 
+    /**
+     * DEP-CANCEL: stop a deployment that has not finished. Commands not yet sent to the agent are withdrawn;
+     * results of ones already sent are ignored (onCommandFinished skips cancelled deployments), so the app
+     * keeps its current release.
+     */
+    public function cancel(Deployment $deployment, ?User $user): Deployment
+    {
+        if (in_array($deployment->status, ['succeeded', 'failed', 'rolled_back', 'cancelled'], true)) {
+            throw ApiException::conflict("This deployment already finished ({$deployment->status}).");
+        }
+        DB::transaction(function () use ($deployment, $user) {
+            AgentCommand::allTenants()->where('job_id', $deployment->job_id)->where('status', 'queued')
+                ->update(['status' => 'failed', 'message' => 'Cancelled before it was sent.']);
+            $deployment->update(['status' => 'cancelled', 'finished_at' => now()]);
+            if ($job = $deployment->job) {
+                $this->jobs->fail($job, 'Cancelled by '.($user?->name ?: $user?->email ?: 'an administrator').'.');
+                $job->forceFill(['status' => 'cancelled'])->save();
+            }
+            $app = $deployment->application;
+            if ($app && $app->status === 'deploying') {
+                $app->update(['status' => $app->current_release_id ? 'running' : 'stopped']);
+            }
+        });
+        app(\App\Services\AuditLogger::class)->log('deployment.cancel', 'deployments', $deployment->id, ['application' => $deployment->application?->name]);
+
+        return $deployment->fresh();
+    }
+
     public function onCommandFinished(AgentCommand $command, Job $job): void
     {
         $deployment = Deployment::where('job_id', $job->id)->first();
-        if (! $deployment || in_array($deployment->status, ['succeeded', 'failed', 'rolled_back'], true)) {
+        if (! $deployment || in_array($deployment->status, ['succeeded', 'failed', 'rolled_back', 'cancelled'], true)) {
             return;
         }
         $app = $deployment->application;
@@ -356,6 +411,7 @@ class DeploymentService implements HandlesCommandResults
                 $deployment->update(['status' => 'rolled_back', 'finished_at' => now()]);
                 $app->update(['status' => $command->status === 'succeeded' ? 'running' : 'failed']);
                 $this->jobs->fail($job, $job->error ?? 'Deployment failed and was rolled back.', null, ['deployment_id' => $deployment->id, 'logs_tail' => $deployment->logs_tail]);
+                $this->notifyFailed($app, 'rollback', ($job->error ?? 'Deployment failed').($command->status === 'succeeded' ? ' The previous release was restored.' : ' The rollback failed too.'));
             }
 
             return;
@@ -463,6 +519,89 @@ class DeploymentService implements HandlesCommandResults
             $this->jobs->stage($job, $customer ? 'live' : 'complete', 'succeeded', 'Release v'.$release->version.' is live');
             $this->jobs->succeed($job, ['deployment_id' => $deployment->id, 'release_id' => $release->id, 'version' => $release->version, 'url' => $this->primaryUrl($app)]);
         });
+        $deployment->refresh();
+        // EML: a pull-request preview gets "Preview ready" with its address instead of the usual note.
+        if ($deployment->source === 'preview') {
+            app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'preview_ready', [
+                'app' => $app->name, 'branch' => (string) ($app->source['branch'] ?? $app->environmentModel?->branch ?? ''), 'url' => (string) $this->primaryUrl($app),
+            ]);
+        } elseif (! empty($app->source['template']) && (int) (Release::find($deployment->release_id)?->version ?? 0) === 1) {
+            $this->notifyInstalled($app, $deployment);
+        } else {
+            if ((int) (Release::find($deployment->release_id)?->version ?? 0) === 1) {
+                $this->notifyStaffNewApp($app, $deployment);
+            }
+            app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_succeeded', [
+                'app' => $app->name, 'version' => (string) (Release::find($deployment->release_id)?->version ?? ''), 'url' => (string) $this->primaryUrl($app),
+                'duration' => $deployment->started_at ? $deployment->started_at->diffForHumans(now(), true) : '—',
+            ]);
+        }
+        // AV-10: the deployed files are the new integrity baseline. Never fail a deployment over it.
+        try {
+            app(IntegrityService::class)->afterDeployment($app);
+        } catch (\Throwable) {
+        }
+        // WP-010: a new WordPress staging site is filled from its live site once it runs.
+        try {
+            app(ScalingService::class)->afterDeployment($app);
+            app(WordPressService::class)->afterDeployment($app);
+            app(MigrationService::class)->afterDeployment($app);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /** INST-8: "your application is ready" to the customer and "new deployment" to staff. No secrets, ever. */
+    public function notifyInstalled(Application $app, Deployment $deployment): void
+    {
+        $org = \App\Models\Organization::find($app->organization_id);
+        $tpl = \App\Models\Template::find($app->source['template'] ?? null);
+        $size = collect(config('platform.plans', []))->firstWhere('code', $app->size ?? 'standard');
+        $resources = $size ? "{$size['vcpu']} vCPU · ".($size['ram_mb'] >= 1024 ? ($size['ram_mb'] / 1024).' GB' : $size['ram_mb'].' MB').' RAM · '.$size['storage_gb'].' GB storage' : ucfirst((string) ($app->size ?? 'standard'));
+        $url = (string) ($this->primaryUrl($app) ?? 'internal only');
+        $common = [
+            'customer' => $org?->name ?? 'there', 'app' => $app->name, 'template' => $tpl?->name ?? (string) ($app->source['template'] ?? ''),
+            'environment' => (string) $app->environment, 'server' => (string) ($app->server?->name ?? '—'), 'resources' => $resources, 'url' => $url,
+            'installed_at' => now()->toDayDateTimeString().' UTC', 'manage_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id,
+        ];
+        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'app_installed', $common + [
+            'version' => (string) ($tpl?->manifest['image'] ?? $app->image ?? ''),
+            'admin_url' => $url !== 'internal only' && preg_match('/wordpress/i', (string) $app->image) ? $url.'/wp-admin' : '—',
+            'support_email' => (string) config('mail.from.address'),
+        ]);
+        $this->notifyStaffNewApp($app, $deployment, $common, $tpl?->type === 'compose' ? 'Compose stack' : 'Single image');
+    }
+
+    /** "New application deployed" to platform staff after an app's first successful release. No secrets. */
+    public function notifyStaffNewApp(Application $app, Deployment $deployment, ?array $common = null, ?string $type = null): void
+    {
+        $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+        $common ??= [
+            'customer' => \App\Models\Organization::find($app->organization_id)?->name ?? '—', 'app' => $app->name,
+            'template' => ['git' => 'an app from a Git repository', 'dockerfile' => 'an app built from a Dockerfile', 'image' => 'a Docker image', 'compose' => 'a Compose stack'][$app->source_type] ?? 'an application',
+            'environment' => (string) $app->environment, 'server' => (string) ($app->server?->name ?? '—'), 'resources' => ucfirst((string) ($app->size ?? 'standard')),
+            'url' => (string) ($this->primaryUrl($app) ?? 'internal only'), 'installed_at' => now()->toDayDateTimeString().' UTC', 'manage_url' => $panel.'/admin/applications/'.$app->id,
+        ];
+        app(EmailTemplateService::class)->notifyStaff('app_installed_admin', $common + [
+            'account_id' => (string) $app->organization_id, 'app_type' => $type ?? ucfirst(str_replace('_', ' ', (string) $app->source_type)),
+            'deployment_id' => $deployment->id, 'status' => 'Running', 'logs_url' => $panel.'/admin/deployments/'.$deployment->id,
+        ], 'installed:'.$app->id, 60 * 24);
+    }
+
+    private function notifyFailed(Application $app, string $stage, string $error): void
+    {
+        app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_failed', [
+            'app' => $app->name, 'stage' => $stage, 'error' => $error,
+            'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/apps/'.$app->id,
+        ]);
+        // Staff hear about customers' failed deployments too (their own organisation's mail already reaches them).
+        $platform = \App\Models\Organization::orderBy('created_at')->orderBy('id')->value('id');
+        if ($platform && $app->organization_id !== $platform) {
+            app(EmailTemplateService::class)->notifyStaff('deploy_failed', [
+                'app' => $app->name, 'stage' => $stage, 'error' => $error,
+                'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/applications/'.$app->id,
+            ], 'failed:'.$app->id, 60);
+        }
     }
 
     private function failDeployment(Deployment $deployment, Job $job, string $error, ?string $serverId = null): void
@@ -494,10 +633,61 @@ class DeploymentService implements HandlesCommandResults
         }
         $deployment->update(['status' => 'failed', 'finished_at' => now()]);
         $app->update(['status' => $previous ? 'running' : 'failed']);
+        $this->notifyFailed($app, (string) ($job->payload['phase'] ?? 'deploy'), $error);
         $this->jobs->fail($job, $error, null, ['deployment_id' => $deployment->id, 'logs_tail' => $deployment->logs_tail]);
     }
 
     /** Immutable release (APP-006); keeps the last N releases. */
+    /** The proxy network, plus dmp-mesh at the app's fixed address when it asked for one (PNET-4). */
+    private function networks(Application $app): array
+    {
+        $server = $app->server_id ? Server::allTenants()->find($app->server_id) : null;
+        $ip = $server ? app(MeshService::class)->appAddress($app, $server) : null;
+
+        $nets = $ip ? [['name' => 'proxy'], ['name' => 'dmp-mesh', 'ipv4_address' => $ip]] : [['name' => 'proxy']];
+        // INST-3: an app wired to a managed database also joins the databases' internal network.
+        if (! empty($app->source['database_id'])) {
+            $nets[] = ['name' => 'internal'];
+        }
+        if ($env = $this->environmentNetwork($app, $server)) {
+            $nets[] = $env;
+        }
+
+        return $nets;
+    }
+
+    /**
+     * PRJ-NET: the app's own environment network, in addition to `proxy`.
+     *
+     * Only when the agent has confirmed the network exists — a container that
+     * names a network the host does not have fails to create, and no stage of
+     * this pipeline creates one. A first deployment therefore asks for the
+     * network and joins only `proxy`; the next one joins both. That ordering
+     * is deliberate: no deployment may fail because of this.
+     *
+     * `proxy` is kept on purpose. Traefik reaches containers by name over it,
+     * so dropping it before Traefik is attached to the environment network
+     * would take every site offline.
+     */
+    private function environmentNetwork(Application $app, ?Server $server): ?array
+    {
+        if (! $server || ! $app->environment_id) {
+            return null;
+        }
+        $environment = Environment::allTenants()->find($app->environment_id);
+        if (! $environment) {
+            return null;
+        }
+        $network = app(NetworkService::class)->forEnvironment($environment, $server);
+        if ($network->status !== 'active') {
+            return null;
+        }
+
+        // The alias is what a sibling resolves `${{service.HOST}}` to, so the
+        // two names stay the same whichever network the lookup goes over.
+        return ['name' => $network->name, 'aliases' => array_values(array_unique(array_filter([$app->service, $app->name])))];
+    }
+
     private function createRelease(Deployment $deployment, Application $app): Release
     {
         $source = $deployment->rollback_of_release_id ? Release::find($deployment->rollback_of_release_id) : null;
@@ -525,6 +715,8 @@ class DeploymentService implements HandlesCommandResults
     public function snapshot(Application $app): array
     {
         $env = EnvVar::where('application_id', $app->id)->get()->mapWithKeys(fn ($v) => [$v->key => (string) $v->value])->all();
+        // ENV-3: shared variables and ${{service.KEY}} references, resolved at release time.
+        [$env, $warnings] = app(EnvironmentService::class)->resolve($app, $env);
         $plan = $app->size ? Plan::where('code', $app->size)->first() : null;
 
         return [
@@ -537,6 +729,7 @@ class DeploymentService implements HandlesCommandResults
             'cpus' => $plan?->vcpu,
             'env_keys' => array_keys($env),
             'env_encrypted' => $env ? Crypt::encryptString(json_encode($env)) : null,
+            'env_warnings' => $warnings,
             'registry_auth' => $app->source['registry_auth'] ?? null,
         ];
     }

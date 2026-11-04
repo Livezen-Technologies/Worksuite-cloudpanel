@@ -32,6 +32,11 @@ class SettingsController extends Controller
             'smtp.encryption' => 'sometimes|nullable|in:tls,ssl,none',
             'smtp.from_address' => 'sometimes|nullable|email|max:190',
             'smtp.from_name' => 'sometimes|nullable|string|max:120',
+            'antivirus' => 'sometimes|array',
+            'antivirus.schedule' => 'sometimes|in:daily,weekly,off',
+            'antivirus.day' => 'sometimes|integer|min:0|max:6',
+            'antivirus.time' => 'sometimes|date_format:H:i',
+            'antivirus.notify' => 'sometimes|boolean',
             'security' => 'sometimes|array',
             'security.*' => 'boolean',
             'firewall' => 'sometimes|array',
@@ -82,7 +87,7 @@ class SettingsController extends Controller
             }
         }
 
-        foreach (['general', 'security'] as $section) {
+        foreach (['general', 'security', 'antivirus'] as $section) {
             foreach ($data[$section] ?? [] as $key => $value) {
                 if (array_key_exists($key, config("platform.default_settings.{$section}"))) {
                     $settings[$section][$key] = $value;
@@ -92,6 +97,32 @@ class SettingsController extends Controller
         $org->update(array_filter(['name' => $data['name'] ?? null, 'settings' => $settings, 'default_region' => $settings['general']['default_region']]));
 
         return $this->data($this->present());
+    }
+
+    /** SET-002: send a test email with the saved SMTP settings and report what the server said. */
+    public function testSmtp(Request $request)
+    {
+        $data = $request->validate(['to' => 'nullable|email|max:190']);
+        $settings = array_replace_recursive(config('platform.default_settings'), Tenant::current()->settings ?? []);
+        $smtp = $settings['smtp'] ?? [];
+        $mailer = \App\Support\Smtp::config($smtp) ?? throw \App\Exceptions\ApiException::conflict('Save an SMTP host first.');
+        $to = $data['to'] ?? $request->user()->email;
+        $from = $smtp['from_address'] ?: config('mail.from.address');
+        config(['mail.mailers.smtp_test' => $mailer]);
+        app('mail.manager')->purge('smtp_test');
+        try {
+            \Illuminate\Support\Facades\Mail::mailer('smtp_test')->raw(
+                "This is a test email from WorkSuite CloudPanel.\n\nYour SMTP settings work: {$smtp['host']}:{$mailer['port']} ({$mailer['scheme']}).",
+                fn ($m) => $m->to($to)->from($from, $smtp['from_name'] ?: config('mail.from.name'))->subject('WorkSuite CloudPanel SMTP test'),
+            );
+        } catch (\Throwable $e) {
+            app(\App\Services\AuditLogger::class)->log('settings.smtp_test', 'organizations', Tenant::current()->id, ['to' => $to, 'ok' => false]);
+            throw \App\Exceptions\ApiException::upstream('The SMTP server refused the test email: '.\Illuminate\Support\Str::limit(preg_replace('/\s+/', ' ', $e->getMessage()), 300));
+        }
+        app(\App\Services\AuditLogger::class)->log('settings.smtp_test', 'organizations', Tenant::current()->id, ['to' => $to, 'ok' => true]);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(['sent' => true, 'to' => $to]);
     }
 
     private function present(): array
@@ -111,6 +142,7 @@ class SettingsController extends Controller
             'organization' => ['id' => $org->id, 'name' => $org->name, 'slug' => $org->slug],
             'general' => $settings['general'] + ['name' => $org->name],
             'security' => $settings['security'],
+            'antivirus' => $settings['antivirus'],
             'smtp' => $smtp + ['password_set' => $hasPassword],
             'firewall' => $firewall + ['secret_key_set' => $hasSecret],
         ];

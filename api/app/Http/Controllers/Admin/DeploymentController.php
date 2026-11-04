@@ -41,6 +41,14 @@ class DeploymentController extends Controller
         return $this->data($this->present($deployment, true));
     }
 
+    public function cancel(Request $request, string $id)
+    {
+        $deployment = Deployment::findOrFail($id);
+        $this->authorizeFor($request, 'deploy', $deployment->application);
+
+        return $this->data($this->present($this->deployments->cancel($deployment, $request->user()), true));
+    }
+
     public function approve(Request $request, string $id)
     {
         $deployment = Deployment::findOrFail($id);
