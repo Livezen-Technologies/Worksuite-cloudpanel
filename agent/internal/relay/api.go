@@ -157,3 +157,27 @@ func (a *HTTPAPI) Closed(ctx context.Context, id, reason string) error {
 func (a *HTTPAPI) UploadRecording(ctx context.Context, id string, cast []byte) error {
 	return a.do(ctx, "POST", "/internal/relay/terminal-sessions/"+url.PathEscape(id)+"/recording", bytes.NewReader(cast), "application/x-asciicast", nil, nil)
 }
+
+// SSHTarget is what the API answers for an SSH login: a terminal session to connect,
+// or (for the "list" target) the containers the key's owner may open.
+type SSHTarget struct {
+	SessionID string   `json:"session_id"`
+	Token     string   `json:"token"`
+	Container string   `json:"container"`
+	User      string   `json:"user"`
+	Targets   []string `json:"targets"`
+}
+
+// SSHAPI is the API surface the SSH gateway needs.
+type SSHAPI interface {
+	SSHSession(ctx context.Context, fingerprint, target, ip string) (*SSHTarget, error)
+}
+
+func (a *HTTPAPI) SSHSession(ctx context.Context, fingerprint, target, ip string) (*SSHTarget, error) {
+	var t SSHTarget
+	err := a.do(ctx, "POST", "/internal/relay/ssh/session", jsonBody(map[string]string{"fingerprint": fingerprint, "target": target, "ip": ip}), "application/json", nil, &t)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}

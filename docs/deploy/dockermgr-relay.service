@@ -1,5 +1,8 @@
 # systemd unit for the terminal relay (agent/cmd/relay). Put RELAY_SECRET (same value as the API's)
 # and the other RELAY_* variables in /etc/dockermgr/relay.env (mode 0600).
+# SSH gateway (PuTTY / ssh into containers): set RELAY_SSH_LISTEN=:2222 in relay.env, open
+# TCP 2222 in the firewall, and set SSH_GATEWAY_ENABLED=true (and SSH_GATEWAY_PORT if not 2222)
+# in the API's .env. The host key is created in the state directory on first start.
 [Unit]
 Description=Docker Manager Portal terminal relay
 After=network-online.target
@@ -9,6 +12,7 @@ Wants=network-online.target
 EnvironmentFile=/etc/dockermgr/relay.env
 ExecStart=/usr/local/bin/dockermgr-relay
 DynamicUser=yes
+StateDirectory=dockermgr-relay
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

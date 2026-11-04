@@ -18,6 +18,12 @@ return [
         'recording_disk' => env('TERMINAL_RECORDING_DISK', 'local'),
         'recording_max_bytes' => (int) env('TERMINAL_RECORDING_MAX_BYTES', 8 * 1024 * 1024),
     ],
+    // SSH-GW: shells over SSH through the relay's SSH listener (RELAY_SSH_LISTEN on the relay).
+    'ssh_gateway' => [
+        'enabled' => (bool) env('SSH_GATEWAY_ENABLED', false),
+        'host' => env('SSH_GATEWAY_HOST', parse_url((string) env('PANEL_URL', env('APP_URL', 'http://localhost')), PHP_URL_HOST) ?: 'localhost'),
+        'port' => (int) env('SSH_GATEWAY_PORT', 2222),
+    ],
     'terminal' => [
         // Fixed shell list (first entry is used); the agent enforces its own list too.
         'shells' => array_values(array_filter(explode(',', env('TERMINAL_SHELLS', '/bin/sh')))),

@@ -9,6 +9,34 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-11-04
+
+### Added
+
+- **SSH access with PuTTY or any SSH client.** Staff and customers can add or
+  generate SSH keys under Account → SSH keys, then open a shell in their apps
+  and containers. (#175)
+  - Connect with `ssh -p 2222 <container-or-app>@<panel host>`. Use the user
+    name `list` to see what you can open.
+  - Each login is an ordinary terminal session: the same permissions and
+    second-person approvals as the web terminal, a non-root user, the session
+    time limit, an audit entry with the client's address, and a recording.
+  - A generated key is downloaded once in OpenSSH format, and only the public
+    half is kept. The card explains how to turn it into a PuTTY .ppk.
+  - Only interactive shells are offered: no exec, scp, sftp or port
+    forwarding.
+- The terminal relay serves the SSH gateway when `RELAY_SSH_LISTEN` is set
+  (for example `:2222`). Its host key is created on first start and kept in
+  the state directory. Switch the feature on in the API with
+  `SSH_GATEWAY_ENABLED=true`. `SSH_GATEWAY_HOST` and `SSH_GATEWAY_PORT` set
+  what the panel shows. (#175)
+
+### Changed
+
+- Building the agent and relay now needs Go 1.26 or newer, because the SSH
+  library (`golang.org/x/crypto` v0.58.0) requires it. That library version
+  also has the fixes for all of its known SSH server vulnerabilities. (#175)
+
 ## [1.12.0] — 2026-11-04
 
 ### Added

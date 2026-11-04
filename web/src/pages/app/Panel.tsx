@@ -9,6 +9,7 @@ import { Badge, StatusBadge } from '../../components/Badge'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { CopyButton } from '../../components/CopyButton'
 import { PasskeyManager } from '../../components/Passkeys'
+import { SshKeyManager } from '../../components/SshKeys'
 import { useToast } from '../../components/Toasts'
 import { ApiTokens } from '../admin/Admin'
 import { useAuth } from '../../lib/auth'
@@ -354,6 +355,7 @@ export function Account() {
             </div>
           </Card>
           <PasskeyManager />
+          <SshKeyManager />
           <Card title="Team" actions={<button type="button" className="btn" onClick={() => setInvite(true)}>Invite</button>}>
             {team.length === 0 ? <div className="text-sm text-muted">Only you so far.</div> : team.map((m, i) => (
               <div key={m.id ?? i} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">

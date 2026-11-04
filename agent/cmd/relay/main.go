@@ -8,6 +8,9 @@
 //	RELAY_TLS_CERT/KEY      serve TLS directly (normally a reverse proxy terminates TLS)
 //	RELAY_FORWARD_HEADERS   proxy client-cert headers passed to the API for agent mTLS
 //	RELAY_ATTACH_TIMEOUT    seconds to wait for the agent to dial back (default 45)
+//	RELAY_SSH_LISTEN        SSH gateway address, e.g. :2222 (off when empty)
+//	RELAY_SSH_HOST_KEY      SSH host key file (created as Ed25519 on first start;
+//	                        default /var/lib/dockermgr-relay/ssh_host_ed25519_key)
 package main
 
 import (
@@ -15,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +28,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/livezen-technologies/cloudpanel/agent/internal/relay"
 )
@@ -77,7 +83,21 @@ func main() {
 			return err == nil && slices.Contains(origins, u.Scheme+"://"+u.Host)
 		}
 	}
-	hs := &http.Server{Addr: env("RELAY_LISTEN", ":8090"), Handler: srv.Handler(), ReadHeaderTimeout: 15 * time.Second}
+	handler := srv.Handler()
+	if addr := os.Getenv("RELAY_SSH_LISTEN"); addr != "" {
+		signer, err := relay.LoadOrCreateHostKey(env("RELAY_SSH_HOST_KEY", "/var/lib/dockermgr-relay/ssh_host_ed25519_key"))
+		if err != nil {
+			logger.Fatalf("ssh host key: %v", err)
+		}
+		l, err := net.Listen("tcp", addr)
+		if err != nil {
+			logger.Fatalf("ssh listen: %v", err)
+		}
+		gw := &relay.SSHGateway{API: api, HostKey: signer, Relay: handler, Log: logger}
+		logger.Printf("ssh gateway listening on %s (host key %s)", addr, ssh.FingerprintSHA256(signer.PublicKey()))
+		go func() { logger.Printf("ssh gateway stopped: %v", gw.Serve(l)) }()
+	}
+	hs := &http.Server{Addr: env("RELAY_LISTEN", ":8090"), Handler: handler, ReadHeaderTimeout: 15 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {
