@@ -9,6 +9,20 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-11-04
+
+### Added
+
+- Projects → Environments tab for customers. They can add Development, Staging
+  or Production environments (up to 5 per project), either empty or as a copy
+  of another one's apps and variables. Copies are not deployed until the
+  customer deploys them. Each environment can follow a Git branch. (#169)
+- Customers can promote one environment to another. This deploys the image
+  running in the source to the matching apps in the target, which keep their
+  own variables; nothing is rebuilt. (#169)
+- Customers can delete an empty environment. A project always keeps at least
+  one. (#169)
+
 ## [1.8.0] — 2026-11-04
 
 ### Added

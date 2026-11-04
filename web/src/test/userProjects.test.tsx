@@ -20,6 +20,11 @@ describe('Customer projects', () => {
         unassigned: [{ id: 'a2', name: 'blog', status: 'running' }],
         projects: [{ id: 'p1', name: 'Online Store', color: 'violet', cost_cents: 1250, environments: ['production'], apps: [{ id: 'a1', name: 'shop', status: 'running' }], counts: { apps: 1, domains: 2 }, regions: ['eu-west'] }],
       } })
+      if (url.endsWith('/app/projects/p1/environments') && (init?.method ?? 'GET') === 'GET') return json(200, { data: [
+        { id: 'e1', name: 'Production', kind: 'production', branch: 'main', duplicated_from_id: null, apps: [{ id: 'a1', name: 'web', status: 'running', url: 'https://shop.test' }] },
+        { id: 'e2', name: 'Staging', kind: 'staging', branch: null, duplicated_from_id: 'e1', apps: [] },
+      ] })
+      if (url.endsWith('/environments/e1/promote')) return json(202, { data: { results: [{ service: 'web', deployment_id: 'd9', skipped: null }] } })
       if (url.endsWith('/app/projects/p1/canvas')) return json(200, { data: {
         nodes: [{ id: 'a1', name: 'web', state: 'running', source: 'nginx', domain: 'shop.test', cost_cents: 500, environment_id: 'e1', deployments: [] }, { id: 'a3', name: 'api', state: 'running', source: 'node', domain: 'api.test', cost_cents: 500, environment_id: 'e1', deployments: [{ id: 'd1', status: 'failed', source: 'git', created_at: new Date().toISOString() }] },
           { id: 'a4', name: 'web-staging', state: 'stopped', source: 'nginx', domain: '', cost_cents: 0, environment_id: 'e2', deployments: [] }],
@@ -110,5 +115,24 @@ describe('Customer projects', () => {
     const body = JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)
     expect(body.positions.a1.x).toBeGreaterThan(50)
     expect(screen.getByRole('complementary', { name: 'Selected app' })).not.toHaveTextContent('via API_URL')
+  })
+
+  it('adds a copied environment, promotes one and deletes an empty one', async () => {
+    await openCanvas()
+    await userEvent.click(screen.getByRole('tab', { name: 'Environments' }))
+    expect(await screen.findByText('copied from Production')).toBeInTheDocument()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Promote Production to' }), 'Staging')
+    await userEvent.click(screen.getByRole('button', { name: 'Promote' }))
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/environments/e1/promote'))!.body!)).toEqual({ target_environment_id: 'e2' })
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Staging environment' }))
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/app/environments/e2'))).toBe(true)
+    await userEvent.click(screen.getByRole('button', { name: '+ Add environment' }))
+    const dialog = screen.getByRole('dialog')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'QA')
+    await userEvent.selectOptions(within(dialog).getByRole('combobox', { name: 'Copy apps from' }), 'Production')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add environment' }))
+    const post = calls.find((c) => c.url.endsWith('/app/projects/p1/environments') && c.method === 'POST')
+    expect(JSON.parse(post!.body!)).toEqual({ name: 'QA', kind: 'staging', branch: null, copy_from: 'e1' })
   })
 })

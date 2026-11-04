@@ -156,4 +156,52 @@ class CustomerProjectsTest extends TestCase
         $this->api($other)->putJson("{$base}/layout", ['positions' => []])->assertNotFound();
         $this->api($other)->postJson("{$base}/links", ['from' => $web->id, 'to' => $api->id])->assertNotFound();
     }
+
+    public function test_customers_add_copy_promote_and_delete_environments(): void
+    {
+        [, $org, $token] = $this->org();
+        $web = $this->app($org->id, 'shopweb');
+        app(Tenant::class)->as($org->id, fn () => \App\Models\EnvVar::create(['application_id' => $web->id, 'key' => 'MODE', 'value' => 'live', 'secret' => false]));
+        $p = $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Shop', 'environment' => 'production'])->json('data');
+        $this->api($token)->postJson("/api/v1/app/projects/{$p['id']}/apps", ['app_id' => $web->id])->assertOk();
+        $base = "/api/v1/app/projects/{$p['id']}/environments";
+        $prod = $this->api($token)->getJson($base)->assertOk()->json('data.0');
+        $this->assertSame(['production', ['shopweb']], [$prod['kind'], array_column($prod['apps'], 'name')]);
+        $this->assertArrayNotHasKey('variables', $prod, 'variable values stay on the server');
+
+        // A copy brings the apps and their variables, not deployed.
+        $staging = $this->api($token)->postJson($base, ['name' => 'Staging', 'kind' => 'staging', 'copy_from' => $prod['id'], 'branch' => 'develop'])->assertCreated()->json('data');
+        $this->assertSame(['shopweb-staging', 'created', 'develop', $prod['id']], [$staging['apps'][0]['name'], $staging['apps'][0]['status'], $staging['branch'], $staging['duplicated_from_id']]);
+        $copy = Application::allTenants()->find($staging['apps'][0]['id']);
+        $this->assertSame([$p['id'], 'customer', 'live'], [$copy->project_id, $copy->kind, $copy->envVars()->value('value')]);
+        $this->api($token)->postJson($base, ['name' => 'Staging', 'kind' => 'staging'])->assertStatus(422);
+        $this->api($token)->postJson($base, ['name' => 'Bad', 'kind' => 'preview'])->assertStatus(422);
+        $dev = $this->api($token)->postJson($base, ['name' => 'Dev', 'kind' => 'development'])->assertCreated()->json('data');
+        $this->assertSame([], $dev['apps']);
+
+        // Nothing deployed yet, so promotion reports what it skipped.
+        $r = $this->api($token)->postJson("/api/v1/app/environments/{$staging['id']}/promote", ['target_environment_id' => $prod['id']])->assertStatus(202)->json('data.results');
+        $this->assertSame([null, 'not deployed in Staging'], [$r[0]['deployment_id'], $r[0]['skipped']]);
+
+        $this->api($token)->deleteJson("/api/v1/app/environments/{$staging['id']}")->assertStatus(409);
+        $this->api($token)->deleteJson("/api/v1/app/environments/{$dev['id']}")->assertNoContent();
+
+        [, , $other] = $this->org();
+        $this->api($other)->getJson($base)->assertNotFound();
+        $this->api($other)->postJson("/api/v1/app/environments/{$staging['id']}/promote", ['target_environment_id' => $prod['id']])->assertNotFound();
+        $this->api($other)->deleteJson("/api/v1/app/environments/{$prod['id']}")->assertNotFound();
+    }
+
+    public function test_a_project_keeps_at_least_one_environment_and_at_most_five(): void
+    {
+        [, , $token] = $this->org();
+        $p = $this->api($token)->postJson('/api/v1/app/projects', ['name' => 'Shop', 'environment' => 'production'])->json('data');
+        $base = "/api/v1/app/projects/{$p['id']}/environments";
+        $only = $this->api($token)->getJson($base)->json('data.0.id');
+        $this->api($token)->deleteJson("/api/v1/app/environments/{$only}")->assertStatus(409);
+        foreach (range(1, 4) as $n) {
+            $this->api($token)->postJson($base, ['name' => "Dev {$n}", 'kind' => 'development'])->assertCreated();
+        }
+        $this->api($token)->postJson($base, ['name' => 'Dev 5', 'kind' => 'development'])->assertStatus(409);
+    }
 }

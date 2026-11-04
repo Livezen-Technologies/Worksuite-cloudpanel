@@ -692,6 +692,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::put('projects/{id}/canvas/layout', [Customer\ProjectController::class, 'saveLayout'])->name('projects.canvas.layout');
             Route::post('projects/{id}/canvas/links', [Customer\ProjectController::class, 'link'])->name('projects.canvas.link');
             Route::delete('projects/{id}/canvas/links', [Customer\ProjectController::class, 'unlink'])->name('projects.canvas.unlink');
+            Route::get('projects/{id}/environments', [Customer\EnvironmentController::class, 'index'])->name('environments.index');
+            Route::post('projects/{id}/environments', [Customer\EnvironmentController::class, 'store'])->name('environments.store');
+            Route::post('environments/{id}/promote', [Customer\EnvironmentController::class, 'promote'])->name('environments.promote');
+            Route::delete('environments/{id}', [Customer\EnvironmentController::class, 'destroy'])->name('environments.destroy');
             Route::delete('projects/{id}', [Customer\ProjectController::class, 'destroy'])->name('projects.destroy');
             Route::post('projects/{id}/webhook-secret', [Customer\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');
             Route::post('projects/{id}/apps', [Customer\ProjectController::class, 'assign'])->name('projects.apps.assign');
