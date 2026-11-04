@@ -424,3 +424,39 @@ Schedule::command('billing:dunning')->dailyAt('09:10')->withoutOverlapping();
 Schedule::command('billing:invoice')->monthlyOn(1, '02:15');
 Schedule::command('proxy:push')->everyTenMinutes()->withoutOverlapping();
 Schedule::command('proxy:sync-certs')->everySixHours()->withoutOverlapping();
+
+/* ── Partner provisioning (docs/PARTNER_API.md) ── */
+Artisan::command('partner:client {name} {--webhook= : the partner\'s webhook URL} {--scopes=deployments:read,deployments:write,deployments:operate,deployments:lifecycle} {--rotate : issue a new secret for an existing client}', function () {
+    $name = (string) $this->argument('name');
+    $scopes = array_values(array_intersect(explode(',', (string) $this->option('scopes')), config('partner.scopes')));
+    $client = \App\Models\PartnerClient::where('name', $name)->first();
+    if ($client && ! $this->option('rotate')) {
+        $this->error("A partner client named {$name} exists; pass --rotate to issue new secrets.");
+
+        return 1;
+    }
+    $secret = \Illuminate\Support\Str::random(64);
+    $webhookSecret = \Illuminate\Support\Str::random(64);
+    $attrs = ['secret' => $secret, 'webhook_secret' => $webhookSecret, 'scopes' => $scopes, 'active' => true];
+    if ($this->option('webhook')) {
+        $attrs['webhook_url'] = $this->option('webhook');
+    }
+    $client = $client ? tap($client)->update($attrs) : \App\Models\PartnerClient::create($attrs + ['name' => $name, 'key_id' => 'lzp_'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(24))]);
+    app(\App\Services\AuditLogger::class)->log('partner.client.'.($this->option('rotate') ? 'rotate' : 'create'), 'PartnerClient', $client->id, ['name' => $name, 'scopes' => $scopes], null, null, 'cli');
+    $this->info('Shown once — put these in WorkSuite Cloud\'s api/.env:');
+    $this->line("LIVEZEN_KEY_ID={$client->key_id}");
+    $this->line("LIVEZEN_SECRET={$secret}");
+    $this->line("LIVEZEN_WEBHOOK_SECRET={$webhookSecret}");
+})->purpose('Create (or rotate) a partner client credential for server-to-server provisioning');
+
+Artisan::command('partner:sync', function (\App\Services\PartnerProvisioningService $partners) {
+    $this->info('Partner status events queued: '.$partners->sync());
+})->purpose('Refresh partner deployments and queue a webhook for each visible change');
+
+Artisan::command('partner:webhooks', function (\App\Services\PartnerWebhookService $hooks) {
+    $s = $hooks->deliverDue();
+    $this->info("Webhooks delivered {$s['delivered']}, retrying {$s['retrying']}, failed {$s['failed']}");
+})->purpose('Deliver due partner webhooks');
+
+Schedule::command('partner:sync')->everyMinute()->withoutOverlapping();
+Schedule::command('partner:webhooks')->everyMinute()->withoutOverlapping();

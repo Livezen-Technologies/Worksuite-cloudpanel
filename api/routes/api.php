@@ -102,6 +102,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('dashboard', [Admin\DashboardController::class, 'dashboard'])->middleware($view)->name('dashboard');
     Route::get('metrics', [Admin\DashboardController::class, 'metrics'])->middleware($view)->name('metrics');
 
+    // Partner provisioning (WorkSuite Cloud) — platform staff only, checked in the controller.
+    Route::get('partner-overview', [Admin\PartnerController::class, 'overview'])->middleware('perm:servers.view')->name('partner.overview');
+    Route::patch('partner-clients/{id}', [Admin\PartnerController::class, 'update'])->middleware('perm:settings.manage')->name('partner.clients.update');
+
     // Servers & agents
     Route::middleware('perm:servers.view')->group(function () {
         Route::get('servers', [Admin\ServerController::class, 'index'])->name('servers.index');

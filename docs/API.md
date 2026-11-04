@@ -113,6 +113,10 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET/PATCH | /app/account ; POST /app/account/team {email, role} ; GET/POST/DELETE /app/account/tokens |
 | GET | /app/templates |
 
+## Partner API (`/partner/v1`, outside the user API)
+WorkSuite Cloud's server-to-server provisioning of WorkSuite Business / CMS — HMAC-signed, scoped, idempotent. See [PARTNER_API.md](PARTNER_API.md).
+Staff: `GET /partner-overview` (platform staff), `PATCH /partner-clients/{id}` {active, webhook_url, allowed_ips[]} (`settings.manage`).
+
 ### Customer file manager (User · Files)
 
 `GET /app/files` lists the customer's apps that keep files: `[{id, name, volume_path, ready}]` (`ready` once the server has reported the app's volume). Every admin file route also exists under `/app/apps/{app_id}/files…` with the same bodies and results, addressed by app instead of volume, except `chown` and `scan`. The app is found through the tenant scope, so only the customer's own apps resolve; jobs belong to the customer's organisation even on shared-pool servers.

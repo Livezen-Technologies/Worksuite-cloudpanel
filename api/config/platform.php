@@ -290,6 +290,9 @@ return [
         'ghost' => ['name' => 'Ghost', 'description' => 'Publishing platform', 'image' => 'ghost:5', 'port' => 2368, 'volume_path' => '/var/lib/ghost/content', 'size' => 'small', 'env' => []],
         'postgresql' => ['name' => 'PostgreSQL', 'description' => 'Relational database', 'image' => 'postgres:16', 'port' => 5432, 'volume_path' => '/var/lib/postgresql/data', 'size' => 'small', 'env' => [['key' => 'POSTGRES_PASSWORD', 'value' => '', 'secret' => true]]],
         'redis' => ['name' => 'Redis', 'description' => 'In-memory key-value store', 'image' => 'redis:7', 'port' => 6379, 'volume_path' => '/data', 'size' => 'small', 'env' => []],
+        // Partner provisioning (config/partner.php): deployed on behalf of WorkSuite Cloud, never offered in the customer picker.
+        'worksuite-business' => ['name' => 'WorkSuite Business', 'description' => 'WorkSuite business workspace', 'image' => env('WORKSUITE_BUSINESS_IMAGE', 'registry.livezentech.com/worksuite/business:stable'), 'port' => 8080, 'volume_path' => '/var/www/storage', 'size' => 'standard', 'env' => [], 'partner_only' => true],
+        'worksuite-cms' => ['name' => 'WorkSuite CMS', 'description' => 'WorkSuite website and content management', 'image' => env('WORKSUITE_CMS_IMAGE', 'registry.livezentech.com/worksuite/cms:stable'), 'port' => 8080, 'volume_path' => '/var/www/storage', 'size' => 'standard', 'env' => [], 'partner_only' => true],
         'uptime-kuma' => ['name' => 'Uptime Kuma', 'description' => 'Uptime monitoring', 'image' => 'louislam/uptime-kuma:1', 'port' => 3001, 'volume_path' => '/app/data', 'size' => 'small', 'env' => []],
     ],
 ];

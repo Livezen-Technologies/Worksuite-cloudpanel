@@ -201,7 +201,10 @@ class HostingService
                 'size' => $m['size'] ?? 'small', 'name' => $t->name, 'description' => $m['description'] ?? ''];
         }
 
-        return config('platform.app_templates')[$id] ?? null;
+        $legacy = config('platform.app_templates')[$id] ?? null;
+
+        // Partner-only templates (config/partner.php) are deployed by the partner API by image, never by customers.
+        return $legacy && empty($legacy['partner_only']) ? $legacy : null;
     }
 
     public function toApi(Application $app, bool $detail = false): array

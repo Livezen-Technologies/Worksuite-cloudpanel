@@ -56,6 +56,7 @@ import { FinanceInvoices, FinancePayments, FinanceRefunds, FinanceSubscriptions,
 import { CustomersOverview, CustomerDirectory, Companies, CustomerContacts, CustomerGroups } from './pages/admin/Customers'
 import AppManage from './pages/admin/AppManage'
 import SalesLeads from './pages/admin/SalesLeads'
+import Partners from './pages/admin/Partners'
 import { SiteLayout } from './site/SiteLayout'
 import { SiteHome, Pricing, Templates, Docs, Changelog, Blog, About, Contact, Legal } from './site/pages'
 
@@ -122,6 +123,7 @@ export function AppRoutes() {
         <Route path="cluster" element={<Cluster />} />
         <Route path="kubernetes" element={<Kubernetes />} />
         <Route path="leads" element={<SalesLeads />} />
+        <Route path="partners" element={<Partners />} />
         <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
         <Route path="deployments/:id" element={<DeploymentProgress />} />

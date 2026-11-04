@@ -23,7 +23,8 @@ class AgentCommand extends Model
         ];
     }
 
-    public function server() { return $this->belongsTo(Server::class); }
+    // Unscoped like Container::server(): a command for an app on a shared-pool server is applied in the app's organisation, not the server's.
+    public function server() { return $this->belongsTo(Server::class)->withoutGlobalScope('organization'); }
     public function job() { return $this->belongsTo(Job::class); }
 
     public function isFinished(): bool
