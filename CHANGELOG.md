@@ -250,6 +250,39 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Dynamic customer groups, and the discount a group carries reaching the
+  invoice.** Groups existed but were filled by hand and priced nothing.
+
+  - A **dynamic group** now holds a rule set, and a nightly
+    `customers:recompute-groups` (02:40, before the billing run) materialises
+    membership into `customer_group_members` with `source='rule'`. Reads stay a
+    plain join, so a complicated rule cannot slow the directory down. A
+    customer added by hand is never swept out by a rule.
+  - **Nothing a client sends reaches SQL.** `App\Support\CustomerRules` maps a
+    rule's field through a fixed whitelist of thirteen columns and computed
+    counts, its operator through a fixed set of eleven, and binds every value.
+    An unknown field is a 422, not an ignored clause -- a rule that quietly
+    matches everyone is how a discount group ends up holding the whole book.
+    Rules are validated on save, not first run, and may nest three deep.
+  - **Preview before recompute.** `POST customer-groups/{id}/preview-rules`
+    returns the count and the first 25 matches and writes nothing, so a
+    mis-typed rule cannot move anyone. The group editor builds rules from the
+    server's own field list and shows the preview beside them.
+  - **Finance reads the group.** An invoice now carries `discount_cents` and
+    the `customer_group_id` that granted it, and the discount appears as a
+    line of its own, so tax is charged on what the customer owes rather than
+    the gross. Where two groups discount, the largest wins; where two override
+    the same plan's price, the cheaper wins. The rule has one home,
+    `CustomerService::pricingFor()`, rather than being re-derived per caller.
+  - **The people under an account, and what each may actually do.**
+    `GET customer-accounts/{id}/users` resolves every member's role to its
+    permission list, counts the other accounts that person belongs to, and
+    flags the last remaining owner. The customer profile's Members tab shows
+    both. The invite, re-role and remove writes route to the existing member
+    endpoints -- same last-owner guard, same audit trail, one implementation --
+    and adding somebody who already has a login attaches a membership rather
+    than making a second identity.
+
 - **Customers**, an eighth admin section between Finance and Settings, holding
   the customer directory, companies, contacts and customer groups. Hosting's
   "Hosting Customers" item moves here, the way Packages moved to Finance.
