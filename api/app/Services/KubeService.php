@@ -17,6 +17,10 @@ class KubeService
 {
     public const NAME = '/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/';
 
+    public const POD = '/^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/';
+
+    public const HOST = '/^(\*\.)?([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i';
+
     /**
      * https only. Private networks are allowed (that is where clusters live); loopback,
      * link-local and cloud metadata addresses are not, so the panel can't be pointed at itself.
@@ -204,5 +208,101 @@ class KubeService
         }
 
         return ['namespace' => $ns, 'name' => $v['name']];
+    }
+
+    /** Ingresses and cert-manager issuers; null when the token may not read them, so the page still loads. */
+    public function routing(KubeCluster $c, ?string $namespace = null): array
+    {
+        $h = $this->http($c);
+        $try = function (callable $fn) {
+            try {
+                return $this->call($fn);
+            } catch (ApiException) {
+                return null;
+            }
+        };
+        $path = $namespace ? '/apis/networking.k8s.io/v1/namespaces/'.rawurlencode($namespace).'/ingresses' : '/apis/networking.k8s.io/v1/ingresses';
+        $ing = $try(fn () => $this->json($h->get($path), 'list ingresses'));
+        $issuers = $try(fn () => $this->json($h->get('/apis/cert-manager.io/v1/clusterissuers'), 'list cluster issuers'));
+
+        return [
+            'ingresses' => $ing === null ? null : collect($ing['items'] ?? [])->map(fn ($i) => [
+                'namespace' => $i['metadata']['namespace'] ?? '', 'name' => $i['metadata']['name'] ?? '',
+                'class' => $i['spec']['ingressClassName'] ?? null,
+                'hosts' => collect($i['spec']['rules'] ?? [])->pluck('host')->filter()->values()->all(),
+                'service' => $i['spec']['rules'][0]['http']['paths'][0]['backend']['service']['name'] ?? null,
+                'tls' => ! empty($i['spec']['tls']),
+                'issuer' => $i['metadata']['annotations']['cert-manager.io/cluster-issuer'] ?? null,
+                'address' => collect($i['status']['loadBalancer']['ingress'] ?? [])->map(fn ($a) => $a['ip'] ?? $a['hostname'] ?? null)->filter()->values()->all(),
+            ])->values()->all(),
+            // cert-manager installed and readable: these names can be picked for HTTPS.
+            'cluster_issuers' => $issuers === null ? null : collect($issuers['items'] ?? [])->map(fn ($i) => [
+                'name' => $i['metadata']['name'] ?? '',
+                'ready' => (collect($i['status']['conditions'] ?? [])->firstWhere('type', 'Ready')['status'] ?? 'Unknown') === 'True',
+            ])->values()->all(),
+        ];
+    }
+
+    /** The deployment's pods, found with its own selector. */
+    public function pods(KubeCluster $c, string $ns, string $name): array
+    {
+        $this->names($ns, $name);
+        $h = $this->http($c);
+        $dep = $this->call(fn () => $this->json($h->get("/apis/apps/v1/namespaces/{$ns}/deployments/{$name}"), 'read deployments'));
+        $match = (array) ($dep['spec']['selector']['matchLabels'] ?? []);
+        if (! $match) {
+            return [];
+        }
+        $selector = collect($match)->map(fn ($v, $k) => $k.'='.$v)->implode(',');
+        $pods = $this->call(fn () => $this->json($h->get("/api/v1/namespaces/{$ns}/pods", ['labelSelector' => $selector]), 'list pods'));
+
+        return collect($pods['items'] ?? [])->map(fn ($p) => [
+            'name' => $p['metadata']['name'] ?? '', 'phase' => $p['status']['phase'] ?? null, 'node' => $p['spec']['nodeName'] ?? null,
+            'started_at' => $p['status']['startTime'] ?? null,
+            'containers' => collect($p['spec']['containers'] ?? [])->pluck('name')->values()->all(),
+            'ready' => collect($p['status']['containerStatuses'] ?? [])->every(fn ($s) => ! empty($s['ready'])) && ! empty($p['status']['containerStatuses']),
+            'restarts' => (int) collect($p['status']['containerStatuses'] ?? [])->sum('restartCount'),
+            'reason' => collect($p['status']['containerStatuses'] ?? [])->map(fn ($s) => $s['state']['waiting']['reason'] ?? null)->filter()->first(),
+        ])->values()->all();
+    }
+
+    /** The last lines a pod's container wrote, capped so a noisy pod cannot flood the panel. */
+    public function logs(KubeCluster $c, string $ns, string $pod, ?string $container, int $tail, bool $previous): string
+    {
+        if (! preg_match(self::NAME, $ns) || ! preg_match(self::POD, $pod) || ($container !== null && ! preg_match(self::NAME, $container))) {
+            throw ApiException::validation(['pod' => ['Invalid namespace, pod or container name.']]);
+        }
+        $q = ['tailLines' => $tail, 'limitBytes' => 512 * 1024, 'timestamps' => 'true'] + ($container ? ['container' => $container] : []) + ($previous ? ['previous' => 'true'] : []);
+        $r = $this->call(fn () => $this->http($c)->accept('text/plain')->get("/api/v1/namespaces/{$ns}/pods/{$pod}/log", $q));
+        if (! $r->successful()) {
+            $this->json($r, 'read pod logs');
+        }
+
+        return $r->body();
+    }
+
+    /** An Ingress routing a host to a Service; with an issuer, cert-manager gets and renews its certificate. */
+    public function createIngress(KubeCluster $c, array $v): array
+    {
+        $ns = $v['namespace'];
+        $this->names($ns, $v['service']);
+        $name = $v['name'] ?? $v['service'];
+        $this->names($ns, $name);
+        $annotations = ! empty($v['issuer']) ? ['cert-manager.io/cluster-issuer' => $v['issuer']] : [];
+        $ing = ['apiVersion' => 'networking.k8s.io/v1', 'kind' => 'Ingress',
+            'metadata' => ['name' => $name, 'namespace' => $ns, 'labels' => ['app.kubernetes.io/managed-by' => 'worksuite-cloudpanel']] + ($annotations ? ['annotations' => $annotations] : []),
+            'spec' => (! empty($v['class']) ? ['ingressClassName' => $v['class']] : []) + [
+                'rules' => [['host' => $v['host'], 'http' => ['paths' => [['path' => '/', 'pathType' => 'Prefix',
+                    'backend' => ['service' => ['name' => $v['service'], 'port' => ['number' => (int) $v['port']]]]]]]]],
+            ] + (! empty($v['issuer']) ? ['tls' => [['hosts' => [$v['host']], 'secretName' => substr($name, 0, 57).'-tls']]] : [])];
+        $this->call(fn () => $this->json($this->http($c)->post("/apis/networking.k8s.io/v1/namespaces/{$ns}/ingresses", $ing), 'create ingresses'));
+
+        return ['namespace' => $ns, 'name' => $name, 'tls' => ! empty($v['issuer'])];
+    }
+
+    public function deleteIngress(KubeCluster $c, string $ns, string $name): void
+    {
+        $this->names($ns, $name);
+        $this->call(fn () => $this->json($this->http($c)->delete("/apis/networking.k8s.io/v1/namespaces/{$ns}/ingresses/{$name}"), 'delete ingresses'));
     }
 }

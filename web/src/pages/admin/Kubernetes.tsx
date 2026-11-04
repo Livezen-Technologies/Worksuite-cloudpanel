@@ -3,14 +3,96 @@ import { useAction, useOne } from '../../api/hooks'
 import { Card, PageHeader } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import Select from '../../components/Select'
+import { Modal } from '../../components/Overlay'
 import { ago } from '../../lib/format'
 import type { R } from '../../lib/util'
+
+function PodLogs({ cid, ns, pod, onClose }: { cid: string; ns: string; pod: R; onClose: () => void }) {
+  const containers = (pod.containers as string[]) ?? []
+  const [container, setContainer] = useState(containers[0] ?? '')
+  const [previous, setPrevious] = useState(false)
+  const q = useOne<{ lines: string[] }>(`/kubernetes/${cid}/namespaces/${ns}/pods/${pod.name}/logs`, { tail: 300, ...(container ? { container } : {}), ...(previous ? { previous: 1 } : {}) })
+  const lines = q.item?.lines ?? []
+  return (
+    <Modal open onClose={onClose} title={`Logs: ${pod.name}`} width={900}
+      footer={<><button type="button" className="btn" onClick={() => q.refetch()}>Refresh</button><button type="button" className="btn btn-primary" onClick={onClose}>Close</button></>}>
+      <div className="flex flex-wrap items-center gap-3 mb-2 text-sm">
+        {containers.length > 1 && <label className="flex items-center gap-2">Container<select className="input w-auto" value={container} onChange={(e) => setContainer(e.target.value)}>{containers.map((c) => <option key={c}>{c}</option>)}</select></label>}
+        <label className="flex items-center gap-2"><input type="checkbox" checked={previous} onChange={(e) => setPrevious(e.target.checked)} />Before the last restart</label>
+        <span className="text-xs text-muted">Last 300 lines</span>
+      </div>
+      {q.error ? <p role="alert" className="m-0 text-sm text-danger">{q.error instanceof Error ? q.error.message : 'Could not read the logs.'}</p>
+        : <pre aria-label="Pod logs" className="m-0 p-3 rounded-md bg-[var(--code,#0b0b0f)] text-xs font-mono overflow-auto max-h-[60vh] whitespace-pre-wrap">{q.isLoading ? 'Loading…' : lines.length ? lines.join('\n') : 'No output.'}</pre>}
+    </Modal>
+  )
+}
+
+function Pods({ cid, dep }: { cid: string; dep: R }) {
+  const q = useOne<R[]>(`/kubernetes/${cid}/namespaces/${dep.namespace}/deployments/${dep.name}/pods`, undefined, { refetchInterval: 10000 })
+  const [logs, setLogs] = useState<R | null>(null)
+  const pods = q.item ?? []
+  if (q.error) return <p role="alert" className="m-0 text-xs text-danger">{q.error instanceof Error ? q.error.message : 'Could not list pods.'}</p>
+  return (
+    <div className="w-full pl-3 border-l-2 border-line">
+      {q.isLoading ? <p className="m-0 text-xs text-muted">Loading pods…</p> : pods.length === 0 ? <p className="m-0 text-xs text-muted">No pods.</p> : (
+        <ul className="list-none m-0 p-0 flex flex-col gap-1">{pods.map((p) => (
+          <li key={String(p.name)} className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-mono">{String(p.name)}</span>
+            <Badge tone={p.ready ? 'g' : p.phase === 'Pending' ? 'y' : 'r'}>{p.reason ? String(p.reason) : p.ready ? 'Ready' : String(p.phase ?? 'Unknown')}</Badge>
+            <span className="text-muted">{Number(p.restarts ?? 0)} restarts{p.node ? ` · ${p.node}` : ''}{p.started_at ? ` · started ${ago(String(p.started_at))}` : ''}</span>
+            <button type="button" className="btn btn-sm ml-auto" onClick={() => setLogs(p)}>Logs</button>
+          </li>
+        ))}</ul>
+      )}
+      {logs && <PodLogs cid={cid} ns={String(dep.namespace)} pod={logs} onClose={() => setLogs(null)} />}
+    </div>
+  )
+}
+
+function Ingresses({ c, w, target, onChanged }: { c: R; w: R; target: string; onChanged: () => void }) {
+  const { run, busy } = useAction()
+  const [f, setF] = useState({ host: '', service: '', port: '80', klass: '', issuer: '' })
+  const list = w.ingresses as R[] | null | undefined
+  const issuers = w.cluster_issuers as R[] | null | undefined
+  if (list === null) return <p className="m-0 text-xs text-muted">The token is not allowed to read ingresses, so they are not shown here.</p>
+  const ok = /^(\*\.)?([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(f.host.trim()) && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(f.service) && Number(f.port) > 0
+  return (
+    <div>
+      <h3 className="m-0 mb-1 text-sm font-semibold">Ingresses (domains)</h3>
+      {!list?.length ? <p className="m-0 text-sm text-muted">No ingresses here.</p> : (
+        <ul className="list-none m-0 p-0 flex flex-col">{list.map((i) => (
+          <li key={`${i.namespace}/${i.name}`} className="flex flex-wrap items-center gap-3 py-2 border-t border-line first:border-t-0 text-sm">
+            <span className="flex-1 min-w-[200px]"><span className="font-semibold">{((i.hosts as string[]) ?? []).join(', ') || String(i.name)}</span> <span className="text-xs text-muted">{String(i.namespace)} → {String(i.service ?? '?')}{i.class ? ` · ${i.class}` : ''}{((i.address as string[]) ?? []).length ? ` · ${(i.address as string[]).join(', ')}` : ' · no address yet'}</span></span>
+            <Badge tone={i.tls ? 'g' : 'n'}>{i.tls ? (i.issuer ? `HTTPS · ${i.issuer}` : 'HTTPS') : 'HTTP only'}</Badge>
+            <button type="button" className="btn btn-sm btn-danger" aria-label={`Delete ingress ${i.name}`} disabled={busy} onClick={() => { if (window.confirm(`Delete ingress ${i.name}? Its domains stop reaching the service.`)) run({ path: `/kubernetes/${c.id}/namespaces/${i.namespace}/ingresses/${i.name}`, method: 'DELETE', label: `Delete ingress ${i.name}` }).then(onChanged).catch(() => {}) }}>Delete</button>
+          </li>
+        ))}</ul>
+      )}
+      <div className="rounded-md border border-line p-3 mt-2">
+        <h4 className="m-0 mb-2 text-sm font-semibold">Add a domain in {target}</h4>
+        <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+          <input className="input font-mono" aria-label="Domain" placeholder="shop.example.com" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} />
+          <input className="input font-mono" aria-label="Service" placeholder="web" value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })} />
+          <input className="input" aria-label="Service port" type="number" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value })} />
+          <input className="input font-mono" aria-label="Ingress class (optional)" placeholder="nginx" value={f.klass} onChange={(e) => setF({ ...f, klass: e.target.value })} />
+          {issuers ? <select className="input" aria-label="HTTPS certificate" value={f.issuer} onChange={(e) => setF({ ...f, issuer: e.target.value })}>
+            <option value="">No HTTPS</option>{issuers.map((x) => <option key={String(x.name)} value={String(x.name)}>HTTPS with {String(x.name)}{x.ready ? '' : ' (not ready)'}</option>)}</select> : null}
+        </div>
+        {!issuers && <p className="m-0 mt-2 text-xs text-muted">Install cert-manager in the cluster with a ClusterIssuer (such as Let’s Encrypt) to get HTTPS certificates automatically.</p>}
+        <button type="button" className="btn btn-primary mt-2" disabled={busy || !ok}
+          onClick={() => run({ path: `/kubernetes/${c.id}/ingresses`, body: { namespace: target, host: f.host.trim(), service: f.service, port: Number(f.port), ...(f.klass.trim() ? { class: f.klass.trim() } : {}), ...(f.issuer ? { issuer: f.issuer } : {}) }, label: `Add ${f.host}`, success: f.issuer ? 'Domain added. The certificate is issued in a minute or two.' : 'Domain added' })
+            .then(() => { setF({ host: '', service: '', port: '80', klass: '', issuer: '' }); onChanged() }).catch(() => {})}>Add domain</button>
+      </div>
+    </div>
+  )
+}
 
 function ClusterView({ c, onChanged }: { c: R; onChanged: () => void }) {
   const [ns, setNs] = useState('')
   const q = useOne<R>(c.status === 'connected' ? `/kubernetes/${c.id}` : null, ns ? { namespace: ns } : undefined, { refetchInterval: 15000 })
   const { run, busy } = useAction()
   const [d, setD] = useState({ name: '', image: '', replicas: '1', port: '' })
+  const [open, setOpen] = useState<string | null>(null)
   const w = q.item ?? {}
   const refetch = () => q.refetch()
   const deps = (w.deployments as R[]) ?? []
@@ -46,17 +128,20 @@ function ClusterView({ c, onChanged }: { c: R; onChanged: () => void }) {
                 <span className="flex items-center gap-1">
                   <button type="button" className="btn btn-sm" aria-label={`Fewer replicas of ${dep.name}`} disabled={busy || rep <= 0} onClick={() => act(dep, 'scale', { replicas: rep - 1 })}>−</button>
                   <button type="button" className="btn btn-sm" aria-label={`More replicas of ${dep.name}`} disabled={busy || rep >= 50} onClick={() => act(dep, 'scale', { replicas: rep + 1 })}>+</button>
+                  <button type="button" className="btn btn-sm" aria-expanded={open === `${dep.namespace}/${dep.name}`} onClick={() => setOpen(open === `${dep.namespace}/${dep.name}` ? null : `${dep.namespace}/${dep.name}`)}>Pods</button>
                   <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(dep, 'restart')}>Restart</button>
                   <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => {
                     const typed = window.prompt(`Delete deployment ${dep.name} in ${dep.namespace}? Type its name to confirm.`)
                     if (typed !== null) run({ path: `/kubernetes/${c.id}/namespaces/${dep.namespace}/deployments/${dep.name}?confirm=${encodeURIComponent(typed)}`, method: 'DELETE', label: `Delete ${dep.name}` }).then(refetch).catch(() => {})
                   }}>Delete</button>
                 </span>
+                {open === `${dep.namespace}/${dep.name}` && <Pods cid={String(c.id)} dep={dep} />}
               </li>
             )
           })}</ul>
         )}
       </div>
+      <Ingresses c={c} w={w} target={target} onChanged={refetch} />
       <div className="rounded-md border border-line p-3">
         <h3 className="m-0 mb-2 text-sm font-semibold">Deploy an image to {target}</h3>
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
@@ -85,7 +170,7 @@ export default function Kubernetes() {
 
   return (
     <>
-      <PageHeader title="Kubernetes" subtitle="Connect existing clusters: see nodes and workloads, scale, restart and deploy." />
+      <PageHeader title="Kubernetes" subtitle="Connect existing clusters: see nodes, workloads and pod logs, scale, restart, deploy and add domains with HTTPS." />
       <Card title="Connect a cluster">
         <div className="flex gap-1 mb-3">{(['kubeconfig', 'token'] as const).map((m) => <button key={m} type="button" aria-pressed={mode === m} className={`btn btn-sm ${mode === m ? 'btn-primary' : ''}`} onClick={() => setMode(m)}>{m === 'kubeconfig' ? 'Paste a kubeconfig' : 'API address + token'}</button>)}</div>
         <div className="flex flex-col gap-2 text-sm">
