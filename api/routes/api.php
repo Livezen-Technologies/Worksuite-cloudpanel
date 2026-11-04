@@ -177,6 +177,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('template-installs', [Admin\TemplateController::class, 'installs'])->name('template-installs.index');
         Route::get('projects', [Admin\ProjectController::class, 'index'])->name('projects.index');
         Route::get('projects/{id}', [Admin\ProjectController::class, 'show'])->name('projects.show');
+        Route::get('projects/{id}/canvas', [Admin\ProjectController::class, 'canvas'])->name('projects.canvas');
         Route::get('environments/{id}', [Admin\ProjectController::class, 'showEnvironment'])->name('environments.show');
         Route::get('deployments', [Admin\DeploymentController::class, 'index'])->name('deployments.index');
         Route::get('deployments/{id}', [Admin\DeploymentController::class, 'show'])->name('deployments.show');
@@ -200,6 +201,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::patch('projects/{id}', [Admin\ProjectController::class, 'update'])->name('projects.update');
+        Route::put('projects/{id}/canvas/layout', [Admin\ProjectController::class, 'saveLayout'])->name('projects.canvas.layout');
         Route::get('projects/{id}/transfer', [Admin\ProjectController::class, 'transferPreview'])->name('projects.transfer.preview');
         Route::post('projects/{id}/transfer', [Admin\ProjectController::class, 'transfer'])->name('projects.transfer');
         Route::post('projects/{id}/webhook-secret', [Admin\ProjectController::class, 'rotateSecret'])->name('projects.webhook-secret');

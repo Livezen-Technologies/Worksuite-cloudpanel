@@ -37,8 +37,10 @@ export function layout(nodes: R[], links: R[]): Record<string, { x: number; y: n
 
 type XY = { x: number; y: number }
 
-export function ProjectCanvas({ projectId }: { projectId: string }) {
-  const base = `/app/projects/${projectId}/canvas`
+/** `staff`: the admin view of any project. Arranging works the same; connecting and app actions are the customer's. */
+export function ProjectCanvas({ projectId, staff = false }: { projectId: string; staff?: boolean }) {
+  const base = staff ? `/projects/${projectId}/canvas` : `/app/projects/${projectId}/canvas`
+  const appHref = (id: unknown) => (staff ? `/admin/applications/${id}` : `/app/apps/${id}`)
   const q = useOne<R>(base, undefined, { refetchInterval: 15000 })
   const { run, busy } = useAction()
   const toast = useToast()
@@ -146,10 +148,10 @@ export function ProjectCanvas({ projectId }: { projectId: string }) {
             {links.filter((l) => l.from === cur.id).length === 0 ? <p className="m-0 text-xs text-muted">Nothing yet.</p> : (
               <ul className="list-none m-0 p-0 flex flex-col gap-1">{links.filter((l) => l.from === cur.id).map((l) => (
                 <li key={`${l.to}-${l.via}`} className="flex items-center gap-2 text-xs"><span className="flex-1 min-w-0 truncate">{String(nodes.find((n) => n.id === l.to)?.name)} <span className="text-muted">via {String(l.via)}</span></span>
-                  <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Remove ${l.via}`} onClick={() => unlink(l)}>Remove</button></li>
+                  {!staff && <button type="button" className="btn btn-sm" disabled={busy} aria-label={`Remove ${l.via}`} onClick={() => unlink(l)}>Remove</button>}</li>
               ))}</ul>
             )}
-            {nodes.length > 1 && <div className="flex flex-col gap-1.5 mt-2">
+            {!staff && nodes.length > 1 && <div className="flex flex-col gap-1.5 mt-2">
               <select className="input" aria-label="Connect to" value={target} onChange={(e) => setTarget(e.target.value)}>
                 <option value="">Connect to…</option>
                 {nodes.filter((n) => n.id !== cur.id).map((n) => <option key={String(n.id)} value={String(n.id)}>{String(n.name)}</option>)}
@@ -167,9 +169,9 @@ export function ProjectCanvas({ projectId }: { projectId: string }) {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn btn-sm" to={`/app/apps/${cur.id}`}>Open app</Link>
-            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/apps/${cur.id}/redeploy`, label: `Redeploy ${cur.name}` }).then(() => q.refetch()).catch(() => {})}>Redeploy</button>
-            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/apps/${cur.id}/restart`, label: `Restart ${cur.name}` }).catch(() => {})}>Restart</button>
+            <Link className="btn btn-sm" to={appHref(cur.id)}>Open app</Link>
+            {!staff && <><button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/apps/${cur.id}/redeploy`, label: `Redeploy ${cur.name}` }).then(() => q.refetch()).catch(() => {})}>Redeploy</button>
+            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/apps/${cur.id}/restart`, label: `Restart ${cur.name}` }).catch(() => {})}>Restart</button></>}
           </div>
         </>}
       </aside>

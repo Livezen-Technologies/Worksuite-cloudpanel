@@ -182,27 +182,13 @@ class ProjectController extends Controller
     {
         $p = Project::findOrFail($id);
         $apps = Application::where('kind', 'customer')->where('project_id', $p->id)->orderBy('name')->get();
-        $names = $apps->pluck('id', 'name');
-        $links = [];
-        foreach ($apps as $a) {
-            foreach (\App\Models\EnvVar::where('application_id', $a->id)->get() as $var) {
-                foreach ($names as $name => $targetId) {
-                    if ($targetId === $a->id) {
-                        continue;
-                    }
-                    $re = '/(^|[\/@:=\s,])'.preg_quote($name, '/').'(?=$|[:\/\s,.])/i';
-                    if (preg_match($re, (string) $var->value)) {
-                        $links[$a->id.'>'.$targetId] = ['from' => $a->id, 'to' => $targetId, 'via' => $var->key];
-                    }
-                }
-            }
-        }
+        $canvas = app(\App\Services\ProjectCanvasService::class);
         $prices = \App\Models\Plan::whereIn('code', $apps->pluck('size')->unique())->pluck('price_cents', 'code');
 
         return $this->data([
             'project' => ['id' => $p->id, 'name' => $p->name, 'color' => $p->color ?? 'blue'],
             // Saved positions, only for apps still in the project.
-            'layout' => (object) collect($p->canvas_layout ?? [])->only($apps->pluck('id'))->all(),
+            'layout' => $canvas->layout($p, $apps),
             'environments' => \App\Models\Environment::where('project_id', $p->id)->orderBy('name')->get(['id', 'name', 'kind'])
                 ->map(fn ($e) => ['id' => $e->id, 'name' => $e->name, 'kind' => $e->kind])->values(),
             'nodes' => $apps->map(function ($a) use ($hosting, $prices) {
@@ -216,7 +202,7 @@ class ProjectController extends Controller
                         ->map(fn ($d) => ['id' => $d->id, 'status' => $d->status, 'source' => $d->source, 'created_at' => $d->created_at?->toIso8601ZuluString()])->values(),
                 ];
             })->values(),
-            'links' => array_values($links),
+            'links' => $canvas->links($apps),
         ]);
     }
 
@@ -224,13 +210,9 @@ class ProjectController extends Controller
     public function saveLayout(Request $request, string $id)
     {
         $p = Project::findOrFail($id);
-        $v = $request->validate(['positions' => 'present|array|max:500', 'positions.*.x' => 'required|integer|min:0|max:20000', 'positions.*.y' => 'required|integer|min:0|max:20000']);
-        $ids = Application::where('kind', 'customer')->where('project_id', $p->id)->pluck('id')->all();
-        $unknown = array_diff(array_keys($v['positions']), $ids);
-        if ($unknown) {
-            throw ApiException::validation(['positions' => ['Only apps in this project can be placed on its canvas.']]);
-        }
-        $p->update(['canvas_layout' => $v['positions'] ? collect($v['positions'])->map(fn ($xy) => ['x' => (int) $xy['x'], 'y' => (int) $xy['y']])->all() : null]);
+        $v = $request->validate(\App\Services\ProjectCanvasService::layoutRules());
+        $apps = Application::where('kind', 'customer')->where('project_id', $p->id)->get(['id']);
+        app(\App\Services\ProjectCanvasService::class)->saveLayout($p, $apps, $v['positions']);
 
         return response()->noContent();
     }
@@ -258,8 +240,7 @@ class ProjectController extends Controller
         [$from, $to] = $this->pair($request, $id);
         $v = $request->validate(['key' => 'required|string|max:120']);
         $var = \App\Models\EnvVar::where('application_id', $from->id)->where('key', $v['key'])->firstOrFail();
-        $re = '/(^|[\/@:=\s,])'.preg_quote($to->name, '/').'(?=$|[:\/\s,.])/i';
-        if (! preg_match($re, (string) $var->value)) {
+        if (! \App\Services\ProjectCanvasService::mentions((string) $var->value, $to->name)) {
             throw ApiException::validation(['key' => ["{$v['key']} does not point at {$to->name}."]]);
         }
         $var->delete();
