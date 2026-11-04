@@ -249,6 +249,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('swarm/{id}/leave', [Admin\SwarmController::class, 'leave'])->middleware('perm:servers.manage')->name('swarm.leave');
     Route::post('swarm/{id}/refresh', [Admin\SwarmController::class, 'refresh'])->middleware('perm:servers.view|servers.manage')->name('swarm.refresh');
     Route::post('swarm/{id}/nodes/{nodeId}', [Admin\SwarmController::class, 'node'])->where('nodeId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.node');
+    Route::post('swarm/{id}/services', [Admin\SwarmController::class, 'storeService'])->middleware('perm:servers.manage')->name('swarm.services.store');
+    Route::post('swarm/{id}/services/{serviceId}/image', [Admin\SwarmController::class, 'serviceImage'])->where('serviceId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.services.image');
+    Route::delete('swarm/{id}/services/{serviceId}', [Admin\SwarmController::class, 'destroyService'])->where('serviceId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.services.destroy');
     Route::post('swarm/{id}/services/{serviceId}/scale', [Admin\SwarmController::class, 'scale'])->where('serviceId', '[a-z0-9]{10,64}')->middleware('perm:servers.manage')->name('swarm.scale');
     // K8S: connected Kubernetes clusters (read: servers.view, write: servers.manage).
     Route::get('kubernetes', [Admin\KubeController::class, 'index'])->middleware('perm:servers.view|servers.manage')->name('kube.index');

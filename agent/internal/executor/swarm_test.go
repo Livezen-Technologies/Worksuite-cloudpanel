@@ -40,6 +40,9 @@ func swarmSetup(t *testing.T) (*Executor, *fakeSwarm) {
 		json.Unmarshal(b, &fs.last)
 		fs.mu.Unlock()
 		switch {
+		case r.URL.Path == "/services/create":
+			w.WriteHeader(201)
+			w.Write([]byte(`{"ID":"svcnewabcdef1234"}`))
 		case r.URL.Path == "/swarm/init":
 			w.Write([]byte(`"node0abcdef1234"`))
 		case r.URL.Path == "/swarm":
@@ -53,7 +56,7 @@ func swarmSetup(t *testing.T) (*Executor, *fakeSwarm) {
 		case r.URL.Path == "/nodes/node1abcdef1234" && r.Method == "GET":
 			w.Write([]byte(`{"ID":"node1abcdef1234","Version":{"Index":42},"Spec":{"Role":"worker","Availability":"active"}}`))
 		case r.URL.Path == "/services/svc1abcdef1234" && r.Method == "GET":
-			w.Write([]byte(`{"ID":"svc1abcdef1234","Version":{"Index":7},"Spec":{"Name":"web","Mode":{"Replicated":{"Replicas":3}}}}`))
+			w.Write([]byte(`{"ID":"svc1abcdef1234","Version":{"Index":7},"Spec":{"Name":"web","TaskTemplate":{"ContainerSpec":{"Image":"nginx:1"}},"Mode":{"Replicated":{"Replicas":3}}}}`))
 		default:
 			w.WriteHeader(200)
 		}
@@ -130,6 +133,55 @@ func TestSwarmRejectsBadInput(t *testing.T) {
 		r, _ := e.Handle(context.Background(), cmd("bad"+string(rune('a'+i)), p.typ, p.body, ts))
 		if r.Status == "succeeded" {
 			t.Errorf("case %d (%s) accepted", i, p.typ)
+		}
+	}
+}
+
+func TestSwarmServiceCreateUpdateRemove(t *testing.T) {
+	e, fs := swarmSetup(t)
+	ts := now.Add(-time.Minute)
+	r, _ := e.Handle(context.Background(), cmd("v1", "swarm.service_create", `{"name":"web","image":"nginx:1.27","replicas":3,"env":{"MODE":"prod"},"ports":[{"target":80,"published":8080}],"constraints":["node.labels.zone==a"],"memory_mb":256}`, ts))
+	if r.Status != "succeeded" || r.Output.(map[string]any)["service_id"] != "svcnewabcdef1234" {
+		t.Fatalf("create: %+v", r)
+	}
+	spec := fs.last
+	cs := spec["TaskTemplate"].(map[string]any)["ContainerSpec"].(map[string]any)
+	if cs["Image"] != "nginx:1.27" || cs["Env"].([]any)[0] != "MODE=prod" || cs["CapabilityDrop"].([]any)[0] != "ALL" {
+		t.Fatalf("container spec %v", cs)
+	}
+	if spec["UpdateConfig"].(map[string]any)["FailureAction"] != "rollback" || spec["UpdateConfig"].(map[string]any)["Order"] != "start-first" {
+		t.Fatalf("rolling update %v", spec["UpdateConfig"])
+	}
+	if p := spec["EndpointSpec"].(map[string]any)["Ports"].([]any)[0].(map[string]any); p["PublishedPort"] != float64(8080) || p["TargetPort"] != float64(80) {
+		t.Fatalf("ports %v", p)
+	}
+
+	r, _ = e.Handle(context.Background(), cmd("v2", "swarm.service_image", `{"service_id":"svc1abcdef1234","image":"nginx:1.28"}`, ts))
+	if r.Status != "succeeded" || !fs.called("POST /services/svc1abcdef1234/update?version=7") {
+		t.Fatalf("image update: %+v %v", r, fs.calls)
+	}
+	if img := fs.last["TaskTemplate"].(map[string]any)["ContainerSpec"].(map[string]any)["Image"]; img != "nginx:1.28" {
+		t.Fatalf("image sent %v", img)
+	}
+	if rep := fs.last["Mode"].(map[string]any)["Replicated"].(map[string]any)["Replicas"]; rep != float64(3) {
+		t.Fatal("an image update keeps the rest of the spec")
+	}
+
+	r, _ = e.Handle(context.Background(), cmd("v3", "swarm.service_remove", `{"service_id":"svc1abcdef1234"}`, ts))
+	if r.Status != "succeeded" || !fs.called("DELETE /services/svc1abcdef1234") {
+		t.Fatalf("remove: %+v", r)
+	}
+
+	for i, body := range []string{
+		`{"name":"Web App","image":"nginx"}`,
+		`{"name":"web","image":"nginx","constraints":["node.labels.zone==a; rm -rf /"]}`,
+		`{"name":"web","image":"nginx","ports":[{"target":80,"published":70000}]}`,
+		`{"name":"web","image":"nginx","env":{"bad-key":"x"}}`,
+		`{"name":"web","image":"nginx","replicas":1000}`,
+	} {
+		r, _ := e.Handle(context.Background(), cmd("bad-s"+string(rune('a'+i)), "swarm.service_create", body, ts))
+		if r.Status == "succeeded" {
+			t.Errorf("case %d accepted: %s", i, body)
 		}
 	}
 }

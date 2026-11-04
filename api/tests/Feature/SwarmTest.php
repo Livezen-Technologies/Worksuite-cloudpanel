@@ -34,7 +34,8 @@ class SwarmTest extends TestCase
 
     private function last(string $type): AgentCommand
     {
-        return AgentCommand::allTenants()->where('type', $type)->latest('created_at')->firstOrFail();
+        // Ids are time-ordered (UUIDv7), so they settle ties that created_at can't.
+        return AgentCommand::allTenants()->where('type', $type)->orderByDesc('id')->firstOrFail();
     }
 
     public function test_a_cluster_is_created_joined_inspected_and_operated(): void
@@ -102,5 +103,37 @@ class SwarmTest extends TestCase
         $this->api($other)->postJson("/api/v1/swarm/{$c['id']}/refresh")->assertNotFound();
         $this->api($other)->postJson('/api/v1/swarm', ['name' => 'other', 'manager_server_id' => $m->id])->assertNotFound();
         $this->assertSame([], $this->api($other)->getJson('/api/v1/swarm')->json('data.clusters'));
+    }
+
+    public function test_services_are_deployed_updated_and_removed(): void
+    {
+        [$token, $m, $ms] = $this->fleet();
+        $c = $this->api($token)->postJson('/api/v1/swarm', ['name' => 'prod', 'manager_server_id' => $m->id])->json('data.cluster');
+        $this->commandResult($ms, $this->last('swarm.init')->id, 'succeeded', ['output' => ['node_id' => 'node0abcdef1234', 'worker_token' => $this->joinToken]])->assertOk();
+
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'web', 'image' => 'nginx:1.27', 'replicas' => 3,
+            'env' => ['MODE' => 'prod'], 'ports' => [['target' => 80, 'published' => 8080]], 'constraints' => ['node.role==worker']])->assertStatus(202);
+        $create = $this->last('swarm.service_create');
+        $this->assertSame($m->id, $create->server_id);
+        $this->assertSame(['name' => 'web', 'image' => 'nginx:1.27', 'replicas' => 3], array_intersect_key($create->payload, ['name' => 1, 'image' => 1, 'replicas' => 1]));
+        $this->assertSame(['node.role==worker'], $create->payload['constraints']);
+
+        // A change to services reads the cluster again.
+        $before = AgentCommand::allTenants()->where('type', 'swarm.inspect')->count();
+        $this->commandResult($ms, $create->id, 'succeeded', ['output' => ['service_id' => 'svcnewabcdef1234', 'name' => 'web']])->assertOk();
+        $this->assertSame($before + 1, AgentCommand::allTenants()->where('type', 'swarm.inspect')->count());
+        $this->commandResult($ms, $this->last('swarm.inspect')->id, 'succeeded', ['output' => ['nodes' => [], 'services' => [['id' => 'svcnewabcdef1234', 'name' => 'web', 'replicas' => 3, 'running' => 3]]]])->assertOk();
+
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", ['name' => 'web', 'image' => 'nginx', 'replicas' => 1])->assertStatus(409);
+        foreach ([['name' => 'Web App', 'image' => 'nginx', 'replicas' => 1], ['name' => 'api', 'image' => 'nginx', 'replicas' => 1, 'constraints' => ['zone=a; rm']],
+            ['name' => 'api', 'image' => 'nginx', 'replicas' => 1, 'env' => ['bad-key' => 'x']]] as $bad) {
+            $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services", $bad)->assertStatus(422);
+        }
+
+        $this->api($token)->postJson("/api/v1/swarm/{$c['id']}/services/svcnewabcdef1234/image", ['image' => 'nginx:1.28'])->assertStatus(202);
+        $this->assertSame('nginx:1.28', $this->last('swarm.service_image')->payload['image']);
+        $this->api($token)->deleteJson("/api/v1/swarm/{$c['id']}/services/svcnewabcdef1234?confirm=nope")->assertStatus(422);
+        $this->api($token)->deleteJson("/api/v1/swarm/{$c['id']}/services/svcnewabcdef1234?confirm=web")->assertStatus(202);
+        $this->assertSame('svcnewabcdef1234', $this->last('swarm.service_remove')->payload['service_id']);
     }
 }
