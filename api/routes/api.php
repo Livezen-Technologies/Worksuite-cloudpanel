@@ -69,6 +69,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('me/mfa/recovery-codes', [AuthController::class, 'mfaRecoveryCodes'])->name('me.mfa-recovery-codes');
     Route::get('me/sign-in-apps', [AuthController::class, 'signInApps'])->name('me.sign-in-apps');
     Route::patch('me/sign-in-apps/{provider}', [AuthController::class, 'updateSignInApp'])->where('provider', '[a-z_]+')->name('me.sign-in-apps.update');
+    Route::get('me/ssh-keys', [\App\Http\Controllers\SshKeyController::class, 'index'])->name('me.ssh-keys.index');
+    Route::post('me/ssh-keys', [\App\Http\Controllers\SshKeyController::class, 'store'])->middleware('throttle:20,1')->name('me.ssh-keys.store');
+    Route::post('me/ssh-keys/generate', [\App\Http\Controllers\SshKeyController::class, 'generate'])->middleware('throttle:10,1')->name('me.ssh-keys.generate');
+    Route::delete('me/ssh-keys/{id}', [\App\Http\Controllers\SshKeyController::class, 'destroy'])->name('me.ssh-keys.destroy');
     Route::get('me/passkeys', [\App\Http\Controllers\PasskeyController::class, 'index'])->name('me.passkeys.index');
     Route::post('me/passkeys/options', [\App\Http\Controllers\PasskeyController::class, 'registrationOptions'])->name('me.passkeys.options');
     Route::post('me/passkeys', [\App\Http\Controllers\PasskeyController::class, 'store'])->name('me.passkeys.store');

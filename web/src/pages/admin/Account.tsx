@@ -5,6 +5,7 @@ import { useAction, useOne } from '../../api/hooks'
 import { Card, Field, PageHeader, FormActions } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { PasskeyManager } from '../../components/Passkeys'
+import { SshKeyManager } from '../../components/SshKeys'
 import { Tabs } from '../../components/Tabs'
 import { Icon } from '../../components/Icon'
 import { OtpInput, RecoveryCodesDialog, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
@@ -47,6 +48,7 @@ export function AdminAccount() {
           <ChangePassword />
           <TwoFactor on={mfa} onChange={refresh} codesLeft={(u?.mfa_recovery_codes_left as number | null | undefined) ?? null} />
           <PasskeyManager />
+          <SshKeyManager />
           <SignInApps />
         </>}
         {tab === 'sessions' && <Sessions />}
