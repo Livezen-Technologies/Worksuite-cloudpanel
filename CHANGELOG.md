@@ -9,6 +9,17 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.11.2] — 2026-11-04
+
+### Fixed
+
+- Containers: search now also finds a container by its app, its Compose stack
+  or service, its server, its container ID or a port. Before, it matched only
+  the container's own name and image, so searching for an app or stack found
+  nothing when Docker or Compose had named the container. (#173)
+- Containers: the list loads up to 200 containers instead of 100, so search
+  and filters see all of them on larger servers. (#173)
+
 ## [1.11.1] — 2026-11-04
 
 ### Fixed

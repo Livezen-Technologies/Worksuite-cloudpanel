@@ -222,12 +222,19 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
   )
 }
 
+/** Everything a person might type to find a container. */
+export function containerSearchText(r: Container, server: string): string {
+  return [r.name, r.image, r.application_name, r.compose_project, r.compose_service, server, r.server_name, r.docker_id?.slice(0, 12), r.id, ports(r.ports)]
+    .filter(Boolean).join(' ')
+}
+
 export default function Containers() {
   const serverName = useServerName()
   const [params, setParams] = useSearchParams()
   const [server, setServer] = useState('')
   const servers = useList<Server>('/servers')
-  const { rows, isLoading } = useList<Container>('/containers', { server_id: server || undefined }, { refetchInterval: 10000 })
+  // The table searches and filters in the browser, so it needs every container, not the first page.
+  const { rows, isLoading } = useList<Container>('/containers', { server_id: server || undefined, per_page: 200 }, { refetchInterval: 10000 })
   const { run } = useAction()
   const [prune, setPrune] = useState(false)
   const [create, setCreate] = useState(false)
@@ -239,7 +246,7 @@ export default function Containers() {
       <PageHeader title="Containers" subtitle="Lifecycle, logs, exec sessions and resource limits across all servers"
         actions={<><button type="button" className="btn" onClick={() => setPrune(true)}>Safe cleanup</button><button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>Create container</button></>} />
       <DataTable<Container> label="Containers" rows={rows} loading={isLoading} rowKey={(r) => r.id} rowLabel={(r) => r.name} selectable selectedRowId={sel}
-        searchPlaceholder="Filter by name or image…" searchKeys={(r) => `${r.name} ${r.image}`}
+        searchPlaceholder="Search name, image, app, stack, server, ID or port…" searchKeys={(r) => containerSearchText(r, serverName(r as unknown as R))}
         onRowClick={(r) => setParams({ id: r.id })}
         filters={[
           { id: 'running', label: 'Running', test: (r) => r.state === 'running' },
