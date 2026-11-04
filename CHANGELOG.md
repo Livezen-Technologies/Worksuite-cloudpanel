@@ -9,6 +9,19 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.11.1] — 2026-11-04
+
+### Fixed
+
+- Adding a passkey failed with "The given data was invalid" on panels
+  served from their own domain. The server accepted passkeys only from the
+  addresses in `WEBAUTHN_ORIGINS` or `CORS_ALLOWED_ORIGINS`, which default to
+  the localhost development server. The panel's own address (`APP_URL`, or
+  `PANEL_URL` when set) is now always allowed, for adding passkeys and for
+  signing in with them. (#172)
+- When a passkey is rejected, the message now says why instead of "The given
+  data was invalid", and the reason is written to the log. (#172)
+
 ## [1.11.0] — 2026-11-04
 
 ### Added
