@@ -57,6 +57,29 @@ class PasskeyTest extends TestCase
         $this->api($token)->postJson('/api/v1/me/passkeys', ['challenge_id' => $opts['challenge_id'], 'credential' => $evil->create($opts['options'])])->assertStatus(422);
     }
 
+    /** A live install: no WEBAUTHN_ORIGINS / CORS entry for itself, only APP_URL. */
+    public function test_the_panels_own_address_is_always_an_allowed_origin(): void
+    {
+        config(['app.url' => 'https://panel.example.com', 'security.webauthn.rp_id' => 'panel.example.com', 'security.webauthn.origins' => ['http://localhost:5173', 'http://127.0.0.1:5173']]);
+        [, , $token] = $this->org();
+        $opts = $this->api($token)->postJson('/api/v1/me/passkeys/options')->json('data');
+        $this->assertSame('panel.example.com', $opts['options']['rp']['id']);
+        $auth = new SoftAuthenticator('https://panel.example.com', 'panel.example.com');
+        $this->api($token)->postJson('/api/v1/me/passkeys', ['challenge_id' => $opts['challenge_id'], 'name' => 'macbook', 'credential' => $auth->create($opts['options'])])
+            ->assertCreated()->assertJsonPath('data.name', 'macbook');
+        $this->assertContains('https://panel.example.com', app(\App\Services\WebAuthnService::class)->allowedOrigins());
+    }
+
+    public function test_a_rejected_passkey_says_why(): void
+    {
+        [, , $token] = $this->org();
+        $opts = $this->api($token)->postJson('/api/v1/me/passkeys/options')->json('data');
+        $msg = $this->api($token)->postJson('/api/v1/me/passkeys', ['challenge_id' => $opts['challenge_id'], 'credential' => (new SoftAuthenticator('https://evil.example'))->create($opts['options'])])
+            ->assertStatus(422)->json('error.message');
+        $this->assertStringStartsWith('The passkey could not be verified: ', $msg);
+        $this->assertNotSame('The given data was invalid.', $msg);
+    }
+
     public function test_passwordless_sign_in_with_discoverable_passkey(): void
     {
         [$user, , $token] = $this->org();

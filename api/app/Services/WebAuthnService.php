@@ -48,9 +48,30 @@ class WebAuthnService
     private function steps(): CeremonyStepManagerFactory
     {
         $f = new CeremonyStepManagerFactory;
-        $f->setAllowedOrigins(config('security.webauthn.origins'));
+        $f->setAllowedOrigins($this->allowedOrigins());
 
         return $f;
+    }
+
+    /**
+     * Where passkeys may be created and used: the panel's own address (APP_URL /
+     * PANEL_URL) always, plus WEBAUTHN_ORIGINS (or the CORS list) for a separate
+     * front end. Without the panel's own address a live install that never set
+     * these would accept passkeys only from the localhost development server.
+     *
+     * @return list<string>
+     */
+    public function allowedOrigins(): array
+    {
+        $own = [];
+        foreach ([config('app.url'), config('platform.panel_url')] as $url) {
+            $p = parse_url((string) $url);
+            if (! empty($p['scheme']) && ! empty($p['host'])) {
+                $own[] = strtolower($p['scheme'].'://'.$p['host'].(isset($p['port']) ? ':'.$p['port'] : ''));
+            }
+        }
+
+        return array_values(array_unique(array_merge($own, array_map(fn ($o) => rtrim(strtolower(trim((string) $o)), '/'), (array) config('security.webauthn.origins', [])))));
     }
 
     private function rpId(): string
@@ -118,7 +139,9 @@ class WebAuthnService
         } catch (ApiException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            throw ApiException::validation(['credential' => ['The passkey could not be verified: '.$e->getMessage()]]);
+            $why = 'The passkey could not be verified: '.$e->getMessage();
+            \Illuminate\Support\Facades\Log::warning('passkey registration rejected', ['reason' => $e->getMessage(), 'allowed_origins' => $this->allowedOrigins(), 'rp_id' => $this->rpId()]);
+            throw ApiException::validation(['credential' => [$why]], $why);
         }
         $hash = hash('sha256', $record->publicKeyCredentialId);
         if (Passkey::where('credential_hash', $hash)->exists()) {
