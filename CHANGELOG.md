@@ -9,6 +9,27 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.13.1] — 2026-11-04
+
+### Changed
+
+- Container side panel tidied up. (#176)
+  - The actions fit on one row: Stop/Start, Restart, Pause and Terminal, with
+    Duplicate and Remove under a "More" (⋯) menu.
+  - The details show as a grid. Limits says "No limit" instead of
+    "— vCPU · —", User says "Image default" when the image sets none, ports
+    show as chips, and uptime appears next to the status.
+- Live logs, in the container panel and everywhere else they appear: (#176)
+  - Each line's timestamp is shown short and dimmed (the full time on hover),
+    so messages get the width.
+  - Long URLs wrap without splitting ordinary words.
+  - Errors and warnings are highlighted.
+  - The view stops following new lines while you scroll back to read, and
+    "Jump to latest" brings it back.
+  - The toolbar is compact: a Live/Paused indicator, a filter box, and pause
+    and download icons.
+  - In the container panel, the log fills the rest of the panel's height.
+
 ## [1.13.0] — 2026-11-04
 
 ### Added

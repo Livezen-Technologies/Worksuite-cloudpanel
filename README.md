@@ -9,7 +9,7 @@ and carries out typed, signed, policy-checked commands. There is no remote shell
 |---|---|---|
 | [`api/`](api/README.md) | Laravel 12, PHP 8.2+, PostgreSQL | Control-plane API (`/api/v1`) and agent protocol (`/agent/v1`) |
 | [`web/`](web/README.md) | React 19, TypeScript, Vite, Tailwind CSS 4 | Admin portal (`/admin`) and customer panel (`/app`) |
-| [`agent/`](agent/README.md) | Go 1.24, standard library only | Agent and terminal relay: static binaries for linux/amd64 and arm64 |
+| [`agent/`](agent/README.md) | Go 1.26; standard library plus golang.org/x/crypto (SSH gateway) | Agent and terminal relay: static binaries for linux/amd64 and arm64 |
 | [`e2e/`](e2e/README.md) | Node, Playwright | Full-stack tests: API, web and the real agent on a local Docker daemon |
 
 ## Features
