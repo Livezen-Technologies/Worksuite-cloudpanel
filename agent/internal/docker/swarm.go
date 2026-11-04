@@ -70,3 +70,14 @@ func (c *Client) SwarmServiceInspect(ctx context.Context, id string) (map[string
 func (c *Client) SwarmServiceUpdate(ctx context.Context, id string, version int64, spec map[string]any) error {
 	return c.call(ctx, "POST", "/services/"+url.PathEscape(id)+"/update", url.Values{"version": {strconv.FormatInt(version, 10)}}, spec, nil)
 }
+
+func (c *Client) SwarmServiceCreate(ctx context.Context, spec map[string]any) (string, error) {
+	var out struct {
+		ID string `json:"ID"`
+	}
+	return out.ID, c.call(ctx, "POST", "/services/create", nil, spec, &out)
+}
+
+func (c *Client) SwarmServiceRemove(ctx context.Context, id string) error {
+	return c.call(ctx, "DELETE", "/services/"+url.PathEscape(id), nil, nil, nil)
+}

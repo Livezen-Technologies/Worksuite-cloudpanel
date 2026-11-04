@@ -14,6 +14,7 @@ export default function Cluster() {
   const { run, busy } = useAction()
   const [f, setF] = useState({ name: '', manager: '' })
   const [joinTo, setJoinTo] = useState<Record<string, string>>({})
+  const [svc, setSvc] = useState({ name: '', image: '', replicas: '2', published: '', target: '', constraint: '' })
   const w = page.item ?? {}
   const clusters = (w.clusters as R[]) ?? []
   const free = (w.available_servers as R[]) ?? []
@@ -89,6 +90,16 @@ export default function Cluster() {
                   <li key={String(s.id)} className="flex flex-wrap items-center gap-3 py-2 border-t border-line first:border-t-0 text-sm">
                     <span className="flex-1 min-w-[180px]"><span className="font-semibold">{String(s.name)}</span> <span className="text-xs text-muted">{String(s.image ?? '')}</span>
                       {((s.constraints as string[]) ?? []).length ? <span className="block text-xs text-muted">{(s.constraints as string[]).join(', ')}</span> : null}</span>
+                    <span className="flex gap-1">
+                      <button type="button" className="btn btn-sm" disabled={busy} onClick={() => {
+                        const image = window.prompt(`New image for ${s.name} (rolls out one replica at a time and rolls back on failure):`, String(s.image ?? ''))
+                        if (image && image !== s.image) act(`/swarm/${c.id}/services/${s.id}/image`, `Update ${s.name}`, { image })
+                      }}>Image</button>
+                      <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => {
+                        const typed = window.prompt(`Remove service ${s.name}? Type its name to confirm.`)
+                        if (typed !== null) run({ path: `/swarm/${c.id}/services/${s.id}?confirm=${encodeURIComponent(typed)}`, method: 'DELETE', label: `Remove ${s.name}` }).then(refetch).catch(() => {})
+                      }}>Remove</button>
+                    </span>
                     {rep === null ? <Badge tone="n">global</Badge> : <span className="flex items-center gap-1">
                       <button type="button" className="btn btn-sm" aria-label={`Fewer replicas of ${s.name}`} disabled={busy || rep <= 0} onClick={() => act(`/swarm/${c.id}/services/${s.id}/scale`, `Scale ${s.name}`, { replicas: rep - 1 })}>−</button>
                       <span className="min-w-[90px] text-center">{Number(s.running ?? 0)}/{rep} running</span>
@@ -98,6 +109,23 @@ export default function Cluster() {
                 )
               })}</ul>
             )}
+            {status === 'active' && <div className="mt-4 rounded-md border border-line p-3">
+              <h3 className="m-0 mb-2 text-sm font-semibold">Deploy a service</h3>
+              <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
+                <input className="input font-mono" aria-label="Service name" placeholder="web" value={svc.name} onChange={(e) => setSvc({ ...svc, name: e.target.value })} />
+                <input className="input font-mono" aria-label="Service image" placeholder="nginx:1.27" value={svc.image} onChange={(e) => setSvc({ ...svc, image: e.target.value })} />
+                <input className="input" aria-label="Service replicas" type="number" min={0} max={100} value={svc.replicas} onChange={(e) => setSvc({ ...svc, replicas: e.target.value })} />
+                <input className="input" aria-label="Published port" type="number" placeholder="Published port" value={svc.published} onChange={(e) => setSvc({ ...svc, published: e.target.value })} />
+                <input className="input" aria-label="Container port" type="number" placeholder="Container port" value={svc.target} onChange={(e) => setSvc({ ...svc, target: e.target.value })} />
+                <input className="input font-mono" aria-label="Placement constraint" placeholder="node.role==worker" value={svc.constraint} onChange={(e) => setSvc({ ...svc, constraint: e.target.value })} />
+              </div>
+              <button type="button" className="btn btn-primary mt-2" disabled={busy || !svc.name.trim() || !svc.image.trim() || (!!svc.published !== !!svc.target)}
+                onClick={() => run({ path: `/swarm/${c.id}/services`, label: `Deploy ${svc.name}`, body: {
+                  name: svc.name.trim(), image: svc.image.trim(), replicas: Number(svc.replicas || 1),
+                  ...(svc.published && svc.target ? { ports: [{ published: Number(svc.published), target: Number(svc.target) }] } : {}),
+                  ...(svc.constraint.trim() ? { constraints: [svc.constraint.trim()] } : {}),
+                } }).then(() => { setSvc({ name: '', image: '', replicas: '2', published: '', target: '', constraint: '' }); refetch() }).catch(() => {})}>Deploy</button>
+            </div>}
             <p className="m-0 mt-3 text-xs text-muted">Updates roll one replica at a time and stop if the health check fails. Volumes pin a service to its node unless shared storage is used.</p>
           </Card>
         )

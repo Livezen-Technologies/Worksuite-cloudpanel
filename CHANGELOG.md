@@ -9,6 +9,18 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-04
+
+### Added
+
+- **Deploy apps to a Swarm cluster** — the Cluster page can deploy an image
+  as a replicated service (replicas, environment, a published port, placement
+  constraints, memory/CPU limits), roll a new image out, and remove a service.
+  Updates replace one replica at a time, start the new one before stopping the
+  old, and roll back automatically if it fails to come up. Services run with
+  all capabilities dropped and no privilege escalation, like single containers.
+  The page refreshes the cluster after each change.
+
 ## [1.4.0] — 2026-11-04
 
 ### Added

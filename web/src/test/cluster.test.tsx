@@ -35,4 +35,17 @@ describe('Cluster (Docker Swarm)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'More replicas of web' }))
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/swarm/c1/services/svc1abcdef1234/scale'))!.body!)).toEqual({ replicas: 4 })
   })
+
+  it('deploys a service with a port and a placement constraint', async () => {
+    renderIt()
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Service name' }), 'api')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Service image' }), 'ghcr.io/acme/api:2')
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Published port' }), '8080')
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Container port' }), '80')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Placement constraint' }), 'node.role==worker')
+    await userEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/swarm/c1/services'))!.body!)).toEqual({
+      name: 'api', image: 'ghcr.io/acme/api:2', replicas: 2, ports: [{ published: 8080, target: 80 }], constraints: ['node.role==worker'],
+    })
+  })
 })

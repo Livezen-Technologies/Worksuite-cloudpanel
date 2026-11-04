@@ -73,6 +73,45 @@ class SwarmController extends Controller
         return $this->accepted($this->swarm->scale(SwarmCluster::findOrFail($id), $serviceId, $v['replicas']));
     }
 
+    public function storeService(Request $request, string $id)
+    {
+        $v = $request->validate([
+            'name' => ['required', 'string', 'max:63', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'],
+            'image' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._\/:@-]*$/i'],
+            'replicas' => 'required|integer|between:0,100',
+            'env' => 'nullable|array', 'env.*' => 'nullable|string|max:4096',
+            'ports' => 'nullable|array|max:10', 'ports.*.target' => 'required|integer|between:1,65535', 'ports.*.published' => 'required|integer|between:1,65535',
+            'ports.*.protocol' => 'nullable|in:tcp,udp',
+            'constraints' => 'nullable|array|max:10', 'constraints.*' => ['string', 'max:200', 'regex:/^(node\.role|node\.hostname|node\.labels\.[a-zA-Z0-9._-]{1,63})\s*(==|!=)\s*[a-zA-Z0-9._-]{1,63}$/'],
+            'memory_mb' => 'nullable|integer|between:16,262144', 'cpus' => 'nullable|numeric|between:0.01,64',
+        ]);
+        foreach (array_keys($v['env'] ?? []) as $k) {
+            if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $k)) {
+                throw \App\Exceptions\ApiException::validation(['env' => ["Invalid variable name {$k}."]]);
+            }
+        }
+
+        return $this->accepted($this->swarm->createService(SwarmCluster::findOrFail($id), array_filter($v, fn ($x) => $x !== null)));
+    }
+
+    public function serviceImage(Request $request, string $id, string $serviceId)
+    {
+        $v = $request->validate(['image' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._\/:@-]*$/i']]);
+
+        return $this->accepted($this->swarm->updateImage(SwarmCluster::findOrFail($id), $serviceId, $v['image']));
+    }
+
+    public function destroyService(Request $request, string $id, string $serviceId)
+    {
+        $c = SwarmCluster::findOrFail($id);
+        $name = collect($c->snapshot['services'] ?? [])->firstWhere('id', $serviceId)['name'] ?? null;
+        if (! $name || trim((string) $request->input('confirm')) !== $name) {
+            throw \App\Exceptions\ApiException::validation(['confirm' => ['Type the service name to remove it.']]);
+        }
+
+        return $this->accepted($this->swarm->removeService($c, $serviceId));
+    }
+
     public function destroy(Request $request, string $id)
     {
         $c = SwarmCluster::findOrFail($id);

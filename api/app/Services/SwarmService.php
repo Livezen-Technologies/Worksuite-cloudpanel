@@ -110,6 +110,35 @@ class SwarmService
         return $this->run($this->managerOf($c), 'swarm.service_scale', ['service_id' => $serviceId, 'replicas' => $replicas], $c);
     }
 
+    /** Deploys an image as a replicated service with a rolling, self-rolling-back update policy. */
+    public function createService(SwarmCluster $c, array $v): Job
+    {
+        $this->active($c);
+        $names = collect($c->snapshot['services'] ?? [])->pluck('name');
+        if ($names->contains($v['name'])) {
+            throw ApiException::conflict("A service named {$v['name']} already exists in this cluster.");
+        }
+        $this->audit->log('swarm.service_create', 'swarm_cluster', $c->id, ['name' => $v['name'], 'image' => $v['image'], 'replicas' => $v['replicas']]);
+
+        return $this->run($this->managerOf($c), 'swarm.service_create', $v, $c);
+    }
+
+    public function updateImage(SwarmCluster $c, string $serviceId, string $image): Job
+    {
+        $this->active($c);
+        $this->audit->log('swarm.service_image', 'swarm_cluster', $c->id, ['service' => $serviceId, 'image' => $image]);
+
+        return $this->run($this->managerOf($c), 'swarm.service_image', ['service_id' => $serviceId, 'image' => $image], $c);
+    }
+
+    public function removeService(SwarmCluster $c, string $serviceId): Job
+    {
+        $this->active($c);
+        $this->audit->log('swarm.service_remove', 'swarm_cluster', $c->id, ['service' => $serviceId]);
+
+        return $this->run($this->managerOf($c), 'swarm.service_remove', ['service_id' => $serviceId], $c);
+    }
+
     /** Deleting the cluster record: only once the manager is its only node. */
     public function destroy(SwarmCluster $c): ?Job
     {
@@ -174,5 +203,9 @@ class SwarmService
             'swarm.inspect' => $c->forceFill(['snapshot' => ['nodes' => $out['nodes'] ?? [], 'services' => $out['services'] ?? []], 'refreshed_at' => now()])->save(),
             default => null,
         };
+        // After a change to services, read the cluster again so the page shows it.
+        if (in_array($cmd->type, ['swarm.service_create', 'swarm.service_image', 'swarm.service_remove', 'swarm.service_scale', 'swarm.node_update', 'swarm.join', 'swarm.leave'], true) && $c->status === 'active') {
+            rescue(fn () => app(\App\Support\Tenant::class)->as($c->organization_id, fn () => $this->refresh($c)), null, report: false);
+        }
     }
 }
