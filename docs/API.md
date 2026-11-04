@@ -87,6 +87,10 @@ The organisation is the token user's current organisation (`users.current_organi
 | GET/PATCH | /app/account ; POST /app/account/team {email, role} ; GET/POST/DELETE /app/account/tokens |
 | GET | /app/templates |
 
+## Partner API (`/partner/v1`, outside the user API)
+WorkSuite Cloud's server-to-server provisioning of WorkSuite Business / CMS — HMAC-signed, scoped, idempotent. See [PARTNER_API.md](PARTNER_API.md).
+Staff: `GET /partner-overview` (platform staff), `PATCH /partner-clients/{id}` {active, webhook_url, allowed_ips[]} (`settings.manage`).
+
 ## Agent protocol (`/agent/v1`, outside the user API)
 - `POST /agent/v1/enroll` {token, hostname, facts{os,kernel,docker_version,cpu_cores,ram_mb,disk_gb,arch}, csr? (PEM, EC P-256 or RSA ≥ 2048)}
   → {server_id, agent_secret, hmac_key, heartbeat_interval:15, certificate?}. Token is single use, 15 min.

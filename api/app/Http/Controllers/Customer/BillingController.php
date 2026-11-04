@@ -23,7 +23,7 @@ class BillingController extends Controller
     {
         $current = $this->billing->plan()->code;
 
-        return $this->data(Plan::orderBy('sort')->get()->map(fn ($p) => $this->billing->planApi($p) + ['current' => $p->code === $current]));
+        return $this->data(Plan::where('code', '<>', config('partner.plan_code'))->orderBy('sort')->get()->map(fn ($p) => $this->billing->planApi($p) + ['current' => $p->code === $current]));
     }
 
     public function changePlan(Request $request)

@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         then: function () {
             Route::prefix('agent/v1')->middleware(['api'])->group(base_path('routes/agent.php'));
+            Route::prefix('partner/v1')->middleware(['api', 'throttle:api'])->group(base_path('routes/partner.php'));
             Route::prefix('internal/relay')->middleware(['api', \App\Http\Middleware\VerifyRelaySecret::class])->group(base_path('routes/relay.php'));
         },
     )
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'idempotent' => \App\Http\Middleware\Idempotency::class,
             'audit' => \App\Http\Middleware\AuditMutations::class,
             'agent' => \App\Http\Middleware\AuthenticateAgent::class,
+            'partner' => \App\Http\Middleware\AuthenticatePartner::class,
         ]);
         $middleware->redirectGuestsTo(fn () => null);
         $middleware->trimStrings(except: ['yaml', 'source.compose', 'compose_yaml', 'password', 'value']);
@@ -49,11 +51,11 @@ return Application::configure(basePath: dirname(__DIR__))
             ], $extra)], $status, $status === 429 ? ['Retry-After' => 60] : []);
         };
 
-        $exceptions->shouldRenderJsonWhen(fn (Request $request) => $request->is('api/*', 'agent/*') || $request->expectsJson());
+        $exceptions->shouldRenderJsonWhen(fn (Request $request) => $request->is('api/*', 'agent/*', 'partner/*') || $request->expectsJson());
         $exceptions->dontReport([ApiException::class, ApprovalRequired::class]);
 
         $exceptions->render(function (Throwable $e, Request $request) use ($error) {
-            if (! $request->is('api/*', 'agent/*') && ! $request->expectsJson()) {
+            if (! $request->is('api/*', 'agent/*', 'partner/*') && ! $request->expectsJson()) {
                 return null;
             }
 

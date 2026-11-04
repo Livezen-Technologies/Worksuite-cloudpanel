@@ -31,7 +31,7 @@ class AppController extends Controller
             'source.branch' => 'nullable|string|max:120',
             'source.dockerfile_path' => ['nullable', 'string', 'max:255', 'not_regex:#(^/|\.\.)#'],
             'source.compose' => 'required_if:source.type,compose|nullable|string|max:200000',
-            'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(config('platform.app_templates')))],
+            'source.template' => ['required_if:source.type,template', 'nullable', Rule::in(array_keys(array_filter(config('platform.app_templates'), fn ($t) => empty($t['partner_only']))))],
         ];
     }
 
