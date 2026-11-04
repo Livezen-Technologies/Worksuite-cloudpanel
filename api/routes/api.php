@@ -170,6 +170,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('applications', [Admin\ApplicationController::class, 'index'])->name('applications.index');
         Route::get('applications/{id}', [Admin\ApplicationController::class, 'show'])->name('applications.show');
         Route::get('applications/{id}/releases', [Admin\ApplicationController::class, 'releases'])->name('applications.releases');
+        Route::get('applications/{id}/git', [Admin\AppGitController::class, 'show'])->name('applications.git');
         Route::get('applications/{id}/scaling', [Admin\ScalingController::class, 'show'])->name('applications.scaling');
         Route::get('builds/usage', Admin\BuildUsageController::class)->name('builds.usage');
         Route::get('templates', [Admin\TemplateController::class, 'index'])->name('templates.index');
@@ -186,6 +187,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('applications/preflight', [Admin\ApplicationController::class, 'preflight'])->name('applications.preflight');
         Route::post('applications', [Admin\ApplicationController::class, 'store'])->name('applications.store');
         Route::patch('applications/{id}', [Admin\ApplicationController::class, 'update'])->name('applications.update');
+        Route::patch('applications/{id}/git', [Admin\AppGitController::class, 'update'])->name('applications.git.update');
+        Route::post('applications/{id}/git/key', [Admin\AppGitController::class, 'generateKey'])->middleware('throttle:10,1')->name('applications.git.key');
+        Route::post('applications/{id}/git/test', [Admin\AppGitController::class, 'test'])->middleware('throttle:20,1')->name('applications.git.test');
+        Route::post('applications/{id}/git/webhook-secret', [Admin\AppGitController::class, 'rotateSecret'])->name('applications.git.secret');
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
         Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
         Route::post('applications/{id}/canary', [Admin\ScalingController::class, 'canary'])->name('applications.canary');

@@ -9,6 +9,29 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-11-04
+
+### Added
+
+- Applications → **Git & auto-deploy** tab: set an app up to deploy from Git
+  on its own, in four steps. (#174)
+  - Enter the repository and branch.
+  - Generate a deploy key for the app, then copy the public key into the Git
+    host. The tab says where, for GitHub, GitLab and Bitbucket.
+  - Test the connection. It reads the branch with that key, as the build will.
+  - Copy the webhook URL and secret into the repository. A new secret can be
+    shown once.
+  The tab lists recent webhook deliveries. A "Deploy on push" switch turns
+  automatic deploys on or off. Saving a repository on an app that ran a fixed
+  image makes it build from the repository.
+
+### Changed
+
+- Pushes still deploy staff apps by default, but the new "Deploy on push"
+  switch can now turn that off per app. (#174)
+- The repository check accepts `ssh://` addresses, and with a deploy key it
+  reports when the repository refused the key. (#174)
+
 ## [1.11.2] — 2026-11-04
 
 ### Fixed
