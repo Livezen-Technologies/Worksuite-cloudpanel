@@ -7,9 +7,10 @@ import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
+import { AppGitTab } from './AppGitTab'
 
 type R = Record<string, any>
-const TABS = ['Settings', 'Scaling', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
+const TABS = ['Settings', 'Git & auto-deploy', 'Scaling', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
 type Tab = typeof TABS[number]
 
 export default function AppManage() {
@@ -58,6 +59,7 @@ export default function AppManage() {
         </Card>
       )}
       {row && tab === 'Settings' && <SettingsTab app={row} />}
+      {row && tab === 'Git & auto-deploy' && <AppGitTab app={row} />}
       {row && tab === 'Scaling' && <ScalingPanel path={`/applications/${row.id}/scaling`} />}
       {row && tab === 'Databases' && <DatabasesTab app={row} />}
       {row && tab === 'SSL/TLS' && <DomainsTab app={row} />}

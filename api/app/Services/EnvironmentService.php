@@ -247,6 +247,10 @@ class EnvironmentService
             if ($app->kind === 'customer' && ! $app->auto_deploy) {
                 continue;
             }
+            // Staff apps: the Git tab's "Deploy on push" switch (on unless turned off).
+            if ($app->kind !== 'customer' && (($app->source['deploy_on_push'] ?? true) === false)) {
+                continue;
+            }
             $started[] = app(DeploymentService::class)->start($app, null, 'webhook')->id;
         }
 
