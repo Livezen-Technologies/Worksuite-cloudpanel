@@ -9,6 +9,43 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-11-04
+
+### Added
+
+- **Partner provisioning API for WorkSuite Cloud** (`/partner/v1`,
+  [docs/PARTNER_API.md](docs/PARTNER_API.md), #179) — worksuitecloud.com deploys
+  WorkSuite Business and WorkSuite CMS here for its customers and manages them
+  (start, stop, restart, redeploy, upgrade, backup, restore, resize, domains,
+  logs, suspend, resume, terminate) without anybody signing in to the panel.
+  - Scoped partner credentials (`php artisan partner:client`), HMAC-signed
+    requests with timestamp and single-use nonce, mandatory `Idempotency-Key`
+    on every POST, per-scope route checks, optional IP pinning.
+  - Each partner customer gets its own organisation owned by a service user
+    with the plain customer `owner` role — no panel login, no staff
+    permissions. The hidden `partner` plan carries the limits; Cloud's
+    subscription entitlements are the real ones.
+  - `worksuite-business` and `worksuite-cms` app templates (partner only:
+    hidden from the customer template picker and refused by `/app/apps`).
+  - Signed status webhooks back to the partner from an outbox
+    (`partner:sync`, `partner:webhooks`, both every minute), retried with
+    backoff and parked after 12 attempts.
+  - Staff overview at `GET /api/v1/partner-overview` and
+    `PATCH /api/v1/partner-clients/{id}`.
+
+### Fixed
+
+- **A deployment on a shared-pool server in another organisation crashed at
+  the health check.** `AgentCommand::server()` was tenant-scoped, so when the
+  agent reported `container.create` for an app whose organisation does not own
+  the server, the server resolved to null and dispatching
+  `container.healthcheck` threw a TypeError (500 to the agent); the job stayed
+  at "health check" forever. It is now unscoped like `Container::server()`.
+  Any customer app placed on a shared-pool server was affected. (#179)
+- **A customer projects test failed at random.** It checked that `8080` never
+  appears in the canvas JSON, which a random UUID can contain; it now checks a
+  marker that cannot occur in a UUID (#179).
+
 ## [1.14.0] — 2026-11-04
 
 ### Added
@@ -584,36 +621,6 @@ Dates are the dates the work landed on `main`.
 ## [1.1.0] — 2026-11-01
 
 ### Added
-
-- **Partner provisioning API for WorkSuite Cloud** (`/partner/v1`,
-  [docs/PARTNER_API.md](docs/PARTNER_API.md)) — worksuitecloud.com deploys
-  WorkSuite Business and WorkSuite CMS here for its customers and manages them
-  (start, stop, restart, redeploy, upgrade, backup, restore, resize, domains,
-  logs, suspend, resume, terminate) without anybody signing in to the panel.
-  - Scoped partner credentials (`php artisan partner:client`), HMAC-signed
-    requests with timestamp and single-use nonce, mandatory `Idempotency-Key`
-    on every POST, per-scope route checks, optional IP pinning.
-  - Each partner customer gets its own organisation owned by a service user
-    with the plain customer `owner` role — no panel login, no staff
-    permissions. The hidden `partner` plan carries the limits; Cloud's
-    subscription entitlements are the real ones.
-  - `worksuite-business` and `worksuite-cms` app templates (partner only:
-    hidden from the customer template picker and refused by `/app/apps`).
-  - Signed status webhooks back to the partner from an outbox
-    (`partner:sync`, `partner:webhooks`, both every minute), retried with
-    backoff and parked after 12 attempts.
-  - Staff overview at `GET /api/v1/partner-overview` and
-    `PATCH /api/v1/partner-clients/{id}`.
-
-### Fixed
-
-- **A deployment on a shared-pool server in another organisation crashed at
-  the health check.** `AgentCommand::server()` was tenant-scoped, so when the
-  agent reported `container.create` for an app whose organisation does not own
-  the server, the server resolved to null and dispatching
-  `container.healthcheck` threw a TypeError (500 to the agent); the job stayed
-  at "health check" forever. It is now unscoped like `Container::server()`.
-  Any customer app placed on a shared-pool server was affected.
 
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
