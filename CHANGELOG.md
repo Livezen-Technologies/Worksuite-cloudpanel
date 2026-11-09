@@ -9,6 +9,27 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-11-09
+
+### Added
+
+- **Store** (STORE-001, #180) — a new Store section at `/admin/store` to run a
+  product catalogue and point of sale.
+  - Products with SKU, barcode, selling and cost price, tax rate, unit, image
+    and status (active, draft, archived). Stock is tracked with a low-stock
+    alert level and adjusted up or down from the product list.
+  - Categories (one level of sub-categories) and brands.
+  - Each product can be sold online, at the POS, or both.
+  - The POS tab scans a barcode or SKU into a cart, totals it with tax, and
+    "Complete sale" takes the items out of stock.
+  - Summary tiles for products, POS products, low and out of stock, and
+    categories and brands.
+
+### Security
+
+- Symfony components updated to 7.4.23 to clear `composer audit` advisories in
+  filesystem, http-foundation, http-kernel, routing, serializer and yaml (#180).
+
 ## [1.15.0] — 2026-11-04
 
 ### Added
@@ -625,17 +646,6 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
-- **Store catalogue** (STORE-001) — a new Store section at `/admin/store` with
-  Products, Categories, Brands and POS tabs.
-  - `store_categories` (one level of nesting), `store_brands` and
-    `store_products`, all scoped by organisation. Products carry SKU, barcode,
-    price/cost in minor units, tax rate, stock tracking with a low-stock
-    threshold, and `sell_online` / `sell_pos` channel flags.
-  - `GET store/pos/lookup?code=` finds an active POS product by barcode or SKU;
-    `POST store/products/{id}/stock` applies a signed stock delta atomically;
-    `GET store/summary` feeds the overview tiles.
-  - The POS tab has barcode scanning, a cart with tax, and "Complete sale"
-    decrements stock.
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
   - `firewall_rules`, `firewall_countries`, `firewall_protected_paths` and
