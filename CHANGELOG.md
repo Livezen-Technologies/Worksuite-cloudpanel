@@ -9,6 +9,27 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-11-09
+
+### Added
+
+- **Store** (STORE-001, #180) — a new Store section at `/admin/store` to run a
+  product catalogue and point of sale.
+  - Products with SKU, barcode, selling and cost price, tax rate, unit, image
+    and status (active, draft, archived). Stock is tracked with a low-stock
+    alert level and adjusted up or down from the product list.
+  - Categories (one level of sub-categories) and brands.
+  - Each product can be sold online, at the POS, or both.
+  - The POS tab scans a barcode or SKU into a cart, totals it with tax, and
+    "Complete sale" takes the items out of stock.
+  - Summary tiles for products, POS products, low and out of stock, and
+    categories and brands.
+
+### Security
+
+- Symfony components updated to 7.4.23 to clear `composer audit` advisories in
+  filesystem, http-foundation, http-kernel, routing, serializer and yaml (#180).
+
 ## [1.15.0] — 2026-11-04
 
 ### Added

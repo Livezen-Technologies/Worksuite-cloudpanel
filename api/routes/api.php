@@ -392,6 +392,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('uptime', [Admin\UptimeController::class, 'index'])->middleware($view)->name('uptime.index');
     Route::get('uptime/{id}', [Admin\UptimeController::class, 'show'])->middleware($view)->name('uptime.show');
 
+    // Store catalogue (STORE-001): categories, brands, products, POS lookup.
+    Route::get('store/summary', [Admin\StoreProductController::class, 'summary'])->middleware('perm:resources.view')->name('store.summary');
+    Route::get('store/pos/lookup', [Admin\StoreProductController::class, 'posLookup'])->middleware('perm:resources.view')->name('store.pos.lookup');
+    Route::post('store/products/{id}/stock', [Admin\StoreProductController::class, 'adjustStock'])->middleware('perm:deploy|settings.manage')->name('store.products.stock');
+    $crud('store/categories', Admin\StoreCategoryController::class, 'resources.view', 'deploy|settings.manage');
+    $crud('store/brands', Admin\StoreBrandController::class, 'resources.view', 'deploy|settings.manage');
+    $crud('store/products', Admin\StoreProductController::class, 'resources.view', 'deploy|settings.manage');
+
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
     // DNS zones (SRS 4.18)

@@ -5,7 +5,7 @@ import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
 /**
- * Eight primary categories. The rail switches between them; the sidebar shows
+ * Ten primary categories. The rail switches between them; the sidebar shows
  * only the items of the one in view, so a category's contents stay together
  * instead of competing with every other area for attention.
  */
@@ -51,6 +51,12 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
     { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
+  ] },
+  { id: 'store', label: 'Store', icon: 'store', desc: 'Product catalogue, categories, brands and POS', items: [
+    { label: 'Products', to: '/admin/store', end: true, icon: 'box' },
+    { label: 'Categories', to: '/admin/store/categories', icon: 'layers' },
+    { label: 'Brands', to: '/admin/store/brands', icon: 'tag' },
+    { label: 'POS', to: '/admin/store/pos', icon: 'store' },
   ] },
   { id: 'operations', label: 'Operations', icon: 'pulse', desc: 'Backups, logs and scheduled work', items: [
     { label: 'Backups', to: '/admin/backups', icon: 'archive' },
