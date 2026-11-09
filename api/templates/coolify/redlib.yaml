@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: redlib
+name: Redlib
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An alternative private front-end to Reddit, with its origins in Libreddit.
+port: 8080
+source: coolify
+documentation: https://github.com/redlib-org/redlib
+compose: "services:\n  redlib:\n    image: quay.io/redlib/redlib:latest\n    environment:\n      REDLIB_SFW_ONLY: ${REDLIB_SFW_ONLY:-off}\n      REDLIB_BANNER: ${REDLIB_BANNER:-\"\"}\n      REDLIB_ROBOTS_DISABLE_INDEXING: ${REDLIB_ROBOTS_DISABLE_INDEXING:-off}\n      REDLIB_DEFAULT_FRONT_PAGE: ${REDLIB_DEFAULT_FRONT_PAGE:-worldnews}\n      REDLIB_PUSHSHIFT_FRONTEND: ${REDLIB_PUSHSHIFT_FRONTEND:-undelete.pullpush.io}\n      REDLIB_DEFAULT_LAYOUT: ${REDLIB_DEFAULT_LAYOUT:-card}\n      REDLIB_DEFAULT_WIDE: ${REDLIB_DEFAULT_WIDE:-off}\n      REDLIB_DEFAULT_POST_SORT: ${REDLIB_DEFAULT_POST_SORT:-hot}\n      REDLIB_DEFAULT_COMMENT_SORT: ${REDLIB_DEFAULT_COMMENT_SORT:-confidence}\n      REDLIB_DEFAULT_BLUR_SPOILER: ${REDLIB_DEFAULT_BLUR_SPOILER:-off}\n      REDLIB_DEFAULT_SHOW_NSFW: ${REDLIB_DEFAULT_SHOW_NSFW:-off}\n      REDLIB_DEFAULT_BLUR_NSFW: ${REDLIB_DEFAULT_BLUR_NSFW:-off}\n      REDLIB_DEFAULT_USE_HLS: ${REDLIB_DEFAULT_USE_HLS:-off}\n      REDLIB_DEFAULT_HIDE_HLS_NOTIFICATION: ${REDLIB_DEFAULT_HIDE_HLS_NOTIFICATION:-off}\n\
+  \      REDLIB_DEFAULT_AUTOPLAY_VIDEOS: ${REDLIB_DEFAULT_AUTOPLAY_VIDEOS:-off}\n      REDLIB_DEFAULT_SUBSCRIPTIONS: ${REDLIB_DEFAULT_SUBSCRIPTIONS:-\"\"}\n      REDLIB_DEFAULT_HIDE_AWARDS: ${REDLIB_DEFAULT_HIDE_AWARDS:-off}\n      REDLIB_DEFAULT_HIDE_SIDEBAR_AND_SUMMARY: ${REDLIB_DEFAULT_HIDE_SIDEBAR_AND_SUMMARY:-off}\n      REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION: ${REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION:-off}\n      REDLIB_DEFAULT_HIDE_SCORE: ${REDLIB_DEFAULT_HIDE_SCORE:-off}\n      REDLIB_DEFAULT_FIXED_NAVBAR: ${REDLIB_DEFAULT_FIXED_NAVBAR:-on}\n    user: nobody\n    security_opt:\n    - no-new-privileges:true\n    cap_drop:\n    - ALL\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:8080/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n"

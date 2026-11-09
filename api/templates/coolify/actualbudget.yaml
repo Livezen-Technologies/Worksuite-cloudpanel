@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: actualbudget
+name: Actualbudget
+category: Business
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A local-first personal finance app.
+port: 5006
+source: coolify
+documentation: https://actualbudget.org/docs/install/docker
+compose: "services:\n  actual_server:\n    image: actualbudget/actual-server:latest\n    environment:\n      ACTUAL_LOGIN_METHOD: password\n    volumes:\n    - actual_data:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - bash -c ':> /dev/tcp/127.0.0.1/5006' || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5006'\nvolumes:\n  actual_data: {}\n"

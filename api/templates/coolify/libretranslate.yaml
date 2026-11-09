@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: libretranslate
+name: Libretranslate
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Free and open-source machine translation API, entirely self-hosted.
+port: 5000
+source: coolify
+documentation: https://libretranslate.com/docs/
+compose: "services:\n  libretranslate:\n    image: libretranslate/libretranslate:latest\n    environment:\n      LT_SSL: ${LT_SSL:-true}\n      LT_UPDATE_MODELS: ${LT_UPDATE_MODELS:-true}\n      LT_LOAD_ONLY: ${LT_LOAD_ONLY:-en,es,fr,de,ja}\n    volumes:\n    - libretranslate-api-keys:/app/db\n    - libretranslate-models:/home/libretranslate/.local\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - ./venv/bin/python scripts/healthcheck.py\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5000'\nvolumes:\n  libretranslate-api-keys: {}\n  libretranslate-models: {}\n"

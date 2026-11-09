@@ -23,26 +23,78 @@ class HostingService
     {
         return match ($source['type']) {
             'image' => $this->validator->image($source['image'] ?? '', $source['registry_auth'] ?? null),
-            'git' => $this->validator->git($source['repo'] ?? '', $source['branch'] ?? 'main'),
+            'git' => $this->validateGit($source),
             'compose' => (function () use ($source) {
                 $r = app(ComposeService::class)->validate($source['compose'] ?? '');
 
                 return ['ok' => $r['valid'], 'message' => $r['valid'] ? 'Compose file is valid.' : implode(' ', array_column($r['errors'], 'message')), 'services' => $r['services']];
             })(),
-            'template' => isset(config('platform.app_templates')[$source['template'] ?? ''])
-                ? ['ok' => true, 'message' => 'Template available.', 'template' => config('platform.app_templates')[$source['template']]]
+            'template' => ($t = self::template((string) ($source['template'] ?? '')))
+                ? ['ok' => true, 'message' => 'Template available.', 'template' => $t]
                 : ['ok' => false, 'message' => 'Unknown template.'],
         };
+    }
+
+    /**
+     * GIT: a private repository is checked through the customer's connection (provider API);
+     * with a deploy key the panel cannot reach it itself, so the first build checks it.
+     */
+    private function validateGit(array $source): array
+    {
+        $repo = (string) ($source['repo'] ?? '');
+        $branch = (string) ($source['branch'] ?? 'main');
+        if (! empty($source['git_connection_id'])) {
+            $c = \App\Models\GitConnection::find($source['git_connection_id']);
+
+            return $c ? app(GitProviderService::class)->branchCommit($c, $repo, $branch) : ['ok' => false, 'message' => 'Unknown Git connection.'];
+        }
+        if (! empty($source['git_ssh_key_id'])) {
+            if (! \App\Models\SshKey::whereKey($source['git_ssh_key_id'])->exists()) {
+                return ['ok' => false, 'message' => 'Unknown deploy key.'];
+            }
+            if (! GitProviderService::parseRepo($repo) || ! preg_match('#^(ssh://|[A-Za-z0-9._-]+@)#', $repo)) {
+                return ['ok' => false, 'message' => 'A deploy key needs an SSH address, like git@github.com:you/my-shop.git.'];
+            }
+
+            return ['ok' => true, 'message' => 'Your deploy key is used when the app builds; the first build checks the repository.'];
+        }
+
+        return $this->validator->git($repo, $branch);
     }
 
     public function host(User $user, array $input): array
     {
         $source = $input['source'];
+        $rendered = null;
         if ($source['type'] === 'template') {
-            $template = config('platform.app_templates')[$source['template']] ?? throw ApiException::validation(['source.template' => ['Unknown template.']]);
+            $template = self::template((string) $source['template']) ?? throw ApiException::validation(['source.template' => ['Unknown template.']]);
+            if (($template['type'] ?? 'image') === 'compose') {
+                return $this->hostStack($user, $input, \App\Models\Template::findOrFail($source['template']));
+            }
             $source['image'] = $template['image'];
             $input['port'] ??= $template['port'];
             $input['volume_path'] ??= $template['volume_path'];
+            $input['health_path'] ??= $template['health_path'] ?? null;
+            // TPL-3: catalogue templates generate their secrets and fill in the app's address.
+            if ($model = \App\Models\Template::find($source['template'])) {
+                $rendered = app(TemplateService::class)->render($model->manifest, $input['name'], $input['name'].'.'.config('platform.domain'), (array) ($source['variables'] ?? []));
+                if ($rendered['unresolved']) {
+                    throw ApiException::validation(['source.variables' => ['Fill in: '.implode(', ', $rendered['unresolved'])]]);
+                }
+                $given = collect($input['env'] ?? [])->pluck('key')->all();
+                $secretKeys = app(TemplateService::class)->generatedKeys($model->manifest);
+                $secretVars = collect($model->manifest['variables'] ?? [])->where('secret', true)->pluck('key')->all();
+                foreach ($rendered['env'] as $k => $v) {
+                    if (in_array($k, $given, true)) {
+                        continue;
+                    }
+                    $template = (string) ($model->manifest['env'][$k] ?? '');
+                    $generated = (bool) array_filter($secretKeys, fn ($g) => str_contains($template, '${'.$g.'}'));
+                    $input['env'][] = ['key' => $k, 'value' => $v, 'secret' => $generated || in_array($k, $secretVars, true)];
+                }
+                $rendered['template'] = $model;
+            }
+            unset($source['variables']); // never stored on the app; secrets live in env vars and the encrypted install record
         }
         if (Application::withTrashed()->where('name', $input['name'])->exists()) {
             throw ApiException::validation(['name' => ['You already have an app with this name.']]);
@@ -56,19 +108,32 @@ class HostingService
         $subdomain = $input['name'].'.'.config('platform.domain');
         $this->domains->assertAvailable($subdomain, null, true);
 
-        return DB::transaction(function () use ($user, $input, $source, $check, $subdomain) {
+        return DB::transaction(function () use ($user, $input, $source, $check, $subdomain, $rendered) {
             $image = $source['type'] === 'git'
                 ? 'registry.'.config('platform.domain').'/'.\App\Support\Tenant::current()->slug.'/'.$input['name'].':'.substr($check['commit'] ?? 'latest', 0, 12)
                 : ($source['image'] ?? null);
+            // Every customer app belongs to a project and an environment. Before
+            // this, `environment` was set to the bare string 'production' and
+            // environment_id was left null, which quietly cut customer apps off
+            // from push-deploys, service discovery, promotion and previews.
+            $env = app(EnvironmentService::class)->environmentFor($input['project_id'] ?? null, $input['environment'] ?? null);
             $app = Application::create([
                 'name' => $input['name'], 'kind' => 'customer',
                 'source_type' => $source['type'], 'source' => array_merge($source, ['digest' => $check['digest'] ?? null]),
-                'image' => $image, 'strategy' => 'recreate', 'environment' => 'production',
+                'image' => $image, 'strategy' => 'recreate',
+                'project_id' => $env->project_id, 'environment_id' => $env->id, 'environment' => $env->kind,
                 'region' => $input['region'] ?? null, 'size' => $input['size'], 'port' => $input['port'] ?? 80,
                 'volume_path' => $input['volume_path'] ?? null, 'status' => 'deploying', 'health_path' => $input['health_path'] ?? null,
+                // Deploying from a repository implies deploying when it changes;
+                // the toggle in Settings is now an opt-out rather than dead UI.
+                'auto_deploy' => $source['type'] === 'git',
             ]);
             foreach ($input['env'] ?? [] as $var) {
                 EnvVar::create(['application_id' => $app->id, 'key' => $var['key'], 'value' => (string) ($var['value'] ?? ''), 'secret' => (bool) ($var['secret'] ?? false)]);
+            }
+            if ($rendered) {
+                \App\Models\TemplateInstall::create(['template_id' => $rendered['template']->id, 'version' => $rendered['template']->version, 'name' => $app->name,
+                    'resource_type' => 'application', 'resource_id' => $app->id, 'values' => $rendered['values'], 'user_id' => $user->id]);
             }
             // UHOST-005: free subdomain with HTTPS on first deploy.
             $this->domains->create(['name' => $subdomain, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => true], true);
@@ -76,6 +141,70 @@ class HostingService
 
             return ['app' => $this->toApi($app->fresh()), 'job_id' => $deployment->job_id, 'deployment_id' => $deployment->id];
         });
+    }
+
+    /** TPL: a Compose stack template hosted by a customer: an app record fronting a stack on a placed server. */
+    private function hostStack(User $user, array $input, \App\Models\Template $tpl): array
+    {
+        $name = $input['name'];
+        $subdomain = $name.'.'.config('platform.domain');
+        $r = app(TemplateService::class)->render($tpl->manifest, $name, $subdomain, (array) ($input['source']['variables'] ?? []));
+        if ($r['unresolved']) {
+            throw ApiException::validation(['source.variables' => ['Fill in: '.implode(', ', $r['unresolved'])]]);
+        }
+        if (Application::withTrashed()->where('name', $name)->exists() || \App\Models\ComposeProject::where('name', $name)->exists()) {
+            throw ApiException::validation(['name' => ['You already have an app with this name.']]);
+        }
+        $this->billing->assertQuota($input['size']);
+        $this->domains->assertAvailable($subdomain, null, true);
+
+        return DB::transaction(function () use ($user, $input, $tpl, $name, $r) {
+            $app = Application::create([
+                'name' => $name, 'kind' => 'customer', 'source_type' => 'compose', 'source' => ['template' => $tpl->id],
+                'strategy' => 'recreate', 'environment' => 'production', 'region' => $input['region'] ?? null, 'size' => $input['size'],
+                'port' => $tpl->manifest['port'] ?? 80, 'status' => 'deploying',
+            ]);
+            $server = $this->deployments->placement($app);
+            $compose = app(ComposeService::class);
+            $project = \App\Models\ComposeProject::create(['name' => $name, 'server_id' => $server->id, 'environment' => 'production', 'source' => 'editor']);
+            $compose->addRevision($project, $r['compose']);
+            $job = $compose->deploy($project);
+            $app->update(['source' => ['template' => $tpl->id, 'compose_project_id' => $project->id]]);
+            \App\Models\TemplateInstall::create(['template_id' => $tpl->id, 'version' => $tpl->version, 'name' => $name,
+                'resource_type' => 'compose_project', 'resource_id' => $project->id, 'values' => $r['values'], 'user_id' => $user->id]);
+
+            return ['app' => $this->toApi($app->fresh()), 'job_id' => $job->id, 'deployment_id' => null];
+        });
+    }
+
+    /**
+     * TPL: a template customers can host: a single-image catalogue entry (not marked
+     * `customer: false`), or one of the older built-in entries.
+     */
+    public static function template(string $id): ?array
+    {
+        if ($id === '') {
+            return null;
+        }
+        if (! \App\Models\Template::query()->exists()) {
+            app(TemplateService::class)->sync();
+        }
+        $t = \App\Models\Template::find($id);
+        if ($t && $t->type === 'compose' && ($t->manifest['customer'] ?? true) !== false) {
+            return ['type' => 'compose', 'image' => null, 'port' => $t->manifest['port'] ?? 80, 'volume_path' => null, 'health_path' => null,
+                'size' => $t->manifest['size'] ?? 'standard', 'name' => $t->name, 'description' => $t->manifest['description'] ?? ''];
+        }
+        if ($t && $t->type === 'image' && ($t->manifest['customer'] ?? true) !== false) {
+            $m = $t->manifest;
+
+            return ['image' => $m['image'], 'port' => $m['port'] ?? 80, 'volume_path' => $m['volume'] ?? null, 'health_path' => $m['health'] ?? null,
+                'size' => $m['size'] ?? 'small', 'name' => $t->name, 'description' => $m['description'] ?? ''];
+        }
+
+        $legacy = config('platform.app_templates')[$id] ?? null;
+
+        // Partner-only templates (config/partner.php) are deployed by the partner API by image, never by customers.
+        return $legacy && empty($legacy['partner_only']) ? $legacy : null;
     }
 
     public function toApi(Application $app, bool $detail = false): array
@@ -109,6 +238,8 @@ class HostingService
             'volume_path' => $app->volume_path,
             'health_path' => $app->health_path ?: '/',
             'auto_deploy' => $app->auto_deploy,
+            'replicas' => (int) ($app->replicas ?: 1),
+            'rps' => app(ScalingService::class)->rps($app),
             'auto_restart' => $app->auto_restart,
             'last_deploy_at' => $app->last_deployed_at?->toIso8601ZuluString(),
             'created_at' => $app->created_at?->toIso8601ZuluString(),

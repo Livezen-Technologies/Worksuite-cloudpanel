@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: libreoffice
+name: Libreoffice
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: LibreOffice is a free and powerful office suite.
+port: 3000
+source: coolify
+documentation: https://docs.linuxserver.io/images/docker-libreoffice/
+compose: "services:\n  libreoffice:\n    image: lscr.io/linuxserver/libreoffice:latest\n    environment:\n      PUID: ${PUID:-1000}\n      PGID: ${PGID:-1000}\n      TZ: ${TZ:-Etc/UTC}\n    volumes:\n    - libreoffice-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://localhost:3000\n      interval: 30s\n      timeout: 10s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\nvolumes:\n  libreoffice-config: {}\n"

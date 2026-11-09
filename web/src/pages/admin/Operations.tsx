@@ -1,7 +1,8 @@
+import { api, downloadFile } from '../../api/client'
 import { useMemo, useState } from 'react'
 import { useAction, useList, useOne, useServerName } from '../../api/hooks'
 import type { Container, Server } from '../../api/types'
-import { Card, PageHeader, StatTile, Toggle, Empty } from '../../components/Card'
+import { Card, PageHeader, StatTile, Toggle, Empty, Meter, Loading } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
@@ -11,13 +12,14 @@ import { LogView } from '../../components/LogView'
 import { TerminalDialog } from '../../components/Terminal'
 import { TerminalSessions } from '../../components/TerminalSessions'
 import { Tabs } from '../../components/Tabs'
-import { ago, str } from '../../lib/format'
+import { ago, str, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
 import Select from '../../components/Select'
+import { Icon } from '../../components/Icon'
 
-const REMOTE = ['s3', 'b2', 'r2', 'gdrive']
+const REMOTE = ['s3', 'b2', 'r2', 'gdrive', 'sftp']
 const S3_LIKE = ['s3', 'b2', 'r2']
 const isS3 = (v: Record<string, unknown>) => S3_LIKE.includes(String(v.destination))
 const POLICY_FIELDS: FieldDef[] = [
@@ -25,28 +27,51 @@ const POLICY_FIELDS: FieldDef[] = [
   { name: 'target_type', label: 'Target type', type: 'select', required: true, options: [{ value: 'volume', label: 'Volume (restic snapshot)' }, { value: 'database', label: 'Database (app-consistent dump + snapshot)' }, { value: 'application', label: 'Application data' }, { value: 'server', label: 'Server config' }] },
   { name: 'target_id', label: 'Target ID', mono: true, required: true },
   { name: 'schedule', label: 'Schedule (cron)', mono: true, required: true, placeholder: '0 3 * * *', hint: 'hourly 0 * * * * · daily 0 3 * * * · monthly 0 3 1 * *' },
-  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local (on the server)' }, { value: 's3', label: 'Amazon S3 / S3-compatible (MinIO)' }, { value: 'b2', label: 'Backblaze B2 (S3 API)' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive (rclone)' }] },
-  { name: 'dc_path', label: 'Repository root', mono: true, placeholder: '/var/lib/dockermgr/backups', show: (v) => v.destination === 'local' },
+  { name: 'destination', label: 'Destination', type: 'select', required: true, options: [{ value: 'local', label: 'Local (on the server)' }, { value: 's3', label: 'Amazon S3 / S3-compatible (MinIO)' }, { value: 'b2', label: 'Backblaze B2 (S3 API)' }, { value: 'r2', label: 'Cloudflare R2' }, { value: 'gdrive', label: 'Google Drive (rclone)' }, { value: 'sftp', label: 'SFTP server' }] },
+  { name: 'dc_path', label: 'Repository root', mono: true, placeholder: '/var/lib/dockermgr/backups', show: (v) => v.destination === 'local' || v.destination === 'sftp' },
+  { name: 'dc_host', label: 'SFTP host', mono: true, placeholder: 'backup.example.com', show: (v) => v.destination === 'sftp', required: true },
+  { name: 'dc_port', label: 'SFTP port', type: 'number', placeholder: '22', show: (v) => v.destination === 'sftp' },
+  { name: 'dc_user', label: 'SFTP user', mono: true, show: (v) => v.destination === 'sftp', required: true },
+  { name: 'dc_private_key', label: 'Private key (PEM)', type: 'textarea', mono: true, show: (v) => v.destination === 'sftp', hint: 'write-only; leave blank to keep the stored key' },
   { name: 'dc_endpoint', label: 'Endpoint URL', mono: true, placeholder: 'https://s3.eu-central-1.amazonaws.com', show: isS3 },
   { name: 'dc_bucket', label: 'Bucket', mono: true, show: isS3, required: true },
   { name: 'dc_region', label: 'Region', mono: true, placeholder: 'us-east-1 (R2: auto)', show: isS3 },
   { name: 'dc_account_id', label: 'Account ID', mono: true, show: (v) => v.destination === 'r2' },
   { name: 'dc_access_key', label: 'Access key ID', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
   { name: 'dc_secret_key', label: 'Secret access key', type: 'password', show: isS3, hint: 'write-only; leave blank to keep the stored key' },
-  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true, hint: 'restic forget --prune after each run' },
+  { name: 'retention_days', label: 'Retention (days)', type: 'number', required: true, hint: 'used when no daily/weekly/monthly counts are set' },
+  { name: 'keep_daily', label: 'Keep daily', type: 'number', placeholder: 'e.g. 7' },
+  { name: 'keep_weekly', label: 'Keep weekly', type: 'number', placeholder: 'e.g. 4' },
+  { name: 'keep_monthly', label: 'Keep monthly', type: 'number', placeholder: 'e.g. 6' },
+  { name: 'capacity_gb', label: 'Destination capacity (GB)', type: 'number', hint: 'warns when the destination is over 85 % full' },
+  { name: 'object_lock_days', label: 'Object lock (days)', type: 'number', show: isS3, hint: 'the bucket must have object lock turned on; at most the retention window' },
   { name: 'check_subset', label: 'Integrity check data subset', mono: true, placeholder: '5%', hint: 'restic check --read-data-subset after each run' },
   { name: 'restore_test_schedule', label: 'Restore test schedule (cron)', mono: true, placeholder: '0 4 * * 0', hint: 'restores the latest snapshot into a scratch directory and validates it' },
 ]
-const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'access_key', 'secret_key'] as const
+const DC_KEYS = ['path', 'endpoint', 'bucket', 'region', 'account_id', 'host', 'port', 'user', 'access_key', 'secret_key', 'private_key'] as const
+const WRITE_ONLY = ['access_key', 'secret_key', 'private_key']
 
 /** Flat form values -> API body; credentials are only sent when typed (write-only). */
+/** Five evenly spaced clock labels across the chosen range, ending at now. */
+function timeLabels(range: string) {
+  const span = ({ '1h': 3600e3, '6h': 6 * 3600e3, '24h': 86400e3, '7d': 7 * 86400e3 } as Record<string, number>)[range] ?? 6 * 3600e3
+  const now = Date.now()
+  return [0, 1, 2, 3, 4].map((i) => {
+    const d = new Date(now - span + (span * i) / 4)
+    if (i === 4) return 'now'
+    return range === '7d' ? d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }) : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  })
+}
+
 export function policyBody(v: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {}
   const dc: Record<string, string> = {}
   for (const [k, val] of Object.entries(v)) {
     if (k.startsWith('dc_')) { if (val !== '' && val != null) dc[k.slice(3)] = String(val) } else body[k] = val
   }
-  for (const k of ['destination_summary', 'success_14d', 'next_run_at', 'id', 'organization_id', 'created_at', 'updated_at', 'last_run_at', 'last_status', 'last_restore_test_at', 'last_restore_test_status']) delete body[k]
+  for (const k of ['destination_summary', 'success_14d', 'next_run_at', 'id', 'organization_id', 'created_at', 'updated_at', 'last_run_at', 'last_status', 'last_restore_test_at', 'last_restore_test_status', 'usage', 'last_probe', 'probed_at']) delete body[k]
+  // Cleared number fields clear the setting; untouched ones are not sent.
+  for (const k of ['keep_daily', 'keep_weekly', 'keep_monthly', 'capacity_gb', 'object_lock_days']) if (k in body) body[k] = body[k] === '' || body[k] == null ? null : Number(body[k])
   if (body.restore_test_schedule === '') body.restore_test_schedule = null
   if (body.check_subset === '' || body.check_subset == null) delete body.check_subset
   return { ...body, destination_config: dc, encrypted: true }
@@ -54,7 +79,7 @@ export function policyBody(v: Record<string, unknown>): Record<string, unknown> 
 function policyInitial(r: R): R {
   const sum = (r.destination_summary ?? {}) as R
   const out: R = { ...r }
-  for (const k of DC_KEYS) if (k !== 'access_key' && k !== 'secret_key' && sum[k] != null) out[`dc_${k}`] = sum[k]
+  for (const k of DC_KEYS) if (!WRITE_ONLY.includes(k) && sum[k] != null) out[`dc_${k}`] = sum[k]
   return out
 }
 
@@ -69,10 +94,21 @@ function last14(jobs: R[]) {
   return days
 }
 
+const TARGET_KIND: Record<string, string> = { volume: 'Volume', database: 'Database', application: 'Application', server: 'Server config' }
+const METHOD: Record<string, string> = { volume: 'Restic snapshot', database: 'Dump + snapshot', application: 'Restic (app data)', server: 'Encrypted archive' }
+const DEST_LABEL: Record<string, string> = { local: 'Local disk', s3: 'Amazon S3', b2: 'Backblaze B2', r2: 'Cloudflare R2', gdrive: 'Google Drive', sftp: 'SFTP' }
+const fmtMb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+
+const RESTORE_BLANK: R = { scope: 'everything', mode: 'replace', fresh_backup: true, stop_app: false, health_check: true }
+
+/** BKM-001..009: the Backup manager — Policies, Snapshots, Restore, Destinations, Restore tests. */
 export function Backups() {
+  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'tests'>('policies')
+  const [target, setTarget] = useState('')
   const policies = useList<R>('/backup-policies')
+  const summary = useOne<R>('/backups/summary', undefined, { refetchInterval: 30000 })
   const jobs = useList<R>('/backup-jobs', { per_page: 500 }, { refetchInterval: 20000 })
-  const artifacts = useList<R>('/backup-artifacts', { per_page: 50, sort: '-created_at' }, { refetchInterval: 20000 })
+  const artifacts = useList<R>('/backup-artifacts', { per_page: 50, sort: '-created_at', ...(target ? { target_id: target } : {}) }, { refetchInterval: 20000 })
   const toast = useToast()
   const [preparing, setPreparing] = useState<string | null>(null)
   const download = async (a: R) => {
@@ -84,75 +120,190 @@ export function Backups() {
   const policyName = (id?: string) => policies.rows.find((p) => p.id === id)?.name ?? (id ? id.slice(0, 8) : 'app backup')
   const { run, busy } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
-  const [restoreOpen, setRestoreOpen] = useState(false)
   const [artifact, setArtifact] = useState<R | null>(null)
+  const [opts, setOpts] = useState<R>(RESTORE_BLANK)
   const [del, setDel] = useState<R | null>(null)
   const days = useMemo(() => last14(jobs.rows), [jobs.rows])
-  const day = jobs.rows.filter((j) => Date.now() - new Date(j.created_at).getTime() < 86400e3)
+  const s = summary.item ?? {}
   const restorable = artifacts.rows.filter((a) => a.snapshot_id)
+  const targets = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const p of policies.rows) seen.set(String(p.target_id), `${p.name} (${p.target_type})`)
+    return [...seen.entries()]
+  }, [policies.rows])
+  const openRestore = (a: R) => { setArtifact(a); setOpts({ ...RESTORE_BLANK, scope: a.dump_engine ? 'database' : 'everything' }) }
+  const isDump = !!artifact?.dump_engine
+  const wizardOk = !(opts.mode === 'side_by_side' && isDump)
+  const newPolicy = () => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })
+  const destOf = (a: R) => String(policies.rows.find((p) => p.id === a.backup_policy_id)?.destination ?? 'local')
+  const snapFilter = (
+    <Select className="input !w-auto" aria-label="Filter snapshots by target" value={target} onChange={(e) => setTarget(e.target.value)}>
+      <option value="">All targets</option>
+      {targets.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+    </Select>
+  )
+  const snapRow = (r: R) => (
+    <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3 border-t border-line text-[13.5px]">
+      <span className="flex-[1_1_220px] min-w-0">
+        <span className="block font-semibold truncate">{policyName(r.backup_policy_id)}</span>
+        <span className="block text-xs text-muted font-mono truncate">{String(r.snapshot_id ?? '—').slice(0, 10)} · {destOf(r)}{r.target_type ? ` · ${r.target_type}` : ''}</span>
+      </span>
+      <span className="text-muted min-w-[120px]">{ago(r.created_at)}</span>
+      <span className="min-w-[70px] tabular-nums">{fmtMb(num(r.size_mb))}</span>
+      <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span>
+      <span className="flex gap-2 ml-auto">
+        <button type="button" className="btn btn-sm" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
+        {r.snapshot_id ? <button type="button" className="btn btn-sm btn-primary" onClick={() => openRestore(r)}>Restore</button> : null}
+      </span>
+    </li>
+  )
+  const restoreTested = artifacts.rows.filter((a) => a.restore_test_status || a.snapshot_id)
+
   return (
     <>
-      <PageHeader title="Backups" subtitle="Encrypted, integrity-checked and restore-tested"
-        actions={<><button type="button" className="btn" onClick={() => setRestoreOpen(true)}>Restore…</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })}>New backup policy</button></>} />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        <StatTile label="Policies" value={policies.rows.length} />
-        <StatTile label="Succeeded (24 h)" value={day.filter((j) => j.status === 'succeeded' || j.status === 'success').length} />
-        <StatTile label="Failed (24 h)" value={day.filter((j) => j.status === 'failed').length} deltaTone="r" delta={day.some((j) => j.status === 'failed') ? 'needs attention' : undefined} />
-        <StatTile label="Verified" value={artifacts.rows.filter((a) => a.verified).length} delta="restic check passed" />
+      <PageHeader title="Backup manager" subtitle="Policies, snapshots, restores and storage destinations — encrypted and verified"
+        actions={<>
+          <button type="button" className="btn" onClick={() => setTab('restore')}>Restore…</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'failed' }, label: 'Rerun failed', success: 'Started the failed backups again' }).catch(() => {})}>Rerun failed</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: '/backups/run-all', body: { which: 'due' }, label: 'Run all due', success: 'Started the due backups' }).catch(() => {})}>Run all due now</button>
+        </>} />
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+        <StatTile label="Protected targets" value={num(s.protected_targets)} delta={num(s.overdue) ? `${s.overdue} overdue` : s.paused ? `${s.paused} paused` : undefined} deltaTone={num(s.overdue) ? 'r' : undefined} />
+        <StatTile label="Success (30 days)" value={s.success_rate_30d == null ? '—' : `${s.success_rate_30d}%`} delta={`${num(s.runs_30d)} runs`} deltaTone={num(s.success_rate_30d) < 95 && s.success_rate_30d != null ? 'r' : undefined} />
+        <StatTile label="Stored" value={fmtMb(num(s.stored_mb))} />
+        <StatTile label="Last restore test" value={s.last_restore_test ? String((s.last_restore_test as R).status) : 'never'} delta={s.last_restore_test ? ago((s.last_restore_test as R).at) : undefined} deltaTone={(s.last_restore_test as R)?.status === 'failed' ? 'r' : undefined} />
+        <StatTile label="Next run" value={s.next_run_at ? ago(String(s.next_run_at)) : '—'} />
       </div>
-      <Card title="Last 14 days" actions={<span className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
-        <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
-      </Card>
-      <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
-        columns={[
-          { key: 'name', header: 'Policy', render: (r) => <span className="font-semibold">{r.name}</span> },
-          { key: 'target_type', header: 'Target' },
-          { key: 'schedule', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.schedule}</span> },
-          { key: 'destination', header: 'Destination', render: (r) => <span>{r.destination}{r.destination_summary?.bucket ? <span className="block text-xs text-muted font-mono">{r.destination_summary.bucket}</span> : null}{S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? <Badge tone="y">no keys</Badge> : null}</span> },
-          { key: 'last_restore_test_status', header: 'Restore test', render: (r) => r.last_restore_test_status ? <span title={r.last_restore_test_at ?? undefined}><StatusBadge status={r.last_restore_test_status} /></span> : <span className="text-muted text-xs">not yet</span> },
-          { key: 'last_status', header: 'Last run', render: (r) => <StatusBadge status={r.last_status ?? r.last_run?.status ?? 'never run'} /> },
-          { key: 'retention_days', header: 'Retention', value: (r) => (r.retention_days != null ? `${r.retention_days} days` : '—') },
-          { key: 'encrypted', header: 'Encryption', render: (r) => <Badge tone={r.encrypted !== false ? 'g' : 'y'}>{r.encrypted !== false ? 'encrypted' : 'not encrypted'}</Badge> },
-          { key: 'last_run_at', header: 'When', render: (r) => ago(r.last_run_at ?? r.last_run?.created_at) },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEdit(r)}>Edit</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setDel(r)}>Delete</button>
-            </span>) },
-        ]} />
-      <DataTable label="Snapshots" rows={artifacts.rows} loading={artifacts.isLoading} rowKey={(r) => r.id} minWidth={900}
-        columns={[
-          { key: 'created_at', header: 'Taken', render: (r) => ago(r.created_at) },
-          { key: 'policy', header: 'Policy', value: (r) => policyName(r.backup_policy_id) },
-          { key: 'snapshot_id', header: 'Snapshot', render: (r) => <span className="font-mono text-xs">{String(r.snapshot_id ?? '—').slice(0, 10)}</span> },
-          { key: 'size_mb', header: 'Size', value: (r) => `${r.size_mb ?? 0} MB` },
-          { key: 'verified', header: 'Integrity', render: (r) => <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span> },
-          { key: 'restore_test_status', header: 'Restore test', render: (r) => r.restore_test_status ? <span title={r.restore_test_message ?? undefined}><StatusBadge status={r.restore_test_status} /></span> : <span className="text-muted text-xs">—</span> },
-          { key: 'act', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test restore</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setArtifact(r)}>Restore</button>
-            </span>) },
-        ]} />
-      <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"
-        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}
-        onSubmit={(v) => run({ method: edit?.id ? 'PATCH' : 'POST', path: edit?.id ? `/backup-policies/${edit.id}` : '/backup-policies', body: policyBody(v), label: 'Save policy', success: 'Policy saved' })} />
-      <Modal open={restoreOpen} onClose={() => setRestoreOpen(false)} title="Restore from backup" width={640}>
-        {restorable.length === 0 ? <Empty>No restorable backups yet.</Empty> : (
-          <ul className="list-none m-0 p-0">{restorable.slice(0, 30).map((j) => (
-            <li key={j.id} className="flex items-center gap-3 py-2.5 border-t border-line">
-              <span className="font-semibold flex-1">{policyName(j.backup_policy_id)}{j.dump_engine ? ` · ${j.dump_engine} dump` : ''}</span><span className="text-xs text-muted">{ago(j.created_at)}</span>
-              <button type="button" className="btn btn-sm" onClick={() => setArtifact(j)}>Restore</button>
+      <Tabs value={tab} onChange={setTab} label="Backup manager sections" tabs={[
+        { id: 'policies', label: 'Policies' }, { id: 'snapshots', label: 'Snapshots' }, { id: 'restore', label: 'Restore' },
+        { id: 'destinations', label: 'Destinations' }, { id: 'tests', label: 'Restore tests' },
+      ]} />
+
+      {tab === 'policies' && <div className="flex flex-col gap-4">
+        <Card title="Last 14 days" actions={<span className="flex flex-wrap gap-3 text-xs text-muted"><span>runs per day</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-accent rounded-sm" />succeeded</span><span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[var(--r-fg)]" />failed</span></span>}>
+          <DayBars days={days} label="Backup runs per day over the last 14 days, succeeded and failed" />
+        </Card>
+        <Card title="Backup policies" pad={false} actions={<button type="button" className="btn btn-primary btn-sm" onClick={newPolicy}>+ New policy</button>}>
+          <DataTable label="Backup policies" rows={policies.rows} loading={policies.isLoading} rowKey={(r) => r.id} minWidth={900}
+            empty={<Empty>No backup policies yet.</Empty>}
+            actions={(r) => [
+                { label: `Back up ${r.name} now`, icon: 'play', disabled: busy, onClick: () => run({ path: '/backup-jobs', body: { policy_id: r.id }, label: `Back up ${r.name}` }).catch(() => {}) },
+                { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(r) },
+                { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setDel(r) },
+              ]}
+            columns={[
+              { key: 'name', header: 'Target', render: (r) => <span><span className="block font-semibold">{r.name}</span><span className="block text-xs text-muted">{TARGET_KIND[String(r.target_type)] ?? r.target_type}<span className="font-mono"> · {String(r.target_id ?? '').slice(0, 12)}</span></span></span> },
+              { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{METHOD[String(r.target_type)] ?? 'Restic snapshot'}</span> },
+              { key: 'schedule', header: 'Schedule', render: (r) => <span><span className="block font-mono text-xs">{r.schedule}</span>{r.next_run_at && r.enabled !== false && <span className="block text-xs text-muted mt-1">next {new Date(String(r.next_run_at)).toLocaleString()}</span>}</span> },
+              { key: 'destination', header: 'Destination', render: (r) => <span className="text-muted">{DEST_LABEL[String(r.destination)] ?? r.destination}{r.object_lock_days ? <> <Badge tone="b">locked {r.object_lock_days} d</Badge></> : null}</span> },
+              { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily}d`, r.keep_weekly && `${r.keep_weekly}w`, r.keep_monthly && `${r.keep_monthly}m`].filter(Boolean).join(' · ') : `${r.retention_days} days` },
+              { key: 'last_status', header: 'Last run', render: (r) => <span><StatusBadge status={r.enabled === false ? 'paused' : (r.last_status ?? 'never run')} /><span className="block text-xs text-muted mt-1">{r.last_run_at ? ago(r.last_run_at) : '—'}</span>{r.overdue && <span className="block mt-1"><Badge tone="r">overdue</Badge> <span className="text-xs text-muted">{r.last_success_at ? `last good ${ago(r.last_success_at)}` : 'never succeeded'}</span></span>}</span> },
+              { key: 'enabled', header: 'On', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`${r.enabled !== false ? 'Pause' : 'Resume'} ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/backup-policies/${r.id}`, body: { enabled: v }, label: v ? 'Resume policy' : 'Pause policy', success: v ? 'Policy resumed' : 'Policy paused' }).catch(() => {})} /> },
+            ]} />
+        </Card>
+      </div>}
+
+      {tab === 'snapshots' && <Card pad={false} title="Snapshots" actions={snapFilter}>
+        {artifacts.isLoading ? <p className="px-5 pb-4 m-0 text-sm text-muted">Loading…</p>
+          : artifacts.rows.length ? <ul className="list-none m-0 p-0">{artifacts.rows.map(snapRow)}</ul>
+            : <div className="px-5 pb-5"><Empty>No snapshots yet.</Empty></div>}
+      </Card>}
+
+      {tab === 'restore' && <Card pad={false} title="Restore" subtitle="Pick a snapshot to start the restore wizard: choose the snapshot, where to restore it, what to include, then confirm." actions={snapFilter}>
+        <ol className="list-none m-0 px-4 sm:px-5 pb-4 grid gap-2.5 grid-cols-2 sm:grid-cols-4">
+          {['Snapshot', 'Restore to', 'Scope', 'Confirm'].map((l, i) => (
+            <li key={l} className={`flex flex-col gap-0.5 rounded-lg border p-3 ${i === 0 ? 'border-accent bg-sel' : 'border-line'}`}>
+              <span className={`text-xs font-semibold ${i === 0 ? 'text-accent' : 'text-muted'}`}>Step {i + 1}</span>
+              <span className="text-sm font-semibold">{l}</span>
             </li>))}
-          </ul>
-        )}
+        </ol>
+        {artifacts.isLoading ? <p className="px-5 pb-4 m-0 text-sm text-muted">Loading…</p>
+          : restorable.length ? <ul className="list-none m-0 p-0">{restorable.map(snapRow)}</ul>
+            : <div className="px-5 pb-5"><Empty>No restorable snapshots.</Empty></div>}
+      </Card>}
+
+      {tab === 'destinations' && (policies.isLoading ? <p className="m-0 text-sm text-muted">Loading…</p> : !policies.rows.length ? <Empty>No policies yet.</Empty> :
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr))]">
+          {policies.rows.map((r) => {
+            const u = (r.usage ?? {}) as R
+            const gb = (num(u.stored_bytes) / 1073741824).toFixed(2)
+            const where = r.destination_summary?.bucket ?? r.destination_summary?.host ?? r.destination_summary?.path ?? ''
+            const p = r.last_probe as R | undefined
+            return (
+              <section key={r.id} className="card p-4 flex flex-col gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-9 h-9 shrink-0 rounded-lg bg-sel text-accent grid place-items-center text-xs font-bold uppercase">{String(r.destination).slice(0, 2)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold truncate">{DEST_LABEL[String(r.destination)] ?? r.destination}</div>
+                    <div className="text-xs text-muted font-mono truncate" title={where}>{where || r.name}</div>
+                  </div>
+                  {p ? <span title={p.message ?? undefined}><Badge tone={p.reachable ? (u.warning ? 'y' : 'g') : 'r'}>{p.reachable ? (u.warning ? 'nearly full' : 'connected') : 'unreachable'}</Badge></span> : <Badge>not tested</Badge>}
+                </div>
+                <div>
+                  <div className="flex justify-between text-[12.5px]"><span className="text-muted">Used</span><span className="font-semibold">{gb} GB{u.capacity_gb ? ` of ${u.capacity_gb} GB` : ''}{u.percent != null ? ` · ${u.percent}%` : ''}</span></div>
+                  {u.percent != null && <div className="mt-1.5"><Meter value={num(u.percent)} label={`${r.name} usage`} color={u.warning ? 'var(--r-fg)' : undefined} /></div>}
+                </div>
+                <div className="text-xs text-muted">
+                  Policy {r.name}{p?.reachable ? ` · ${p.snapshots} snapshots` : ''}{r.probed_at ? ` · tested ${ago(r.probed_at)}` : ''}
+                  {r.object_lock_days ? ` · object lock ${r.object_lock_days} d` : ''}
+                  {S3_LIKE.includes(r.destination) && !r.destination_summary?.has_secret_key ? ' · no keys stored' : ''}
+                  {u.warning ? <span className="block text-[var(--r-fg)]">Over 85 % full</span> : null}
+                </div>
+                <button type="button" className="btn btn-sm self-start" disabled={busy} onClick={() => run({ path: `/backup-policies/${r.id}/probe`, label: `Test ${r.name}` }).catch(() => {})}>Test connection</button>
+              </section>)
+          })}
+        </div>)}
+
+      {tab === 'tests' && <Card pad={false}>
+        {artifacts.isLoading ? <p className="px-5 py-4 m-0 text-sm text-muted">Loading…</p>
+          : restoreTested.length ? <ul className="list-none m-0 p-0">{restoreTested.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 border-b border-line text-[13.5px]">
+              <span className="flex-[1_1_220px] min-w-0">
+                <span className="block font-semibold">{policyName(r.backup_policy_id)}</span>
+                <span className="block text-xs text-muted">{String(r.restore_test_message ?? '') || `Snapshot taken ${ago(r.created_at)}`}</span>
+              </span>
+              <span className="text-muted">{r.restore_tested_at ? ago(r.restore_tested_at) : '—'}</span>
+              {r.restore_test_status ? <StatusBadge status={r.restore_test_status} /> : <Badge>not tested</Badge>}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ path: `/backup-artifacts/${r.id}/restore-test`, label: 'Restore test' }).catch(() => {})}>Test now</button>
+            </li>))}</ul>
+            : <div className="px-5 py-4"><Empty>No snapshots to test yet.</Empty></div>}
+        <p className="m-0 px-4 sm:px-5 py-3.5 text-[12.5px] text-muted">Each test restores the snapshot into an isolated scratch location and validates it.</p>
+      </Card>}
+
+      <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New backup policy'} fields={POLICY_FIELDS} initial={edit ? policyInitial(edit) : {}} submitLabel="Save policy"
+        extra={(v) => <p className="m-0 text-xs text-muted">{REMOTE.includes(String(v.destination)) ? 'Remote backups are always encrypted. The repository password is generated for you; a recovery copy is kept separately (php artisan backups:recovery-key).' : 'Local backups are encrypted with a generated repository password.'}{edit?.destination_summary?.has_secret_key || edit?.destination_summary?.has_private_key ? ' Stored keys stay in place unless you type new ones.' : ''}</p>}
+        onSubmit={(v) => run({ method: edit?.id ? 'PATCH' : 'POST', path: edit?.id ? `/backup-policies/${edit.id}` : '/backup-policies', body: policyBody(v), label: 'Save policy', success: 'Policy saved' })} />
+
+      <Modal open={!!artifact} onClose={() => setArtifact(null)} title="Restore wizard" width={640}>
+        <div className="flex flex-col gap-4 text-sm">
+          <p className="m-0">Snapshot <span className="font-mono">{String(artifact?.snapshot_id ?? '').slice(0, 10)}</span> of {policyName(artifact?.backup_policy_id)}, taken {ago(artifact?.created_at)}.</p>
+          <fieldset className="flex flex-col gap-2 border-0 p-0 m-0"><legend className="font-semibold mb-2">What to restore</legend>
+            {(isDump ? [['database', 'The database'], ['everything', 'Everything in the snapshot']] : [['everything', 'Everything in the snapshot'], ['files', 'Files only']]).map(([v, l]) =>
+              <label key={v} className="choice !items-center"><input type="radio" name="scope" checked={opts.scope === v} onChange={() => setOpts({ ...opts, scope: v })} />{l}</label>)}
+          </fieldset>
+          <fieldset className="flex flex-col gap-2 border-0 p-0 m-0"><legend className="font-semibold mb-2">Where</legend>
+            <label className="choice !items-center"><input type="radio" name="mode" checked={opts.mode === 'replace'} onChange={() => setOpts({ ...opts, mode: 'replace' })} />Replace the current data</label>
+            <label className="choice !items-center"><input type="radio" name="mode" disabled={isDump} checked={opts.mode === 'side_by_side'} onChange={() => setOpts({ ...opts, mode: 'side_by_side', stop_app: false })} />Side by side, in a separate directory{isDump ? ' (files only)' : ''}</label>
+            <label className="choice !items-center"><input type="radio" name="mode" checked={opts.mode === 'download'} onChange={() => setOpts({ ...opts, mode: 'download' })} />Download it instead</label>
+          </fieldset>
+          {opts.mode !== 'download' && <div className="flex flex-col gap-2">
+            <label className="flex gap-2 items-center"><input type="checkbox" checked={!!opts.fresh_backup} onChange={(e) => setOpts({ ...opts, fresh_backup: e.target.checked })} />Take a safety backup first</label>
+            {artifact?.application_id && <>
+              <label className="flex gap-2 items-center"><input type="checkbox" disabled={opts.mode !== 'replace'} checked={!!opts.stop_app} onChange={(e) => setOpts({ ...opts, stop_app: e.target.checked })} />Stop the app while restoring</label>
+              <label className="flex gap-2 items-center"><input type="checkbox" checked={!!opts.health_check} onChange={(e) => setOpts({ ...opts, health_check: e.target.checked })} />Health-check the app afterwards</label>
+            </>}
+          </div>}
+          <p className="m-0 text-xs text-muted">Progress shows in the Activity dock.</p>
+          <div className="flex gap-2 justify-end">
+            <button type="button" className="btn" onClick={() => setArtifact(null)}>Cancel</button>
+            {opts.mode === 'download'
+              ? <button type="button" className="btn btn-primary" onClick={() => { const a = artifact!; setArtifact(null); download(a) }}>Download</button>
+              : <button type="button" className={`btn ${opts.mode === 'replace' ? 'btn-danger' : 'btn-primary'}`} disabled={busy || !wizardOk}
+                onClick={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.id, scope: opts.scope, mode: opts.mode, fresh_backup: !!opts.fresh_backup, stop_app: !!opts.stop_app, health_check: !!opts.health_check }, label: 'Restore backup' }).then(() => setArtifact(null)).catch(() => {})}>
+                {opts.mode === 'replace' ? 'Replace and restore' : 'Restore side by side'}</button>}
+          </div>
+        </div>
       </Modal>
-      <ConfirmDialog open={!!artifact} onClose={() => setArtifact(null)} danger confirmText="RESTORE" title="Restore this backup?" confirmLabel="Restore" busy={busy}
-        onConfirm={() => run({ path: '/restore-jobs', body: { artifact_id: artifact!.id }, label: 'Restore backup' }).then(() => { setArtifact(null); setRestoreOpen(false) }).catch(() => {})}>
-        <p className="m-0">Current data for the target is replaced with the backup from {ago(artifact?.created_at)}.</p>
-      </ConfirmDialog>
       <ConfirmDialog open={!!del} onClose={() => setDel(null)} danger confirmText={del?.name} title={`Delete policy ${del?.name}?`} confirmLabel="Delete policy" busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/backup-policies/${del!.id}`, label: 'Delete policy', success: 'Policy deleted' }).then(() => setDel(null)).catch(() => {})}>
         <p className="m-0">Existing backups are kept until their retention ends.</p>
@@ -163,15 +314,55 @@ export function Backups() {
 
 const RULE_FIELDS = (channels: R[]): FieldDef[] => [
   { name: 'name', label: 'Name', required: true },
-  { name: 'metric', label: 'Metric', type: 'select', required: true, options: ['cpu_pct', 'ram_pct', 'disk_pct', 'heartbeat', 'container_unhealthy', 'restarts', 'response_time_ms', 'backup_failed', 'ssl_days_left'] },
-  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<=', '='] },
+  { name: 'metric', label: 'Metric', type: 'select', required: true, options: [
+    { value: 'cpu', label: 'CPU %' }, { value: 'ram', label: 'RAM %' }, { value: 'disk', label: 'Disk %' }, { value: 'heartbeat', label: 'Seconds since agent heartbeat' },
+    { value: 'container_unhealthy', label: 'Unhealthy containers' }, { value: 'backup_failed', label: 'Backup failed' },
+    { value: 'backup_overdue', label: 'Backups overdue (hours since last success)' }, { value: 'ssl_expiry', label: 'Days until certificate expires' }] },
+  { name: 'operator', label: 'Condition', type: 'select', required: true, options: ['>', '>=', '<', '<='] },
   { name: 'threshold', label: 'Threshold', type: 'number', required: true },
   { name: 'duration_minutes', label: 'For (minutes)', type: 'number' },
   { name: 'severity', label: 'Severity', type: 'select', required: true, options: ['info', 'warning', 'critical', 'emergency'] },
-  { name: 'scope', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'application'], required: true },
-  { name: 'scope_id', label: 'Scope ID (group or app)', mono: true, show: (v) => v.scope !== 'organization' },
+  { name: 'scope_type', label: 'Scope', type: 'select', options: ['organization', 'server_group', 'server', 'application'], required: true },
+  { name: 'scope_id', label: 'Scope ID (group, server or app)', mono: true, show: (v) => !!v.scope_type && v.scope_type !== 'organization' },
   ...channels.map((c) => ({ name: `ch_${c.id}`, label: `Notify ${c.name ?? c.type}`, type: 'checkbox' as const })),
 ]
+
+/** The public status page: which domains it shows, under which names. */
+function StatusPageCard() {
+  const page = useOne<R>('/status-page')
+  const { run, busy } = useAction()
+  const [f, setF] = useState<R | null>(null)
+  const w = f ?? page.item
+  if (!w) return null
+  const comps = ((w.components as R[]) ?? [])
+  const domains = ((page.item?.domains as R[]) ?? [])
+  const set = (patch: R) => setF({ ...w, ...patch })
+  const save = () => run({ path: '/status-page', method: 'PATCH', label: 'Save status page', success: 'Status page saved',
+    body: { enabled: !!w.enabled, title: w.title, notice: w.notice || null, components: comps.filter((c) => c.domain_id && c.name) } }).then(() => { setF(null); page.refetch() }).catch(() => {})
+  return (
+    <Card title="Public status page" subtitle={w.enabled ? <a className="link" href={String(page.item?.url ?? '/status')} target="_blank" rel="noreferrer">{String(page.item?.url ?? '/status')}</a> : 'Off'}
+      actions={<Toggle checked={!!w.enabled} label="Publish the status page" onChange={(v) => set({ enabled: v })} />}>
+      <p className="m-0 mb-3 text-xs text-muted">Visitors see each component's state, 90 days of daily uptime from the 5-minute checks, and when incidents started and ended. Domain names and alert details are never shown.</p>
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <label className="flex flex-col gap-1 text-sm">Title<input className="input" value={String(w.title ?? '')} onChange={(e) => set({ title: e.target.value })} /></label>
+        <label className="flex flex-col gap-1 text-sm">Notice (optional)<input className="input" value={String(w.notice ?? '')} placeholder="Planned maintenance on Sunday 02:00 UTC" onChange={(e) => set({ notice: e.target.value })} /></label>
+      </div>
+      <ul className="m-0 mt-3 p-0 list-none flex flex-col gap-2">
+        {comps.map((c, i) => <li key={i} className="flex flex-wrap items-center gap-2">
+          <input className="input flex-[1_1_160px]" aria-label="Component name" value={String(c.name ?? '')} placeholder="Website" onChange={(e) => set({ components: comps.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+          <Select className="input flex-[1_1_200px]" aria-label="Domain checked" value={String(c.domain_id ?? '')} onChange={(e) => set({ components: comps.map((x, j) => (j === i ? { ...x, domain_id: e.target.value } : x)) })}>
+            <option value="">Choose a domain…</option>{domains.map((d) => <option key={String(d.id)} value={String(d.id)}>{String(d.name)}</option>)}
+          </Select>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => set({ components: comps.filter((_, j) => j !== i) })}>Remove</button>
+        </li>)}
+      </ul>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="btn btn-sm" disabled={comps.length >= 20} onClick={() => set({ components: [...comps, { name: '', domain_id: '' }] })}>Add a component</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy || !f} onClick={save}>Save</button>
+      </div>
+    </Card>
+  )
+}
 
 export function Monitoring() {
   const servers = useList<Server>('/servers')
@@ -180,12 +371,24 @@ export function Monitoring() {
   const [on, setOn] = useState<Record<string, boolean>>({ CPU: true, RAM: true, Disk: true })
   const metrics = useOne<R>('/metrics', { server_id: server || undefined, range }, { refetchInterval: 15000 })
   const rules = useList<R>('/alert-rules')
-  const alerts = useList<R>('/alerts', undefined, { refetchInterval: 15000 })
+  // Active = open or acknowledged, fetched as such so resolved history never pushes them off the page.
+  const [alertView, setAlertView] = useState<'active' | 'resolved'>('active')
+  const alerts = useList<R>('/alerts', { status: alertView, per_page: 100, sort: '-created_at' }, { refetchInterval: 15000 })
+  const active = useList<R>('/alerts', { status: 'active', per_page: 100 }, { refetchInterval: 15000 })
   const channels = useList<R>('/notification-channels')
   const { run } = useAction()
   const [edit, setEdit] = useState<R | null>(null)
   const s = (metrics.item?.series ?? metrics.item ?? {}) as R
-  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--b-fg)', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((s.disk ?? []) as unknown[]).map(num) }]
+  // Three series, three distinct hues (blue, violet, amber) that hold in both themes.
+  const series = [{ label: 'CPU', color: 'var(--accent)', data: ((s.cpu ?? []) as unknown[]).map(num) }, { label: 'RAM', color: 'var(--tok-kw)', data: ((s.ram ?? []) as unknown[]).map(num) }, { label: 'Disk', color: 'var(--y-fg)', data: ((s.disk ?? []) as unknown[]).map(num) }]
+  const containers = useList<Container>('/containers', server ? { server_id: server } : undefined, { refetchInterval: 30000 })
+  const last = (d: number[]) => (d.length ? d[d.length - 1] : null)
+  const peak = (d: number[]) => (d.length ? Math.max(...d) : null)
+  const pctTone = (v: number | null) => (v == null ? 'n' : v >= 85 ? 'r' : v >= 70 ? 'y' : 'g') as 'g' | 'y' | 'r' | 'n'
+  const openAlerts = active.rows
+  const shownServers = servers.rows.filter((x) => !server || x.id === server)
+  const busy = [...containers.rows].filter((c) => c.state === 'running').sort((a, b) => num(b.cpu_pct) - num(a.cpu_pct)).slice(0, 6)
+  const unhealthy = containers.rows.filter((c) => c.health === 'unhealthy' || c.state === 'restarting').length
   const toForm = (r: R) => ({ ...r, ...Object.fromEntries(((r.channels ?? r.channel_ids ?? []) as (string | R)[]).map((c) => [`ch_${typeof c === 'string' ? c : c.id}`, true])) })
   const fromForm = (v: Record<string, unknown>) => {
     const ids = Object.keys(v).filter((k) => k.startsWith('ch_') && v[k]).map((k) => k.slice(3))
@@ -196,32 +399,83 @@ export function Monitoring() {
     <>
       <PageHeader title="Monitoring" subtitle="Metrics, alerts and alert rules"
         actions={<Select className="input !w-auto" aria-label="Server filter" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select>} />
-      <Card title="Fleet resources" actions={<>
-        {series.map((x) => <button key={x.label} type="button" className="chip !min-h-8 !text-xs" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}>{x.label}</button>)}
-        <Select className="input !w-auto !min-h-8 text-xs" aria-label="Range" value={range} onChange={(e) => setRange(e.target.value)}>{['1h', '6h', '24h', '7d'].map((r) => <option key={r}>{r}</option>)}</Select>
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+        {series.map((x) => <StatTile key={x.label} label={`${x.label} now`} value={last(x.data) == null ? '—' : `${Math.round(last(x.data)!)}%`} delta={peak(x.data) == null ? 'no data yet' : `peak ${Math.round(peak(x.data)!)}% in ${range}`}
+          deltaTone={pctTone(peak(x.data)) === 'g' ? 'n' : pctTone(peak(x.data))} pct={last(x.data) ?? 0} barColor={x.color}
+          icon={<Icon name={x.label === 'CPU' ? 'pulse' : x.label === 'RAM' ? 'db' : 'disk'} size={16} />} iconTone={pctTone(last(x.data)) === 'g' ? 'b' : pctTone(last(x.data))} />)}
+        <StatTile label="Open alerts" value={String(openAlerts.length)} delta={openAlerts.length ? `${openAlerts.filter((a) => a.severity === 'critical' || a.severity === 'emergency').length} critical` : 'all clear'} deltaTone={openAlerts.length ? 'r' : 'g'}
+          icon={<Icon name="shield" size={16} />} iconTone={openAlerts.length ? 'r' : 'g'} />
+        <StatTile label="Containers" value={`${containers.rows.filter((c) => c.state === 'running').length} / ${containers.rows.length}`} delta={unhealthy ? `${unhealthy} unhealthy` : 'all healthy'} deltaTone={unhealthy ? 'r' : 'g'}
+          icon={<Icon name="box" size={16} />} iconTone={unhealthy ? 'r' : 'b'} />
+      </div>
+      <Card title="Fleet resources" subtitle={server ? servers.rows.find((x) => x.id === server)?.name : `${servers.rows.length} servers`} actions={<>
+        {series.map((x) => <button key={x.label} type="button" aria-pressed={on[x.label]} onClick={() => setOn({ ...on, [x.label]: !on[x.label] })}
+          className={`btn btn-sm gap-1.5 ${on[x.label] ? '' : 'opacity-50'}`}><span aria-hidden="true" className="w-2.5 h-2.5 rounded-full" style={{ background: x.color }} />{x.label}</button>)}
+        <span className="btn-group" role="group" aria-label="Range">{['1h', '6h', '24h', '7d'].map((r) => <button key={r} type="button" aria-pressed={range === r} className={`btn btn-sm ${range === r ? 'btn-primary' : ''}`} onClick={() => setRange(r)}>{r}</button>)}</span>
       </>}>
-        <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} />
+        <LineChart label={`Fleet ${series.filter((x) => on[x.label]).map((x) => x.label).join(', ')} over ${range}`} series={series.filter((x) => on[x.label])} xLabels={timeLabels(range)} height={260} />
       </Card>
-      <Card title="Active alerts" pad={false}>
+      <div className="grid gap-4 items-start [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
+        <Card title="Servers" subtitle="Click one to chart it alone" pad={false}>
+          <ul className="m-0 p-0 list-none">
+            {shownServers.map((x) => (
+              <li key={x.id}>
+                <button type="button" onClick={() => setServer(server === x.id ? '' : x.id)} className={`w-full text-left grid gap-x-4 gap-y-1.5 items-center px-5 py-3 border-0 border-t border-line first:border-t-0 bg-transparent cursor-pointer hover:bg-head [grid-template-columns:minmax(120px,1.2fr)_repeat(3,minmax(70px,1fr))] ${server === x.id ? 'bg-sel' : ''}`}>
+                  <span className="min-w-0"><span className="block font-semibold text-sm truncate">{x.name}</span><span className="flex items-center gap-1.5 text-xs text-muted"><StatusBadge status={x.status} />{x.last_heartbeat_at ? ago(x.last_heartbeat_at) : ''}</span></span>
+                  {([['CPU', x.cpu_pct, 'var(--accent)'], ['RAM', x.ram_pct, 'var(--tok-kw)'], ['Disk', x.disk_pct, 'var(--y-fg)']] as const).map(([k, v, c]) => (
+                    <span key={k} className="min-w-0"><span className="flex justify-between text-xs text-muted"><span>{k}</span><span className="tabular-nums font-medium text-fg">{v == null ? '—' : `${Math.round(num(v))}%`}</span></span><Meter value={num(v)} label={`${x.name} ${k}`} color={num(v) >= 85 ? 'var(--r-fg)' : c} /></span>
+                  ))}
+                </button>
+              </li>
+            ))}
+            {shownServers.length === 0 && <li className="px-5 py-4 text-sm text-muted">No servers yet.</li>}
+          </ul>
+        </Card>
+        <Card title="Busiest containers" subtitle="Running, by CPU" pad={false}>
+          <ul className="m-0 p-0 list-none">
+            {busy.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 px-5 py-2.5 border-t border-line first:border-t-0 text-sm">
+                <span className="flex-1 min-w-0"><span className="block font-mono text-xs font-semibold truncate">{c.name}</span><span className="text-xs text-muted">{c.server_name ?? c.server?.name ?? ''}{c.mem_mb != null ? ` · ${Math.round(num(c.mem_mb))} MB` : ''}</span></span>
+                <span className="w-28"><Meter value={num(c.cpu_pct)} label={`${c.name} CPU`} /></span>
+                <span className="w-12 text-right tabular-nums text-xs font-semibold">{c.cpu_pct == null ? '—' : `${Math.round(num(c.cpu_pct))}%`}</span>
+              </li>
+            ))}
+            {busy.length === 0 && <li className="px-5 py-4 text-sm text-muted">No running containers.</li>}
+          </ul>
+        </Card>
+      </div>
+      <StatusPageCard />
+      <Card title={alertView === 'active' ? 'Active alerts' : 'Resolved alerts'} pad={false}
+        actions={<span className="flex gap-1">{(['active', 'resolved'] as const).map((v) => <button key={v} type="button" aria-pressed={alertView === v} className={`btn btn-sm ${alertView === v ? 'btn-primary' : ''}`} onClick={() => setAlertView(v)}>{v === 'active' ? `Active (${openAlerts.length})` : 'History'}</button>)}</span>}>
         <DataTable label="Alerts" rows={alerts.rows} loading={alerts.isLoading} rowKey={(r) => r.id}
           filters={[{ id: 'emergency', label: 'Emergency', test: (r) => r.severity === 'emergency' }, { id: 'critical', label: 'Critical', test: (r) => r.severity === 'critical' }, { id: 'unack', label: 'Not acknowledged', test: (r) => !r.acknowledged_at }]}
+          actions={(r) => r.status === 'resolved' ? [] : [
+            ...(r.acknowledged_at ? [] : [{ label: 'Acknowledge', icon: 'check', onClick: () => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {}) }]),
+            r.snoozed_until && new Date(String(r.snoozed_until)) > new Date()
+              ? { label: 'Wake now', icon: 'bell', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 0 }, label: 'Wake alert', success: 'Reminders are back on' }).catch(() => {}) }
+              : { label: 'Snooze 1 hour', icon: 'clock', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 60 }, label: 'Snooze alert', success: 'No reminders for an hour' }).catch(() => {}) },
+            { label: 'Snooze 1 day', icon: 'clock', onClick: () => run({ path: `/alerts/${r.id}/snooze`, body: { minutes: 1440 }, label: 'Snooze alert', success: 'No reminders for a day' }).catch(() => {}) },
+            { label: 'Resolve', icon: 'check', onClick: () => { if (window.confirm('Mark this alert resolved? If the problem is still there, a new alert opens on the next check.')) run({ path: `/alerts/${r.id}/resolve`, label: 'Resolve alert', success: 'Alert resolved' }).catch(() => {}) } },
+          ]}
           columns={[
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'title', header: 'Alert', value: (r) => r.title ?? r.rule_name ?? r.name, render: (r) => <span className="font-semibold">{r.title ?? r.rule_name ?? r.name}</span> },
             { key: 'detail', header: 'Detail', value: (r) => r.detail ?? r.message ?? [r.resource_type, r.value != null ? `value ${r.value}` : null, r.status].filter(Boolean).join(' · ') },
-            { key: 'created_at', header: 'Since', render: (r) => ago(r.created_at ?? r.started_at) },
-            { key: 'ack', header: '', sortable: false, render: (r) => r.acknowledged_at ? <Badge tone="n">acknowledged</Badge> : <button type="button" className="btn btn-sm" onClick={() => run({ path: `/alerts/${r.id}/ack`, label: 'Acknowledge alert', success: 'Alert acknowledged' }).catch(() => {})}>Acknowledge</button> },
+            { key: 'created_at', header: 'Since', render: (r) => <span>{ago(r.created_at ?? r.started_at)}{r.snoozed_until && new Date(String(r.snoozed_until)) > new Date() && <span className="block text-xs text-muted">snoozed until {new Date(String(r.snoozed_until)).toLocaleTimeString()}</span>}</span> },
           ]} />
       </Card>
-      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope: 'organization', duration_minutes: 5 })}>Add rule</button>}>
+      <Card title="Alert rules" pad={false} actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setEdit({ operator: '>', severity: 'warning', scope_type: 'organization', duration_minutes: 5 })}>Add rule</button>}>
         <DataTable label="Alert rules" rows={rules.rows} loading={rules.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [
+              { label: `Edit ${r.name}`, icon: 'pencil', onClick: () => setEdit(toForm(r)) },
+              { label: 'Delete', icon: 'trash', danger: true, confirm: `The rule ${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/alert-rules/${r.id}`, label: 'Delete rule', success: 'Rule deleted' }).catch(() => {}) },
+            ]}
           columns={[
             { key: 'name', header: 'Rule', render: (r) => <span className="font-semibold">{r.name}</span> },
             { key: 'condition', header: 'Condition', value: (r) => `${r.metric} ${r.operator ?? '>'} ${r.threshold}${r.duration_minutes ? ` for ${r.duration_minutes} min` : ''}` },
             { key: 'severity', header: 'Severity', render: (r) => <Badge tone={toneFor(r.severity)}>{r.severity}</Badge> },
             { key: 'scope', header: 'Scope & channels', value: (r) => `${r.scope ?? r.scope_type ?? 'organization'} · ${(r.channels ?? r.channel_ids ?? []).length ? str(((r.channels ?? []) as R[]).map((c) => c.name ?? c)) : 'no channels'}` },
             { key: 'enabled', header: 'Enabled', sortable: false, render: (r) => <Toggle checked={r.enabled !== false} label={`Enable ${r.name}`} onChange={(v) => run({ method: 'PATCH', path: `/alert-rules/${r.id}`, body: { enabled: v }, label: 'Update rule', success: v ? 'Rule enabled' : 'Rule disabled' }).catch(() => {})} /> },
-            { key: 'edit', header: '', sortable: false, render: (r) => <span className="flex gap-2"><button type="button" className="btn btn-sm" onClick={() => setEdit(toForm(r))}>Edit</button><button type="button" className="btn btn-sm btn-danger" onClick={() => run({ method: 'DELETE', path: `/alert-rules/${r.id}`, label: 'Delete rule', success: 'Rule deleted' }).catch(() => {})}>Delete</button></span> },
           ]} />
       </Card>
       <Card title="Notification channels">
@@ -240,13 +494,24 @@ export function Logs() {
   const containers = useList<Container>('/containers')
   const [cid, setCid] = useState('')
   const [term, setTerm] = useState(false)
-  const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200 })
+  // Filters run on the server, so older entries are reachable and Export gets exactly what is shown.
+  const [af, setAf] = useState({ from: '', to: '', action: '', resource_type: '' })
+  const auditQuery = Object.fromEntries(Object.entries(af).filter(([, v]) => v)) as Record<string, string>
+  const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200, ...auditQuery })
+  const facets = useOne<R>(tab === 'audit' ? '/audit-logs/facets' : null)
   const c = containers.rows.find((x) => x.id === cid) ?? containers.rows.find((x) => x.state === 'running')
-  const exportCsv = () => {
-    const head = ['time', 'user', 'action', 'resource', 'source_ip']
-    const lines = audit.rows.map((r) => [r.created_at, r.user_name ?? r.user?.name ?? r.user, r.action, r.resource ?? r.resource_type, r.ip ?? r.source_ip].map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' })); a.download = 'audit-log.csv'; a.click()
+  const toast = useToast()
+  const [exporting, setExporting] = useState(false)
+  const [integrity, setIntegrity] = useState<{ valid: boolean; checked: number; broken_at: number | null } | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const verify = async () => {
+    setVerifying(true)
+    try { setIntegrity(unwrap(await api.get('/audit-logs/verify'))) } catch (e) { toast.error(e, 'Could not verify the audit log') } finally { setVerifying(false) }
+  }
+  // The server streams the whole filtered trail (with each row's hash), not just the rows loaded here.
+  const exportCsv = async () => {
+    setExporting(true)
+    try { await downloadFile('/audit-logs/export', auditQuery, 'audit-log.csv') } catch (e) { toast.error(e, 'Could not export the audit log') } finally { setExporting(false) }
   }
   const picker = <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</Select>
   return (
@@ -262,9 +527,25 @@ export function Logs() {
         </Card>
       )}
       {tab === 'term' && <div className="mt-4"><TerminalSessions /></div>}
+      {tab === 'audit' && integrity && (
+        <div role="status" className="card p-3 mt-4 text-sm flex items-center gap-2" style={{ background: integrity.valid ? 'var(--g-bg)' : 'var(--r-bg)', color: integrity.valid ? 'var(--g-fg)' : 'var(--r-fg)' }}>
+          <Badge tone={integrity.valid ? 'g' : 'r'}>{integrity.valid ? 'intact' : 'tampered'}</Badge>
+          {integrity.valid ? `All ${integrity.checked.toLocaleString()} entries check out: none were changed or removed.` : `The chain breaks at entry #${integrity.broken_at}: it or an earlier entry was changed or removed.`}
+        </div>
+      )}
       {tab === 'audit' && (
         <DataTable label="Audit log" rows={audit.rows} loading={audit.isLoading} rowKey={(r) => String(r.id)} pageSize={25}
-          toolbar={<button type="button" className="btn btn-sm" onClick={exportCsv}>Export CSV</button>}
+          toolbar={<div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-muted flex flex-col gap-1">From<input type="date" className="input h-8 text-sm" value={af.from} onChange={(e) => setAf({ ...af, from: e.target.value })} /></label>
+            <label className="text-xs text-muted flex flex-col gap-1">To<input type="date" className="input h-8 text-sm" value={af.to} onChange={(e) => setAf({ ...af, to: e.target.value })} /></label>
+            <label className="text-xs text-muted flex flex-col gap-1">Action<Select className="input h-8 text-sm" aria-label="Action" value={af.action} onChange={(e) => setAf({ ...af, action: e.target.value })}>
+              <option value="">All actions</option>{((facets.item?.action_groups ?? []) as string[]).map((g) => <option key={g} value={`${g}.*`}>{g}.*</option>)}</Select></label>
+            <label className="text-xs text-muted flex flex-col gap-1">Resource<Select className="input h-8 text-sm" aria-label="Resource type" value={af.resource_type} onChange={(e) => setAf({ ...af, resource_type: e.target.value })}>
+              <option value="">All resources</option>{((facets.item?.resource_types ?? []) as string[]).map((t) => <option key={t} value={t}>{t}</option>)}</Select></label>
+            {Object.values(af).some(Boolean) && <button type="button" className="btn btn-sm" onClick={() => setAf({ from: '', to: '', action: '', resource_type: '' })}>Clear</button>}
+            <button type="button" className="btn btn-sm" disabled={verifying} onClick={verify}>{verifying ? 'Verifying…' : 'Verify integrity'}</button>
+            <button type="button" className="btn btn-sm" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : Object.values(af).some(Boolean) ? 'Export filtered CSV' : 'Export CSV'}</button>
+          </div>}
           columns={[
             { key: 'created_at', header: 'Time', render: (r) => <span className="font-mono text-xs">{String(r.created_at ?? '').replace('T', ' ').slice(0, 19)}</span> },
             { key: 'user', header: 'User', value: (r) => r.actor ?? r.user_name ?? r.user?.name ?? 'system' },
@@ -289,7 +570,7 @@ export function Automation() {
     <>
       <PageHeader title="Automation" subtitle="Scheduled jobs, webhooks and maintenance windows"
         actions={<><button type="button" className="btn" onClick={() => setMw(true)}>New maintenance window</button><button type="button" className="btn btn-primary" onClick={() => setEdit({ trigger: 'cron', enabled: true })}>New job</button></>} />
-      {jobs.isLoading ? <Card>Loading…</Card> : jobs.rows.length === 0 ? <Card><Empty>No scheduled jobs yet.</Empty></Card> : (
+      {jobs.isLoading ? <Loading label="Loading…" /> : jobs.rows.length === 0 ? <Card><Empty>No scheduled jobs yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 flex flex-col gap-3">
           {jobs.rows.map((j) => (
             <li key={j.id} className="card p-4 flex flex-wrap items-center gap-4">
@@ -308,12 +589,12 @@ export function Automation() {
       )}
       <Card title="Maintenance windows" pad={false}>
         <DataTable label="Maintenance windows" rows={windows.rows} loading={windows.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [{ label: `Delete ${r.name}`, icon: 'trash', danger: true, confirm: `${r.name} is deleted.`, onClick: () => run({ method: 'DELETE', path: `/maintenance-windows/${r.id}`, label: 'Delete window', success: 'Window deleted' }).catch(() => {}) }]}
           columns={[
             { key: 'name', header: 'Name', render: (r) => <span className="font-semibold">{r.name ?? 'Window'}</span> },
             { key: 'scope', header: 'Server / group', value: (r) => r.server_name ?? r.group ?? serverName(r) },
             { key: 'starts_at', header: 'Starts', render: (r) => r.starts_at ? new Date(r.starts_at).toLocaleString() : (r.schedule ?? '—') },
             { key: 'ends_at', header: 'Ends', render: (r) => r.ends_at ? new Date(r.ends_at).toLocaleString() : '—' },
-            { key: 'del', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm btn-danger" onClick={() => run({ method: 'DELETE', path: `/maintenance-windows/${r.id}`, label: 'Delete window', success: 'Window deleted' }).catch(() => {})}>Delete</button> },
           ]} />
       </Card>
       <FormModal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit ${edit.name}` : 'New job'} initial={edit ?? {}} submitLabel="Save job"

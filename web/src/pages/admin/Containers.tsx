@@ -14,8 +14,44 @@ import { useToast } from '../../components/Toasts'
 import { mb, pct, str, unwrap } from '../../lib/format'
 import { type R } from '../../lib/util'
 import Select from '../../components/Select'
+import { Icon } from '../../components/Icon'
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 
 const ports = (p: Container['ports']) => (Array.isArray(p) ? p.join(', ') : p) || '—'
+
+/** "sha256:39d0…" and "repo@sha256:4c9b…" read as a short digest; tags stay as they are. */
+export function shortImage(image: string): string {
+  const m = image.match(/^(.*?)@?sha256:([0-9a-f]{12})[0-9a-f]*$/i)
+  if (!m) return image
+  return m[1] ? `${m[1]}@${m[2]}` : `sha256:${m[2]}`
+}
+
+/** "0.0.0.0:18081->18081/tcp" → "18081→18081", "127.0.0.1:8080->80/tcp" → "local 8080→80", "3000/tcp" → "3000". */
+export function shortPort(p: string): string {
+  const m = p.trim().match(/^(?:\[?([\d.:a-f]*)\]?:)?(\d+)(?:->(\d+))?(?:\/(tcp|udp))?$/i)
+  if (!m) return p.trim()
+  const [, ip, a, b, proto] = m
+  const local = ip === '127.0.0.1' || ip === '::1'
+  const core = b ? `${a}→${b}` : a
+  return `${local ? 'local ' : ''}${core}${proto?.toLowerCase() === 'udp' ? '/udp' : ''}`
+}
+
+/** IPv4 and IPv6 publish the same port twice; show it once. */
+export function portList(p: Container['ports']): string[] {
+  const all = (Array.isArray(p) ? p : String(p ?? '').split(',')).map((x) => x.trim()).filter(Boolean)
+  return [...new Set(all.map(shortPort))]
+}
+
+function Meter({ value, max, label }: { value: number; max: number; label: string }) {
+  const pctv = max > 0 ? Math.min(100, (value / max) * 100) : 0
+  const tone = pctv >= 90 ? 'var(--r-fg)' : pctv >= 70 ? 'var(--y-fg)' : 'var(--accent)'
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <span className="tabular-nums">{label}</span>
+      <span aria-hidden="true" className="block h-1 w-14 rounded-full bg-head overflow-hidden"><span className="block h-full rounded-full" style={{ width: `${Math.max(pctv, value > 0 ? 3 : 0)}%`, background: tone }} /></span>
+    </span>
+  )
+}
 const dotTone = (c: Container): Tone => (c.state === 'running' ? (c.health === 'unhealthy' ? 'r' : 'g') : c.state === 'paused' ? 'y' : 'n')
 
 /**
@@ -44,6 +80,16 @@ function RemoveDialog({ c, open, onClose }: { c: Container; open: boolean; onClo
   )
 }
 
+const menuItems = 'z-80 min-w-44 rounded-xl border border-line bg-card py-1.5 shadow-[0_12px_32px_-8px_rgba(15,23,42,.22),0_2px_6px_rgba(15,23,42,.06)] outline-none [--anchor-gap:6px]'
+const menuItem = 'flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-left border-0 bg-transparent cursor-pointer text-fg data-focus:bg-head'
+
+/** "4d 3h", "12m" from seconds. */
+const since = (s?: number | null) => {
+  if (!s || s < 0) return null
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${Math.max(1, m)}m`
+}
+
 function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
   const serverName = useServerName()
   const { item: c } = useOne<Container & R>(`/containers/${id}`, undefined, { refetchInterval: 10000 })
@@ -52,31 +98,43 @@ function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
   const [remove, setRemove] = useState(false)
   const [dup, setDup] = useState(false)
   const act = (action: string) => c && run({ path: `/containers/${c.id}/actions`, body: { action }, label: `${action[0].toUpperCase()}${action.slice(1)} ${c.name}` })
+  const portList = c ? (Array.isArray(c.ports) ? c.ports : String(c.ports ?? '').split(',').map((x) => x.trim())).filter(Boolean) : []
+  const limits = c?.limits && (c.limits.cpus || c.limits.memory_mb)
+    ? [c.limits.cpus ? `${c.limits.cpus} vCPU` : null, c.limits.memory_mb ? mb(c.limits.memory_mb) : null].filter(Boolean).join(' · ')
+    : null
+  const up = since(c?.uptime_seconds as number | undefined)
+  const running = c?.state === 'running'
   return (
-    <Drawer open onClose={onClose} title={c?.name ?? 'Container'} width={480}>
+    <Drawer open onClose={onClose} title={c?.name ?? 'Container'} width={520}>
       {!c ? 'Loading…' : (
         <div className="flex flex-col gap-5">
-          <div>
-            <div className="text-xs text-muted">Container</div>
-            <div className="font-mono text-xs text-muted mt-1 break-all">{c.image}</div>
-            <div className="flex gap-2 mt-2"><StatusBadge status={c.state} />{c.health && <StatusBadge status={c.health} />}</div>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={c.state} />{c.health && <StatusBadge status={c.health} />}
+              {running && up && <span className="text-xs text-muted">up {up}</span>}
+            </div>
+            <code className="font-mono text-xs text-muted break-all" title="Image">{c.image}</code>
           </div>
-          {/* Three weights, so the row reads as a hierarchy rather than six
-              equal choices: the lifecycle state change is primary, the other
-              lifecycle actions are one segmented control, and everything else
-              is quiet until pointed at. Remove is pushed away from the rest. */}
-          <div className="flex flex-wrap items-center gap-2">
-            {!isProtected(c) && (c.state === 'running'
-              ? <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act('stop')}>Stop</button>
-              : <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}>{c.state === 'paused' ? 'Unpause' : 'Start'}</button>)}
+
+          {/* One row at drawer width: the state change, the two lifecycle actions,
+              Terminal, and the rarely used ones (duplicate, remove) under "More". */}
+          <div className="flex items-center gap-2">
+            {!isProtected(c) && (running
+              ? <button type="button" className="btn btn-sm gap-1.5" disabled={busy} onClick={() => act('stop')}><Icon name="stop" size={14} />Stop</button>
+              : <button type="button" className="btn btn-sm btn-primary gap-1.5" disabled={busy} onClick={() => act(c.state === 'paused' ? 'unpause' : 'start')}><Icon name="play" size={14} />{c.state === 'paused' ? 'Unpause' : 'Start'}</button>)}
             <span className="btn-group">
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('restart')}>Restart</button>
-              {!isProtected(c) && c.state === 'running' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('pause')}>Pause</button>}
+              <button type="button" className="btn btn-sm gap-1.5" disabled={busy} onClick={() => act('restart')}><Icon name="refresh" size={14} />Restart</button>
+              {!isProtected(c) && running && <button type="button" className="btn btn-sm gap-1.5" disabled={busy} onClick={() => act('pause')}><Icon name="pause" size={14} />Pause</button>}
             </span>
-            <button type="button" className="btn btn-sm btn-ghost" disabled={c.state !== 'running'} onClick={() => setTerm(true)}>Terminal</button>
-            {!isProtected(c) && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDup(true)}>Duplicate</button>}
+            <button type="button" className="btn btn-sm btn-primary" disabled={!running} title={running ? 'Open a shell in this container' : 'Start the container to open a shell'} onClick={() => setTerm(true)}>Terminal</button>
             {!isProtected(c) && (
-              <button type="button" className="btn btn-sm btn-ghost btn-danger ml-auto" onClick={() => setRemove(true)}>Remove</button>
+              <Menu>
+                <MenuButton className="btn btn-sm ml-auto" aria-label="More actions" title="More actions"><Icon name="dots" size={16} /></MenuButton>
+                <MenuItems anchor="bottom end" className={menuItems}>
+                  <MenuItem><button type="button" className={menuItem} onClick={() => setDup(true)}><Icon name="duplicate" size={16} />Duplicate</button></MenuItem>
+                  <MenuItem><button type="button" className={`${menuItem} !text-danger`} onClick={() => setRemove(true)}><Icon name="trash" size={16} />Remove…</button></MenuItem>
+                </MenuItems>
+              </Menu>
             )}
           </div>
           {isProtected(c) && (
@@ -85,12 +143,23 @@ function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
               so stop and remove are disabled here. Manage it from the server if you really need to.
             </p>
           )}
-          <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            {([['Server', serverName(c)], ['CPU / Memory', `${pct(c.cpu_pct)} · ${mb(c.mem_mb)}`], ['Limits', c.limits ? `${c.limits.cpus ?? '—'} vCPU · ${mb(c.limits.memory_mb)}` : '—'], ['User', c.user ?? '—'], ['Restart policy', c.restart_policy ?? '—'], ['Ports', ports(c.ports)]] as const).map(([k, v]) => (
-              <div key={k} className="contents"><dt className="text-muted">{k}</dt><dd className="m-0 font-semibold break-all">{v}</dd></div>
+
+          <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line text-sm">
+            {([
+              ['Server', serverName(c)],
+              ['Usage', `${pct(c.cpu_pct)} CPU · ${mb(c.mem_mb)}`],
+              ['Limits', limits ?? <span className="text-muted">No limit</span>],
+              ['User', c.user ? <code className="font-mono text-[13px]">{c.user}</code> : <span className="text-muted">Image default</span>],
+              ['Restart policy', c.restart_policy ?? '—'],
+              ['Ports', portList.length ? <span className="flex flex-wrap gap-1">{portList.map((p) => <code key={p} className="rounded bg-head px-1.5 py-0.5 font-mono text-xs">{p}</code>)}</span> : <span className="text-muted">None</span>],
+            ] as [string, React.ReactNode][]).map(([k, v]) => (
+              <div key={k} className="flex flex-col gap-1 bg-card px-3 py-2.5 min-w-0">
+                <dt className="text-xs text-muted">{k}</dt><dd className="m-0 font-medium break-words">{v}</dd>
+              </div>
             ))}
           </dl>
-          <LogView path={`/containers/${c.id}/logs`} title="Live logs" height={260} />
+
+          <LogView path={`/containers/${c.id}/logs`} title="Live logs" height="max(280px, calc(100dvh - 500px))" />
           <TerminalDialog open={term} onClose={() => setTerm(false)} containerId={c.id} name={c.name} />
           <RemoveDialog c={c} open={remove} onClose={() => { setRemove(false) }} />
           {dup && <CreateContainer open onClose={() => setDup(false)} from={c} />}
@@ -222,12 +291,19 @@ export function CreateContainer({ open, onClose, from }: { open: boolean; onClos
   )
 }
 
+/** Everything a person might type to find a container. */
+export function containerSearchText(r: Container, server: string): string {
+  return [r.name, r.image, r.application_name, r.compose_project, r.compose_service, server, r.server_name, r.docker_id?.slice(0, 12), r.id, ports(r.ports)]
+    .filter(Boolean).join(' ')
+}
+
 export default function Containers() {
   const serverName = useServerName()
   const [params, setParams] = useSearchParams()
   const [server, setServer] = useState('')
   const servers = useList<Server>('/servers')
-  const { rows, isLoading } = useList<Container>('/containers', { server_id: server || undefined }, { refetchInterval: 10000 })
+  // The table searches and filters in the browser, so it needs every container, not the first page.
+  const { rows, isLoading } = useList<Container>('/containers', { server_id: server || undefined, per_page: 200 }, { refetchInterval: 10000 })
   const { run } = useAction()
   const [prune, setPrune] = useState(false)
   const [create, setCreate] = useState(false)
@@ -239,7 +315,7 @@ export default function Containers() {
       <PageHeader title="Containers" subtitle="Lifecycle, logs, exec sessions and resource limits across all servers"
         actions={<><button type="button" className="btn" onClick={() => setPrune(true)}>Safe cleanup</button><button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>Create container</button></>} />
       <DataTable<Container> label="Containers" rows={rows} loading={isLoading} rowKey={(r) => r.id} rowLabel={(r) => r.name} selectable selectedRowId={sel}
-        searchPlaceholder="Filter by name or image…" searchKeys={(r) => `${r.name} ${r.image}`}
+        searchPlaceholder="Search name, image, app, stack, server, ID or port…" searchKeys={(r) => containerSearchText(r, serverName(r as unknown as R))}
         onRowClick={(r) => setParams({ id: r.id })}
         filters={[
           { id: 'running', label: 'Running', test: (r) => r.state === 'running' },
@@ -248,24 +324,54 @@ export default function Containers() {
           { id: 'unhealthy', label: 'Unhealthy', test: (r) => r.health === 'unhealthy' },
         ]}
         toolbar={<Select className="input !w-auto" aria-label="Server" value={server} onChange={(e) => setServer(e.target.value)}><option value="">All servers</option>{servers.rows.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
-        bulkActions={[{ label: 'Restart', onClick: bulk('restart') }, { label: 'Stop', onClick: bulk('stop') }]}
+        bulkActions={[{ label: 'Restart', icon: 'refresh', onClick: bulk('restart') }, { label: 'Stop', icon: 'stop', onClick: bulk('stop'), confirm: 'The selected containers stop until you start them again.' }]}
+        tableId="containers"
+        actions={(r) => {
+          const one = (action: string) => () => run({ path: `/containers/${r.id}/actions`, body: { action }, label: `${action[0].toUpperCase()}${action.slice(1)} ${r.name}` }).catch(() => {})
+          return [
+            { label: `Open ${r.name}`, icon: 'eye', onClick: () => setParams({ id: r.id }) },
+            { label: `Restart ${r.name}`, icon: 'refresh', onClick: one('restart'), disabled: r.state !== 'running' },
+            r.state === 'running'
+              ? { label: 'Stop', icon: 'stop', onClick: one('stop'), confirm: `${r.name} stops until you start it again.`, menuOnly: true }
+              : { label: r.state === 'paused' ? 'Unpause' : 'Start', icon: 'play', onClick: one(r.state === 'paused' ? 'unpause' : 'start'), menuOnly: true },
+            { label: 'Logs and details', icon: 'file', onClick: () => setParams({ id: r.id }), menuOnly: true },
+            { label: 'Remove…', icon: 'trash', danger: true, confirm: false, onClick: () => setRemoving(r) },
+          ]
+        }}
         minWidth={980}
         columns={[
-          { key: 'name', header: 'Name', render: (r) => <span className="inline-flex items-center gap-2 font-semibold"><Dot tone={dotTone(r)} />{r.name}</span> },
-          { key: 'image', header: 'Image', render: (r) => <span className="font-mono text-[11.5px] text-muted">{r.image}</span> },
+          { key: 'name', header: 'Name', value: (r) => r.name, render: (r) => (
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Dot tone={dotTone(r)} />
+              <span className="min-w-0">
+                <span className="block font-semibold truncate max-w-[16rem]" title={r.name}>{r.name}</span>
+                {(r.application_name || r.compose_project) && <span className="block text-xs text-muted truncate max-w-[16rem]">{r.application_name ? `app ${r.application_name}` : `stack ${r.compose_project}${r.compose_service ? ` · ${r.compose_service}` : ''}`}</span>}
+              </span>
+            </span>
+          ) },
+          { key: 'image', header: 'Image', value: (r) => r.image, render: (r) => <span className="block max-w-[18rem] truncate font-mono text-[11.5px] text-muted" title={r.image}>{shortImage(r.image)}</span> },
           { key: 'server', header: 'Server', value: (r) => serverName(r as unknown as R) },
-          { key: 'state', header: 'State', render: (r) => <StatusBadge status={r.state} /> },
-          { key: 'health', header: 'Health', render: (r) => <StatusBadge status={r.health ?? '—'} /> },
-          { key: 'cpu_pct', header: 'CPU', value: (r) => r.cpu_pct ?? 0, render: (r) => pct(r.cpu_pct) },
-          { key: 'mem_mb', header: 'Memory', value: (r) => r.mem_mb ?? 0, render: (r) => mb(r.mem_mb) },
-          { key: 'ports', header: 'Ports', render: (r) => <span className="font-mono text-[11.5px] text-muted">{ports(r.ports)}</span> },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            // Quiet by default: a column of bold red on every row makes the
-            // destructive action the most prominent thing in the table.
-            <span className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setParams({ id: r.id })}>Logs</button>
-              <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(r)}>Remove</button>
-            </span>) },
+          { key: 'state', header: 'Status', options: ['running', 'exited', 'paused', 'created', 'restarting'], value: (r) => r.state, render: (r) => (
+            <span className="inline-flex items-center gap-1.5">
+              <StatusBadge status={r.state} />
+              {r.health === 'unhealthy' && <StatusBadge status="unhealthy" />}
+              {r.health === 'starting' && <StatusBadge status="starting" />}
+              {r.health === 'healthy' && <span className="text-xs text-success" title="Health check passing">✓ healthy</span>}
+            </span>
+          ) },
+          { key: 'health', header: 'Health', hidden: true, options: ['healthy', 'unhealthy', 'starting', 'none'], render: (r) => <StatusBadge status={r.health ?? '—'} /> },
+          { key: 'cpu_pct', header: 'CPU', kind: 'number', align: 'right', value: (r) => r.cpu_pct ?? 0, render: (r) => r.state === 'running' ? <Meter value={r.cpu_pct ?? 0} max={100} label={pct(r.cpu_pct)} /> : <span className="text-muted">—</span> },
+          { key: 'mem_mb', header: 'Memory', kind: 'number', align: 'right', value: (r) => r.mem_mb ?? 0, render: (r) => r.state === 'running' ? (r.limits?.memory_mb ? <Meter value={r.mem_mb ?? 0} max={r.limits.memory_mb} label={mb(r.mem_mb)} /> : <span className="tabular-nums">{mb(r.mem_mb)}</span>) : <span className="text-muted">—</span> },
+          { key: 'ports', header: 'Ports', value: (r) => ports(r.ports), render: (r) => {
+            const list = portList(r.ports)
+            if (!list.length) return <span className="text-muted">—</span>
+            return (
+              <span className="flex items-center gap-1 whitespace-nowrap" title={ports(r.ports)}>
+                <code className="rounded bg-head px-1.5 py-0.5 font-mono text-[11px]">{list[0]}</code>
+                {list.length > 1 && <span className="text-xs text-muted">+{list.length - 1}</span>}
+              </span>
+            )
+          } },
         ]} />
       <p className="m-0 text-xs text-muted">Removing a container never deletes attached volumes unless you untick “Keep attached volumes”.</p>
       {sel && <DetailPanel id={sel} onClose={() => setParams({})} />}

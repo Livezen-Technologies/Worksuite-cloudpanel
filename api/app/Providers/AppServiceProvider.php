@@ -42,7 +42,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(DnsResolver::class, fn () => $drivers['dns'] === 'fake' ? new FakeDnsResolver : new NativeDnsResolver);
         $this->app->singleton(CertificateIssuer::class, fn ($app) => config('platform.drivers.certificates') === 'traefik' ? $app->make(\App\Drivers\TraefikCertificateIssuer::class) : new FakeCertificateIssuer);
         $this->app->singleton(ImageScanner::class, FakeImageScanner::class);
-        $this->app->singleton(PaymentGateway::class, fn () => config('platform.drivers.payments') === 'stripe' ? new \App\Drivers\StripePaymentGateway(config('billing.stripe')) : new FakePaymentGateway);
+        $this->app->singleton(PaymentGateway::class, fn () => match (config('platform.drivers.payments')) { 'stripe' => new \App\Drivers\StripePaymentGateway(config('billing.stripe')), 'paypal' => new \App\Drivers\PayPalPaymentGateway(\App\Drivers\PayPalPaymentGateway::config()), default => new FakePaymentGateway });
+        $this->app->singleton(\App\Contracts\ChatModel::class, fn () => config('platform.ai.driver') === 'fake'
+            ? new \App\Drivers\FakeChatModel
+            : new \App\Drivers\AnthropicChatModel((string) config('platform.ai.api_key'), (string) config('platform.ai.model'), (string) config('platform.ai.effort')));
         $this->app->singleton(SourceValidator::class, fn () => $drivers['source'] === 'fake' ? new FakeSourceValidator : new HttpSourceValidator);
     }
 
@@ -116,7 +119,7 @@ class AppServiceProvider extends ServiceProvider
             if (! \Illuminate\Support\Facades\Schema::hasTable('organizations')) {
                 return;
             }
-            $org = \App\Models\Organization::query()->orderBy('created_at')->first();
+            $org = \App\Models\Organization::query()->orderBy('created_at')->orderBy('id')->first();
             $smtp = data_get($org?->settings, 'smtp');
             if (! $smtp || empty($smtp['host'])) {
                 return;
@@ -131,7 +134,7 @@ class AppServiceProvider extends ServiceProvider
                 'mail.mailers.smtp.port' => (int) ($smtp['port'] ?? 587),
                 'mail.mailers.smtp.username' => $smtp['username'] ?? null,
                 'mail.mailers.smtp.password' => $password,
-                'mail.mailers.smtp.scheme' => ($smtp['encryption'] ?? 'tls') === 'none' ? null : ($smtp['encryption'] ?? 'tls'),
+                'mail.mailers.smtp.scheme' => \App\Support\Smtp::scheme($smtp['encryption'] ?? 'tls', (int) ($smtp['port'] ?? 587)),
                 'mail.from.address' => $smtp['from_address'] ?: config('mail.from.address'),
                 'mail.from.name' => $smtp['from_name'] ?: config('mail.from.name'),
             ]);

@@ -1,0 +1,36 @@
+id: matomo-mariadb
+name: Matomo + MariaDB
+category: Analytics
+version: 1
+type: compose
+accent: "#3152A0"
+description: Matomo analytics with its own MariaDB.
+port: 80
+compose: |
+  services:
+    matomo:
+      image: matomo:5-apache
+      restart: unless-stopped
+      depends_on: [db]
+      environment:
+        MATOMO_DATABASE_HOST: db
+        MATOMO_DATABASE_DBNAME: matomo
+        MATOMO_DATABASE_USERNAME: ${SERVICE_USER_MATOMO}
+        MATOMO_DATABASE_PASSWORD: ${SERVICE_PASSWORD_MATOMO}
+      volumes: [html:/var/www/html]
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)
+        traefik.http.services.${STACK}.loadbalancer.server.port: "80"
+    db:
+      image: mariadb:11
+      restart: unless-stopped
+      environment:
+        MARIADB_DATABASE: matomo
+        MARIADB_USER: ${SERVICE_USER_MATOMO}
+        MARIADB_PASSWORD: ${SERVICE_PASSWORD_MATOMO}
+        MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}
+      volumes: [db:/var/lib/mysql]
+  volumes:
+    html: {}
+    db: {}

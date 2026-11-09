@@ -14,32 +14,73 @@ use App\Models\Route;
 /** Domains, DNS readiness (DOM-003), certificates (DOM-002), conflicts (DOM-004, UDOM-006). */
 class DomainService
 {
-    public function __construct(private DnsResolver $dns, private CertificateIssuer $issuer, private CommandBus $bus) {}
+    public function __construct(private DnsResolver $dns, private CertificateIssuer $issuer, private CommandBus $bus, private DnsZoneService $zones) {}
 
     public function create(array $data, bool $internal = false): Domain
     {
         $name = strtolower(trim($data['name'], '. '));
         $this->assertAvailable($name, null, $internal);
+        // DNS-013: a domain inside one of the organisation's DNS zones gets its certificate by DNS-01
+        // through that zone, unless a challenge or a provider token is given.
+        $zone = empty($data['platform_subdomain']) && empty($data['dns_token']) ? \App\Models\DnsZone::forDomain($name, \App\Support\Tenant::current()?->id) : null;
         $domain = Domain::create([
             'name' => $name,
             'application_id' => $data['application_id'] ?? null,
             'target_port' => $data['target_port'] ?? null,
             'wildcard' => str_starts_with($name, '*.') || ! empty($data['wildcard']),
             'www_redirect' => (bool) ($data['www_redirect'] ?? false),
-            'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? 'http-01'),
+            'challenge' => str_starts_with($name, '*.') ? 'dns-01' : ($data['challenge'] ?? ($zone ? 'dns-01' : 'http-01')),
             'platform_subdomain' => (bool) ($data['platform_subdomain'] ?? false),
-            'options' => $data['options'] ?? null,
+            'options' => isset($data['options']) ? array_diff_key($data['options'], ['waf' => 1]) : null,
             'dns_provider' => $data['dns_provider'] ?? null,
             'dns_status' => ! empty($data['platform_subdomain']) ? 'verified' : 'pending',
         ]);
         if (! empty($data['dns_token'])) {
             $this->setDnsToken($domain, $data['dns_token']);
         }
+        if ($zone) {
+            $this->publishToZone($domain);
+        }
         if ($domain->application_id) {
             Route::create(['domain_id' => $domain->id, 'application_id' => $domain->application_id, 'port' => $domain->target_port]);
         }
 
         return $domain;
+    }
+
+    /**
+     * DNS-013: writes the records the domain needs into the managed zone that holds it. Records the
+     * zone already has are left alone; a different value under the same name is reported, never
+     * overwritten. Returns [name, type, status: created|present|conflict|failed, message?] per record.
+     */
+    public function publishToZone(Domain $domain): array
+    {
+        $zone = \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id);
+        if (! $zone || $domain->platform_subdomain || $domain->dns_secret_id) {
+            return [];
+        }
+        $existing = $zone->records()->withoutGlobalScope('organization')->get();
+        $out = [];
+        foreach ($this->expectedRecords($domain) as $r) {
+            $same = $existing->filter(fn ($e) => $e->type === $r['type'] && $e->name === $r['name']);
+            if ($same->contains(fn ($e) => rtrim($e->content, '.') === rtrim($r['value'], '.'))) {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'present'];
+                continue;
+            }
+            // Several TXT values may share a name; any other type with a different value is a conflict.
+            if ($same->isNotEmpty() && $r['type'] !== 'TXT') {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'conflict', 'message' => 'The zone already has '.$same->first()->content.'.'];
+                continue;
+            }
+            try {
+                $this->zones->createRecord($zone, ['type' => $r['type'], 'name' => $r['name'], 'content' => $r['value'], 'ttl' => 1, 'proxied' => false]);
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'created'];
+            } catch (\Throwable $e) {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'failed', 'message' => $e->getMessage()];
+            }
+        }
+
+        return $out;
     }
 
     /** DNS-01 provider token, stored encrypted and write-only. */
@@ -89,6 +130,7 @@ class DomainService
     /** Checks each record; issues the certificate as soon as DNS verifies (UDOM-004). */
     public function verify(Domain $domain): array
     {
+        $published = $this->publishToZone($domain);
         $records = [];
         foreach ($this->expectedRecords($domain) as $record) {
             $lookupName = ltrim($record['name'], '*.');
@@ -98,19 +140,71 @@ class DomainService
         }
         $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified');
         DnsCheck::create(['domain_id' => $domain->id, 'records' => $records, 'ok' => $allOk, 'created_at' => now()]);
+        $wasVerified = $domain->dns_status === 'verified';
         $domain->update(['dns_status' => $allOk ? 'verified' : 'pending', 'dns_checked_at' => now()]);
+        if ($allOk && ! $wasVerified) {
+            app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'domain_connected', [
+                'domain' => $domain->name, 'app' => (string) (Application::find($domain->application_id)?->name ?? '—'),
+            ]);
+        }
 
         if ($allOk && $domain->https_status !== 'active') {
             $this->issueCertificate($domain);
         }
 
-        return ['domain_id' => $domain->id, 'records' => array_map(fn ($r) => array_diff_key($r, ['found' => 1]), $records), 'dns_status' => $domain->dns_status, 'https_status' => $domain->fresh()->https_status];
+        return array_filter(['domain_id' => $domain->id, 'records' => array_map(fn ($r) => array_diff_key($r, ['found' => 1]), $records), 'dns_status' => $domain->dns_status,
+            'https_status' => $domain->fresh()->https_status, 'zone_records' => $published ?: null], fn ($v) => $v !== null);
+    }
+
+    /**
+     * RFC 8659: the closest CAA record set up the tree decides which CAs may issue. Returns why
+     * Let's Encrypt may not issue for this domain, or null when it may (or no CAA records exist).
+     */
+    public function caaBlocks(Domain $domain): ?string
+    {
+        $ca = (string) config('platform.acme_caa', 'letsencrypt.org');
+        $labels = explode('.', ltrim($domain->name, '*.'));
+        for ($i = 0; $i < count($labels) - 1; $i++) {
+            $name = implode('.', array_slice($labels, $i));
+            $records = rescue(fn () => $this->dns->lookup($name, 'CAA'), [], report: false);
+            if (! $records) {
+                continue;
+            }
+            $tags = $domain->wildcard ? ['issuewild', 'issue'] : ['issue'];
+            foreach ($tags as $tag) {
+                $values = [];
+                foreach ($records as $r) {
+                    if (preg_match('/^\d+\s+(\S+)\s+"?([^";\s]*)/', trim($r), $m) && strtolower($m[1]) === $tag) {
+                        $values[] = strtolower($m[2]);
+                    }
+                }
+                if ($values) {
+                    return in_array($ca, $values, true) ? null
+                        : "The CAA record on {$name} only allows ".(implode(', ', array_filter($values)) ?: 'no one')." to issue certificates. Add: {$name} CAA 0 {$tag} \"{$ca}\"";
+                }
+            }
+
+            return null;   // CAA exists but has no issue tags: anyone may issue
+        }
+
+        return null;
     }
 
     public function issueCertificate(Domain $domain): Certificate
     {
         if ($domain->dns_status !== 'verified') {
             throw ApiException::conflict('DNS is not pointing at the platform yet. Create the records shown and check again.');
+        }
+        if ($blocked = $this->caaBlocks($domain)) {
+            $domain->update(['https_status' => 'failed']);
+            $last = Certificate::where('domain_id', $domain->id)->latest()->first();
+            if ($last && $last->status === 'failed' && $last->last_error === $blocked) {
+                $last->touch();   // the re-check every 2 minutes does not pile up rows
+
+                return $last;
+            }
+
+            return Certificate::create(['domain_id' => $domain->id, 'status' => 'failed', 'names' => [$domain->name], 'last_error' => $blocked]);
         }
         $domain->update(['https_status' => 'issuing']);
         $names = $domain->www_redirect ? [$domain->name, 'www.'.$domain->name] : [$domain->name];
@@ -136,9 +230,53 @@ class DomainService
         return $certificate;
     }
 
+    /**
+     * Renew certificates that expire within $days on domains whose DNS still points here.
+     * A renewal that is pending (ACME) or fails keeps HTTPS active while the old certificate is valid.
+     *
+     * @return array{renewed: int, failed: int}
+     */
+    public function renewExpiring(int $days = 21, ?string $organizationId = null): array
+    {
+        $renewed = $failed = 0;
+        $certs = Certificate::allTenants()->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<', now()->addDays($days))
+            ->when($organizationId, fn ($q) => $q->where('organization_id', $organizationId))->get();
+        foreach ($certs as $old) {
+            $domain = Domain::allTenants()->find($old->domain_id);
+            if (! $domain || $domain->dns_status !== 'verified') {
+                continue;
+            }
+            app(\App\Support\Tenant::class)->as($domain->organization_id, function () use ($domain, $old, &$renewed, &$failed) {
+                try {
+                    $new = $this->issueCertificate($domain);
+                } catch (\Throwable) {
+                    $new = null;
+                }
+                $ok = $new && $new->status === 'active' && $new->id !== $old->id;
+                $ok ? $renewed++ : $failed++;
+                if (! $ok && $old->expires_at->isFuture()) {
+                    $domain->update(['https_status' => 'active']);
+                    // Tell the customer once a day while it keeps failing; the reason says what to fix.
+                    $reason = $new?->last_error ? 'The last attempt failed: '.$new->last_error : 'Automatic renewal did not succeed. Check that DNS still points at the platform.';
+                    app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                        'domain' => $domain->name, 'days' => (string) max(0, (int) now()->diffInDays($old->expires_at)), 'reason' => $reason,
+                    ], $domain->id, 1440);
+                }
+                app(\App\Services\AuditLogger::class)->log($ok ? 'certificate.renewed' : 'certificate.renewal_failed', 'domains', $domain->id,
+                    ['domain' => $domain->name, 'expires_at' => $old->expires_at->toIso8601ZuluString()], $domain->organization_id, null, 'system');
+            });
+        }
+
+        return ['renewed' => $renewed, 'failed' => $failed];
+    }
+
     public function toApi(Domain $domain): array
     {
-        $certificate = $domain->certificate;
+        // Show the certificate that is serving traffic; a newer failed attempt only adds its error.
+        $latest = $domain->certificate;
+        $certificate = $latest?->status === 'failed'
+            ? (Certificate::allTenants()->where('domain_id', $domain->id)->where('status', 'active')->latest()->first() ?? $latest)
+            : $latest;
         $app = $domain->application_id ? Application::find($domain->application_id) : null;
 
         return [
@@ -156,6 +294,7 @@ class DomainService
             'challenge' => $domain->challenge,
             'dns_provider' => $domain->dns_provider,
             'has_dns_token' => (bool) $domain->dns_secret_id,
+            'dns_zone' => ($z = $domain->dns_secret_id ? null : \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id)) ? ['id' => $z->id, 'name' => $z->name, 'provider' => $z->provider?->type] : null,
             'dns_status' => $domain->dns_status,
             'https_status' => $domain->https_status,
             'records' => $this->expectedRecords($domain),
@@ -164,7 +303,10 @@ class DomainService
                 'expires_at' => $certificate->expires_at?->toIso8601ZuluString(),
                 'days_left' => $certificate->expires_at ? (int) now()->diffInDays($certificate->expires_at, false) : null,
                 'resolver' => $certificate->resolver, 'checked_at' => $certificate->checked_at?->toIso8601ZuluString(),
+                'last_error' => $certificate->last_error,
             ] : null,
+            // Why the latest issuance failed, so the panel can say what to fix.
+            'last_error' => $latest?->status === 'failed' ? $latest->last_error : null,
             'renewal_at' => $certificate?->expires_at?->copy()->subDays(30)->toIso8601ZuluString(),
             'expiring' => $certificate?->expires_at && $certificate->expires_at->lt(now()->addDays(14)),
             'options' => $domain->options,

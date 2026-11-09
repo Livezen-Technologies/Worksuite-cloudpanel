@@ -17,6 +17,42 @@ use App\Support\Tenant;
  */
 class BuildService
 {
+    /** Customer packages: monthly build minutes (0 = unlimited) and the per-build timeout (BLD-9). */
+    public function limits(Application $app): array
+    {
+        if ($app->kind !== 'customer') {
+            return ['build_minutes' => 0, 'timeout_minutes' => (int) config('platform.builds.timeout_minutes', 60)];
+        }
+        $billing = app(BillingService::class);
+
+        return ['build_minutes' => max(0, $billing->limit('build_minutes', 0)), 'timeout_minutes' => max(1, $billing->limit('build_timeout_minutes', 30))];
+    }
+
+    /** Build minutes, cache hit rate and stacks for the current tenant this month. */
+    public function usage(?string $kind = null): array
+    {
+        $q = Deployment::whereNotNull('build_seconds')->where('created_at', '>=', now()->startOfMonth())
+            ->when($kind, fn ($q) => $q->whereHas('application', fn ($a) => $a->where('kind', $kind)));
+        $rows = $q->get(['build_seconds', 'build_cache_steps', 'build_cache_hits', 'build_stack']);
+        $steps = (int) $rows->sum('build_cache_steps');
+
+        return [
+            'builds' => $rows->count(),
+            'minutes_used' => (int) ceil($rows->sum('build_seconds') / 60),
+            'average_seconds' => $rows->count() ? (int) round($rows->avg('build_seconds')) : null,
+            'cache_hit_rate' => $steps ? round($rows->sum('build_cache_hits') / $steps * 100, 1) : null,
+            'stacks' => $rows->whereNotNull('build_stack')->countBy('build_stack')->all(),
+        ];
+    }
+
+    public function assertWithinMinutes(Application $app): void
+    {
+        $limit = $this->limits($app)['build_minutes'];
+        if ($limit > 0 && ($used = $this->usage('customer')['minutes_used']) >= $limit) {
+            throw ApiException::conflict("This month's build minutes are used up ({$used} of {$limit}). Upgrade the package or deploy a prebuilt image.", ['reason' => 'build_minutes']);
+        }
+    }
+
     public function needsBuild(Application $app): bool
     {
         return in_array($app->source_type, ['git', 'dockerfile'], true) && ! empty($app->source['repo']);
@@ -97,15 +133,42 @@ class BuildService
             'image_tag' => strtolower($repository).':'.$tag,
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.deployment' => $deployment->id],
         ];
+        $payload['builder'] = ($source['builder'] ?? 'dockerfile') === 'auto' ? 'auto' : 'dockerfile';
+        $payload['timeout_seconds'] = $this->limits($app)['timeout_minutes'] * 60;
+        if (! empty($source['no_cache'])) {
+            $payload['no_cache'] = true;
+        }
         if (! empty($source['build_args'])) {
             $payload['build_args'] = array_map('strval', (array) $source['build_args']);
+        }
+        if (! empty($source['git_ssh_key_id'])) {
+            $key = \App\Models\SshKey::find($source['git_ssh_key_id']) ?? throw ApiException::conflict('The deploy key referenced by this application no longer exists.');
+            $payload['git_ssh_key'] = (string) $key->private_key;
+            $key->forceFill(['last_used_at' => now()])->save();
+        } elseif (! empty($source['git_connection_id'])) {
+            $c = \App\Models\GitConnection::find($source['git_connection_id']) ?? throw ApiException::conflict('The Git connection referenced by this application no longer exists.');
+            if (! app(GitProviderService::class)->owns($c, (string) $source['repo'])) {
+                throw ApiException::conflict('The repository is not on the Git connection\'s host, so its token is not sent there.');
+            }
+            $payload['git_auth'] = ['username' => match ($c->provider) { 'bitbucket' => (string) $c->username, 'gitlab' => 'oauth2', default => 'x-access-token' }, 'token' => (string) $c->token];
         }
         if (! empty($source['git_secret_id'])) {
             $secret = Secret::find($source['git_secret_id']) ?? throw ApiException::conflict('The Git credential secret referenced by this application no longer exists.');
             $payload['git_auth'] = array_filter(['username' => $source['git_username'] ?? null, 'token' => (string) $secret->value]);
         }
         if ($registry) {
-            $payload['push'] = ['registry' => self::registryHost($registry), 'username' => (string) $registry->username, 'password' => (string) $registry->credentials];
+            $host = self::registryHost($registry);
+            $payload['push'] = ['registry' => $host, 'username' => (string) $registry->username, 'password' => (string) $registry->credentials];
+            // BLD-3: the app's last pushed images are the layer cache for any builder.
+            $cache = \App\Models\Release::where('application_id', $app->id)->where('status', '!=', 'failed')->orderByDesc('version')->limit(5)->pluck('image')
+                ->filter(fn ($i) => is_string($i) && str_starts_with($i, $host.'/'))->unique()->take(2)->values()->all();
+            if ($cache) {
+                $payload['cache_from'] = $cache;
+            }
+            // BLD-3: BuildKit's own registry cache beside the images (every stage, mode=max).
+            if (config('platform.builds.buildkit_cache')) {
+                $payload['cache_ref'] = preg_replace('/:[^:\/]+$/', '', $payload['image_tag']).':buildcache';
+            }
         }
 
         return $payload;

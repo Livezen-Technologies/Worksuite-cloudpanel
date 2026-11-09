@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: ntfy
+name: Ntfy
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: ntfy is a simple HTTP-based pub-sub notification service. It allows you to send notifications to your phone or desktop via scripts from any computer, and/or using a REST API.
+port: 80
+source: coolify
+documentation: https://docs.ntfy.sh/
+compose: "services:\n  ntfy:\n    image: binwiederhier/ntfy\n    command:\n    - serve\n    environment:\n      NTFY_BASE_URL: ${SERVICE_URL}\n      TZ: ${TZ:-UTC}\n      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db\n      NTFY_AUTH_FILE: /var/lib/ntfy/auth.db\n      NTFY_WEB_PUSH_FILE: /var/cache/ntfy/webpush.db\n      NTFY_BEHIND_PROXY: ${NTFY_BEHIND_PROXY:-true}\n      NTFY_UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-https://ntfy.sh}\n      NTFY_ENABLE_SIGNUP: ${NTFY_ENABLE_SIGNUP:-true}\n      NTFY_ENABLE_LOGIN: ${NTFY_ENABLE_LOGIN:-true}\n      NTFY_CACHE_DURATION: ${NTFY_CACHE_DURATION:-24h}\n      NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT: ${NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT:-1G}\n      NTFY_ATTACHMENT_FILE_SIZE_LIMIT: ${NTFY_ATTACHMENT_FILE_SIZE_LIMIT:-10M}\n      NTFY_ATTACHMENT_EXPIRY_DURATION: ${NTFY_ATTACHMENT_EXPIRY_DURATION:-24h}\n      NTFY_SMTP_SENDER_ADDR: ${NTFY_SMTP_SENDER_ADDR:-smtp.your-domain.de}\n      NTFY_SMTP_SENDER_USER: ${NTFY_SMTP_SENDER_USER:-no-reply@de}\n      NTFY_SMTP_SENDER_PASS:\
+  \ ${NTFY_SMTP_SENDER_PASS:-password}\n      NTFY_SMTP_SENDER_FROM: ${NTFY_SMTP_SENDER_FROM:-no-reply@de}\n      NTFY_KEEPALIVE_INTERVAL: ${NTFY_KEEPALIVE_INTERVAL:-5m}\n      NTFY_MANAGER_INTERVAL: ${NTFY_MANAGER_INTERVAL:-5m}\n      NTFY_VISITOR_MESSAGE_DAILY_LIMIT: ${NTFY_VISITOR_MESSAGE_DAILY_LIMIT:-100}\n      NTFY_VISITOR_ATTACHMENT_DAILY_BANDWIDTH_LIMIT: ${NTFY_VISITOR_ATTACHMENT_DAILY_BANDWIDTH_LIMIT:-1G}\n      NTFY_UPSTREAM_ACCESS_TOKEN: ${UPSTREAM_ACCESS_TOKEN}\n      NTFY_AUTH_DEFAULT_ACCESS: ${NTFY_AUTH_DEFAULT_ACCESS:-read-write}\n      NTFY_WEB_PUSH_PUBLIC_KEY: ${NTFY_WEB_PUSH_PUBLIC_KEY}\n      NTFY_WEB_PUSH_PRIVATE_KEY: ${NTFY_WEB_PUSH_PRIVATE_KEY}\n      NTFY_WEB_PUSH_EMAIL_ADDRESS: ${NTFY_WEB_PUSH_EMAIL_ADDRESS}\n    volumes:\n    - ntfy-cache:/var/cache/ntfy\n    - ntfy-db:/var/lib/ntfy/\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1\n      interval: 60s\n\
+  \      timeout: 10s\n      retries: 3\n      start_period: 40s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\nvolumes:\n  ntfy-cache: {}\n  ntfy-db: {}\n"

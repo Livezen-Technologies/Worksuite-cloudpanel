@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: healthchecks
+name: Healthchecks
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Healthchecks is a cron job monitoring service. It listens for HTTP requests and email messages from your cron jobs and scheduled tasks.
+port: 80000
+source: coolify
+documentation: https://healthchecks.io/docs
+compose: "services:\n  healthchecks:\n    image: healthchecks/healthchecks:v4.2\n    container_name: healthchecks\n    environment:\n      DB: sqlite\n      DB_NAME: /data/hc.sqlite\n      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}\n      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-True}\n      DEBUG: ${DEBUG:-False}\n      SECRET_KEY: ${SECRET_KEY:?${SERVICE_PASSWORD_HEALTHCHECKS}}\n      SITE_ROOT: ${SERVICE_URL}\n      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-fixme-email-address-here}\n      EMAIL_HOST: ${EMAIL_HOST:-my-smtp-server-here.com}\n      EMAIL_PORT: ${EMAIL_PORT:-465}\n      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-my_username}\n      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-mypassword}\n      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-True}\n      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-False}\n    volumes:\n    - healthchecks-data:/data\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port:\
+  \ '80000'\nvolumes:\n  healthchecks-data: {}\n"

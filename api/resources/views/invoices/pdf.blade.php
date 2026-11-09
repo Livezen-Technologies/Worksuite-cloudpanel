@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Invoice {{ $invoice->number }}</title>
+<title>{{ ($invoice->kind ?? "invoice") === "credit_note" ? "Credit note" : "Invoice" }} {{ $invoice->number }}</title>
 <style>
   body { font-family: "DejaVu Sans", sans-serif; font-size: 11px; color: #1f2937; }
   h1 { font-size: 22px; margin: 0 0 4px; }
@@ -21,7 +21,7 @@
 <table class="head">
   <tr>
     <td>
-      <h1>Invoice</h1>
+      <h1>{{ ($invoice->kind ?? "invoice") === "credit_note" ? "Credit note" : "Invoice" }}</h1>@if(($invoice->kind ?? "invoice") === "credit_note" && !empty($invoice->line_items[0]["description"]))<p style="margin:0">{{ $invoice->line_items[0]["description"] }}</p>@endif
       <div>No. <strong>{{ $invoice->number }}</strong></div>
       <div class="muted">Period {{ $invoice->period_start->format('j M Y') }} – {{ $invoice->period_end->format('j M Y') }}</div>
       <div class="muted">Issued {{ ($invoice->created_at ?? now())->format('j M Y') }}@if($invoice->due_at), due {{ $invoice->due_at->format('j M Y') }}@endif</div>
@@ -29,7 +29,7 @@
     </td>
     <td style="text-align:right">
       <strong>{{ $seller['name'] }}</strong><br>
-      @if($seller['address']){!! nl2br(e($seller['address'])) !!}<br>@endif
+      @if($seller['address']){!! nl2br(e($seller['address'])) !!}<br>@endif {{-- nosemgrep: blade-unescaped-output -- escaped by e() first --}}
       @if($seller['vat_id'])VAT ID {{ $seller['vat_id'] }}@endif
     </td>
   </tr>

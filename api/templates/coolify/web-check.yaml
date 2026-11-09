@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: web-check
+name: Web Check
+category: Monitoring
+version: 1
+type: compose
+accent: '#6B16ED'
+description: All-in-one OSINT tool for analysing any website
+port: 3000
+source: coolify
+documentation: https://github.com/lissy93/web-check
+compose: "services:\n  web-check:\n    image: lissy93/web-check\n    environment: {}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:3000/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n"

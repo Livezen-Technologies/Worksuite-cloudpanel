@@ -48,6 +48,20 @@ type Stats struct {
 	DiskPct float64 `json:"disk_pct"`
 	NetRx   uint64  `json:"net_rx"`
 	NetTx   uint64  `json:"net_tx"`
+	// Every mounted local filesystem, so a host whose data lives on a second
+	// array is not reported as if it only had its root disk. DiskPct above
+	// stays the root figure the status thresholds are written against.
+	Disks []Disk `json:"disks,omitempty"`
+}
+
+// Disk is one mounted local filesystem.
+type Disk struct {
+	Mount   string  `json:"mount"`
+	Device  string  `json:"device,omitempty"`
+	FSType  string  `json:"fstype,omitempty"`
+	SizeMB  int64   `json:"size_mb"`
+	UsedMB  int64   `json:"used_mb"`
+	UsedPct float64 `json:"used_pct"`
 }
 
 type Container struct {
@@ -105,6 +119,8 @@ type HeartbeatRequest struct {
 	// DockerError is set when the inventory could not be collected; the
 	// inventory lists are then null (unknown), not empty.
 	DockerError string `json:"docker_error,omitempty"`
+	// CronResults are runs the agent made on its own while the panel was unreachable.
+	CronResults any `json:"cron_results,omitempty"`
 }
 
 // Command as delivered by the panel. Payload is kept raw so the signature is

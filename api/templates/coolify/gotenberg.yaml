@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: gotenberg
+name: Gotenberg
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Gotenberg is a Docker-powered stateless API for PDF files.
+port: 3000
+source: coolify
+documentation: https://gotenberg.dev/docs/getting-started/introduction
+compose: "services:\n  gotenberg:\n    image: gotenberg/gotenberg:latest\n    environment:\n      GOTENBERG_API_BASIC_AUTH_USERNAME: ${SERVICE_USER_GOTENBERG}\n      GOTENBERG_API_BASIC_AUTH_PASSWORD: ${SERVICE_PASSWORD_GOTENBERG}\n    command:\n    - gotenberg\n    - --api-enable-basic-auth\n    - --api-disable-health-check-logging\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n"

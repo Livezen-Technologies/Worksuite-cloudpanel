@@ -1,13 +1,18 @@
 import { useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useLocation, Link } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate, Link } from 'react-router'
 import { Icon } from './Icon'
-import { Drawer } from './Overlay'
+import { MfaRequired, PageErrorBoundary } from './ErrorStates'
+import { endImpersonation } from '../lib/impersonation'
+import { Drawer, Modal } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
-import { useTheme } from '../lib/theme'
+import { useTheme, type ThemePref } from '../lib/theme'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
+import { api, errorMessage } from '../api/client'
 
-export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean }
+export interface RailItem { label: string; to: string; icon: string; badge?: string | number; end?: boolean
+  /** Overrides the NavLink match: a section whose pages do not all sit under `to` says so itself. */
+  active?: boolean }
 
 export interface NavItem { label: string; to: string; end?: boolean; icon?: string; group?: string; badge?: string | number }
 
@@ -52,27 +57,91 @@ export function Brand({ title, subtitle }: { title: string; subtitle?: string })
 /** The narrow icon rail: one entry per major area of the product. */
 function Rail({ items }: { items: RailItem[] }) {
   return (
-    <nav aria-label="Areas" className="hidden lg:flex w-[76px] flex-none flex-col items-center gap-1 px-1.5 border-r border-line bg-side py-4 sticky top-16 h-[calc(100vh-4rem)]">
+    <nav aria-label="Areas" className="hidden lg:flex w-[92px] flex-none flex-col items-center gap-1.5 px-2 border-r border-line bg-side py-3 sticky top-16 h-[calc(100vh-4rem)]">
       {items.map((r) => (
         <NavLink key={r.to} to={r.to} end={r.end} aria-label={r.label}
-          className={({ isActive }) => `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 no-underline transition-colors ${isActive ? 'bg-sel text-accent-fg' : 'text-muted hover:text-fg hover:bg-head'}`}>
-          <Icon name={r.icon} size={20} />
-          <span className="w-full truncate text-center text-[10px] font-semibold leading-tight">{r.label}</span>
+          className={({ isActive: m }) => `group relative flex w-[76px] flex-col items-center gap-1.5 rounded-lg px-1 py-2.5 no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg ring-1 ring-inset ring-accent/30' : 'text-muted hover:text-fg hover:bg-head'}`}>
+          {({ isActive: m }) => (<>
+            <Icon name={r.icon} size={20} />
+            <span className={`w-full truncate text-center text-[11px] leading-tight ${(r.active ?? m) ? 'font-semibold' : 'font-medium'}`}>{r.label}</span>
           {r.badge !== undefined && r.badge !== '' && r.badge !== 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-danger px-1 text-center text-[10px] font-bold leading-[18px] text-white">{r.badge}</span>
           )}
+          </>)}
         </NavLink>
       ))}
     </nav>
   )
 }
 
-export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string }) {
+/** A disclosure inside the account menu: one row that opens a short list under itself. */
+function SubMenu({ label, open, onToggle, children }: { label: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <>
+      <button type="button" role="menuitem" aria-expanded={open} onClick={onToggle}
+        className="flex items-center justify-between gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-fg hover:bg-head cursor-pointer">
+        <span>{label}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+          className={`flex-none text-muted transition-transform ${open ? 'rotate-90' : ''}`}><path d="m9 18 6-6-6-6" /></svg>
+      </button>
+      {open && <div className="mb-1 ml-3 flex flex-col border-l border-line pl-1">{children}</div>}
+    </>
+  )
+}
+
+/** One option in a SubMenu, ticked when it is the one in force. */
+function MenuChoice({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button type="button" role="menuitemradio" aria-checked={selected} onClick={onClick}
+      className="flex items-center justify-between gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-fg hover:bg-head cursor-pointer">
+      <span className="truncate">{label}</span>
+      {selected && <Icon name="check" size={15} />}
+    </button>
+  )
+}
+
+/** Names a new organisation and moves the session into it. */
+function CreateOrgModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { createOrg } = useAuth()
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const nav = useNavigate()
+  const submit = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await createOrg(name.trim())
+      onClose()
+      // The whole query cache was just dropped, so land somewhere that refetches.
+      nav('/app')
+    } catch (e) { setErr(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <Modal open={open} onClose={onClose} title="Create an organisation"
+      subtitle="A separate workspace with its own apps, domains and billing. You will be its owner, and this session switches to it."
+      footer={<>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={busy || name.trim().length < 2} onClick={submit}>{busy ? 'Creating…' : 'Create organisation'}</button>
+      </>}>
+      <label className="block text-sm font-medium" htmlFor="new-org-name">Organisation name</label>
+      <input id="new-org-name" className="input mt-1.5 w-full" value={name} autoFocus maxLength={120}
+        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim().length >= 2 && !busy) submit() }} />
+      {err && <p className="mt-2 mb-0 text-sm text-danger">{err}</p>}
+    </Modal>
+  )
+}
+
+export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExtra, touch = false, label, area = 'admin' }: { nav: NavItem[]; rail?: RailItem[]; brand: { title: string; subtitle?: string }; status?: { label: string; tone: 'g' | 'y' | 'r' }; sectionDesc?: string; sidebarFooter?: ReactNode; headerExtra?: ReactNode; touch?: boolean; label: string; area?: 'admin' | 'portal' }) {
   const [menu, setMenu] = useState(false)
   const [acct, setAcct] = useState(false)
   const [palette, setPalette] = useState(false)
-  const { theme, toggle } = useTheme()
-  const { me, logout } = useAuth()
+  const { theme, pref, setPref, toggle } = useTheme()
+  const { me, logout, switchOrg } = useAuth()
+  const portal = area === 'portal'
+  // Which of the account menu's sub-lists is open; only ever one at a time.
+  const [sub, setSub] = useState<'theme' | 'org' | null>(null)
+  const [newOrg, setNewOrg] = useState(false)
+  useEffect(() => { if (!acct) setSub(null) }, [acct])
   const loc = useLocation()
   useEffect(() => setMenu(false), [loc.pathname])
   const initials = (me?.user?.name ?? '?').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()
@@ -99,48 +168,55 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
             {/* The header is dark in both themes, per the canvas, so the
                 light-on-dark lockup is always the right one. */}
             <img src="/worksuite-logo-dark.png" alt="WorkSuite" className="h-7 w-auto flex-none" />
-            {brand.subtitle && (
-              <span className="rounded-md bg-n-bg px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-n-fg">{brand.subtitle}</span>
-            )}
+            {/* The product within the WorkSuite family, as WorkSuite IoT shows "IoT". */}
+            <span className="rounded px-1.5 py-0.5 text-xs font-semibold text-[#93C5FD] bg-[rgb(59_130_246/.15)] ring-1 ring-inset ring-[rgb(96_165_250/.3)]">Cloud</span>
           </div>
 
           {/* Which tenant the session is acting as - the canvas puts this next
               to the brand, and the panel spans tenants for staff. */}
-          {me?.organization?.name && (
+          {/* Admin-only header items: the organisation settings link and the catalogue shortcut
+              point into /admin, so the customer portal (no area rail) does not show them. */}
+          {rail && me?.organization?.name && (
             <Link to="/admin/settings" title="Organisation settings"
               className="hidden xl:flex flex-none items-center gap-2 rounded-lg bg-white/10 px-2 py-1.5 text-sm font-semibold no-underline text-[var(--header-fg)] hover:bg-white/15">
               <span className="grid h-[26px] w-[26px] place-content-center rounded-md bg-accent text-[13px] text-white" aria-hidden="true">
                 {me.organization.name.slice(0, 1).toUpperCase()}
               </span>
               <span className="max-w-[14rem] truncate">{me.organization.name}</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             </Link>
           )}
 
           {/* Search is the primary way into anything, so it sits centre. */}
           <button type="button" onClick={() => setPalette(true)}
-            className="!rounded-full mx-auto flex max-w-xl flex-1 items-center gap-2.5 border px-3 text-left min-h-10 lg:flex-none lg:w-[min(36rem,40vw)] bg-white/5 border-[var(--header-line)] text-white/60"
+            className="!rounded-full flex min-w-0 items-center justify-center gap-2.5 border text-left min-h-11 w-11 flex-none sm:mx-auto sm:min-h-10 sm:w-auto sm:max-w-xl sm:flex-1 sm:justify-start sm:px-3 lg:flex-initial lg:basis-[min(36rem,40vw)] bg-white/5 border-[var(--header-line)] text-white/60 hover:bg-white/10 hover:text-white/80"
             aria-label="Search (Ctrl K)">
-            <Icon name="search" size={16} /><span className="flex-1 truncate text-sm">Search servers, containers, apps…</span>
-            <kbd className="hidden sm:inline rounded border border-line px-1.5 py-0.5 font-sans text-[11px]">⌘K</kbd>
+            <Icon name="search" size={16} /><span className="hidden min-w-0 flex-1 truncate text-sm sm:block">Search servers, containers, apps…</span>
+            <kbd className="hidden sm:inline rounded border border-white/15 px-1.5 py-0.5 font-sans text-[11px] text-white/60">⌘K</kbd>
           </button>
 
           <div className="ml-auto flex flex-none items-center gap-1">
             {status && (
-              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-muted">
+              <span className="hidden xl:flex items-center gap-1.5 pr-2 text-xs font-semibold text-white/70">
                 <span className={`h-2 w-2 rounded-full ${status.tone === 'g' ? 'bg-g-fg' : status.tone === 'y' ? 'bg-y-fg' : 'bg-r-fg'}`} aria-hidden="true" />
                 {status.label}
               </span>
             )}
+            {rail && (
             <Link to="/admin/catalog" title="Install an application" aria-label="Install an application"
-              className="!min-h-11 !min-w-11 grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
+              className="!min-h-11 !min-w-11 hidden sm:grid place-content-center rounded-lg no-underline text-white/70 hover:text-white hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </Link>
+            )}
             {headerExtra}
+            {/* In the portal the theme is a choice of three in the account
+                menu, so a two-state button beside it would contradict it. */}
+            {!portal && (
             <button type="button" className="!min-h-11 !min-w-11 grid place-content-center rounded-lg border-0 bg-transparent text-white/70 hover:text-white hover:bg-white/10 cursor-pointer" onClick={toggle}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
+            )}
             <div className="mx-1 hidden h-6 w-px bg-white/15 sm:block" aria-hidden="true" />
             <div className="relative">
               <button type="button" onClick={() => setAcct((v) => !v)}
@@ -167,12 +243,38 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
                       )}
                     </div>
                     <div className="flex flex-col p-1">
-                      <Link to="/admin/account" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Account</Link>
-                      <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
-                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Settings</Link>
+                      {/* The portal and the admin panel have their own account
+                          pages; /admin is closed to a customer, so sending them
+                          there from their own menu was a dead end. */}
+                      <Link to={portal ? '/app/account' : '/admin/account'} role="menuitem" onClick={() => setAcct(false)}
+                        className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">{portal ? 'My Account' : 'Account'}</Link>
+                      {!portal && (
+                        <Link to="/admin/settings" role="menuitem" onClick={() => setAcct(false)}
+                          className="rounded-lg px-3 py-2 text-sm font-medium no-underline text-fg hover:bg-head">Settings</Link>
+                      )}
+
+                      {portal && (<>
+                        <SubMenu label="Theme" open={sub === 'theme'} onToggle={() => setSub((v) => (v === 'theme' ? null : 'theme'))}>
+                          {(['light', 'dark', 'system'] as ThemePref[]).map((t) => (
+                            <MenuChoice key={t} selected={pref === t} onClick={() => setPref(t)}
+                              label={t === 'system' ? 'System' : t === 'dark' ? 'Dark' : 'Light'} />
+                          ))}
+                        </SubMenu>
+
+                        <SubMenu label="Organization" open={sub === 'org'} onToggle={() => setSub((v) => (v === 'org' ? null : 'org'))}>
+                          {(me?.organizations ?? []).map((o) => (
+                            <MenuChoice key={o.id} selected={o.id === me?.organization?.id} label={o.name ?? o.id}
+                              onClick={() => { setAcct(false); if (o.id !== me?.organization?.id) switchOrg(o.id) }} />
+                          ))}
+                          <button type="button" role="menuitem" onClick={() => { setAcct(false); setNewOrg(true) }}
+                            className="mt-0.5 w-full rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-accent hover:bg-head cursor-pointer">
+                            Create an Organization
+                          </button>
+                        </SubMenu>
+                      </>)}
+
                       <button type="button" role="menuitem" onClick={() => { setAcct(false); logout() }}
-                        className="mt-0.5 rounded-lg border-0 border-t border-line bg-transparent px-3 py-2 text-left text-sm font-medium text-danger hover:bg-r-bg cursor-pointer">Sign out</button>
+                        className="mt-0.5 rounded-lg border-0 border-t border-line bg-transparent px-3 py-2 text-left text-sm font-medium text-danger hover:bg-r-bg cursor-pointer">{portal ? 'Sign Out' : 'Sign out'}</button>
                     </div>
                   </div>
                 </>
@@ -180,17 +282,59 @@ export function Shell({ nav, rail, brand, status, sectionDesc, sidebarFooter, he
             </div>
           </div>
         </header>
+      {portal && <CreateOrgModal open={newOrg} onClose={() => setNewOrg(false)} />}
       <div className="flex flex-1 min-h-0">
       {rail && <Rail items={rail} />}
       <aside className="hidden lg:block w-[272px] flex-none box-border px-4 py-5 bg-side border-r border-line sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">{side}</aside>
-      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>{side}</Drawer>
+      <Drawer open={menu} onClose={() => setMenu(false)} title="Menu" side="left" width={288}>
+        {/* On phones the area rail is hidden, so the drawer carries it: without it a phone could not leave the current area. */}
+        {rail && (
+          <nav aria-label="Areas" className="mb-5 grid grid-cols-3 gap-1.5 border-b border-line pb-5">
+            {rail.map((r) => (
+              <NavLink key={r.to} to={r.to} end={r.end} onClick={() => setMenu(false)}
+                className={({ isActive: m }) => `flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center no-underline transition-colors ${(r.active ?? m) ? 'bg-sel text-accent-fg' : 'text-muted hover:bg-head hover:text-fg'}`}>
+                <Icon name={r.icon} size={20} />
+                <span className="w-full truncate text-[11px] font-semibold">{r.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        )}
+        {side}
+      </Drawer>
       <div className="flex-1 min-w-0 flex flex-col">
-        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full box-border">
-          <Outlet />
+        <main id="main" className="p-4 sm:p-8 flex flex-col gap-6 w-full min-w-0 box-border">
+          {me && !me.user.email_verified_at && <VerifyBanner email={String(me.user.email)} />}
+          {(me as { impersonated_by?: { name?: string; email: string; expires_at?: string } | null } | null)?.impersonated_by && (
+            <div role="status" className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-[var(--b-line,var(--line))] bg-b-bg text-b-fg text-sm">
+              <Icon name="eye" size={18} />
+              <span className="flex-1 min-w-[220px]"><b>Support session.</b> You’re signed in as {String(me!.user.email)} ({String(me!.organization?.name ?? '')}). Sign-in settings are locked; it ends on its own after an hour.</span>
+              <button type="button" className="btn btn-sm" onClick={() => endImpersonation()}>End session</button>
+            </div>
+          )}
+          {(me as { mfa_setup_required?: boolean } | null)?.mfa_setup_required && !loc.pathname.endsWith('/account')
+            ? <MfaRequired accountPath={loc.pathname.startsWith('/app') ? '/app/account' : '/admin/account#security'} />
+            : <PageErrorBoundary key={loc.pathname}><Outlet /></PageErrorBoundary>}
         </main>
       </div>
       </div>
       <CommandPalette pages={pages} open={palette} setOpen={setPalette} remote={!touch} />
+    </div>
+  )
+}
+
+/** Shown until the account's email address is confirmed; "Resend" mails a new link. */
+function VerifyBanner({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | string>('idle')
+  const resend = async () => {
+    setState('sending')
+    try { await api.post('/me/verify-email'); setState('sent') } catch (e) { setState(errorMessage(e)) }
+  }
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-line bg-[var(--y-bg)] text-[var(--y-fg)] text-sm">
+      <span className="flex-1 min-w-[200px]">Confirm your email address, <strong>{email}</strong>, with the link we sent you.</span>
+      {state === 'sent' ? <span>A new link is on its way.</span>
+        : <button type="button" className="btn btn-sm" disabled={state === 'sending'} onClick={resend}>{state === 'sending' ? 'Sending…' : 'Resend link'}</button>}
+      {state !== 'idle' && state !== 'sending' && state !== 'sent' ? <span className="w-full text-xs">{state}</span> : null}
     </div>
   )
 }

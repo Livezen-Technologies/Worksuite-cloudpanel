@@ -3,8 +3,12 @@
 return [
     // Free customer subdomains are <app>.<domain> (UHOST-005).
     'domain' => env('PLATFORM_DOMAIN', 'livezen.app'),
+    // PUB-6: the company named in "Hosted on …" at the foot of public pages (maintenance, blocked, 404…).
+    'hosted_by' => env('PLATFORM_HOSTED_BY', 'Livezen Cloud'),
     'ingress_ip' => env('PLATFORM_INGRESS_IP', '203.0.113.10'),
     'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
+    // The release, from the repository's VERSION file (one source of truth; see CHANGELOG.md).
+    'version' => trim((string) @file_get_contents(base_path('../VERSION'))) ?: env('APP_VERSION', 'dev'),
     'terminal_ws_url' => env('TERMINAL_WS_URL', 'wss://localhost/ws/terminal'),
 
     'offline_after_seconds' => 90,
@@ -24,9 +28,44 @@ return [
         'dns' => env('DNS_DRIVER', 'native'),            // native|fake
         'certificates' => env('CERT_DRIVER', 'fake'),   // fake|traefik
         'scanner' => env('SCANNER_DRIVER', 'fake'),     // fake (in-process, deterministic) | trivy (agent `image.scan`)
-        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake|stripe
+        'payments' => env('PAYMENT_DRIVER', 'fake'),    // fake|stripe|paypal
         'metrics' => env('METRICS_DRIVER', 'database'), // database|prometheus
         'source' => env('SOURCE_VALIDATOR', 'http'),    // http|fake
+    ],
+
+    // UAI: the built-in assistant on the Claude API (fake in tests).
+    'ai' => [
+        'driver' => env('AI_DRIVER', 'anthropic'), // anthropic|fake
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('AI_MODEL', 'claude-opus-5-5'),
+        'effort' => env('AI_EFFORT', 'medium'),
+        'max_turns_per_day' => (int) env('AI_MAX_TURNS_PER_DAY', 200), // per organisation
+    ],
+
+    // GIT: "Sign in with GitHub / GitLab". Create an OAuth app whose callback is
+    // {APP_URL}/api/v1/git/oauth/{provider}/callback and set its id and secret here.
+    'git_oauth' => [
+        'github' => ['client_id' => env('GITHUB_OAUTH_CLIENT_ID'), 'client_secret' => env('GITHUB_OAUTH_CLIENT_SECRET'),
+            'authorize' => 'https://github.com/login/oauth/authorize', 'token' => 'https://github.com/login/oauth/access_token', 'scope' => 'repo read:user'],
+        'gitlab' => ['client_id' => env('GITLAB_OAUTH_CLIENT_ID'), 'client_secret' => env('GITLAB_OAUTH_CLIENT_SECRET'),
+            'authorize' => rtrim(env('GITLAB_OAUTH_URL', 'https://gitlab.com'), '/').'/oauth/authorize', 'token' => rtrim(env('GITLAB_OAUTH_URL', 'https://gitlab.com'), '/').'/oauth/token', 'scope' => 'read_api read_repository read_user'],
+    ],
+
+    // UVPS: customer virtual servers. Container VPS run under Sysbox on servers with the "vps" role.
+    'vps' => [
+        'limit' => (int) env('VPS_LIMIT', 5), // per organisation
+        'ssh_ports' => [22000, 22999],
+        'plans' => [
+            'ct-1' => ['label' => 'CT-1', 'type' => 'container', 'cpus' => 1, 'memory_mb' => 1024, 'price_cents' => 300, 'available' => true],
+            'ct-2' => ['label' => 'CT-2', 'type' => 'container', 'cpus' => 2, 'memory_mb' => 2048, 'price_cents' => 400, 'available' => true],
+            'ct-4' => ['label' => 'CT-4', 'type' => 'container', 'cpus' => 4, 'memory_mb' => 4096, 'price_cents' => 800, 'available' => true],
+            'vps-4' => ['label' => 'VPS-4 (KVM)', 'type' => 'kvm', 'cpus' => 2, 'memory_mb' => 4096, 'price_cents' => 1200, 'available' => false],
+            'vps-8' => ['label' => 'VPS-8 (KVM)', 'type' => 'kvm', 'cpus' => 4, 'memory_mb' => 8192, 'price_cents' => 2400, 'available' => false],
+        ],
+        'images' => [
+            'ubuntu-2404' => ['label' => 'Ubuntu 24.04 LTS', 'image' => env('VPS_IMAGE_UBUNTU', 'nestybox/ubuntu-noble-systemd-docker:latest')],
+            'debian-12' => ['label' => 'Debian 12', 'image' => env('VPS_IMAGE_DEBIAN', 'nestybox/debian-bookworm-systemd-docker:latest')],
+        ],
     ],
 
     // Image builds (APP-001/002) and post-start health checks (UHOST-006).
@@ -34,6 +73,9 @@ return [
         'local_repository' => env('BUILD_LOCAL_REPOSITORY', 'dmp-build'), // tag prefix when the image is not pushed
         'health_timeout' => (int) env('HEALTH_CHECK_TIMEOUT', 60),
         'health_path' => '/',
+        'timeout_minutes' => (int) env('BUILD_TIMEOUT_MINUTES', 60),
+        'buildkit_cache' => (bool) env('BUILD_BUILDKIT_CACHE', true), // BLD-3: buildx with a <repo>:buildcache registry cache when pushing
+        'registry_keep' => (int) env('BUILD_REGISTRY_KEEP', 5), // releases whose images registry:gc keeps per app
         'push_registry' => ['url' => env('BUILD_PUSH_REGISTRY'), 'username' => env('BUILD_PUSH_REGISTRY_USERNAME'), 'password' => env('BUILD_PUSH_REGISTRY_PASSWORD')],
     ],
 
@@ -44,8 +86,61 @@ return [
         'http_resolver' => env('TRAEFIK_HTTP_RESOLVER', 'le'),
         'dns_resolver_prefix' => env('TRAEFIK_DNS_RESOLVER_PREFIX', 'le-dns-'), // + provider, e.g. le-dns-cloudflare
         'entrypoint' => env('TRAEFIK_ENTRYPOINT', 'websecure'),
-        'docker_service_suffix' => '@docker',
+        // Where Traefik finds the ws-pages service. "@docker" needs Traefik's
+        // docker provider; an ingress that routes purely through the file
+        // provider has to set this to "@file", and the pages service is then
+        // written into the pushed file instead of discovered from labels.
+        // Getting this wrong fails quietly and completely: Traefik drops any
+        // router whose middleware chain will not resolve, so every domain
+        // carrying the errors middleware falls through to the catch-all 404.
+        'docker_service_suffix' => env('TRAEFIK_DOCKER_SERVICE_SUFFIX', '@docker'),
+        // Used when the suffix is not "@docker": how Traefik reaches the pages
+        // container, and the network the two must share for that name to
+        // resolve at all.
+        'pages_url' => env('TRAEFIK_PAGES_URL', 'http://ws-pages:8080'),
+        'network' => env('TRAEFIK_NETWORK', 'proxy'),
+        // PRJ-NET: Traefik reaches a container by Docker DNS over a shared
+        // network (this ingress has no docker provider), so it has to join
+        // every environment network before any container can stop sharing
+        // `proxy`. Empty disables the attach entirely.
+        'container' => env('TRAEFIK_CONTAINER', 'host-traefik-1'),
         'file_name' => 'dmp-domains.yml',
+    ],
+
+    // SRS 4.25 antivirus: ClamAV on each server (docs/deploy/clamav).
+    'antivirus' => [
+        'auto_quarantine' => (bool) env('ANTIVIRUS_AUTO_QUARANTINE', true),
+        // AV-12: addresses of known mining pools to drop, comma separated (IPs or CIDRs).
+        'pool_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ANTIVIRUS_POOL_ADDRESSES', ''))))),
+    ],
+
+    // FW-001 enforcement through CrowdSec (docs/deploy/crowdsec). Off until the
+    // ingress runs the CrowdSec container and the Traefik bouncer plugin.
+    // WordPress toolkit: the Redis server sites use for the object cache (WP-003), as host[:port].
+    'wordpress' => [
+        'redis_host' => env('WORDPRESS_REDIS_HOST'),
+    ],
+
+    // AV-9: OWASP Core Rule Set through the Coraza Traefik plugin (docs/deploy/traefik). Off until
+    // the ingress Traefik loads the plugin; then each domain chooses Off, Detect only or Block.
+    'waf' => [
+        'enabled' => (bool) env('WAF_ENABLED', false),
+        'plugin' => env('WAF_TRAEFIK_PLUGIN', 'coraza'),   // name under experimental.plugins in traefik.yml
+    ],
+
+    'crowdsec' => [
+        'enabled' => (bool) env('CROWDSEC_ENABLED', false),
+        // EML: blocked or challenged requests in one poll that trigger the staff "bot alert" email.
+        'alert_threshold' => (int) env('CROWDSEC_ALERT_THRESHOLD', 50),
+        'lapi_host' => env('CROWDSEC_LAPI_HOST', 'crowdsec:8080'),
+        'lapi_scheme' => env('CROWDSEC_LAPI_SCHEME', 'http'),
+        'bouncer_key' => env('CROWDSEC_BOUNCER_KEY'),
+        'plugin' => env('CROWDSEC_TRAEFIK_PLUGIN', 'bouncer'),   // name under experimental.plugins in traefik.yml
+        'ban_minutes' => (int) env('CROWDSEC_BAN_MINUTES', 240),
+        'update_seconds' => (int) env('CROWDSEC_UPDATE_SECONDS', 15),
+        'trusted_proxies' => array_filter(explode(',', (string) env('CROWDSEC_TRUSTED_PROXIES', ''))),
+        // Where the agent writes the branded captcha and ban pages, as Traefik sees the path.
+        'pages_dir' => env('CROWDSEC_PAGES_DIR', '/etc/dockermgr/traefik/pages'),
     ],
 
     // METRICS_DRIVER=prometheus (MON-001): /metrics reads query_range from Prometheus.
@@ -89,6 +184,33 @@ return [
             'trigger_rate_limit' => false,
             'trigger_anonymiser' => false,
             'trigger_country' => true,
+            'under_attack' => false,            // FW-010
+            'under_attack_domain_id' => null,
+        ],
+        // FIN-9. How invoices are numbered, what tax is charged, and which
+        // parts of billing run without anyone pressing anything. Gateway
+        // credentials are not here: they stay in the service settings, where
+        // a secret is written but never read back.
+        'finance' => [
+            'currency' => 'EUR',
+            'invoice_prefix' => 'INV-',
+            'invoice_number_padding' => 5,
+            'invoice_due_days' => 14,
+            'invoice_footer' => '',
+            'tax_enabled' => false,
+            'tax_name' => 'VAT',
+            'tax_percent' => 0.0,
+            'tax_inclusive' => false,
+            'auto_generate_invoices' => true,
+            'auto_collect' => true,
+            'reminder_days_before_due' => [3],
+            'reminder_days_after_due' => [1, 7, 14],
+            // Dunning: how many times a failed collection is retried, and how far apart.
+            'retry_attempts' => 3,
+            'retry_interval_days' => 3,
+            // At or under this, an approved refund needs no second pair of eyes. 0 = always ask.
+            'refund_auto_approve_under_cents' => 0,
+            'refund_require_reason' => true,
         ],
         // MON-00x. How often an open incident may notify, when it escalates,
         // and whether an unhealthy container is restarted automatically.
@@ -99,8 +221,17 @@ return [
             'auto_restart_max_per_hour' => 2,
             'uptime_retention_days' => 90,
         ],
+        // AV-3 / AV-14: when full scans run, and whether new detections notify the channels.
+        'antivirus' => [
+            'schedule' => 'weekly',   // daily | weekly | off
+            'day' => 0,               // weekly: 0 = Sunday … 6 = Saturday
+            'time' => '02:00',        // server time
+            'notify' => true,
+        ],
         'security' => [
             'require_mfa' => false,
+            // SSO-POL: members sign in with a sign-in app, not a password (owners keep a password for emergencies).
+            'require_sso' => false,
             'require_approval_destructive' => true,
             'require_production_deploy_approval' => false,
             'secure_container_defaults' => true,
@@ -120,6 +251,7 @@ return [
         ['name' => 'Agent heartbeat timeout', 'metric' => 'heartbeat', 'operator' => '>', 'threshold' => 90, 'duration_minutes' => 0, 'severity' => 'critical'],
         ['name' => 'Unhealthy container', 'metric' => 'container_unhealthy', 'operator' => '>', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'warning'],
         ['name' => 'Backup failed', 'metric' => 'backup_failed', 'operator' => '>', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'critical'],
+        ['name' => 'Backups overdue (two scheduled runs missed)', 'metric' => 'backup_overdue', 'operator' => '>=', 'threshold' => 0, 'duration_minutes' => 0, 'severity' => 'critical'],
         ['name' => 'SSL certificate expires in under 14 days', 'metric' => 'ssl_expiry', 'operator' => '<', 'threshold' => 14, 'duration_minutes' => 0, 'severity' => 'warning'],
     ],
 
@@ -129,7 +261,7 @@ return [
         ['code' => 'standard', 'name' => 'Standard', 'vcpu' => 1, 'ram_mb' => 1024, 'storage_gb' => 10, 'price_cents' => 1200, 'sort' => 2,
             'limits' => ['apps' => 10, 'ram_mb' => 10240, 'storage_gb' => 100, 'bandwidth_gb' => 500, 'backups_per_day' => 5, 'backup_retention_days' => 14]],
         ['code' => 'pro', 'name' => 'Pro', 'vcpu' => 2, 'ram_mb' => 4096, 'storage_gb' => 40, 'price_cents' => 3500, 'sort' => 3,
-            'limits' => ['apps' => 30, 'ram_mb' => 65536, 'storage_gb' => 1000, 'bandwidth_gb' => 2000, 'backups_per_day' => 24, 'backup_retention_days' => 30]],
+            'limits' => ['apps' => 30, 'ram_mb' => 65536, 'storage_gb' => 1000, 'bandwidth_gb' => 2000, 'backups_per_day' => 24, 'backup_retention_days' => 30, 'traffic_splitting' => 1]],
     ],
 
     'database_templates' => [
@@ -141,12 +273,26 @@ return [
     ],
 
     // One-click customer templates (UHOST source "template").
+    'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL')],
+
+    // PNET: the WireGuard private network between an organisation's servers and its admins' devices.
+    'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'subnet6' => env('MESH_SUBNET6', 'fd88::/64'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'container_supernet' => env('MESH_CONTAINER_SUPERNET', '10.89.0.0/16'), 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
+
+    // SCL-8: keep domains' A records on the online ingress servers.
+    'edge' => ['failover' => (bool) env('EDGE_FAILOVER', false)],
+
+    // CFT: cloudflared connector image and the Traefik entry point it forwards to on the proxy network.
+    'tunnels' => ['image' => env('CLOUDFLARED_IMAGE', 'cloudflare/cloudflared:2024.10.1'), 'origin' => env('TUNNEL_ORIGIN', 'http://traefik:80')],
+
     'app_templates' => [
         'wordpress' => ['name' => 'WordPress', 'description' => 'Blog and website CMS', 'image' => 'wordpress:6', 'port' => 80, 'volume_path' => '/var/www/html', 'size' => 'standard', 'env' => [['key' => 'WORDPRESS_DB_HOST', 'value' => '', 'secret' => false]]],
         'n8n' => ['name' => 'n8n', 'description' => 'Workflow automation', 'image' => 'n8nio/n8n:1', 'port' => 5678, 'volume_path' => '/home/node/.n8n', 'size' => 'standard', 'env' => []],
         'ghost' => ['name' => 'Ghost', 'description' => 'Publishing platform', 'image' => 'ghost:5', 'port' => 2368, 'volume_path' => '/var/lib/ghost/content', 'size' => 'small', 'env' => []],
         'postgresql' => ['name' => 'PostgreSQL', 'description' => 'Relational database', 'image' => 'postgres:16', 'port' => 5432, 'volume_path' => '/var/lib/postgresql/data', 'size' => 'small', 'env' => [['key' => 'POSTGRES_PASSWORD', 'value' => '', 'secret' => true]]],
         'redis' => ['name' => 'Redis', 'description' => 'In-memory key-value store', 'image' => 'redis:7', 'port' => 6379, 'volume_path' => '/data', 'size' => 'small', 'env' => []],
+        // Partner provisioning (config/partner.php): deployed on behalf of WorkSuite Cloud, never offered in the customer picker.
+        'worksuite-business' => ['name' => 'WorkSuite Business', 'description' => 'WorkSuite business workspace', 'image' => env('WORKSUITE_BUSINESS_IMAGE', 'registry.livezentech.com/worksuite/business:stable'), 'port' => 8080, 'volume_path' => '/var/www/storage', 'size' => 'standard', 'env' => [], 'partner_only' => true],
+        'worksuite-cms' => ['name' => 'WorkSuite CMS', 'description' => 'WorkSuite website and content management', 'image' => env('WORKSUITE_CMS_IMAGE', 'registry.livezentech.com/worksuite/cms:stable'), 'port' => 8080, 'volume_path' => '/var/www/storage', 'size' => 'standard', 'env' => [], 'partner_only' => true],
         'uptime-kuma' => ['name' => 'Uptime Kuma', 'description' => 'Uptime monitoring', 'image' => 'louislam/uptime-kuma:1', 'port' => 3001, 'volume_path' => '/app/data', 'size' => 'small', 'env' => []],
     ],
 ];

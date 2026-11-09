@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File browser — Docker Manager</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="font-family: Inter, system-ui, sans-serif; color: {{c.text}}; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; position: relative">
+
+  <!-- source + breadcrumb -->
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+    <select aria-label="Location" style="height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.text}}; font: 600 13px Inter">
+      <option>{{rootLabel}}</option><option>vps-sg-01 · volume wp_content</option><option>vps-eu-02 · /srv/apps</option>
+    </select>
+    <nav aria-label="Breadcrumb" style="flex: 1 1 300px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.head}}; font: 13px 'JetBrains Mono', monospace">
+      <sc-for list="{{crumbs}}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{b.pick}}" style="{{b.style}}">{{b.label}}</button><span style="color: {{c.sub}}">/</span></sc-for>
+    </nav>
+    <label style="flex: 0 1 240px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; color: {{c.sub}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input aria-label="Search this folder" placeholder="Filter this folder…" value="{{q}}" onInput="{{onSearch}}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: {{c.text}}; font: 13px Inter"></label>
+  </div>
+
+  <!-- toolbar -->
+  <div role="toolbar" aria-label="File actions" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}">
+    <button type="button" onClick="{{doUpload}}" style="{{btnPrimary}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16"/></svg>Upload</button>
+    <button type="button" onClick="{{askNewFolder}}" style="{{btn}}">New folder</button>
+    <button type="button" onClick="{{askNewFile}}" style="{{btn}}">New file</button>
+    <span style="width: 1px; height: 24px; background: {{c.line}}; margin: 0 4px"></span>
+    <button type="button" onClick="{{openSel}}" style="{{btnSel1}}">Edit</button>
+    <button type="button" onClick="{{askRename}}" style="{{btnSel1}}">Rename</button>
+    <button type="button" onClick="{{doCopy}}" style="{{btnSel}}">Copy</button>
+    <button type="button" onClick="{{doCut}}" style="{{btnSel}}">Cut</button>
+    <button type="button" onClick="{{doPaste}}" style="{{btnPaste}}">{{pasteLabel}}</button>
+    <button type="button" onClick="{{doCompress}}" style="{{btnSel}}">Compress</button>
+    <button type="button" onClick="{{doExtract}}" style="{{btnArchive}}">Extract</button>
+    <button type="button" onClick="{{askPerms}}" style="{{btnSel1}}">Permissions</button>
+    <button type="button" onClick="{{doDownload}}" style="{{btnSel}}">Download</button>
+    <button type="button" onClick="{{askDelete}}" style="{{btnDanger}}">Delete</button>
+    <span style="margin-left: auto; display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: {{c.head}}">
+      <sc-for list="{{views}}" as="v" hint-placeholder-count="2"><button type="button" onClick="{{v.pick}}" aria-label="{{v.label}} view" style="{{v.style}}">{{v.label}}</button></sc-for>
+    </span>
+  </div>
+
+  <sc-if value="{{toast}}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: {{c.okBg}}; color: {{c.okFg}}; font-size: 13px; font-weight: 500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>{{toastText}}</div>
+  </sc-if>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch">
+    <!-- tree -->
+    <nav aria-label="Folders" style="flex: 0 1 230px; min-width: 200px; padding: 10px 8px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{tree}}" as="t" hint-placeholder-count="8">
+        <button type="button" onClick="{{t.pick}}" style="{{t.style}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="{{t.fill}}" stroke="{{t.stroke}}" stroke-width="1.5" aria-hidden="true"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{t.name}}</span></button>
+      </sc-for>
+      <div style="margin-top: auto; padding: 12px 8px 4px; border-top: 1px solid {{c.line}}; font-size: 12px; color: {{c.sub}}">
+        <div>Disk 4.2 GB of 10 GB</div>
+        <div style="margin-top: 6px; height: 4px; border-radius: 2px; background: {{c.line}}"><div style="height: 4px; width: 42%; border-radius: 2px; background: {{accent}}"></div></div>
+      </div>
+    </nav>
+
+    <!-- listing -->
+    <section aria-label="Files" style="flex: 999 1 420px; min-width: 0; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.card}}; overflow: hidden; display: flex; flex-direction: column">
+      <sc-if value="{{uploading}}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 12px 16px; border-bottom: 1px solid {{c.line}}; display: flex; flex-direction: column; gap: 8px; background: {{c.head}}">
+          <sc-for list="{{uploads}}" as="u" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 13px"><span style="flex: 0 1 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{u.name}}</span><span style="flex: 1; height: 6px; border-radius: 3px; background: {{c.line}}"><span style="display: block; height: 6px; border-radius: 3px; width: {{u.pct}}; background: {{accent}}"></span></span><span style="width: 44px; text-align: right; color: {{c.sub}}">{{u.pct}}</span></div>
+          </sc-for>
+          <div style="font-size: 12px; color: {{c.sub}}">Drop files anywhere in this panel to upload · max 2 GB per file</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isList}}" hint-placeholder-val="{{ true }}">
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px">
+            <thead><tr style="text-align: left; color: {{c.sub}}; font-size: 12px; background: {{c.head}}">
+              <th style="padding: 10px 12px; width: 18px"><input type="checkbox" aria-label="Select all" checked="{{allSel}}" onChange="{{toggleAll}}"></th>
+              <sc-for list="{{cols}}" as="h" hint-placeholder-count="5"><th style="padding: 10px 12px; font-weight: 600"><button type="button" onClick="{{h.pick}}" style="border: 0; background: transparent; padding: 0; min-height: 24px; font: 600 12px Inter; color: {{c.sub}}; cursor: pointer">{{h.label}} {{h.arrow}}</button></th></sc-for>
+            </tr></thead>
+            <tbody>
+              <sc-if value="{{hasParent}}" hint-placeholder-val="{{ true }}">
+                <tr style="border-top: 1px solid {{c.line}}"><td></td><td colspan="5" style="padding: 10px 12px"><button type="button" onClick="{{goUp}}" style="border: 0; background: transparent; padding: 0; min-height: 28px; color: {{accent}}; font: 600 13px Inter; cursor: pointer">↑ Parent folder</button></td></tr>
+              </sc-if>
+              <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+                <tr style="{{r.rowStyle}}">
+                  <td style="padding: 8px 12px"><input type="checkbox" aria-label="Select {{r.name}}" checked="{{r.sel}}" onChange="{{r.toggle}}"></td>
+                  <td style="padding: 8px 12px"><button type="button" onClick="{{r.open}}" style="display: flex; align-items: center; gap: 10px; border: 0; background: transparent; padding: 0; min-height: 30px; color: {{c.text}}; font: 500 13.5px Inter; cursor: pointer; text-align: left"><span style="{{r.iconBox}}">{{r.ext}}</span>{{r.name}}</button></td>
+                  <td style="padding: 8px 12px; color: {{c.sub}}; font-variant-numeric: tabular-nums">{{r.sizeLabel}}</td>
+                  <td style="padding: 8px 12px; color: {{c.sub}}">{{r.mod}}</td>
+                  <td style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{c.sub}}">{{r.permText}}</td>
+                  <td style="padding: 8px 12px; color: {{c.sub}}">{{r.owner}}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isGrid}}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px">
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+            <button type="button" onClick="{{r.toggle}}" onDoubleClick="{{r.open}}" style="{{r.tileStyle}}"><span style="{{r.bigIcon}}">{{r.ext}}</span><span style="font-size: 12.5px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.name}}</span><span style="font-size: 11.5px; color: {{c.sub}}">{{r.sizeLabel}}</span></button>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 48px 16px; text-align: center; color: {{c.sub}}; font-size: 14px">{{emptyText}}</div>
+      </sc-if>
+
+      <div style="margin-top: auto; display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 14px; border-top: 1px solid {{c.line}}; font-size: 12.5px; color: {{c.sub}}; background: {{c.head}}">
+        <span>{{countText}}</span><span>{{selText}}</span><span style="margin-left: auto">{{clipText}}</span>
+      </div>
+    </section>
+
+    <!-- details / editor -->
+    <aside aria-label="Details" style="{{asideStyle}}">
+      <sc-if value="{{editing}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; height: 100%">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid {{c.line}}">
+            <span style="flex: 1; font: 600 13px 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{editName}}{{dirtyMark}}</span>
+            <button type="button" onClick="{{saveFile}}" style="{{btnPrimarySm}}">Save</button>
+            <button type="button" onClick="{{closeEditor}}" aria-label="Close editor" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: {{c.sub}}; font-size: 18px; cursor: pointer">×</button>
+          </div>
+          <textarea aria-label="File contents" value="{{editText}}" onInput="{{onEdit}}" spellcheck="false" style="flex: 1; min-height: 420px; resize: vertical; border: 0; outline: 0; padding: 12px; background: #0F1115; color: #E5E7EB; font: 12.5px/1.7 'JetBrains Mono', monospace"></textarea>
+          <div style="display: flex; gap: 14px; padding: 8px 12px; font-size: 11.5px; color: {{c.sub}}; border-top: 1px solid {{c.line}}"><span>{{editLang}}</span><span>UTF-8</span><span>LF</span><span style="margin-left: auto">{{editLines}} lines</span></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{showDetails}}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 12px"><span style="{{det.bigIcon}}">{{det.ext}}</span><div style="min-width: 0"><div style="font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis">{{det.name}}</div><div style="font-size: 12px; color: {{c.sub}}">{{det.kind}}</div></div></div>
+          <dl style="margin: 0; font-size: 13px">
+            <sc-for list="{{det.facts}}" as="f" hint-placeholder-count="6"><div style="display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid {{c.line}}"><dt style="color: {{c.sub}}">{{f.k}}</dt><dd style="margin: 0; font-weight: 500; text-align: right; font-family: {{f.font}}">{{f.v}}</dd></div></sc-for>
+          </dl>
+          <p style="margin: 0; font-size: 12px; color: {{c.sub}}">Double-click a file to edit it. Archives (.zip, .tar.gz) can be extracted in place.</p>
+        </div>
+      </sc-if>
+    </aside>
+  </div>
+
+  <!-- dialogs -->
+  <sc-if value="{{modalOpen}}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; z-index: 50; background: rgba(15,17,21,.45); display: flex; align-items: flex-start; justify-content: center; padding-top: 120px; border-radius: 10px">
+      <div role="dialog" aria-modal="true" aria-label="{{modalTitle}}" style="width: min(440px, 92%); border-radius: 14px; background: {{c.card}}; color: {{c.text}}; box-shadow: 0 24px 48px rgba(0,0,0,.2); padding: 22px; display: flex; flex-direction: column; gap: 14px">
+        <h3 style="margin: 0; font-size: 17px">{{modalTitle}}</h3>
+        <sc-if value="{{mInput}}" hint-placeholder-val="{{ false }}">
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600">{{mLabel}}<input value="{{mValue}}" onInput="{{onModalInput}}" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: {{c.bg}}; color: {{c.text}}; font: 14px 'JetBrains Mono', monospace"></label>
+        </sc-if>
+        <sc-if value="{{mPerms}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <table style="border-collapse: collapse; font-size: 13px">
+              <thead><tr style="color: {{c.sub}}; font-size: 12px"><th style="text-align: left; padding: 6px 4px"></th><th style="padding: 6px 10px">Read</th><th style="padding: 6px 10px">Write</th><th style="padding: 6px 10px">Execute</th></tr></thead>
+              <tbody><sc-for list="{{permRows}}" as="p" hint-placeholder-count="3"><tr style="border-top: 1px solid {{c.line}}"><td style="padding: 8px 4px; font-weight: 600">{{p.who}}</td><sc-for list="{{p.bits}}" as="b" hint-placeholder-count="3"><td style="padding: 8px 10px; text-align: center"><input type="checkbox" aria-label="{{b.label}}" checked="{{b.on}}" onChange="{{b.toggle}}" style="width: 18px; height: 18px"></td></sc-for></tr></sc-for></tbody>
+            </table>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px"><span style="color: {{c.sub}}">Numeric value</span><span style="font: 700 18px 'JetBrains Mono', monospace">{{permOctal}}</span></div>
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 13px"><input type="checkbox">Apply to everything inside (recursive)</label>
+          </div>
+        </sc-if>
+        <sc-if value="{{mConfirm}}" hint-placeholder-val="{{ false }}">
+          <p style="margin: 0; font-size: 14px; color: {{c.sub}}">{{confirmText}}</p>
+        </sc-if>
+        <div style="display: flex; justify-content: flex-end; gap: 8px">
+          <button type="button" onClick="{{closeModal}}" style="{{btn}}">Cancel</button>
+          <button type="button" onClick="{{confirmModal}}" style="{{mOkStyle}}">{{mOk}}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#2563EB"},"rootLabel":{"editor":"text","default":"acme-blog · /var/www/html"},"$preview":{"width":1100,"height":820}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    const d = (name, mod, owner) => ({ name, dir: true, size: 0, mod, perm: 0o755, owner: owner || 'www-data' });
+    const f = (name, size, mod, perm, owner) => ({ name, dir: false, size, mod, perm: perm || 0o644, owner: owner || 'www-data' });
+    this.state = {
+      cwd: '',
+      fs: {
+        '': [d('wp-admin','Oct 2'), d('wp-content','Oct 29'), d('wp-includes','Oct 2'), d('logs','Oct 30','root'),
+             f('.htaccess',612,'Oct 12'), f('index.php',405,'Oct 2'), f('wp-config.php',3240,'Oct 28',0o640), f('robots.txt',98,'Sep 30'),
+             f('docker-compose.yml',884,'Oct 28',0o644,'root'), f('backup-2026-10-28.tar.gz',412000000,'Oct 28',0o600,'root')],
+        'wp-admin': [d('css','Oct 2'), d('js','Oct 2'), f('admin.php',12800,'Oct 2')],
+        'wp-includes': [d('blocks','Oct 2'), f('version.php',1100,'Oct 2')],
+        'wp-content': [d('themes','Oct 20'), d('plugins','Oct 29'), d('uploads','Oct 30'), f('index.php',28,'Oct 2')],
+        'wp-content/themes': [d('acme-theme','Oct 20'), d('twentytwentyfive','Oct 2')],
+        'wp-content/themes/acme-theme': [f('style.css',4810,'Oct 20'), f('functions.php',2210,'Oct 20'), f('header.php',1460,'Oct 18'), f('screenshot.png',184000,'Oct 18')],
+        'wp-content/themes/twentytwentyfive': [f('style.css',3800,'Oct 2')],
+        'wp-content/plugins': [d('woocommerce','Oct 29'), d('wordfence','Oct 25'), f('hello.php',2580,'Oct 2')],
+        'wp-content/plugins/woocommerce': [f('woocommerce.php',1900,'Oct 29')],
+        'wp-content/plugins/wordfence': [f('wordfence.php',2400,'Oct 25')],
+        'wp-content/uploads': [d('2026','Oct 30'), f('logo.svg',5300,'Oct 1'), f('catalogue.zip',8400000,'Oct 26')],
+        'wp-content/uploads/2026': [f('hero.webp',248000,'Oct 30'), f('team.jpg',512000,'Oct 21')],
+        'wp-admin/css': [], 'wp-admin/js': [], 'wp-includes/blocks': [],
+        'logs': [f('access.log',18400000,'Oct 30',0o640,'root'), f('error.log',214000,'Oct 30',0o640,'root')],
+      },
+      text: {
+        '.htaccess': '# BEGIN WordPress\nRewriteEngine On\nRewriteBase /\nRewriteRule ^index\\.php$ - [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule . /index.php [L]\n# END WordPress\n',
+        'index.php': "<?php\ndefine( 'WP_USE_THEMES', true );\nrequire __DIR__ . '/wp-blog-header.php';\n",
+        'wp-config.php': "<?php\ndefine( 'DB_NAME', 'acme_blog' );\ndefine( 'DB_USER', 'acme' );\ndefine( 'DB_PASSWORD', getenv('DB_PASSWORD') );\ndefine( 'DB_HOST', 'mariadb:3306' );\ndefine( 'WP_DEBUG', false );\n$table_prefix = 'wp_';\nrequire_once ABSPATH . 'wp-settings.php';\n",
+        'robots.txt': 'User-agent: *\nDisallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php\nSitemap: https://blog.acme.lk/sitemap.xml\n',
+        'docker-compose.yml': 'services:\n  wordpress:\n    image: wordpress:6.6-php8.3\n    restart: unless-stopped\n    volumes:\n      - ./:/var/www/html\n    environment:\n      WORDPRESS_DB_HOST: mariadb\n  mariadb:\n    image: mariadb:11.4\n    volumes:\n      - db:/var/lib/mysql\nvolumes:\n  db: {}\n',
+      },
+      sel: {}, focus: null, view: 'list', sort: 'name', dir: 1, q: '',
+      clip: null, modal: null, mValue: '', permBits: 0o644,
+      editPath: null, editText: '', dirty: false, toast: '', uploading: false,
+    };
+  }
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const accent = this.props.accent ?? '#2563EB';
+    const st = this.state;
+    const c = dark
+      ? { bg:'#0B1120', card:'#111827', head:'#0F172A', text:'#F3F4F6', sub:'#9CA3AF', line:'#1E293B', soft:'#172554', okBg:'#052E1B', okFg:'#86EFAC' }
+      : { bg:'#F8FAFC', card:'#FFFFFF', head:'#F8FAFC', text:'#0F172A', sub:'#475569', line:'#E2E8F0', soft:'#EFF6FF', okBg:'#DCFCE7', okFg:'#166534' };
+    const join = (a, b) => a ? a + '/' + b : b;
+    const list = st.fs[st.cwd] || [];
+    const say = (msg) => { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2600); };
+    const setFs = (fs, extra) => this.setState({ fs, ...(extra || {}) });
+    const clone = () => { const o = {}; Object.keys(st.fs).forEach(k => { o[k] = st.fs[k].map(e => ({ ...e })); }); return o; };
+    const selNames = Object.keys(st.sel).filter(k => st.sel[k] && list.some(e => e.name === k));
+    const one = selNames.length === 1 ? list.find(e => e.name === selNames[0]) : null;
+
+    const extOf = e => e.dir ? '' : (e.name.includes('.') ? e.name.split('.').pop().toLowerCase() : '');
+    const isText = e => !e.dir && ['php','txt','yml','yaml','css','js','json','md','log','htaccess','env','conf','html','svg'].includes(extOf(e) || (e.name.startsWith('.') ? 'htaccess' : ''));
+    const isArchive = e => !e.dir && (e.name.endsWith('.zip') || e.name.endsWith('.tar.gz') || e.name.endsWith('.tgz'));
+    const tone = e => e.dir ? ['#FEF3C7','#B45309'] : isArchive(e) ? ['#EDE9FE','#6D28D9'] : ['png','jpg','jpeg','webp','svg','gif'].includes(extOf(e)) ? ['#DCFCE7','#15803D'] : ['php','js','css','yml','html'].includes(extOf(e)) ? ['#DBEAFE','#1D4ED8'] : ['#F3F4F6','#4B5563'];
+    const iconBox = (e, size) => { const [bg, fg] = tone(e); return `width:${size}px;height:${size}px;border-radius:${size/4}px;flex:none;display:inline-flex;align-items:center;justify-content:center;font:700 ${size>40?12:9.5}px Inter;letter-spacing:.02em;text-transform:uppercase;background:${dark?'#1F2937':bg};color:${fg}`; };
+    const label = e => e.dir ? 'DIR' : (extOf(e) || 'FILE').slice(0, 4);
+    const fmt = n => n === 0 ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : n < 1073741824 ? (n/1048576).toFixed(1) + ' MB' : (n/1073741824).toFixed(2) + ' GB';
+    const permStr = (p, dir) => (dir ? 'd' : '-') + [6,3,0].map(s => ((p>>s)&4?'r':'-') + ((p>>s)&2?'w':'-') + ((p>>s)&1?'x':'-')).join('');
+    const oct = p => '0' + p.toString(8);
+
+    const q = st.q.trim().toLowerCase();
+    const sorted = list.filter(e => !q || e.name.toLowerCase().includes(q)).slice().sort((a, b) => {
+      if (a.dir !== b.dir) return a.dir ? -1 : 1;
+      const k = st.sort; const r = k === 'size' ? a.size - b.size : k === 'mod' ? a.mod.localeCompare(b.mod) : a.name.localeCompare(b.name);
+      return r * st.dir;
+    });
+    const openEntry = e => {
+      if (e.dir) return this.setState({ cwd: join(st.cwd, e.name), sel: {}, focus: null, q: '' });
+      if (isArchive(e)) { this.setState({ sel: { [e.name]: true }, focus: e.name }); return; }
+      if (isText(e)) { const p = join(st.cwd, e.name); this.setState({ editPath: p, editText: st.text[p] ?? `# ${e.name}\n`, dirty: false, focus: e.name, sel: { [e.name]: true } }); return; }
+      this.setState({ focus: e.name, sel: { [e.name]: true } });
+    };
+    const rows = sorted.map(e => { const sel = !!st.sel[e.name]; return {
+      name: e.name, ext: label(e), sizeLabel: e.dir ? '—' : fmt(e.size), mod: e.mod, owner: e.owner, permText: permStr(e.perm, e.dir), sel,
+      iconBox: iconBox(e, 26), bigIcon: iconBox(e, 52),
+      toggle: () => this.setState({ sel: { ...st.sel, [e.name]: !sel }, focus: e.name }),
+      open: () => openEntry(e),
+      rowStyle: `border-top:1px solid ${c.line};background:${sel ? c.soft : 'transparent'}`,
+      tileStyle: `display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border-radius:10px;cursor:pointer;font-family:Inter;color:${c.text};background:${sel?c.soft:c.card};border:${sel?'2px solid '+accent:'1px solid '+c.line}` }; });
+
+    const parts = st.cwd ? st.cwd.split('/') : [];
+    const crumbs = [{ label: '~', path: '' }].concat(parts.map((p, i) => ({ label: p, path: parts.slice(0, i + 1).join('/') }))).map((b, i, a) => ({ label: b.label, pick: () => this.setState({ cwd: b.path, sel: {}, focus: null }),
+      style: `border:0;background:transparent;padding:2px 4px;min-height:28px;border-radius:4px;cursor:pointer;font:${i===a.length-1?600:400} 13px 'JetBrains Mono',monospace;color:${i===a.length-1?c.text:accent}` }));
+
+    const tree = [];
+    const walk = (path, depth) => (st.fs[path] || []).filter(e => e.dir).sort((a,b)=>a.name.localeCompare(b.name)).forEach(e => {
+      const p = join(path, e.name); const on = st.cwd === p; const open = st.cwd === p || st.cwd.startsWith(p + '/');
+      tree.push({ name: e.name, fill: on ? accent : 'none', stroke: on ? accent : c.sub, pick: () => this.setState({ cwd: p, sel: {}, focus: null }),
+        style: `display:flex;align-items:center;gap:8px;min-height:32px;padding:0 8px 0 ${8 + depth*16}px;border:0;border-radius:6px;cursor:pointer;text-align:left;font:${on?600:500} 13px Inter;color:${on?(dark?'#93C5FD':'#1D4ED8'):c.text};background:${on?c.soft:'transparent'}` });
+      if (open && depth < 4) walk(p, depth + 1);
+    });
+    tree.push({ name: '/ (root)', fill: st.cwd===''?accent:'none', stroke: st.cwd===''?accent:c.sub, pick: () => this.setState({ cwd: '', sel: {}, focus: null }),
+      style: `display:flex;align-items:center;gap:8px;min-height:32px;padding:0 8px;border:0;border-radius:6px;cursor:pointer;text-align:left;font:${st.cwd===''?600:500} 13px Inter;color:${st.cwd===''?(dark?'#93C5FD':'#1D4ED8'):c.text};background:${st.cwd===''?c.soft:'transparent'}` });
+    walk('', 1);
+
+    const base = `display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:7px;font:600 13px Inter;cursor:pointer;`;
+    const btn = base + `border:1px solid ${c.line};background:${c.card};color:${c.text}`;
+    const off = base + `border:1px solid ${c.line};background:${c.card};color:${c.sub};opacity:.45;cursor:default`;
+    const has = selNames.length > 0;
+    const archiveSel = one && isArchive(one);
+
+    const colDefs = [['name','Name'],['size','Size'],['mod','Modified'],['perm','Permissions'],['owner','Owner']];
+    const cols = colDefs.map(([k, l]) => ({ label: l, arrow: st.sort === k ? (st.dir > 0 ? '↑' : '↓') : '', pick: () => this.setState({ sort: k, dir: st.sort === k ? -st.dir : 1 }) }));
+    const views = [['list','List'],['grid','Grid']].map(([k, l]) => ({ label: l, pick: () => this.setState({ view: k }),
+      style: `border:0;min-height:28px;padding:0 10px;border-radius:6px;font:600 12px Inter;cursor:pointer;color:${st.view===k?c.text:c.sub};background:${st.view===k?c.card:'transparent'}` }));
+
+    const focusE = list.find(e => e.name === st.focus) || one;
+    const curName = parts.length ? parts.at(-1) : '/';
+    const det = focusE ? { name: focusE.name, ext: label(focusE), bigIcon: iconBox(focusE, 44), kind: focusE.dir ? 'Folder' : isArchive(focusE) ? 'Archive' : isText(focusE) ? 'Text file' : 'File',
+      facts: [['Path', '/var/www/html/' + join(st.cwd, focusE.name)], ['Size', focusE.dir ? (st.fs[join(st.cwd, focusE.name)] || []).length + ' items' : fmt(focusE.size)], ['Modified', focusE.mod + ', 2026'], ['Owner', focusE.owner + ':' + focusE.owner], ['Permissions', oct(focusE.perm) + ' · ' + permStr(focusE.perm, focusE.dir)]].map(([k, v]) => ({ k, v, font: k==='Path'||k==='Permissions' ? "'JetBrains Mono',monospace" : 'Inter' })) }
+      : { name: curName, ext: 'DIR', bigIcon: iconBox({ dir: true, name: '' }, 44), kind: 'Current folder', facts: [['Items', String(list.length)], ['Folders', String(list.filter(e=>e.dir).length)], ['Files', String(list.filter(e=>!e.dir).length)], ['Total size', fmt(list.reduce((s,e)=>s+e.size,0))]].map(([k, v]) => ({ k, v, font: 'Inter' })) };
+
+    // actions
+    const uniq = (name) => { let n = name, i = 2; while (list.some(e => e.name === n)) { const dot = name.lastIndexOf('.'); n = dot > 0 ? `${name.slice(0,dot)} (${i})${name.slice(dot)}` : `${name} (${i})`; i++; } return n; };
+    const confirmModal = () => {
+      const m = st.modal; if (!m) return; const fs = clone(); const cur = fs[st.cwd]; const v = st.mValue.trim();
+      if ((m === 'folder' || m === 'file' || m === 'rename') && (!v || v.includes('/'))) { say('Enter a name without “/”.'); return; }
+      if (m === 'folder') { cur.push({ name: uniq(v), dir: true, size: 0, mod: 'Oct 30', perm: 0o755, owner: 'www-data' }); fs[join(st.cwd, uniq(v))] = []; setFs(fs, { modal: null }); say(`Folder “${v}” created`); }
+      if (m === 'file') { const n = uniq(v); cur.push({ name: n, dir: false, size: 0, mod: 'Oct 30', perm: 0o644, owner: 'www-data' }); setFs(fs, { modal: null, editPath: join(st.cwd, n), editText: '', dirty: false, focus: n, sel: { [n]: true } }); say(`File “${n}” created`); }
+      if (m === 'rename' && one) { if (cur.some(e => e.name === v && e !== one)) { say('A file with that name already exists.'); return; } const old = join(st.cwd, one.name), nw = join(st.cwd, v); cur.find(e => e.name === one.name).name = v; Object.keys(fs).forEach(k => { if (k === old || k.startsWith(old + '/')) { fs[nw + k.slice(old.length)] = fs[k]; delete fs[k]; } }); setFs(fs, { modal: null, sel: { [v]: true }, focus: v }); say(`Renamed to “${v}”`); }
+      if (m === 'delete') { fs[st.cwd] = cur.filter(e => !selNames.includes(e.name)); selNames.forEach(n => { const p = join(st.cwd, n); Object.keys(fs).forEach(k => { if (k === p || k.startsWith(p + '/')) delete fs[k]; }); }); setFs(fs, { modal: null, sel: {}, focus: null, editPath: selNames.some(n => join(st.cwd, n) === st.editPath) ? null : st.editPath }); say(`${selNames.length} item${selNames.length>1?'s':''} moved to trash`); }
+      if (m === 'perms') { cur.forEach(e => { if (selNames.includes(e.name)) e.perm = st.permBits; }); setFs(fs, { modal: null }); say(`Permissions set to ${oct(st.permBits)}`); }
+    };
+    const modalMeta = {
+      folder: ['New folder', 'Folder name', 'Create'], file: ['New file', 'File name', 'Create'], rename: ['Rename', 'New name', 'Rename'],
+      delete: ['Delete ' + (selNames.length === 1 ? '“' + selNames[0] + '”' : selNames.length + ' items') + '?', '', 'Move to trash'], perms: ['Permissions · ' + (selNames.length === 1 ? selNames[0] : selNames.length + ' items'), '', 'Apply'],
+    }[st.modal] || ['', '', 'OK'];
+    const pb = st.permBits;
+    const permRows = [['Owner',6],['Group',3],['Others',0]].map(([who, s]) => ({ who, bits: [['Read',4],['Write',2],['Execute',1]].map(([l, b]) => ({ label: `${who} ${l.toLowerCase()}`, on: !!((pb >> s) & b), toggle: () => this.setState({ permBits: pb ^ (b << s) }) })) }));
+
+    const paste = () => {
+      if (!st.clip) return; const fs = clone(); const src = fs[st.clip.from] || []; const dest = fs[st.cwd];
+      if (st.clip.mode === 'cut' && st.clip.from === st.cwd) { this.setState({ clip: null }); return; }
+      st.clip.names.forEach(n => { const e = src.find(x => x.name === n); if (!e) return; let nm = n; while (dest.some(x => x.name === nm)) nm = 'copy of ' + nm; dest.push({ ...e, name: nm, mod: 'Oct 30' });
+        const from = join(st.clip.from, n), to = join(st.cwd, nm); Object.keys(st.fs).forEach(k => { if (k === from || k.startsWith(from + '/')) fs[to + k.slice(from.length)] = st.fs[k].map(x => ({ ...x })); }); });
+      if (st.clip.mode === 'cut') { fs[st.clip.from] = (fs[st.clip.from] || []).filter(x => !st.clip.names.includes(x.name)); st.clip.names.forEach(n => { const p = join(st.clip.from, n); Object.keys(fs).forEach(k => { if (k === p || k.startsWith(p + '/')) delete fs[k]; }); }); }
+      setFs(fs, { clip: st.clip.mode === 'cut' ? null : st.clip }); say(`${st.clip.names.length} item${st.clip.names.length>1?'s':''} ${st.clip.mode === 'cut' ? 'moved' : 'pasted'} here`);
+    };
+    const compress = () => { if (!has) return; const fs = clone(); const n = uniq((selNames.length === 1 ? selNames[0] : 'archive') + '.zip'); const size = list.filter(e => selNames.includes(e.name)).reduce((s, e) => s + (e.size || 40000), 0); fs[st.cwd].push({ name: n, dir: false, size: Math.round(size * 0.42) + 1200, mod: 'Oct 30', perm: 0o644, owner: 'www-data' }); setFs(fs, { sel: { [n]: true }, focus: n }); say(`Compressed into ${n}`); };
+    const extract = () => { if (!archiveSel) return; const fs = clone(); const n = uniq(one.name.replace(/\.(zip|tar\.gz|tgz)$/, '')); fs[st.cwd].push({ name: n, dir: true, size: 0, mod: 'Oct 30', perm: 0o755, owner: 'www-data' }); fs[join(st.cwd, n)] = [{ name: 'README.txt', dir: false, size: 820, mod: 'Oct 30', perm: 0o644, owner: 'www-data' }, { name: 'assets', dir: true, size: 0, mod: 'Oct 30', perm: 0o755, owner: 'www-data' }]; fs[join(st.cwd, n) + '/assets'] = []; setFs(fs, { sel: { [n]: true }, focus: n }); say(`Extracted to ${n}/`); };
+    const upload = () => {
+      this.setState({ uploading: true, upPct: 8 });
+      let p = 8; clearInterval(this._u);
+      this._u = setInterval(() => { p += 23; if (p >= 100) { clearInterval(this._u); const fs = clone(); const cur = fs[this.state.cwd]; ['invoice-october.pdf', 'banner-2026.png'].forEach((n, i) => { const nm = uniq(n); cur.push({ name: nm, dir: false, size: i ? 642000 : 188000, mod: 'Oct 30', perm: 0o644, owner: 'www-data' }); }); this.setState({ fs, uploading: false, upPct: 0 }); say('2 files uploaded'); } else this.setState({ upPct: p }); }, 450);
+    };
+    const saveFile = () => { const p = st.editPath; if (!p) return; const fs = clone(); const dirP = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''; const nm = p.split('/').pop(); const e = (fs[dirP] || []).find(x => x.name === nm); if (e) { e.size = new Blob([st.editText]).size; e.mod = 'Oct 30'; } this.setState({ fs, text: { ...st.text, [p]: st.editText }, dirty: false }); say(`Saved ${nm}`); };
+    const ext = st.editPath ? (st.editPath.split('.').pop() || '') : '';
+    const langs = { php: 'PHP', yml: 'YAML', yaml: 'YAML', css: 'CSS', js: 'JavaScript', json: 'JSON', txt: 'Plain text', htaccess: 'Apache config', log: 'Log', md: 'Markdown', html: 'HTML', svg: 'SVG' };
+    const editing = !!st.editPath;
+    const pct = (st.upPct || 0) + '%';
+
+    return {
+      c, accent, rootLabel: this.props.rootLabel ?? 'acme-blog · /var/www/html',
+      crumbs, tree, rows, cols, views, det, permRows, permOctal: oct(pb),
+      q: st.q, onSearch: (ev) => this.setState({ q: ev.target.value }),
+      isList: st.view === 'list' && sorted.length > 0, isGrid: st.view === 'grid' && sorted.length > 0,
+      empty: sorted.length === 0, emptyText: q ? `Nothing in this folder matches “${st.q}”.` : 'This folder is empty. Upload files or create a new one.',
+      hasParent: !!st.cwd, goUp: () => this.setState({ cwd: parts.slice(0, -1).join('/'), sel: {}, focus: null }),
+      allSel: sorted.length > 0 && sorted.every(e => st.sel[e.name]),
+      toggleAll: () => { const all = sorted.length > 0 && sorted.every(e => st.sel[e.name]); const s = {}; if (!all) sorted.forEach(e => { s[e.name] = true; }); this.setState({ sel: s }); },
+      countText: `${list.filter(e=>e.dir).length} folders · ${list.filter(e=>!e.dir).length} files`,
+      selText: has ? `${selNames.length} selected` : '',
+      clipText: st.clip ? `${st.clip.names.length} on clipboard (${st.clip.mode})` : '',
+      btn, btnPrimary: base + `border:0;background:${accent};color:#fff`, btnPrimarySm: `height:32px;padding:0 12px;border:0;border-radius:6px;background:${accent};color:#fff;font:600 12.5px Inter;cursor:pointer`,
+      btnSel: has ? btn : off, btnSel1: one ? btn : off, btnArchive: archiveSel ? btn : off,
+      btnPaste: st.clip ? btn : off, pasteLabel: st.clip ? `Paste (${st.clip.names.length})` : 'Paste',
+      btnDanger: has ? base + `border:1px solid ${dark?'#7F1D1D':'#FECACA'};background:${c.card};color:#DC2626` : off,
+      doUpload: upload, uploading: !!st.uploading, uploads: [{ name: 'invoice-october.pdf', pct }, { name: 'banner-2026.png', pct }],
+      askNewFolder: () => this.setState({ modal: 'folder', mValue: 'new-folder' }),
+      askNewFile: () => this.setState({ modal: 'file', mValue: 'untitled.txt' }),
+      askRename: () => one && this.setState({ modal: 'rename', mValue: one.name }),
+      askDelete: () => has && this.setState({ modal: 'delete' }),
+      askPerms: () => one && this.setState({ modal: 'perms', permBits: one.perm }),
+      openSel: () => one && openEntry(one),
+      doCopy: () => has && (this.setState({ clip: { mode: 'copy', from: st.cwd, names: selNames } }), say(`${selNames.length} copied — open a folder and paste`)),
+      doCut: () => has && (this.setState({ clip: { mode: 'cut', from: st.cwd, names: selNames } }), say(`${selNames.length} cut — open a folder and paste`)),
+      doPaste: paste, doCompress: compress, doExtract: extract,
+      doDownload: () => has && say(selNames.length > 1 || (one && one.dir) ? 'Preparing a .zip download…' : `Downloading ${selNames[0]}`),
+      modalOpen: !!st.modal, modalTitle: modalMeta[0], mLabel: modalMeta[1], mOk: modalMeta[2],
+      mInput: ['folder','file','rename'].includes(st.modal), mPerms: st.modal === 'perms', mConfirm: st.modal === 'delete',
+      mOkStyle: base + (st.modal === 'delete' ? 'border:0;background:#DC2626;color:#fff' : `border:0;background:${accent};color:#fff`),
+      confirmText: 'Items go to the trash for 7 days and can be restored from Backups. Folders are deleted with everything inside.',
+      mValue: st.mValue, onModalInput: (ev) => this.setState({ mValue: ev.target.value }),
+      closeModal: () => this.setState({ modal: null }), confirmModal,
+      toast: !!st.toast, toastText: st.toast,
+      editing, showDetails: !editing, editName: st.editPath ? st.editPath.split('/').pop() : '', dirtyMark: st.dirty ? ' •' : '',
+      editText: st.editText, onEdit: (ev) => this.setState({ editText: ev.target.value, dirty: true }), saveFile,
+      closeEditor: () => this.setState({ editPath: null, dirty: false }),
+      editLang: langs[ext] || (st.editPath && st.editPath.endsWith('.htaccess') ? 'Apache config' : 'Plain text'), editLines: String(st.editText.split('\n').length),
+      asideStyle: `flex:${editing ? '2 1 420px' : '1 1 260px'};min-width:0;border-radius:10px;border:1px solid ${c.line};background:${c.card};overflow:hidden`,
+    };
+  }
+  componentWillUnmount() { clearInterval(this._u); clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

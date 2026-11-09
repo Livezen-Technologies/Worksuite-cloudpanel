@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: metube
+name: Metube
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A web GUI for youtube-dl with playlist support. It enables you to effortlessly download videos from YouTube and dozens of other sites.
+port: 8081
+source: coolify
+documentation: https://github.com/alexta69/metube
+compose: "services:\n  metube:\n    image: ghcr.io/alexta69/metube:latest\n    environment:\n      UID: '1000'\n      GID: '1000'\n    volumes:\n    - metube-downloads:/downloads\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8081\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8081'\nvolumes:\n  metube-downloads: {}\n"

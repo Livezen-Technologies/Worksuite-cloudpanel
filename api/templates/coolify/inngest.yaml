@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: inngest
+name: Inngest
+category: Automation
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Durable workflow engine for background jobs, queues and scheduled tasks.
+port: 8288
+source: coolify
+documentation: https://www.inngest.com/docs/self-hosting
+compose: "services:\n  inngest:\n    image: inngest/inngest:v1.27.0\n    command: inngest start --host 0.0.0.0\n    environment:\n      INNGEST_EVENT_KEY: ${SERVICE_HEX_EVENTKEY}\n      INNGEST_SIGNING_KEY: ${SERVICE_HEX_SIGNINGKEY}\n      INNGEST_POSTGRES_URI: postgres://inngest:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/inngest\n      INNGEST_REDIS_URI: redis://redis:6379\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - inngest\n      - alpha\n      - doctor\n      - healthcheck\n      interval: 30s\n      timeout: 10s\n      retries: 3\n      start_period: 40s\n    restart: unless-stopped\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8288'\n  postgres:\n    image: postgres:17\n    environment:\n      POSTGRES_DB: inngest\n      POSTGRES_USER:\
+  \ inngest\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    volumes:\n    - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U inngest -d inngest\n      interval: 5s\n      timeout: 5s\n      retries: 5\n    restart: unless-stopped\n  redis:\n    image: redis:7-alpine\n    command: redis-server --appendonly yes\n    volumes:\n    - redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 3s\n      retries: 5\n    restart: unless-stopped\nvolumes:\n  postgres-data: {}\n  redis-data: {}\n"

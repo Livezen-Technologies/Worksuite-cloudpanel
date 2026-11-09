@@ -1,31 +1,65 @@
+import CustomerProfile from './pages/admin/CustomerProfile'
+import { NotFound } from './components/ErrorStates'
+import { Home as CustomerHome } from './pages/app/Home'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { ReactNode } from 'react'
 import { isApiError } from './api/client'
-import { AuthProvider, homeFor, useAuth } from './lib/auth'
+import { AuthProvider, useAuth } from './lib/auth'
 import { ToastProvider } from './components/Toasts'
 import { JobsProvider } from './api/jobs'
-import { Login, Register } from './pages/auth/Auth'
+import { ForgotPassword, InviteAccept, SsoCallback, Login, Register, ResetPassword, VerifyEmail } from './pages/auth/Auth'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import Overview from './pages/admin/Overview'
 import Servers from './pages/admin/Servers'
+import ServicesPage from './pages/admin/ServiceSettings'
+import SystemServices from './pages/admin/SystemServices'
 import ServerDetail from './pages/admin/ServerDetail'
 import Containers from './pages/admin/Containers'
 import { Applications, Compose } from './pages/admin/Deploy'
+import DeploymentProgress from './pages/admin/DeploymentProgress'
 import { Images, Networks, Volumes, Domains, Databases } from './pages/admin/Resources'
+import { FileManager } from './pages/admin/FileManager'
 import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
 import { Users, Settings } from './pages/admin/Admin'
 import { AdminAccount } from './pages/admin/Account'
 import Firewall from './pages/admin/Firewall'
 import Store from './pages/admin/Store'
+import Antivirus from './pages/admin/Antivirus'
+import DnsZones from './pages/admin/DnsZones'
+import WordPress from './pages/admin/WordPress'
+import Migrations from './pages/admin/Migrations'
+import Status from './pages/public/Status'
+import Uptime from './pages/admin/Uptime'
+import Mail from './pages/admin/Mail'
+import PublicPages from './pages/admin/PublicPages'
+import { CronManager } from './components/CronManager'
 import { PanelLayout } from './pages/app/PanelLayout'
 import { MyApps, AppDetail } from './pages/app/Apps'
 import NewSite from './pages/app/NewSite'
 import HostApp from './pages/app/HostApp'
+import UserProjects from './pages/app/Projects'
+import UserAi from './pages/app/Ai'
+import UserVps from './pages/app/Vps'
+import GitSources from './pages/admin/GitSources'
+import AiAdmin from './pages/admin/AiAdmin'
+import Cluster from './pages/admin/Cluster'
+import Kubernetes from './pages/admin/Kubernetes'
+import OAuthConsent from './pages/auth/OAuthConsent'
+import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from './pages/app/Extras'
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
-import { Packages, Customers } from './pages/admin/Hosting'
+import Projects from './pages/admin/Projects'
+import PrivateNetwork from './pages/admin/PrivateNetwork'
+import { Packages } from './pages/admin/Hosting'
+import { FinanceOverview, FinanceReports, FinanceSettings, FinanceGateways, FinanceProfiles } from './pages/admin/Finance'
+import { FinanceInvoices, FinancePayments, FinanceRefunds, FinanceSubscriptions, FinanceTransactions } from './pages/admin/FinanceLedger'
+import { CustomersOverview, CustomerDirectory, Companies, CustomerContacts, CustomerGroups } from './pages/admin/Customers'
 import AppManage from './pages/admin/AppManage'
+import SalesLeads from './pages/admin/SalesLeads'
+import Partners from './pages/admin/Partners'
+import { SiteLayout } from './site/SiteLayout'
+import { SiteHome, Pricing, Templates, Docs, Changelog, Blog, About, Contact, Legal } from './site/pages'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,59 +75,119 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { me, loading } = useAuth()
   const loc = useLocation()
   if (loading) return <div className="p-8 text-muted">Loading…</div>
-  if (!me) return <Navigate to="/login" replace state={{ from: loc.pathname }} />
+  if (!me) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />
   return <>{children}</>
-}
-function Home() {
-  const { me, loading } = useAuth()
-  if (loading) return <div className="p-8 text-muted">Loading…</div>
-  return <Navigate to={me ? homeFor(me) : '/login'} replace />
 }
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route element={<SiteLayout />}>
+        <Route path="/" element={<SiteHome />} />
+        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/templates" element={<Templates />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="/changelog" element={<Changelog />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/legal" element={<Legal />} />
+      </Route>
       <Route path="/login" element={<Login />} />
+      <Route path="/status" element={<Status />} />
+      <Route path="/invite/:token" element={<InviteAccept />} />
+      <Route path="/auth/sso/callback" element={<SsoCallback />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/oauth/consent" element={<RequireAuth><OAuthConsent /></RequireAuth>} />
       <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Overview />} />
         <Route path="servers" element={<Servers />} />
+        <Route path="system-services" element={<SystemServices />} />
         <Route path="servers/:id" element={<ServerDetail />} />
         <Route path="containers" element={<Containers />} />
         <Route path="firewall" element={<Firewall />} />
         <Route path="store" element={<Store />} />
         <Route path="store/:tab" element={<Store />} />
+        <Route path="antivirus" element={<Antivirus />} />
+        <Route path="dns" element={<DnsZones />} />
+        <Route path="wordpress" element={<WordPress />} />
+        <Route path="migrations" element={<Migrations />} />
+        <Route path="mail" element={<Mail />} />
+        <Route path="public-pages" element={<PublicPages />} />
+        <Route path="cron" element={<CronManager base="/cron" title="Cron & scheduler" subtitle="Every scheduled job, its runs and its alerts" />} />
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
+        <Route path="projects" element={<Projects />} />
+        <Route path="git" element={<GitSources />} />
+        <Route path="ai" element={<AiAdmin />} />
+        <Route path="cluster" element={<Cluster />} />
+        <Route path="kubernetes" element={<Kubernetes />} />
+        <Route path="leads" element={<SalesLeads />} />
+        <Route path="partners" element={<Partners />} />
+        <Route path="private-network" element={<PrivateNetwork />} />
         <Route path="applications/:id" element={<AppManage />} />
+        <Route path="deployments/:id" element={<DeploymentProgress />} />
         <Route path="packages" element={<Packages />} />
-        <Route path="customers" element={<Customers />} />
+        <Route path="finance" element={<FinanceOverview />} />
+        <Route path="finance/invoices" element={<FinanceInvoices />} />
+        <Route path="finance/payments" element={<FinancePayments />} />
+        <Route path="finance/refunds" element={<FinanceRefunds />} />
+        <Route path="finance/subscriptions" element={<FinanceSubscriptions />} />
+        <Route path="finance/billing-profiles" element={<FinanceProfiles />} />
+        <Route path="finance/transactions" element={<FinanceTransactions />} />
+        <Route path="finance/gateways" element={<FinanceGateways />} />
+        <Route path="finance/reports" element={<FinanceReports />} />
+        <Route path="finance/settings" element={<FinanceSettings />} />
+        {/* Static segments are ranked above the dynamic one, so these win
+            over customers/:id rather than being read as a customer id. */}
+        <Route path="customers" element={<CustomerDirectory />} />
+        <Route path="customers/overview" element={<CustomersOverview />} />
+        <Route path="customers/companies" element={<Companies />} />
+        <Route path="customers/contacts" element={<CustomerContacts />} />
+        <Route path="customers/groups" element={<CustomerGroups />} />
+        <Route path="customers/:id" element={<CustomerProfile />} />
         <Route path="compose" element={<Compose />} />
         <Route path="images" element={<Images />} />
         <Route path="networks" element={<Networks />} />
         <Route path="volumes" element={<Volumes />} />
+        <Route path="files" element={<FileManager />} />
         <Route path="domains" element={<Domains />} />
         <Route path="databases" element={<Databases />} />
         <Route path="backups" element={<Backups />} />
         <Route path="monitoring" element={<Monitoring />} />
+        <Route path="uptime" element={<Uptime />} />
         <Route path="logs" element={<Logs />} />
         <Route path="automation" element={<Automation />} />
         <Route path="users" element={<Users />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="services" element={<ServicesPage />} />
         <Route path="account" element={<AdminAccount />} />
       </Route>
       <Route path="/app" element={<RequireAuth><PanelLayout /></RequireAuth>}>
-        <Route index element={<MyApps />} />
+        <Route index element={<CustomerHome />} />
+        <Route path="apps" element={<MyApps />} />
+        <Route path="projects" element={<UserProjects />} />
+        <Route path="ai" element={<UserAi />} />
+        <Route path="servers" element={<UserVps />} />
+        <Route path="git" element={<GitSources base="/app/git" customer />} />
         <Route path="host" element={<HostApp />} />
         <Route path="new-site" element={<NewSite />} />
         <Route path="apps/:id" element={<AppDetail />} />
+        <Route path="files" element={<FileManager customer />} />
         <Route path="domains" element={<UserDomains />} />
         <Route path="backups" element={<UserBackups />} />
+        <Route path="email" element={<UserMail />} />
+        <Route path="security" element={<UserSecurity />} />
+        <Route path="firewall" element={<UserFirewall />} />
+        <Route path="cron" element={<UserCron />} />
+        <Route path="move" element={<UserMigrations />} />
         <Route path="billing" element={<Billing />} />
         <Route path="account" element={<Account />} />
       </Route>
-      <Route path="*" element={<div className="p-8"><h1>Page not found</h1><a href="/">Go home</a></div>} />
+      <Route path="*" element={<main id="main" className="min-h-screen flex"><NotFound /></main>} />
     </Routes>
   )
 }

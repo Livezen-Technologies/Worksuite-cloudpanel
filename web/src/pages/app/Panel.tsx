@@ -1,12 +1,15 @@
+import { SignInApps } from '../../components/SignInApps'
+import { RecoveryCodesDialog, TwoFactorSetupModal } from '../../components/TwoFactorSetup'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, Meter, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, Meter, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { CopyButton } from '../../components/CopyButton'
 import { PasskeyManager } from '../../components/Passkeys'
+import { SshKeyManager } from '../../components/SshKeys'
 import { useToast } from '../../components/Toasts'
 import { ApiTokens } from '../admin/Admin'
 import { useAuth } from '../../lib/auth'
@@ -78,7 +81,7 @@ export function UserDomains() {
           <div className="mt-5">
             <div className="text-sm font-semibold mb-2">Add these records at your DNS provider for <span className="font-mono">{active.domain ?? active.hostname}</span></div>
             <div className="overflow-x-auto border border-line rounded-lg">
-              <table className="w-full text-sm border-collapse min-w-[560px]">
+              <table className="tbl min-w-[560px]">
                 <thead><tr className="text-left text-xs text-muted bg-head"><th className="p-2.5">Type</th><th className="p-2.5">Name</th><th className="p-2.5">Value</th><th className="p-2.5">Status</th><th className="p-2.5"><span className="sr-only">Copy</span></th></tr></thead>
                 <tbody>
                   {(check?.records ?? []).map((r) => (
@@ -101,10 +104,10 @@ export function UserDomains() {
       </Card>
       <Card title="Your domains" pad={false}>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse min-w-[640px]">
+          <table className="tbl min-w-[640px]">
             <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Domain</th><th className="p-2.5">App</th><th className="p-2.5">DNS</th><th className="p-2.5">HTTPS</th><th className="p-2.5">Renews</th><th className="p-2.5"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {domains.rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">No domains yet. Add one above.</td></tr>}
+              {domains.rows.length === 0 && <tr><td colSpan={6} className="!p-0"><Empty icon="globe">No domains yet. Add one above and HTTPS is issued automatically.</Empty></td></tr>}
               {domains.rows.map((d) => {
                 const renew = daysUntil(d.renewal_at ?? d.certificate?.expires_at ?? d.renews_at)
                 const expires = d.certificate?.expires_at ? daysUntil(d.certificate.expires_at) : null
@@ -213,7 +216,7 @@ export function Billing() {
       if (r.url) window.location.assign(r.url)
     } catch (e) { toast.error(e, 'Could not open the payment portal') } finally { setPortalBusy(false) }
   }
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
   const plan = (typeof b?.plan === 'string' ? { name: b.plan } : b?.plan ?? {}) as R
   const planList = (Array.isArray(plans.item) ? plans.item : (plans.item as R | undefined)?.plans ?? []) as R[]
   const bars = ([['Apps', 'apps', ''], ['RAM', 'ram_mb', 'GB'], ['Storage', 'storage_gb', 'GB'], ['Bandwidth', 'bandwidth_gb', 'GB']] as const).map(([label, key, unit]) => {
@@ -230,7 +233,12 @@ export function Billing() {
           <div className="text-[13px] text-muted">Current plan</div>
           <div className="text-xl font-bold mt-1.5">{plan.name ?? '—'}{planPrice(plan) != null ? ` · ${money(planPrice(plan), plan.currency)} / month` : ''}</div>
           <div className="text-sm text-muted mt-1">{b?.limits ? `${num(b.limits.apps)} apps · ${num(b.limits.ram_mb) / 1024} GB RAM · ${num(b.limits.storage_gb)} GB storage` : ''}</div>
-          <div className="flex gap-2 mt-4 flex-wrap"><button type="button" className="btn btn-primary" onClick={() => setCompare(true)}>Upgrade</button><button type="button" className="btn" onClick={() => setCompare(true)}>Compare plans</button></div>
+          {b?.subscription_status === 'canceled' && <div role="status" className="mt-3 rounded-lg border border-line p-2.5 text-sm"><Badge tone="y">cancelled</Badge> Your sites keep running until {b?.ends_at ? new Date(String(b.ends_at)).toLocaleDateString() : 'the end of this period'}. Choose a plan to start billing again.</div>}
+          <div className="flex gap-2 mt-4 flex-wrap"><button type="button" className="btn btn-primary" onClick={() => setCompare(true)}>{b?.subscription_status === 'canceled' ? 'Choose a plan' : 'Upgrade'}</button><button type="button" className="btn" onClick={() => setCompare(true)}>Compare plans</button>
+            {b?.subscription_status !== 'canceled' && <button type="button" className="btn btn-ghost text-danger" disabled={busy} onClick={() => {
+              const reason = window.prompt('Cancel your subscription? It will not renew; your sites keep running until the end of the period you paid for.\n\nWhy are you leaving? (optional)')
+              if (reason !== null) run({ path: '/app/billing/cancel', body: { reason: reason || null }, label: 'Cancel subscription', success: 'Subscription cancelled; it will not renew' }).catch(() => {})
+            }}>Cancel subscription</button>}</div>
         </Card>
         <Card>
           <div className="flex justify-between text-[13px] text-muted"><span>This month so far</span>{b?.renews_at && <span>renews {new Date(b.renews_at).toLocaleDateString()}</span>}</div>
@@ -246,10 +254,21 @@ export function Billing() {
         </Card>
         <Card>
           <div className="text-[13px] text-muted">Payment method</div>
-          <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
+          {Array.isArray(b?.payment_providers) && b.payment_providers.length > 1 && (
+            <div className="flex gap-1 mt-2" role="group" aria-label="Pay with">
+              {(b.payment_providers as { id: string; label: string }[]).map((p) => (
+                <button key={p.id} type="button" aria-pressed={b.payment_provider === p.id} disabled={busy || b.payment_provider === p.id}
+                  className={`btn btn-sm ${b.payment_provider === p.id ? 'btn-primary' : ''}`}
+                  onClick={() => run({ path: '/app/billing/provider', body: { provider: p.id }, label: 'Change payment provider', success: `You now pay with ${p.label}` }).catch(() => {})}>{p.label}</button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2 mt-2 font-semibold"><Badge tone="n">{typeof pm === 'object' ? (pm?.brand ?? 'CARD') : 'CARD'}</Badge>{typeof pm === 'object' ? (pm?.brand === 'paypal' ? `PayPal${pm?.email ? ` · ${pm.email}` : ''}` : pm?.last4 ? `Card ending ${pm.last4}` : 'No card on file') : (pm ?? 'No card on file')}</div>
           <div className="text-sm text-muted mt-2">Billing email: {b?.billing_email ?? '—'}</div>
           <p className="text-xs text-muted">Card details are handled by our payment provider; we never store them.</p>
-          {b?.payment_provider === 'stripe'
+          {b?.payment_provider === 'paypal'
+            ? <button type="button" className="btn" disabled={portalBusy} onClick={openPortal}>{portalBusy ? 'Opening PayPal…' : (typeof pm === 'object' && pm?.brand === 'paypal' ? 'Manage in PayPal' : 'Pay with PayPal')}</button>
+            : b?.payment_provider === 'stripe'
             ? <button type="button" className="btn" disabled={portalBusy} onClick={openPortal}>{portalBusy ? 'Opening Stripe…' : (typeof pm === 'object' && pm?.last4 ? 'Manage in Stripe' : 'Add card with Stripe')}</button>
             : (b?.payment_portal_url ?? b?.portal_url ?? (typeof pm === 'object' ? pm?.update_url : undefined)) ? <a className="btn no-underline" href={b?.payment_portal_url ?? b?.portal_url ?? (pm as R).update_url} target="_blank" rel="noreferrer">Update</a> : <button type="button" className="btn" disabled title="Payment provider not connected">Update</button>}
         </Card>
@@ -259,7 +278,7 @@ export function Billing() {
           <ul className="list-none m-0 p-0">
             {invoices.rows.map((iv) => (
               <li key={iv.id ?? iv.number} className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-line first:border-t-0 text-sm">
-                <span className="font-mono font-semibold">{iv.number}</span>
+                <span className="font-mono font-semibold">{iv.number}{iv.kind === 'credit_note' && <Badge tone="b">credit note</Badge>}</span>
                 <span className="text-muted flex-1 min-w-[140px]">{iv.period ?? iv.period_label}</span>
                 <span className="font-semibold" title={iv.tax_cents ? `incl. ${money(num(iv.tax_cents) / 100, iv.currency)} tax` : undefined}>{iv.amount_cents != null ? money(num(iv.amount_cents) / 100, iv.currency) : money(iv.amount ?? iv.total)}</span>
                 <StatusBadge status={iv.status} />
@@ -297,17 +316,16 @@ export function Account() {
   const toast = useToast()
   const [p, setP] = useState<R>({})
   const [mfa, setMfa] = useState<{ secret: string; otpauth_url: string } | null>(null)
-  const [otp, setOtp] = useState('')
+  const [codes, setCodes] = useState<string[] | null>(null)
   const [invite, setInvite] = useState(false)
   const [inv, setInv] = useState({ email: '', role: 'developer' })
   useEffect(() => { if (acct) setP({ name: acct.name ?? acct.user?.name, email: acct.email ?? acct.user?.email, organization: acct.organization?.name ?? acct.organization ?? '', photo_url: acct.photo_url }) }, [acct])
-  if (isLoading) return <Card>Loading…</Card>
+  if (isLoading) return <Loading label="Loading…" />
   const mfaOn = !!(acct?.mfa_enabled ?? acct?.user?.mfa_enabled ?? me?.user?.mfa_enabled)
   const team = (acct?.team ?? acct?.members ?? []) as R[]
   const startMfa = async () => { try { setMfa(unwrap(await api.post('/me/mfa/enable'))) } catch (e) { toast.error(e, 'Could not start two-factor setup') } }
-  const confirmMfa = async () => {
-    try { await api.post('/me/mfa/confirm', { otp }); toast.success('Two-factor authentication is on'); setMfa(null); setOtp(''); refresh() }
-    catch (e) { toast.error(e, 'That code did not work. Check your authenticator app and try again.') }
+  const confirmMfa = async (otp: string) => {
+    try { const r = unwrap<{ recovery_codes?: string[] }>(await api.post('/me/mfa/confirm', { otp })); toast.success('Two-factor authentication is on'); setMfa(null); setCodes(r.recovery_codes ?? null); refresh(); return true } catch { return false }
   }
   return (
     <>
@@ -322,7 +340,7 @@ export function Account() {
             <Field label="Full name"><input className="input" value={p.name ?? ''} onChange={(e) => setP({ ...p, name: e.target.value })} /></Field>
             <Field label="Email"><input className="input" type="email" value={p.email ?? ''} onChange={(e) => setP({ ...p, email: e.target.value })} /></Field>
             <Field label="Organisation"><input className="input" value={p.organization ?? ''} onChange={(e) => setP({ ...p, organization: e.target.value })} /></Field>
-            <button className="btn btn-primary self-start" disabled={busy}>Save</button>
+            <FormActions><button className="btn btn-primary" disabled={busy}>Save</button></FormActions>
           </form>
         </Card>
         <div className="flex-[1_1_320px] flex flex-col gap-4 min-w-0">
@@ -337,6 +355,7 @@ export function Account() {
             </div>
           </Card>
           <PasskeyManager />
+          <SshKeyManager />
           <Card title="Team" actions={<button type="button" className="btn" onClick={() => setInvite(true)}>Invite</button>}>
             {team.length === 0 ? <div className="text-sm text-muted">Only you so far.</div> : team.map((m, i) => (
               <div key={m.id ?? i} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">
@@ -348,23 +367,16 @@ export function Account() {
           <ApiTokens path="/app/account/tokens" abilities={['deploy']} />
         </div>
       </div>
-      <Modal open={!!mfa} onClose={() => setMfa(null)} title="Turn on two-factor authentication"
-        footer={<><button type="button" className="btn" onClick={() => setMfa(null)}>Cancel</button><button type="button" className="btn btn-primary" disabled={otp.length !== 6} onClick={confirmMfa}>Turn on</button></>}>
-        <ol className="m-0 pl-5 flex flex-col gap-3">
-          <li>Open your authenticator app and add an account with this key, or open the setup link on your phone.
-            <div className="flex gap-2 mt-2 items-center"><code className="font-mono text-xs p-2 rounded bg-head break-all flex-1">{mfa?.secret}</code><CopyButton value={mfa?.secret ?? ''} label="Copy key" /></div>
-            {mfa?.otpauth_url && <a href={mfa.otpauth_url} className="inline-flex min-h-[44px] items-center font-semibold">Open in authenticator app</a>}
-          </li>
-          <li><Field label="Enter the 6-digit code it shows"><input className="input font-mono tracking-widest" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} /></Field></li>
-        </ol>
-      </Modal>
+      <SignInApps />
+      <TwoFactorSetupModal setup={mfa} onClose={() => setMfa(null)} onConfirm={confirmMfa} />
+      <RecoveryCodesDialog codes={codes} onClose={() => setCodes(null)} />
       <Modal open={invite} onClose={() => setInvite(false)} title="Invite a team member"
         footer={<><button type="button" className="btn" onClick={() => setInvite(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={!/^\S+@\S+\.\S+$/.test(inv.email) || busy} onClick={() => run({ path: '/app/account/team', body: inv, label: 'Invite', success: `Invite sent to ${inv.email}` }).then(() => { setInvite(false); setInv({ email: '', role: 'developer' }) }).catch(() => {})}>Send invite</button></>}>
         <div className="flex flex-col gap-4">
           <Field label="Email"><input className="input" type="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} /></Field>
           <fieldset className="border-0 p-0 m-0"><legend className="text-[13px] font-semibold mb-2">Role</legend>
             {([['owner', 'Owner', 'Everything, including billing and deleting apps'], ['developer', 'Developer', 'Deploy and manage apps and domains'], ['billing', 'Billing', 'Plans, invoices and payment only']] as const).map(([v, l, s]) => (
-              <label key={v} className="flex gap-3 items-start py-2 min-h-[44px] cursor-pointer"><input type="radio" name="role" checked={inv.role === v} onChange={() => setInv({ ...inv, role: v })} className="mt-1" /><span><span className="block font-semibold text-sm">{l}</span><span className="block text-xs text-muted">{s}</span></span></label>
+              <label key={v} className="choice mb-2"><input type="radio" name="role" checked={inv.role === v} onChange={() => setInv({ ...inv, role: v })} /><span><span className="choice-title">{l}</span><span className="choice-hint">{s}</span></span></label>
             ))}
           </fieldset>
         </div>

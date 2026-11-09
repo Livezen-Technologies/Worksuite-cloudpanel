@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: wordpress-with-mariadb
+name: Wordpress With Mariadb
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: WordPress is open source software you can use to create a beautiful website, blog, or app.
+port: 80
+source: coolify
+documentation: https://wordpress.org
+compose: "services:\n  wordpress:\n    image: wordpress:latest\n    volumes:\n    - wordpress-files:/var/www/html\n    environment:\n      WORDPRESS_DB_HOST: mariadb\n      WORDPRESS_DB_USER: ${SERVICE_USER_WORDPRESS}\n      WORDPRESS_DB_PASSWORD: ${SERVICE_PASSWORD_WORDPRESS}\n      WORDPRESS_DB_NAME: wordpress\n    depends_on:\n    - mariadb\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1\n      interval: 2s\n      timeout: 10s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11\n    volumes:\n    - mariadb-data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MYSQL_DATABASE: wordpress\n      MYSQL_USER: ${SERVICE_USER_WORDPRESS}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_WORDPRESS}\n    healthcheck:\n      test:\n   \
+  \   - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  wordpress-files: {}\n  mariadb-data: {}\n"

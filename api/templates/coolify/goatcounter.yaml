@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: goatcounter
+name: Goatcounter
+category: Analytics
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Lightweight web analytics platform.
+port: 8080
+source: coolify
+documentation: https://www.goatcounter.com/help
+compose: "services:\n  goatcounter:\n    image: arp242/goatcounter:2.7\n    environment: {}\n    volumes:\n    - goatcounter-data:/home/goatcounter/goatcounter-data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- http://127.0.0.1:8080/status >/dev/null 2>&1 || exit 1\n      interval: 10s\n      timeout: 5s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  goatcounter-data: {}\n"

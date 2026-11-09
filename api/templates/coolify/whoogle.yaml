@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: whoogle
+name: Whoogle
+category: Tools
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Whoogle is a self-hosted, privacy-focused search engine front-end for accessing Google search results without tracking and data collection.
+port: 5000
+source: coolify
+documentation: https://github.com/benbusby/whoogle-search?tab=readme-ov-file
+compose: "services:\n  whoogle:\n    image: benbusby/whoogle-search:latest\n    environment: {}\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:5000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5000'\n"

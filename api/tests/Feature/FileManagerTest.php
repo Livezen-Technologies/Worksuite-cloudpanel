@@ -1,0 +1,338 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AuditLog;
+use App\Models\Volume;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+class FileManagerTest extends TestCase
+{
+    private function volume($org, $server): Volume
+    {
+        return Volume::allTenants()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'name' => 'acme_blog_html', 'type' => 'volume', 'status' => 'active']);
+    }
+
+    public function test_listing_runs_on_the_agent_and_returns_on_the_job(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->getJson("/api/v1/volumes/{$volume->id}/files?path=/wp-content")->assertStatus(202)->json('data.job_id');
+
+        $commands = $this->heartbeat($secret)['commands'];
+        $this->assertCount(1, $commands);
+        $this->assertSame('fs.list', $commands[0]['type']);
+        $this->assertSame(['volume' => 'acme_blog_html', 'path' => '/wp-content'], $commands[0]['payload']);
+
+        $entries = [['name' => 'themes', 'type' => 'dir', 'size' => 4096, 'mode' => '0755', 'modified' => '2026-10-29T10:00:00Z']];
+        $this->commandResult($secret, $commands[0]['id'], 'succeeded', ['output' => ['path' => 'wp-content', 'entries' => $entries, 'truncated' => false]])->assertOk();
+
+        $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertOk()
+            ->assertJsonPath('data.status', 'succeeded')
+            ->assertJsonPath('data.result.entries.0.name', 'themes');
+    }
+
+    public function test_writes_are_audited_with_the_path_but_never_the_content(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($token)->putJson("/api/v1/volumes/{$volume->id}/files/content", ['path' => 'wp-config.php', 'content' => "define('DB_PASSWORD', 'hunter2');"])->assertStatus(202);
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.write', $command['type']);
+        $log = AuditLog::where('organization_id', $org->id)->where('action', 'files.write')->sole();
+        $this->assertSame('wp-config.php', $log->meta['path']);
+        $this->assertSame(33, $log->meta['bytes']);
+        $this->assertStringNotContainsString('hunter2', json_encode(AuditLog::where('organization_id', $org->id)->get()));
+    }
+
+    public function test_failures_name_the_problem_without_the_host_path(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->getJson("/api/v1/volumes/{$volume->id}/files/content?path=../../etc/shadow")->assertStatus(202)->json('data.job_id');
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->commandResult($secret, $command['id'], 'failed', ['message' => 'openat /var/lib/docker/volumes/acme_blog_html/_data/link: path escapes from parent'])->assertOk();
+
+        $job = $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertOk()->json('data');
+        $this->assertSame('failed', $job['status']);
+        $this->assertSame('That path is outside the volume.', $job['error']);
+    }
+
+    public function test_names_are_validated_and_offline_servers_refused(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        foreach (['..', 'a/b', ''] as $bad) {
+            $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/rename", ['path' => 'index.php', 'new_name' => $bad])->assertStatus(422);
+        }
+
+        $server->forceFill(['last_heartbeat_at' => now()->subHour()])->save();
+        $this->api($token)->getJson("/api/v1/volumes/{$volume->id}/files")->assertStatus(409);
+    }
+
+    public function test_viewers_can_browse_but_not_change_files(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $viewer] = $this->member($org, 'viewer');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($viewer)->getJson("/api/v1/volumes/{$volume->id}/files")->assertStatus(202);
+        $this->api($viewer)->deleteJson("/api/v1/volumes/{$volume->id}/files", ['path' => 'index.php'])->assertForbidden();
+        $this->api($viewer)->getJson("/api/v1/volumes/{$volume->id}/files/content?path=wp-config.php")->assertForbidden();
+    }
+
+    public function test_another_organisation_cannot_reach_the_volume(): void
+    {
+        [, $org, $token] = $this->org();
+        [, , $other] = $this->org();
+        $volume = $this->volume($org, $this->server($org));
+
+        $this->api($other)->getJson("/api/v1/volumes/{$volume->id}/files")->assertNotFound();
+    }
+
+    /** The path and query of a signed agent URL, so the test client can call it. */
+    private function local(string $url): string
+    {
+        return substr($url, strlen(rtrim(config('backups.agent_api_url'), '/')));
+    }
+
+    public function test_upload_stores_files_for_the_agent_to_fetch_then_cleans_up(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->post("/api/v1/volumes/{$volume->id}/files/upload", [
+            'path' => 'wp-content',
+            'files' => [UploadedFile::fake()->createWithContent('style.css', 'a{}'), UploadedFile::fake()->createWithContent('logo.svg', '<svg/>')],
+            'relative_paths' => ['themes/acme/style.css', ''],
+        ], ['Accept' => 'application/json'])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.upload', $command['type']);
+        $this->assertSame(['wp-content/themes/acme/style.css', 'wp-content/logo.svg'], array_column($command['payload']['files'], 'path'));
+        $this->assertFalse($command['payload']['overwrite']);
+
+        // The agent fetches with the signed URL alone; a tampered one is refused.
+        $url = $this->local($command['payload']['files'][0]['url']);
+        $this->withHeaders(['Authorization' => ''])->get($url)->assertOk()->assertStreamedContent('a{}');
+        $this->withHeaders(['Authorization' => ''])->get(str_replace('/0?', '/1?', $url))->assertForbidden();
+
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['files' => 2, 'bytes' => 9]])->assertOk();
+        $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.status', 'succeeded');
+        $this->assertSame([], Storage::disk('local')->allFiles('file-transfers'));
+        $this->assertSame(['wp-content/themes/acme/style.css', 'wp-content/logo.svg'], AuditLog::where('organization_id', $org->id)->where('action', 'files.upload')->sole()->meta['paths']);
+    }
+
+    public function test_download_is_sent_by_the_agent_and_served_from_a_signed_link(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/download", ['paths' => ['wp-config.php']])->assertStatus(202)->json('data.job_id');
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.download', $command['type']);
+
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], "<?php // config")->assertCreated();
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['format' => 'file', 'name' => 'wp-config.php', 'bytes' => 15, 'files' => 1]])->assertOk();
+
+        $job = $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.status', 'succeeded')->json('data.result');
+        $this->assertNotEmpty($job['expires_at']);
+        $response = $this->withHeaders(['Authorization' => ''])->get(substr($job['download_url'], strpos($job['download_url'], '/api/')));
+        $response->assertOk()->assertDownload('wp-config.php');
+        $this->assertSame('<?php // config', $response->streamedContent());
+
+        // A finished job takes no further uploads.
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], 'replaced')->assertStatus(409);
+    }
+
+    public function test_viewers_cannot_upload_or_download(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $viewer] = $this->member($org, 'viewer');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($viewer)->postJson("/api/v1/volumes/{$volume->id}/files/download", ['paths' => ['wp-config.php']])->assertForbidden();
+        $this->api($viewer)->post("/api/v1/volumes/{$volume->id}/files/upload", ['files' => [UploadedFile::fake()->create('a.txt', 1)]], ['Accept' => 'application/json'])->assertForbidden();
+    }
+
+    public function test_trash_copy_move_and_archives_dispatch_typed_commands_and_are_audited(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        $this->api($token)->postJson("{$base}/trash", ['paths' => ['wp-content/old-theme']])->assertStatus(202);
+        $this->api($token)->getJson("{$base}/trash")->assertStatus(202);
+        $this->api($token)->postJson("{$base}/trash/restore", ['ids' => ['20261029T120000-ab12cd34']])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/trash/restore", ['ids' => ['../../etc']])->assertStatus(422);
+        $this->api($token)->deleteJson("{$base}/trash", ['ids' => ['20261029T120000-ab12cd34']])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/copy", ['paths' => ['a.txt'], 'dest' => 'backup'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/move", ['paths' => ['a.txt', 'b.txt'], 'dest' => 'old'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/compress", ['paths' => ['site'], 'dest' => '', 'format' => 'rar'])->assertStatus(422);
+        $this->api($token)->postJson("{$base}/compress", ['paths' => ['site'], 'dest' => '', 'format' => 'tar.gz'])->assertStatus(202);
+        $this->api($token)->postJson("{$base}/extract", ['path' => 'site.tar.gz', 'dest' => 'restore'])->assertStatus(202);
+
+        $commands = collect($this->heartbeat($secret)['commands']);
+        $this->assertSame(['fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.copy', 'fs.move', 'fs.compress', 'fs.extract'], $commands->pluck('type')->all());
+        $this->assertSame(['a.txt', 'b.txt'], $commands->firstWhere('type', 'fs.move')['payload']['paths']);
+        $this->assertSame('tar.gz', $commands->firstWhere('type', 'fs.compress')['payload']['format']);
+
+        // Ordered by the auto-increment id: without an ORDER BY, PostgreSQL may return rows in any order.
+        $actions = AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->orderBy('id')->pluck('action')->all();
+        $this->assertSame(['files.trash', 'files.trash_restore', 'files.trash_purge', 'files.copy', 'files.move', 'files.compress', 'files.extract'], $actions);
+        $this->assertSame(['wp-content/old-theme'], AuditLog::where('organization_id', $org->id)->where('action', 'files.trash')->sole()->meta['paths']);
+    }
+
+    public function test_chmod_is_validated_and_chown_is_for_platform_staff_only(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $staff] = $this->member($org, 'infra_admin');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        foreach (['4755', '0777x', '888', ''] as $bad) {
+            $this->api($token)->postJson("{$base}/chmod", ['paths' => ['run.sh'], 'mode' => $bad])->assertStatus(422);
+        }
+        $this->api($token)->postJson("{$base}/chmod", ['paths' => ['wp-content'], 'mode' => '755', 'recursive' => true])->assertStatus(202);
+
+        // An organisation owner is not platform staff.
+        $this->api($token)->postJson("{$base}/chown", ['paths' => ['index.php'], 'uid' => 33, 'gid' => 33])->assertForbidden();
+        $this->api($staff)->postJson("{$base}/chown", ['paths' => ['index.php']])->assertStatus(422);
+        $this->api($staff)->postJson("{$base}/chown", ['paths' => ['index.php'], 'uid' => 33, 'gid' => 33])->assertStatus(202);
+
+        $commands = collect($this->heartbeat($secret)['commands']);
+        $this->assertSame(['fs.chmod', 'fs.chown'], $commands->pluck('type')->all());
+        $this->assertSame(['volume' => 'acme_blog_html', 'path' => '', 'paths' => ['index.php'], 'uid' => 33, 'gid' => 33], $commands[1]['payload']);
+        $log = AuditLog::where('organization_id', $org->id)->where('action', 'files.chmod')->sole();
+        $this->assertSame('755', $log->meta['mode']);
+    }
+
+    public function test_search_needs_a_condition_and_dispatches_fs_search(): void
+    {
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files/search";
+
+        $this->api($token)->getJson("{$base}?path=wp-content")->assertStatus(422);
+        $this->api($token)->getJson("{$base}?modified_after=yesterday")->assertStatus(422);
+        $this->api($token)->getJson("{$base}?path=wp-content&extensions[]=php&min_size=1000&modified_after=2026-10-01")->assertStatus(202);
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.search', $command['type']);
+        $this->assertSame(['php'], $command['payload']['extensions']);
+        $this->assertSame('1000', (string) $command['payload']['min_size']);
+    }
+
+    public function test_preview_serves_safe_types_inline_and_never_html(): void
+    {
+        Storage::fake('local');
+        [, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'index.html'])->assertStatus(422);
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'logo.svg'])->assertStatus(422);
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/preview", ['path' => 'uploads/photo.png'])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->withHeaders(['Authorization' => ''])->call('PUT', $this->local($command['payload']['upload']['url']), [], [], [], [], "\x89PNG")->assertCreated();
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['format' => 'file', 'name' => 'photo.png', 'bytes' => 4, 'files' => 1]])->assertOk();
+
+        $url = $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->json('data.result.download_url');
+        $response = $this->withHeaders(['Authorization' => ''])->get(substr($url, strpos($url, '/api/')));
+        $response->assertOk()->assertHeader('Content-Type', 'image/png')->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringStartsWith('inline', $response->headers->get('Content-Disposition'));
+        $this->assertStringContainsString('sandbox', $response->headers->get('Content-Security-Policy'));
+        $this->assertSame('files.preview', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
+    }
+
+    public function test_security_scan_runs_on_the_agent_and_returns_findings(): void
+    {
+        [, $org, $token] = $this->org();
+        [, $viewer] = $this->member($org, 'viewer');
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+
+        $this->api($viewer)->postJson("/api/v1/volumes/{$volume->id}/files/scan")->assertForbidden();
+        $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/scan", ['recent_days' => 365])->assertStatus(422);
+        $jobId = $this->api($token)->postJson("/api/v1/volumes/{$volume->id}/files/scan", ['recent_days' => 14])->assertStatus(202)->json('data.job_id');
+
+        $command = $this->heartbeat($secret)['commands'][0];
+        $this->assertSame('fs.scan', $command['type']);
+        $this->assertSame(14, $command['payload']['recent_days']);
+        $finding = ['path' => 'wp-content/uploads/x.php', 'rule' => 'script_in_uploads', 'severity' => 'high', 'detail' => 'script inside an uploads folder', 'type' => 'file', 'size' => 10, 'mode' => '0644', 'modified' => '2026-10-29T00:00:00Z'];
+        $this->commandResult($secret, $command['id'], 'succeeded', ['output' => ['findings' => [$finding], 'counts' => ['critical' => 0, 'high' => 1, 'medium' => 0, 'info' => 0], 'files' => 120, 'folders' => 30, 'truncated' => false]])->assertOk();
+
+        $this->api($token)->getJson("/api/v1/jobs/{$jobId}")->assertJsonPath('data.result.findings.0.rule', 'script_in_uploads')->assertJsonPath('data.result.counts.high', 1);
+        $this->assertSame('files.scan', AuditLog::where('organization_id', $org->id)->where('action', 'like', 'files.%')->sole()->action);
+    }
+
+    public function test_history_lists_versions_with_who_changed_the_file_and_restores(): void
+    {
+        [$user, $org, $token] = $this->org();
+        $server = $this->server($org);
+        [$secret] = $this->enrollAgent($server, $token);
+        $this->heartbeat($secret);
+        $volume = $this->volume($org, $server);
+        $base = "/api/v1/volumes/{$volume->id}/files";
+
+        $this->api($token)->putJson("{$base}/content", ['path' => 'wp-config.php', 'content' => 'x'])->assertStatus(202);
+        $this->api($token)->putJson("{$base}/content", ['path' => 'index.php', 'content' => 'y'])->assertStatus(202);
+        $changes = $this->api($token)->getJson("{$base}/history?path=wp-config.php")->assertStatus(202)->json('data.changes');
+        $this->assertCount(1, $changes);
+        $this->assertSame('write', $changes[0]['action']);
+
+        $this->api($token)->getJson("{$base}/history/version?path=wp-config.php&id=../../etc")->assertStatus(422);
+        $this->api($token)->postJson("{$base}/history/restore", ['path' => 'wp-config.php', 'id' => '1761786000000000000-edit'])->assertStatus(202);
+
+        $types = collect($this->heartbeat($secret)['commands'])->pluck('type')->all();
+        $this->assertSame(['fs.write', 'fs.write', 'fs.history_list', 'fs.history_restore'], $types);
+        $this->assertSame(1, AuditLog::where('organization_id', $org->id)->where('action', 'files.history_restore')->count());
+    }
+}

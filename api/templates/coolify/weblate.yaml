@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: weblate
+name: Weblate
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Weblate is a libre software web-based continuous localization system.
+port: 8080
+source: coolify
+documentation: https://weblate.org
+compose: "services:\n  weblate:\n    image: weblate/weblate:latest\n    environment:\n      WEBLATE_SITE_DOMAIN: ${SERVICE_FQDN}\n      WEBLATE_ADMIN_NAME: ${WEBLATE_ADMIN_NAME:-Admin}\n      WEBLATE_ADMIN_EMAIL: ${WEBLATE_ADMIN_EMAIL:-admin@example.com}\n      WEBLATE_ADMIN_PASSWORD: ${SERVICE_PASSWORD_WEBLATE}\n      WEBLATE_SERVER_EMAIL: ${WEBLATE_SERVER_EMAIL:-admin@example.com}\n      WEBLATE_DEFAULT_FROM_EMAIL: ${WEBLATE_DEFAULT_FROM_EMAIL:-admin@example.com}\n      WEBLATE_EMAIL_HOST: ${WEBLATE_EMAIL_HOST:-localhost}\n      WEBLATE_EMAIL_PORT: ${WEBLATE_EMAIL_PORT:-587}\n      WEBLATE_EMAIL_HOST_USER: ${WEBLATE_EMAIL_HOST_USER}\n      WEBLATE_EMAIL_HOST_PASSWORD: ${WEBLATE_EMAIL_HOST_PASSWORD}\n      WEBLATE_EMAIL_USE_TLS: ${WEBLATE_EMAIL_USE_TLS:-true}\n      WEBLATE_EMAIL_USE_SSL: ${WEBLATE_EMAIL_USE_SSL:-false}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_DATABASE: ${POSTGRES_DB:-weblate}\n      POSTGRES_HOST:\
+  \ postgresql\n      POSTGRES_PORT: '5432'\n      REDIS_HOST: redis\n      REDIS_PORT: '6379'\n      REDIS_PASSWORD: ${SERVICE_PASSWORD_REDIS}\n    volumes:\n    - weblate-data:/app/data\n    - weblate-cache:/app/cache\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8080\n      interval: 2s\n      timeout: 10s\n      retries: 30\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-weblate}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $weblate\n      interval: 5s\n      timeout: 20s\n      retries: 10\n  redis:\n\
+  \    image: redis:7-alpine\n    command: '--appendonly yes --requirepass ${SERVICE_PASSWORD_REDIS}\n\n      '\n    environment:\n      REDIS_PASSWORD: ${SERVICE_PASSWORD_REDIS}\n    volumes:\n    - weblate-redis-data:/data\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  weblate-data: {}\n  weblate-cache: {}\n  postgresql-data: {}\n  weblate-redis-data: {}\n"

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: vault
+name: Vault
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: HashiCorp Vault securely stores and controls access to secrets.
+port: 8200
+source: coolify
+documentation: https://developer.hashicorp.com/vault/docs/deploy/run-container
+compose: "services:\n  vault:\n    image: hashicorp/vault:${VAULT_VERSION:-latest}\n    command: server\n    environment:\n      VAULT_ADDR: http://127.0.0.1:8200\n      VAULT_API_ADDR: ${SERVICE_URL}\n      VAULT_LOCAL_CONFIG: '{\"ui\":true,\"disable_mlock\":true,\"storage\":{\"file\":{\"path\":\"/vault/file\"}},\"listener\":{\"tcp\":{\"address\":\"0.0.0.0:8200\",\"tls_disable\":true}}}'\n    volumes:\n    - vault-data:/vault/file\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - wget -qO- \"http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200\" >/dev/null || exit 1\n      interval: 10s\n      timeout: 5s\n      retries: 12\n      start_period: 15s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8200'\nvolumes:\n  vault-data: {}\n"

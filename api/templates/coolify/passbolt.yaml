@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: passbolt
+name: Passbolt
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Passbolt Community Edition (CE) API. The JSON API for the open source password manager for teams!
+port: 80
+source: coolify
+documentation: https://www.passbolt.com/ce/docker
+compose: "services:\n  passbolt:\n    image: passbolt/passbolt:latest-ce\n    environment:\n      APP_FULL_BASE_URL: ${SERVICE_URL}\n      DATASOURCES_DEFAULT_HOST: mariadb\n      DATASOURCES_DEFAULT_USERNAME: ${SERVICE_USER_PASSBOLT}\n      DATASOURCES_DEFAULT_PASSWORD: ${SERVICE_PASSWORD_PASSBOLT}\n      DATASOURCES_DEFAULT_DATABASE: ${MYSQL_DB:-passbolt-db}\n    volumes:\n    - gpg_volume:/etc/passbolt/gpg\n    - jwt_volume:/etc/passbolt/jwt\n    command:\n    - /usr/bin/wait-for.sh\n    - -t\n    - '0'\n    - mariadb:3306\n    - --\n    - /docker-entrypoint.sh\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:80\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11\n\
+  \    environment:\n      MARIADB_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOTMARIADB}\n      MARIADB_DATABASE: ${MYSQL_DB:-passbolt-db}\n      MARIADB_USER: ${SERVICE_USER_PASSBOLT}\n      MARIADB_PASSWORD: ${SERVICE_PASSWORD_PASSBOLT}\n    volumes:\n    - passbolt_mariadb_data:/var/lib/mysql\n    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  gpg_volume: {}\n  jwt_volume: {}\n  passbolt_mariadb_data: {}\n"

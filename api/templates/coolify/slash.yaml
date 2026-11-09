@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: slash
+name: Slash
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: An open source, self-hosted links shortener and sharing platform.
+port: 5231
+source: coolify
+documentation: https://github.com/yourselfhosted/slash
+compose: "services:\n  slash:\n    image: yourselfhosted/slash\n    environment: {}\n    volumes:\n    - slash-data:/var/opt/slash\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:5231\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5231'\nvolumes:\n  slash-data: {}\n"

@@ -11,7 +11,11 @@ class AlertController extends Controller
 {
     public function index(Request $request)
     {
-        return response()->json(Lists::paginate(Alert::query(), $request, ['title'], ['created_at', 'severity'], ['status', 'severity', 'resource_id', 'alert_rule_id']));
+        // status=active is every alert still needing attention (open or acknowledged).
+        $query = Alert::query()->when($request->query('status') === 'active', fn ($q) => $q->whereIn('status', ['open', 'acknowledged']))
+            ->when(in_array($request->query('status'), ['open', 'acknowledged', 'resolved'], true), fn ($q) => $q->where('status', $request->query('status')));
+
+        return response()->json(Lists::paginate($query, $request, ['title'], ['created_at', 'severity', 'resolved_at'], ['severity', 'resource_id', 'alert_rule_id']));
     }
 
     public function ack(Request $request, string $id)
@@ -22,5 +26,32 @@ class AlertController extends Controller
         }
 
         return $this->data($alert);
+    }
+
+    /** Close an alert by hand (e.g. fixed outside the panel). If the condition still holds, the next check opens a new one. */
+    public function resolve(Request $request, string $id)
+    {
+        $alert = Alert::findOrFail($id);
+        $note = $request->validate(['note' => 'nullable|string|max:500'])['note'] ?? null;
+        if ($alert->status !== 'resolved') {
+            $alert->update(['status' => 'resolved', 'resolved_at' => now(), 'resolved_by' => $request->user()->id, 'snoozed_until' => null]);
+            app(\App\Services\AuditLogger::class)->log('alert.resolve', 'alerts', $alert->id, array_filter(['title' => $alert->title, 'note' => $note]));
+        }
+
+        return $this->data($alert->fresh());
+    }
+
+    /** Keep the alert open but silence reminders and escalation for a while; 0 minutes wakes it now. */
+    public function snooze(Request $request, string $id)
+    {
+        $alert = Alert::findOrFail($id);
+        $minutes = (int) $request->validate(['minutes' => 'required|integer|min:0|max:10080'])['minutes'];
+        if ($alert->status === 'resolved') {
+            throw \App\Exceptions\ApiException::conflict('This alert is already resolved.');
+        }
+        $alert->update(['snoozed_until' => $minutes ? now()->addMinutes($minutes) : null]);
+        app(\App\Services\AuditLogger::class)->log($minutes ? 'alert.snooze' : 'alert.unsnooze', 'alerts', $alert->id, ['title' => $alert->title] + ($minutes ? ['minutes' => $minutes] : []));
+
+        return $this->data($alert->fresh());
     }
 }

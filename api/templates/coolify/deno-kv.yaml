@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: deno-kv
+name: Deno Kv
+category: Database
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The Denoland key-value database
+port: 4512
+source: coolify
+documentation: https://docs.deno.com/deploy/kv/manual/
+compose: "services:\n  denokv:\n    image: ghcr.io/denoland/denokv:latest\n    environment:\n      ACCESS_TOKEN: ${SERVICE_PASSWORD_DENOKV}\n    volumes:\n    - ${COOLIFY_VOLUME_APP}:/data\n    command: --sqlite-path /data/denokv.sqlite serve --access-token ${SERVICE_PASSWORD_DENOKV}\n    healthcheck:\n      test:\n      - CMD\n      - nc\n      - -zv\n      - 127.0.0.1\n      - '4512'\n      interval: 5s\n      timeout: 5s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '4512'\n"

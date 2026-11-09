@@ -23,11 +23,18 @@ class CommandBus
 {
     public const TYPES = [
         'container.start', 'container.stop', 'container.restart', 'container.pause', 'container.unpause',
-        'container.remove', 'container.create', 'container.logs', 'container.prune',
-        'image.pull', 'image.remove', 'image.prune', 'network.create', 'network.remove',
+        'container.remove', 'container.create', 'container.logs', 'container.prune', 'vps.create',
+        'swarm.init', 'swarm.join', 'swarm.leave', 'swarm.inspect', 'swarm.node_update', 'swarm.service_scale',
+        'swarm.service_create', 'swarm.service_image', 'swarm.service_remove', 'swarm.secret_create', 'swarm.secret_remove',
+        'image.pull', 'image.remove', 'image.prune', 'server.cleanup', 'mesh.apply', 'cron.schedule', 'tunnel.lockdown', 'mesh.status', 'mesh.confirm', 'network.create', 'network.remove', 'network.connect', 'network.disconnect',
         'volume.create', 'volume.remove', 'compose.up', 'compose.down', 'compose.restart',
-        'backup.run', 'restore.run', 'backup.test', 'backup.export', 'proxy.config', 'proxy.certs', 'agent.update', 'agent.restart',
+        'backup.run', 'restore.run', 'backup.test', 'backup.export', 'backup.probe', 'proxy.config', 'proxy.certs', 'proxy.scan', 'proxy.retire', 'proxy.restore', 'agent.update', 'agent.restart',
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
+        'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete', 'fs.upload', 'fs.download',
+        'fs.copy', 'fs.move', 'fs.compress', 'fs.extract', 'fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.chmod', 'fs.chown', 'fs.search', 'fs.scan', 'fs.history_list', 'fs.history_read', 'fs.history_restore',
+        'crowdsec.apply', 'crowdsec.alerts', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
+        'fim.baseline', 'fim.check', 'egress.apply', 'av.realtime', 'av.events', 'wp.cli', 'wp.inventory', 'wp.copy_tables', 'wp.drop_tables', 'migrate.fetch', 'migrate.inspect', 'migrate.extract', 'migrate.import_db', 'migrate.cleanup', 'cron.exec', 'cron.stop', 'mail.import', 'mail.certs',
+        'svc.list', 'svc.action', 'svc.install', 'svc.create', 'svc.delete', 'svc.logs',
     ];
 
     /** Job type => handler class. Others use the generic "all commands done" rule. */
@@ -37,10 +44,26 @@ class CommandBus
         'restore' => BackupService::class,
         'backup.test' => BackupService::class,
         'backup.export' => BackupService::class,
+        'backup.probe' => BackupService::class,
+        'mail.import' => MailImportService::class,
         'proxy.certs' => \App\Services\TraefikConfigService::class,
+        'proxy.adopt' => ProxyAdoptionService::class,
         'compose.deploy' => ComposeService::class,
         'database.create' => DatabaseService::class,
         'image.scan' => ScanService::class,
+        'files' => FileService::class,
+        'crowdsec.alerts' => FirewallEventService::class,
+        'av.scan' => AntivirusService::class,
+        'av.action' => AntivirusService::class,
+        'integrity' => IntegrityService::class,
+        'av.events' => AntivirusService::class,
+        'wordpress' => WordPressService::class,
+        'migration' => MigrationService::class,
+        'mail' => MailService::class,
+        'scheduled.app_command' => ScheduledJobService::class,
+        'cleanup' => CleanupService::class,
+        'mesh' => MeshService::class,
+        'system.services' => SystemServiceService::class,
     ];
 
     public function __construct(private JobService $jobs) {}
@@ -99,6 +122,12 @@ class CommandBus
     /** Apply an agent result; repeated results for a finished command are ignored. */
     public function applyResult(AgentCommand $command, string $status, ?int $progress, ?string $message, mixed $output): AgentCommand
     {
+        // An agent older than the panel rejects commands it has never heard of. Say so plainly.
+        if ($status === 'failed' && $message !== null && preg_match('/^rejected: unknown command type "([^"]+)"/', $message, $m)) {
+            $server = Server::allTenants()->find($command->server_id);
+            $message = sprintf('The agent on %s (version %s) is too old to run "%s". Update it in Servers → %s → Agent → Update agent, then try again.',
+                $server?->name ?? 'this server', $server?->agent_version ?: 'unknown', $m[1], $server?->name ?? 'the server');
+        }
         $finishedNow = DB::transaction(function () use ($command, $status, $progress, $message, $output) {
             $command = AgentCommand::allTenants()->lockForUpdate()->find($command->id);
             if ($command->isFinished()) {
@@ -165,7 +194,15 @@ class CommandBus
     /** Optimistic state updates; heartbeats reconcile the truth afterwards. */
     private function applySideEffects(AgentCommand $command): void
     {
+        if (str_starts_with($command->type, 'swarm.')) {
+            app(\App\Services\SwarmService::class)->result($command, $command->status === 'succeeded');
+
+            return;
+        }
         if ($command->status !== 'succeeded') {
+            if ($command->type === 'vps.create') {
+                app(\App\Services\VpsService::class)->created($command, false);
+            }
             if ($command->type === 'container.create') {
                 Container::allTenants()->where('server_id', $command->server_id)->where('name', $command->payload['name'] ?? '')
                     ->whereNull('docker_id')->update(['state' => 'failed']);
@@ -185,12 +222,33 @@ class CommandBus
             'container.logs' => $container?->update(['last_logs' => is_array($command->output) ? ($command->output['logs'] ?? json_encode($command->output)) : null, 'logs_fetched_at' => now()]),
             'container.create' => Container::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'] ?? '')->whereNull('docker_id')
                 ->update(['docker_id' => $command->output['container_id'] ?? null, 'state' => ($p['start'] ?? true) ? 'running' : 'created', 'started_at' => now()]),
-            'network.create' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]),
+            'vps.create' => app(\App\Services\VpsService::class)->created($command, true),
+            'network.create' => $this->networkCreated($command, $p),
+            'network.connect' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['network'] ?? '')
+                ->update(['ingress_attached_at' => now()]),
+            'network.disconnect' => Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['network'] ?? '')
+                ->update(['ingress_attached_at' => null]),
             'network.remove' => Network::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('name', $p['name'] ?? null)->orWhere('docker_id', $p['network_id'] ?? null))->delete(),
             'volume.create' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->update(['status' => 'active']),
             'volume.remove' => Volume::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->delete(),
             'image.remove' => Image::allTenants()->where('server_id', $command->server_id)->where(fn ($q) => $q->where('docker_id', $p['image'])->orWhere('repository', $p['image']))->delete(),
             default => null,
         };
+    }
+
+    /**
+     * A network has been created on a server. An environment's own network is
+     * only useful once the ingress can reach over it, so Traefik is attached
+     * as soon as the network exists -- before any container relies on it.
+     */
+    private function networkCreated(AgentCommand $command, array $p): void
+    {
+        Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])
+            ->update(['status' => 'active', 'docker_id' => $command->output['network_id'] ?? null]);
+
+        $network = Network::allTenants()->where('server_id', $command->server_id)->where('name', $p['name'])->first();
+        if ($network && $network->environment_id) {
+            app(\App\Services\NetworkService::class)->attachIngress($network);
+        }
     }
 }

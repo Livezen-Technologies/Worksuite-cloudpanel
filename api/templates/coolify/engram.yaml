@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: engram
+name: Engram
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Persistent memory sync server for AI coding agents (MCP).
+port: 8080
+source: coolify
+documentation: https://github.com/Gentleman-Programming/engram
+compose: "services:\n  engram:\n    image: ghcr.io/gentleman-programming/engram:1.20.0\n    command:\n    - cloud\n    - serve\n    environment:\n      ENGRAM_CLOUD_HOST: 0.0.0.0\n      ENGRAM_PORT: '8080'\n      ENGRAM_DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/engram-db?sslmode=disable\n      ENGRAM_JWT_SECRET: ${SERVICE_BASE64_JWTSECRET}\n      ENGRAM_CLOUD_TOKEN: ${SERVICE_PASSWORD_CLOUDTOKEN}\n      ENGRAM_CLOUD_ADMIN: ${SERVICE_PASSWORD_ADMIN}\n      ENGRAM_CLOUD_ALLOWED_PROJECTS: ${ENGRAM_CLOUD_ALLOWED_PROJECTS:-*}\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\n  postgresql:\n    image: postgres:18-alpine\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n \
+  \     POSTGRES_DB: ${POSTGRES_DB:-engram-db}\n    volumes:\n    - engram-postgresql-data:/var/lib/postgresql\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $engram-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  engram-postgresql-data: {}\n"

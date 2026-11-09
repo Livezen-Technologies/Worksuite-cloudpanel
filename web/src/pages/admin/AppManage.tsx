@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { api } from '../../api/client'
+import { api, errorMessage, isApiError } from '../../api/client'
 import { useAction, useList, useOne } from '../../api/hooks'
-import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, Toggle, Empty, FormActions, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
+import { ScalingPanel } from '../../components/ScalingPanel'
 import Select from '../../components/Select'
+import { AppGitTab } from './AppGitTab'
 
 type R = Record<string, any>
-const TABS = ['Settings', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
+const TABS = ['Settings', 'Git & auto-deploy', 'Scaling', 'Databases', 'SSL/TLS', 'Cron Jobs', 'Logs'] as const
 type Tab = typeof TABS[number]
 
 export default function AppManage() {
@@ -16,6 +18,10 @@ export default function AppManage() {
   const app = useOne<R>(id ? `/applications/${id}` : null)
   const [tab, setTab] = useState<Tab>('Settings')
   const row = app.data?.data
+  // A 404 here almost always means the application belongs to an organisation
+  // other than the one currently selected: tenancy follows the org picker, and
+  // there is no cross-organisation route for a single application.
+  const wrongOrg = app.isError && isApiError(app.error) && app.error.status === 404
 
   return (
     <>
@@ -23,18 +29,38 @@ export default function AppManage() {
         subtitle={row ? `${row.source_type} · ${row.image ?? row.source ?? ''}` : ''}
         actions={<Link className="btn" to="/admin/applications">All applications</Link>} />
 
-      <div className="flex flex-wrap gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={`min-h-11 border-b-2 px-4 text-sm font-medium ${tab === t ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
+      {!app.isError && (
+        <div className="flex flex-wrap gap-1 border-b border-line" role="tablist">
+          {TABS.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`min-h-11 border-b-2 px-4 text-sm font-medium ${tab === t ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {!row && <Card>Loading…</Card>}
+      {/* Only while the request is actually in flight. Keying this off `!row`
+          left the skeleton on screen for ever once the request had finished and
+          failed, so a 404 looked like a page that never loaded. */}
+      {app.isLoading && <Loading label="Loading…" />}
+
+      {app.isError && (
+        <Card>
+          {/* No action here: the page header already offers "All applications". */}
+          <Empty icon={wrongOrg ? 'users' : 'warn'}>
+            {/* Empty splits the first sentence off as the heading, so each of
+                these has to lead with one that ends in a full stop. */}
+            {wrongOrg
+              ? 'This application is not in the current organisation. It most likely belongs to another one: switch organisation with the picker at the top of the sidebar, then open it again.'
+              : `This application could not be loaded. ${errorMessage(app.error)}`}
+          </Empty>
+        </Card>
+      )}
       {row && tab === 'Settings' && <SettingsTab app={row} />}
+      {row && tab === 'Git & auto-deploy' && <AppGitTab app={row} />}
+      {row && tab === 'Scaling' && <ScalingPanel path={`/applications/${row.id}/scaling`} />}
       {row && tab === 'Databases' && <DatabasesTab app={row} />}
       {row && tab === 'SSL/TLS' && <DomainsTab app={row} />}
       {row && tab === 'Cron Jobs' && <CronTab app={row} />}
@@ -52,6 +78,7 @@ function SettingsTab({ app }: { app: R }) {
     health_timeout: app.health_timeout ?? 60, environment: app.environment ?? 'production',
     size: app.size ?? 'small', strategy: app.strategy ?? 'rolling',
     auto_deploy: !!app.auto_deploy, auto_restart: !!app.auto_restart, requires_approval: !!app.requires_approval,
+    mesh_network: !!app.mesh_network,
   })
   useEffect(() => { setF((p) => ({ ...p, name: app.name ?? p.name })) }, [app.id])
 
@@ -79,16 +106,17 @@ function SettingsTab({ app }: { app: R }) {
         <div className="col-span-full flex flex-col gap-3">
           {([['auto_deploy', 'Deploy automatically on a new release'],
              ['auto_restart', 'Restart the container if it exits'],
-             ['requires_approval', 'Require a second approver for production deploys']] as const).map(([k, label]) => (
+             ['requires_approval', 'Require a second approver for production deploys'],
+             ['mesh_network', 'Reachable from other servers on the private network (applies at the next deploy)']] as const).map(([k, label]) => (
             <label key={k} className="flex items-center gap-3 text-sm">
               <Toggle checked={(f as R)[k]} label={label} onChange={(v) => setF({ ...f, [k]: v })} />
               <span>{label}</span>
             </label>
           ))}
         </div>
-        <div className="col-span-full flex justify-end">
+        <FormActions className="col-span-full">
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button>
-        </div>
+        </FormActions>
       </form>
     </Card>
   )
@@ -123,22 +151,19 @@ function DatabasesTab({ app }: { app: R }) {
                    onChange={(e) => setF({ ...f, version: e.target.value })} /></Field>
           <Field label="Memory (MB)"><input className="input" type="number" min={64} value={f.memory_mb}
                    onChange={(e) => setF({ ...f, memory_mb: Number(e.target.value) })} /></Field>
-          <div className="col-span-full flex justify-end">
+          <FormActions className="col-span-full">
             <button className="btn btn-primary" disabled={busy || !app.server_id}>Create database</button>
-          </div>
+          </FormActions>
         </form>
       </Card>
       {!dbs.isLoading && mine.length === 0 && <Empty>No databases on this server yet.</Empty>}
       <DataTable label="Databases" rows={mine} loading={dbs.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [{ label: `Back up ${r.name}`, icon: 'archive', disabled: busy, onClick: () => run({ path: `/databases/${r.id}/backup`, label: `Back up ${r.name}` }).catch(() => {}) }]}
         columns={[
           { key: 'name', header: 'Database', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'engine', header: 'Engine' },
           { key: 'version', header: 'Version', value: (r) => r.version ?? '—' },
           { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? 'unknown'} /> },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                    onClick={() => run({ path: `/databases/${r.id}/backup`, label: `Back up ${r.name}` }).catch(() => {})}>Back up</button>
-          ) },
         ]} />
     </>
   )
@@ -169,19 +194,15 @@ function DomainsTab({ app }: { app: R }) {
       </Card>
       {!domains.isLoading && domains.rows.length === 0 && <Empty>No domains attached to this application.</Empty>}
       <DataTable label="Domains" rows={domains.rows} loading={domains.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Verify DNS for ${r.name}`, icon: 'globe', disabled: busy, onClick: () => run({ path: `/domains/${r.id}/verify`, label: `Verify ${r.name}` }).catch(() => {}) },
+          { label: `Issue certificate for ${r.name}`, icon: 'shield', disabled: busy, onClick: () => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.name}` }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Domain', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'dns_status', header: 'DNS', render: (r) => <StatusBadge status={r.dns_status ?? 'pending'} /> },
           { key: 'https_status', header: 'HTTPS', render: (r) => <StatusBadge status={r.https_status ?? 'pending'} /> },
           { key: 'certificate_expires_at', header: 'Certificate expires', value: (r) => r.certificate_expires_at ?? '—' },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/domains/${r.id}/verify`, label: `Verify ${r.name}` }).catch(() => {})}>Verify DNS</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/domains/${r.id}/certificate`, label: `Issue certificate for ${r.name}` }).catch(() => {})}>Issue certificate</button>
-            </span>
-          ) },
         ]} />
     </>
   )
@@ -217,27 +238,23 @@ function CronTab({ app }: { app: R }) {
               {ACTIONS.map((a) => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
             </Select>
           </Field>
-          <div className="col-span-full flex justify-end">
+          <FormActions className="col-span-full">
             <button className="btn btn-primary" disabled={busy}>Add cron job</button>
-          </div>
+          </FormActions>
         </form>
       </Card>
       {!jobs.isLoading && jobs.rows.length === 0 && <Empty>No cron jobs found.</Empty>}
       <DataTable label="Cron jobs" rows={jobs.rows} loading={jobs.isLoading} rowKey={(r) => r.id}
+        actions={(r) => [
+          { label: `Run ${r.name} now`, icon: 'play', disabled: busy, onClick: () => run({ path: `/scheduled-jobs/${r.id}/run`, label: `Run ${r.name}` }).catch(() => {}) },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: `The cron job ${r.name} is deleted.`, disabled: busy, onClick: () => run({ method: 'DELETE', path: `/scheduled-jobs/${r.id}`, label: `Delete ${r.name}`, success: 'Cron job deleted' }).catch(() => {}) },
+        ]}
         columns={[
           { key: 'name', header: 'Job', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'cron', header: 'Schedule', render: (r) => <span className="font-mono text-xs">{r.cron ?? r.trigger}</span> },
           { key: 'action', header: 'Action', value: (r) => String(r.action ?? '').replace(/_/g, ' ') },
           { key: 'enabled', header: 'Enabled', render: (r) => <Badge tone={r.enabled ? 'g' : 'n'}>{r.enabled ? 'enabled' : 'paused'}</Badge> },
           { key: 'next_run_at', header: 'Next run', value: (r) => r.next_run_at ?? '—' },
-          { key: 'actions', header: '', sortable: false, render: (r) => (
-            <span className="flex gap-2">
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ path: `/scheduled-jobs/${r.id}/run`, label: `Run ${r.name}` }).catch(() => {})}>Run now</button>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy}
-                      onClick={() => run({ method: 'DELETE', path: `/scheduled-jobs/${r.id}`, label: `Delete ${r.name}`, success: 'Cron job deleted' }).catch(() => {})}>Delete</button>
-            </span>
-          ) },
         ]} />
     </>
   )

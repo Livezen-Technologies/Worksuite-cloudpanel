@@ -30,17 +30,27 @@ const MaxClockSkew = 2 * time.Minute
 var Types = map[string]bool{
 	"container.start": true, "container.stop": true, "container.restart": true,
 	"container.pause": true, "container.unpause": true, "container.remove": true,
-	"container.create": true, "container.logs": true, "container.prune": true,
-	"image.pull": true, "image.remove": true, "image.prune": true,
+	"container.create": true, "vps.create": true, "swarm.init": true, "swarm.join": true, "swarm.leave": true, "swarm.inspect": true, "swarm.node_update": true, "swarm.service_scale": true, "swarm.service_create": true, "swarm.service_image": true, "swarm.service_remove": true, "swarm.secret_create": true, "swarm.secret_remove": true, "container.logs": true, "container.prune": true,
+	"image.pull": true, "image.remove": true, "image.prune": true, "server.cleanup": true, "mesh.apply": true, "mesh.status": true, "mesh.confirm": true, "tunnel.lockdown": true,
 	"network.create": true, "network.remove": true,
+	"network.connect": true, "network.disconnect": true,
 	"volume.create": true, "volume.remove": true,
 	"compose.up": true, "compose.down": true, "compose.restart": true,
-	"backup.run": true, "restore.run": true, "backup.test": true, "backup.export": true,
-	"proxy.config": true, "proxy.certs": true,
+	"backup.run": true, "restore.run": true, "backup.test": true, "backup.export": true, "backup.probe": true,
+	"proxy.config": true, "proxy.certs": true, "proxy.scan": true, "proxy.retire": true, "proxy.restore": true,
 	"agent.update": true, "agent.restart": true,
 	"terminal.open": true,
 	"image.build":   true, "image.scan": true, "container.healthcheck": true,
 	"firewall.apply": true, "firewall.confirm": true,
+	"fs.list": true, "fs.read": true, "fs.write": true, "fs.mkdir": true,
+	"fs.rename": true, "fs.delete": true, "fs.upload": true, "fs.download": true,
+	"fs.copy": true, "fs.move": true, "fs.compress": true, "fs.extract": true,
+	"fs.trash": true, "fs.trash_list": true, "fs.trash_restore": true, "fs.trash_purge": true,
+	"fs.chmod": true, "fs.chown": true, "fs.search": true, "fs.scan": true,
+	"fs.history_list": true, "fs.history_read": true, "fs.history_restore": true,
+	"crowdsec.apply": true, "crowdsec.alerts": true, "fim.baseline": true, "fim.check": true, "egress.apply": true, "wp.cli": true, "wp.inventory": true, "wp.copy_tables": true, "wp.drop_tables": true, "cron.exec": true, "cron.stop": true, "cron.schedule": true, "mail.import": true, "mail.certs": true, "migrate.fetch": true, "migrate.inspect": true, "migrate.extract": true, "migrate.import_db": true, "migrate.cleanup": true, "av.realtime": true, "av.events": true,
+	"svc.list": true, "svc.action": true, "svc.install": true, "svc.create": true, "svc.delete": true, "svc.logs": true,
+	"av.scan": true, "av.quarantine": true, "av.restore": true, "av.delete": true,
 }
 
 // Reporter sends a command result to the panel.
@@ -59,6 +69,8 @@ func ExecRunner(ctx context.Context, dir string, env []string, name string, args
 
 // Executor holds dependencies for command handling.
 type Executor struct {
+	// cron holds the scheduled runs in progress, so cron.stop can end one.
+	cron    cronRuns
 	Docker  *docker.Client
 	Policy  *policy.Store
 	HMACKey []byte
@@ -71,9 +83,22 @@ type Executor struct {
 	HTTP *http.Client
 	// ProxyDir is the Traefik file-provider directory; AcmeJSON Traefik's ACME store.
 	ProxyDir string
-	AcmeJSON string
-	LookPath func(string) (string, error)
-	StateDir string
+	// CrowdSecDir holds the panel's CrowdSec scenarios and profiles; CrowdSecContainer is the container to check and reload.
+	CrowdSecDir       string
+	CrowdSecContainer string
+	// ClamAVContainer runs clamd with the Docker volumes mounted read-only (default "clamav").
+	ClamAVContainer string
+	// WPCLIImage runs WP-CLI next to a WordPress container (default "wordpress:cli").
+	WPCLIImage string
+	AcmeJSON   string
+	LookPath   func(string) (string, error)
+	StateDir   string
+	// ProcSysDir is /proc/sys (tests point it elsewhere).
+	ProcSysDir string
+	// UnitDir is where svc.create writes systemd units (default /etc/systemd/system).
+	UnitDir string
+	// WireGuardDir holds the mesh interface config (default /etc/wireguard).
+	WireGuardDir string
 	// AllowedBindRoots limits host bind mounts in container.create.
 	AllowedBindRoots []string
 	// AllowLocalGit permits file:// and absolute-path repositories in image.build.
@@ -82,6 +107,8 @@ type Executor struct {
 	HealthHTTP     *http.Client
 	HealthInterval time.Duration
 	Updater        *update.Updater
+	// VolumeRoot overrides the volume -> host directory lookup (tests).
+	VolumeRoot func(ctx context.Context, name string) (string, error)
 	// Terminal enables terminal.open (nil = disabled).
 	Terminal *TerminalConfig
 	// Restart re-execs the agent; called after the result is reported.
@@ -188,6 +215,18 @@ func (e *Executor) Handle(ctx context.Context, c protocol.Command) (protocol.Res
 		return protocol.Result{}, ErrDuplicate
 	}
 	e.report(ctx, c.ID, protocol.Result{Status: "running", Progress: pct(0)})
+	if asyncTypes[c.Type] {
+		// A scheduled job can run for hours; it must not hold up the command queue.
+		go e.finish(ctx, c)
+		return protocol.Result{Status: "running"}, nil
+	}
+	return e.finish(ctx, c)
+}
+
+// asyncTypes run beside the command queue rather than in it.
+var asyncTypes = map[string]bool{"cron.exec": true, "mail.import": true}
+
+func (e *Executor) finish(ctx context.Context, c protocol.Command) (protocol.Result, error) {
 	progress := func(p int, msg string) {
 		e.report(ctx, c.ID, protocol.Result{Status: "running", Progress: pct(p), Message: msg})
 	}

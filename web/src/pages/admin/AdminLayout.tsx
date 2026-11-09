@@ -5,7 +5,7 @@ import { useList } from '../../api/hooks'
 import type { R } from '../../lib/util'
 
 /**
- * Seven primary categories. The rail switches between them; the sidebar shows
+ * Ten primary categories. The rail switches between them; the sidebar shows
  * only the items of the one in view, so a category's contents stay together
  * instead of competing with every other area for attention.
  */
@@ -15,25 +15,42 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid', desc: 'Fleet health, alerts and quick actions', items: [
     { label: 'Overview', to: '/admin', end: true, icon: 'grid' },
     { label: 'Monitoring', to: '/admin/monitoring', icon: 'pulse' },
+    { label: 'Uptime', to: '/admin/uptime', icon: 'clock' },
   ] },
   { id: 'deploy', label: 'Deploy', icon: 'rocket', desc: 'Applications, stacks, containers and images', items: [
     { label: 'Applications', to: '/admin/applications', icon: 'rocket' },
+    { label: 'Projects', to: '/admin/projects', icon: 'layers' },
+    { label: 'Git sources', to: '/admin/git', icon: 'share' },
+    { label: 'AI & MCP', to: '/admin/ai', icon: 'pulse' },
     { label: 'App Catalogue', to: '/admin/catalog', icon: 'store' },
     { label: 'Compose Stacks', to: '/admin/compose', icon: 'layers' },
     { label: 'Containers', to: '/admin/containers', icon: 'box' },
     { label: 'Images & Registry', to: '/admin/images', icon: 'image' },
   ] },
-  { id: 'resources', label: 'Resources', icon: 'server', desc: 'Servers, databases, storage and networks', items: [
+  { id: 'resources', label: 'Resources', icon: 'server', desc: 'Servers, files, databases, storage and networks', items: [
     { label: 'Servers', to: '/admin/servers', icon: 'server' },
+    { label: 'Cluster', to: '/admin/cluster', icon: 'layers' },
+    { label: 'Kubernetes', to: '/admin/kubernetes', icon: 'grid' },
+    { label: 'System services', to: '/admin/system-services', icon: 'gear' },
     { label: 'Databases', to: '/admin/databases', icon: 'db' },
+    { label: 'File manager', to: '/admin/files', icon: 'file' },
     { label: 'Volumes & Storage', to: '/admin/volumes', icon: 'disk' },
     { label: 'Networks', to: '/admin/networks', icon: 'share' },
+    { label: 'Private network', to: '/admin/private-network', icon: 'shield' },
   ] },
-  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, packages and hosting customers', items: [
+  { id: 'hosting', label: 'Hosting', icon: 'globe', desc: 'Domains, DNS, mail, packages and hosting customers', items: [
     { label: 'Domains & SSL', to: '/admin/domains', icon: 'globe' },
+    { label: 'DNS zones', to: '/admin/dns', icon: 'globe' },
+    { label: 'WordPress', to: '/admin/wordpress', icon: 'rocket' },
+    { label: 'Migrations', to: '/admin/migrations', icon: 'archive' },
+    { label: 'Mail', to: '/admin/mail', icon: 'bell' },
+    { label: 'Public pages', to: '/admin/public-pages', icon: 'file' },
+    { label: 'Sales leads', to: '/admin/leads', icon: 'file' },
+    { label: 'Partner provisioning', to: '/admin/partners', icon: 'share' },
+  ] },
+  { id: 'security', label: 'Security', icon: 'shield', desc: 'Firewall and antivirus', items: [
     { label: 'Firewall', to: '/admin/firewall', icon: 'shield' },
-    { label: 'Packages', to: '/admin/packages', icon: 'tag' },
-    { label: 'Hosting Customers', to: '/admin/customers', icon: 'users' },
+    { label: 'Antivirus', to: '/admin/antivirus', icon: 'shield' },
   ] },
   { id: 'store', label: 'Store', icon: 'store', desc: 'Product catalogue, categories, brands and POS', items: [
     { label: 'Products', to: '/admin/store', end: true, icon: 'box' },
@@ -45,10 +62,32 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     { label: 'Backups', to: '/admin/backups', icon: 'archive' },
     { label: 'Logs & Terminal', to: '/admin/logs', icon: 'file' },
     { label: 'Automation', to: '/admin/automation', icon: 'clock' },
+    { label: 'Cron & scheduler', to: '/admin/cron', icon: 'clock' },
+  ] },
+  { id: 'finance', label: 'Finance', icon: 'wallet', desc: 'Invoices, payments, refunds, subscriptions and revenue', items: [
+    { label: 'Overview', to: '/admin/finance', end: true, icon: 'wallet' },
+    { label: 'Invoices', to: '/admin/finance/invoices', icon: 'file' },
+    { label: 'Payments', to: '/admin/finance/payments', icon: 'wallet' },
+    { label: 'Refunds', to: '/admin/finance/refunds', icon: 'share' },
+    { label: 'Subscriptions', to: '/admin/finance/subscriptions', icon: 'clock' },
+    { label: 'Packages & Plans', to: '/admin/packages', icon: 'tag' },
+    { label: 'Billing Profiles', to: '/admin/finance/billing-profiles', icon: 'users' },
+    { label: 'Transactions', to: '/admin/finance/transactions', icon: 'layers' },
+    { label: 'Payment Gateways', to: '/admin/finance/gateways', icon: 'share' },
+    { label: 'Reports', to: '/admin/finance/reports', icon: 'chart' },
+    { label: 'Finance Settings', to: '/admin/finance/settings', icon: 'gear' },
+  ] },
+  { id: 'customers', label: 'Customers', icon: 'users', desc: 'Accounts, companies, contacts and groups', items: [
+    { label: 'Overview', to: '/admin/customers/overview', icon: 'chart' },
+    { label: 'All Customers', to: '/admin/customers', end: true, icon: 'users' },
+    { label: 'Companies', to: '/admin/customers/companies', icon: 'store' },
+    { label: 'Contacts', to: '/admin/customers/contacts', icon: 'user' },
+    { label: 'Customer Groups', to: '/admin/customers/groups', icon: 'tag' },
   ] },
   { id: 'settings', label: 'Settings', icon: 'gear', desc: 'Users, permissions and configuration', items: [
     { label: 'Users & Teams', to: '/admin/users', icon: 'users' },
     { label: 'Settings', to: '/admin/settings', icon: 'gear' },
+    { label: 'Third-party services', to: '/admin/services', icon: 'share' },
     { label: 'Account', to: '/admin/account', icon: 'user' },
   ] },
 ]
@@ -92,8 +131,10 @@ export function AdminLayout() {
     .map((sec) => ({ sec, hit: Math.max(...sec.items.map((i) => (pathname === i.to || pathname.startsWith(i.to + '/')) ? i.to.length : 0)) }))
     .reduce((best, c) => (c.hit > best.hit ? c : best), { sec: ADMIN_SECTIONS[0], hit: 0 }).sec
 
+  // The rail follows the same longest-match rule as the section panel, so a
+  // section stays lit on pages that do not sit under its first item's path.
   const rail: RailItem[] = ADMIN_SECTIONS.map((sec) => ({
-    label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end,
+    label: sec.label, icon: sec.icon, to: sec.items[0].to, end: sec.items[0].end, active: sec === active,
   }))
 
   return (

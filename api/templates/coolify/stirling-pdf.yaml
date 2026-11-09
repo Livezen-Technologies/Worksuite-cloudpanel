@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: stirling-pdf
+name: Stirling Pdf
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Stirling is a powerful web based PDF manipulation tool
+port: 8080
+source: coolify
+documentation: https://github.com/Stirling-Tools/Stirling-PDF
+compose: "services:\n  stirling-pdf:\n    image: stirlingtools/stirling-pdf:latest\n    volumes:\n    - stirling-training-data:/usr/share/tesseract-ocr/5/tessdata\n    - stirling-configs:/configs\n    - stirling-custom-files:/customFiles/\n    - stirling-logs:/logs/\n    environment:\n      DOCKER_ENABLE_SECURITY: 'false'\n    healthcheck:\n      test: curl --fail --silent http://127.0.0.1:8080/api/v1/info/status | grep -q \"UP\" || exit 1\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  stirling-training-data: {}\n  stirling-configs: {}\n  stirling-custom-files: {}\n  stirling-logs: {}\n"

@@ -213,4 +213,51 @@ class MonitoringTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame('mine is down', $rows[0]['title']);
     }
+
+    public function test_channels_from_the_settings_form_store_their_target_and_secret_and_telegram_sends(): void
+    {
+        [, , $token] = $this->org();
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $id = $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'ops', 'type' => 'telegram', 'target' => '-1001234', 'secret' => '123:ABC', 'enabled' => true])
+            ->assertCreated()->assertJsonPath('data.target', '-1001234')->assertJsonMissingPath('data.config')->json('data.id');
+        // Renaming without re-entering the token keeps it.
+        $this->api($token)->patchJson("/api/v1/notification-channels/{$id}", ['name' => 'ops-2'])->assertOk();
+        $this->api($token)->postJson("/api/v1/notification-channels/{$id}/test")->assertOk();
+        Http::assertSent(fn ($r) => $r->url() === 'https://api.telegram.org/bot123:ABC/sendMessage' && $r['chat_id'] === '-1001234' && str_contains($r['text'], 'Test notification'));
+
+        $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'mail', 'type' => 'email', 'target' => 'not-an-email'])->assertStatus(422);
+        $this->api($token)->postJson('/api/v1/notification-channels', ['name' => 'hook', 'type' => 'webhook', 'target' => 'https://hooks.example.com/x'])->assertCreated()->assertJsonPath('data.target', 'hooks.example.com');
+    }
+
+    public function test_an_incident_whose_container_was_replaced_is_closed_instead_of_re_notified_for_ever(): void
+    {
+        Http::fake();
+        [, $org] = $this->org();
+        $this->channel($org->id);
+
+        // A container that has since been recreated under a new id: the row the
+        // incident points at is gone, so checkInfrastructure's loop never visits
+        // it again and followUpOpenIncidents would re-notify it indefinitely.
+        $gone = $this->openAlert($org->id, [
+            'resource_type' => 'container', 'resource_id' => (string) \Illuminate\Support\Str::uuid(),
+            'title' => 'blog-wordpress-1 is running and unhealthy',
+        ]);
+        $server = $this->server($org);
+        $live = app(Tenant::class)->as($org->id, fn () => Container::create([
+            'server_id' => $server->id, 'name' => 'blog-wordpress-1', 'image' => 'wordpress:6',
+            'state' => 'running', 'health' => 'healthy',
+        ]));
+        $kept = $this->openAlert($org->id, [
+            'resource_type' => 'container', 'resource_id' => $live->id, 'title' => 'blog-wordpress-1 is running and unhealthy',
+        ]);
+
+        $r = app(UptimeService::class)->checkInfrastructure();
+
+        $this->assertSame('resolved', $gone->fresh()->status, 'the incident for the replaced container must be closed');
+        $this->assertNotNull($gone->fresh()->resolved_at);
+        $this->assertGreaterThanOrEqual(1, $r['closed']);
+        // The live container is healthy, so its own incident is closed by the
+        // normal recovery path - not by the orphan sweep.
+        $this->assertSame('resolved', $kept->fresh()->status);
+    }
 }

@@ -21,7 +21,11 @@ class Application extends Model
             'auto_deploy' => 'boolean',
             'auto_restart' => 'boolean',
             'last_deployed_at' => 'datetime',
+            'asleep_at' => 'datetime',
+            'woken_at' => 'datetime',
             'purge_after' => 'datetime',
+            'scaling' => 'array',
+            'replicas' => 'integer',
         ];
     }
 
@@ -31,6 +35,7 @@ class Application extends Model
 
     public function server() { return $this->belongsTo(Server::class)->withoutGlobalScope('organization'); }
     public function envVars() { return $this->hasMany(EnvVar::class); }
+    public function environmentModel() { return $this->belongsTo(Environment::class, 'environment_id'); }
     public function releases() { return $this->hasMany(Release::class)->orderByDesc('version'); }
     public function deployments() { return $this->hasMany(Deployment::class)->latest(); }
     public function domains() { return $this->hasMany(Domain::class); }
@@ -59,6 +64,10 @@ class Application extends Model
     public function retire(): void
     {
         $this->update(['status' => 'deleted', 'purge_after' => now()->addDays(config('platform.deleted_app_retention_days'))]);
+        // CRON-7: an app's scheduled jobs go with it.
+        $jobs = ScheduledJob::allTenants()->where('application_id', $this->id)->pluck('id');
+        ScheduledJobRun::allTenants()->whereIn('scheduled_job_id', $jobs)->delete();
+        ScheduledJob::allTenants()->whereIn('id', $jobs)->delete();
         foreach (Container::where('application_id', $this->id)->get() as $container) {
             app(\App\Services\ContainerService::class)->perform($container, 'remove', ['keep_volumes' => true]);
         }

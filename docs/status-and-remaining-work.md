@@ -6,12 +6,112 @@
 Canvas / UI        100%   all 35 artboards done or verified aligned
 Infrastructure     ~95%   7 sites live with TLS, limits, rate limiting,
                           monitoring, hardened SSH, backups in two places
-Firewall           ~70%   schema, API, renderer and page built; only rate
-                          limits actually reach traffic
-Monitoring         ~55%   websites + containers + servers every 5 min
-WorkSuite Server     0%   blocked: no readable source for the image
-Overall            ~45%
+Firewall           100%   enforced through CrowdSec (#14): rate limits,
+                          countries, challenges, events; hand-written
+                          Traefik files are adopted from Servers → Routes
+                          (to run on the live servers: see section 3)
+Antivirus          100%   all 14 (AV-1..14): ClamAV + YARA, real-time scan,
+                          scan schedule, threats, encrypted quarantine,
+                          WordPress core clean, false positives, brute-force
+                          bans, Coraza WAF, file integrity, image CVEs,
+                          outbound limits, security score, notifications;
+                          AV-6 cleans WordPress core only (other files are
+                          restored from a backup by hand)
+Monitoring         100%   websites + containers + servers every 5 min,
+                          cooldowns, escalation, auto-restart, uptime
+                          reports, WhatsApp/SMS/Telegram; a public status
+                          page (/status: components, 90-day daily uptime,
+                          incidents, notice; no internals) and a provisioned
+                          Grafana (Prometheus + Loki, "WorkSuite fleet")
+File manager       100%   all 19 features + customer page (#7-#13, #24,
+                          #25): sharing links, transfer manager, syntax
+                          highlighting, bulk extract, copy between volumes
+DNS zones          100%   all 13 (DNS-001..013): Cloudflare and PowerDNS,
+                          DNSSEC, zone settings, BIND import/export, zones
+                          drive DNS-01 certificates (#16, #18, #20, #22)
+WordPress toolkit  100%   all 12 (WP-001..012, #29, #30): inventory, settings,
+                          tools, vulnerability scan, one-time login, updates
+                          with restore points and automatic rollback, update
+                          all, hardening, restore points, staging (clone,
+                          refresh, push to live, password + noindex)
+Migration wizard   100%   cPanel, Plesk and HestiaCP backups (format told
+                          apart from the archive; Hestia's zstd via the host's
+                          zstd): fetch and inspect, pre-flight, mapping,
+                          resumable copy, temporary hostnames, timeline, DNS
+                          cutover with a health gate and rollback, delta
+                          sync, bulk, customer requests with approval and the
+                          customer page (Move a site here). Not read: Plesk
+                          encrypted or multi-volume backups
+Mail hosting       100%   by SRS: stack, domains, DKIM + rotation, mailboxes,
+                          aliases, DNS + autoconfig, TLS from Traefik, limits,
+                          relay, rDNS/blocklists with alerts, backups,
+                          auto-replies, logs, customer page, package quotas;
+                          now also (MCL): sending holds for mailboxes or
+                          domains over their hourly limit or bouncing most
+                          mail (postfix-send-access.cf, alert, release),
+                          per-domain caps (mailboxes, aliases, total quota,
+                          sends/hour), per-mailbox spam levels and
+                          allow/block lists (Sieve on X-Rspamd-Score), and
+                          a delivery log parsed from Postfix every 5 min
+                          that each organisation searches for its domains;
+                          one-click webmail sign-in (single-use link, a
+                          Roundcube plugin redeems it for a master-user
+                          login) and live import progress (N of M
+                          messages from imapsync's ETA line);
+                          a backup MX on a second server (Postfix
+                          relay, MX 20, queues inbound mail up to 5 days
+                          and forwards it when the primary answers; never
+                          an open relay; follows the domain list)
+Public pages       100%   maintenance (platform/site, admin bypass), 404,
+                          busy (502-504), suspended, expired, welcome pages
+                          from an edge container; the bot check (captcha)
+                          and access-blocked pages served by the CrowdSec
+                          bouncer, branded and pushed with the proxy config
+Customer pages     new      Email (mailboxes, forwarding, auto-replies, DNS
+                          in plain words), Security (score, threats, scan
+                          now), Scheduled jobs (app command or URL, run log,
+                          plan limits), Move a site here (request + steps)
+Email templates    100%   all 5 (EML-1..5): 20 templates in 7 groups, brand,
+                          validated variables, HTML + text, 600/360 px and
+                          dark mode, tests, user opt-outs; all 20 wired to
+                          their events. preview_ready goes out when a pull-
+                          request preview finishes deploying (instead of the
+                          usual deployment email); wordpress_updates when an
+                          inventory finds updates waiting, again only when
+                          the number changes
+Overall            ~99%   every feature area is complete; Infrastructure
+                          (~95%) waits on operations on the live servers
+                          (section 3: restores, adopting the live sites)
 ```
+
+## Coverage against the SRS (re-audited after the SRS added sections 4.30–4.36)
+
+The SRS now has 381 numbered requirements. Counting a partly built one as half, about
+**71%** are met (270 of 381). Before the new sections it was about 79% of 326. The
+percentages in the table above are rough feature-area estimates, so the two numbers differ.
+
+New in the SRS, and what exists for each:
+
+| Group | Reqs | Met | What exists / what is missing |
+|---|---|---|---|
+| SCL scaling and load balancing (4.30) | 10 | 100% | Copies, autoscaling, schedules, health checks, sticky sessions, shared-state warnings and plan limits (#51). Placement of copies over several servers through the private network with a Traefik pool service (SCL-6) and weighted canary releases with promote/abort (SCL-7). DNS failover between ingress servers (SCL-8, `EDGE_FAILOVER`): `edge:failover` every minute keeps each verified domain's A records on the online ingress servers, only for records already pointing at one, never removing the last, with an alert per server taken out. A least-busy strategy (Traefik `p2c`) beside round robin. Autoscaling on requests per second per copy from Traefik's `traefik_service_requests_total` (3-minute rate over the app's services, `METRICS_DRIVER=prometheus`) beside CPU, and extra copies billed by the hour at the app's size (`replica_hours.<size>` usage, an "Extra copies" invoice line; SCL-10). |
+| PNET private network and observability (4.31) | 9 | 100% | **WireGuard full mesh** between an organisation's servers (Resources → Private network; PNET-1): each agent generates and keeps its own X25519 key, the panel pushes peers, addresses come from `MESH_SUBNET` (default 10.88.0.0/16) on UDP `MESH_PORT` 51820, and peers are swapped live with `wg syncconf`. **CoreDNS** (`dmp-coredns`, bound to the mesh address only) serves `<server>.internal` and `<app>.internal` (PNET-2). **Admin VPN configs** for laptops and phones, with the private key shown once and never stored, and revocation (PNET-3). Handshakes and traffic every 5 minutes (`mesh:status`), with each device's last-seen time (PNET-5). Still from before: Traefik edge with automatic HTTPS (PNET-8 partly), per-container metrics and logs (PNET-9 partly), outbound SMTP limits (PNET-6 partly). Each apply also opens the mesh UDP port in UFW or firewalld when one is active, and SSH can be limited to the private network per server (PNET-7: an nftables table `dockermgr_mesh` allows the mesh subnet and listed addresses, refused until an admin device is connected or another address is listed, and removed by the agent unless confirmed within 5 minutes). Container networks are routed across the mesh (PNET-4): each server gets a `dmp-mesh` Docker network with its own /24 of `MESH_CONTAINER_SUPERNET` (10.89.0.0/16), peers route it over WireGuard, the agent turns on IP forwarding and adds a DOCKER-USER accept rule from the mesh, and apps with "reachable on the private network" get a fixed address there that `<app>.internal` resolves to. The admin API can be limited to `ADMIN_ALLOWED_CIDRS` (for example the mesh subnet plus a break-glass address); the customer panel, own account, jobs, agents and webhooks stay open. IPv6 beside IPv4: each member and VPN device gets the ULA with the same host number in `MESH_SUBNET6` (default `fd88::/64`, empty turns it off), on the WireGuard interface (also added live with `ip -6 address replace`), in every peer's AllowedIPs and the device config, AAAA records in the internal DNS, and the mesh prefix in the SSH lock. |
+| BLD build pipeline (4.32) | 9 | 100% | Signed push webhooks (BLD-1), isolated builders, the stage timeline, a registry, the Trivy gate (BLD-7) and rollback on a failed health check (BLD-8) exist. New: an **auto** builder that detects Node.js, Python, Go, PHP or static sites and generates the Dockerfile (Nixpacks/Railpack style, BLD-2), per-build layer cache stats with a monthly cache hit rate and a no-cache switch (BLD-3), per-build timeouts and monthly build-minute limits from the package (`build_minutes`, `build_timeout_minutes`; BLD-9), shown at `GET /builds/usage` and `GET /app/builds/usage`. Builds pull the app's last two pushed images and pass them as `cachefrom`, so any builder reuses layers (BLD-3), and `registry:gc` (daily, and Images & Registry → Clean up with a preview) deletes pushed images older than the last `BUILD_REGISTRY_KEEP` (5) releases through the Registry v2 API, marking those releases so a rollback to them is refused with a clear message. BuildKit's registry cache: when pushing, builds run through `docker buildx build` with `--cache-from/--cache-to type=registry,ref=<repo>:buildcache,mode=max` and push themselves (credentials in a temporary DOCKER_CONFIG, never on the command line), falling back to the Engine API build where buildx is missing (`BUILD_BUILDKIT_CACHE`). The SRS's BullMQ queue is served by Laravel queues by design. |
+| CLN server cleanup (4.33) | 5 | 100% | Prune with preview and a scheduled prune job, plus a per-server cleanup policy (Servers → server → Cleanup): **safe / standard / aggressive** levels (CLN-1), automatic runs when disk use crosses a threshold with a one-hour cooldown (CLN-2), the images of the last N releases of every app protected (CLN-3), a run history with freed space (CLN-4), and alerts when a cleanup fails or the disk stays above the threshold (CLN-5). Volumes are never touched. Container logs: panel-made containers rotate (json-file 10 MB × 3), and every cleanup empties any other container log above the policy's `log_max_mb` (default 100 MB, 0 = off), with the count and bytes in the run summary. |
+| CFT Cloudflare Tunnel (4.34) | 6 | 100% | Servers → server → Tunnel: a remotely managed tunnel in the Cloudflare account (CFT-1), a `dmp-cloudflared` connector on the proxy network that only dials out (CFT-2), every domain of the server's apps as an ingress rule to Traefik (CFT-3), proxied CNAMEs to `<tunnel>.cfargotunnel.com` replacing existing A records (CFT-4), `tunnels:sync` every 5 minutes with health, connection count and an alert when it goes down (CFT-5), and removal of the DNS records, connector and tunnel (CFT-6). The token needs Cloudflare Tunnel: Edit. An opt-in lockdown closes 80/443 on the host (agent `tunnel.lockdown`, nft table `dockermgr_tunnel`) only while the tunnel is healthy and routes every domain, and reopens them when it goes down, a domain can't be routed, or the tunnel is removed. Adding or removing a domain syncs the tunnel at once. |
+| ENV environments (4.35) | 7 | 100% | **Projects → environments** (Deploy → Projects; ENV-1), duplication of an environment with its apps and variables (ENV-2), shared variables and `${{shared.KEY}}` / `${{api.URL}}` / `${{api.KEY}}` references resolved at release time with warnings for missing ones (ENV-3), Git push webhooks per project (GitHub/Gitea HMAC, GitLab token) that deploy the environments mapped to the pushed branch (ENV-4), promotion of live images to another environment without rebuilding (ENV-5), approval per environment (ENV-6), and sleep after an idle window with wake (ENV-7). Pull requests (GitHub/Gitea `pull_request`, GitLab merge requests) on the project webhook open `PR #<n>`, a copy of the preview source environment on the PR's branch with a platform address per app, redeploy it on new pushes and remove it when the PR closes or merges. A sleeping app's domains show a waking page whose image request (`/__wake`, routed by Traefik to the panel) starts the app; the page reloads every 10 s. When a pull request opens, its preview addresses are commented on it (GitHub incl. Enterprise, Gitea, GitLab) with a Git token set per project and stored as an encrypted Secret. |
+| TPL one-click templates (4.36) | 6 | 100% | **333 templates** as manifests in `api/templates` (90 single images, now including AI and vector databases, search, observability, productivity and media apps, and 12 Compose stacks: WordPress + MariaDB, Ghost + MySQL, Nextcloud + PostgreSQL + Redis, n8n, Gitea, Matomo, Odoo, Umami, Wiki.js, BookStack, Directus, Mattermost; TPL-1/2), generated `SERVICE_PASSWORD_*`, `SERVICE_USER_*`, `SERVICE_HEX_*`, `SERVICE_BASE64_*`, `SERVICE_FQDN` and `SERVICE_URL` values kept per install (TPL-3), `templates:sync` daily from the bundled manifests and an optional remote index `TEMPLATES_REMOTE_URL` (TPL-4), updates that re-render an install on a newer template version with the same secrets (TPL-5), and `templates:validate`, run in the test suite, which renders and checks every template (TPL-6). Customers host any catalogue template, single images and Compose stacks alike (entries marked `customer: false` stay admin-only); a stack is placed on a server like any customer app, fronted by an app record whose restart, redeploy and delete act on the stack, with search, template variables, generated secrets stored as secret env vars and an install record for updates. Plus **231 services imported from Coolify's catalogue** (Apache-2.0, `api/templates/coolify`, NOTICE.md): magic variables mapped to ours, defaults inlined, host ports removed, bind mounts made named volumes, Traefik labels on the web service; the 152 not imported (already here, marked ignore upstream, or needing host paths, the Docker socket, privileged mode, host networking, extra capabilities or inline config files) are listed with reasons in `coolify-skipped.json`. |
+| USCL customer scaling (5.12) | 3 | 100% | Customers see each app's copies and requests/s (last 3 minutes, all copies, from Traefik via Prometheus) on the app list and the Scaling tab, and change the count with + / − up to the package's `max_replicas` (USCL-1). Each copy shows its health and CPU/RAM; Autoscale runs between 1 and the package maximum on CPU or requests/s when the package has `autoscale` (USCL-2). Health check, zero-downtime deploys (copies replaced one at a time), shared or sticky sessions and the spread strategy are shown read-only and refused with 422 if sent; traffic splitting (canary releases with weights, promote and abort) is offered on packages with `traffic_splitting`, which the Pro package has (USCL-3). |
+
+The reference architecture (SRS 2.6) names Temporal, BullMQ, Loki, Railpack, WireGuard and
+CoreDNS. The platform currently uses Laravel queues and a Laravel job runner, Prometheus metrics
+through the agent, no Loki, and Dockerfile builds; the SRS lists Laravel queues as the MVP
+alternative.
+
+Largest open groups, by requirements left: mail cluster (MCL, ~2 after the holds, limits, spam settings and log PR), scaling (SCL 6-8 + SCL-10 billing: placement, traffic splitting, edge nodes),
+private network (PNET, 9), firewall (FW, done), environments (ENV, 7), templates (TPL, 6),
+Cloudflare Tunnel (CFT, 6), public pages
+(PUB, done in #41).
 
 **Next action: restore the four sites that are still down.** `shopexpress.lk`
 was taking ~9,900 hits a day. Verified backups are on `51.89.192.43`. See the
@@ -68,7 +168,121 @@ been invented numbers. Build them only alongside the collection.
 
 ---
 
-## 2. Firewall — built, mostly not enforced
+## 1b. Cron engine (CRON-1..9)
+
+Built: run modes (in the app container, a one-off container from the app's image with
+its env and volumes, the server's shell for platform admins, HTTP with method, headers
+and expected status); timezone with a plain-words preview and the next three runs;
+overlap policy (skip / parallel / stop the old run via `cron.stop`); timeout; retries
+with doubling backoff; run history with attempt, 64 KB output, search and download;
+Run now, Test run (no alerts), Pause, Resume, Duplicate, Delete, all audited; alerts on
+failure, missed runs (server offline, or the scheduler down at the scheduled time) and
+long-running runs by email and webhook, and a Monitoring alert after three failures in
+a row that a success resolves; plan limits for jobs, interval, runtime and modes;
+secrets redacted from output; jobs deleted with their app; Operations → Cron &
+scheduler lists every customer's job for platform admins. The agent runs `cron.exec`
+beside its command queue so a long job never blocks other commands.
+
+**Server runner**: each agent keeps the schedule of the command jobs that run on its
+server (`cron.schedule`, pushed on every job change and hourly by `cron:sync-runners`,
+stored 0600). While the panel is reachable the panel schedules every run, as before; when
+the agent has had no successful heartbeat for 90 s it runs the due jobs itself (five-field
+cron with steps, ranges, lists, macros and the job's timezone; once per minute at most)
+through the same `cron.exec`, keeps the results in an outbox, and the next heartbeat
+delivers them. The panel records them as runs "ran on the server", replaces the missed
+runs it logged for those minutes, ignores repeats and any job that is not that server's.
+HTTP jobs stay with the panel. A Swarm-leader runner is not built (the panel does not
+manage Swarm).
+
+## 1c. Backup manager (BKM-001..009)
+
+Built: Operations → Backups is the Backup manager with Policies, Snapshots, Restore,
+Destinations and Restore tests tabs. Summary tiles (protected targets, 30-day success
+rate, stored size, last restore test, next run) and the 14-day run chart; daily /
+weekly / monthly retention (`restic forget --keep-daily/weekly/monthly`); pause and
+resume per policy, Run now, Run all due, Rerun failed; snapshots filtered by target;
+a restore wizard (everything, files or database; replace or side by side in
+`/var/lib/dockermgr/restores/<id>`; or download; safety backup first; stop the app
+around the restore and start it again even when the restore fails; health check
+after); SFTP destinations through rclone with key authentication (write-only key);
+a connection test (`backup.probe`: snapshots and stored bytes) with usage against a
+stated capacity and a warning above 85 %; object lock for S3/R2/B2 (forget without
+prune, lock no longer than retention).
+
+BKM-009: restore tests now also start what they restored in a sandbox container with no
+network (`BACKUP_SANDBOX_TESTS`, on by default). A database dump (PostgreSQL, MySQL,
+MariaDB) is loaded into a fresh server of the same engine and its rows are counted per
+table; an empty database fails the test. An app backup runs the app's own image on its
+restored volume and must still be running after 20 seconds. The result ("3 tables,
+12,345 rows" or "the app ran on the restored data for 20s") is part of the test's
+message; the sandbox is always removed.
+
+## 1d. Mail: IMAP import and webmail
+
+Built: **IMAP import** (MCL-10, UMAIL) from Google Workspace / Gmail, Microsoft 365,
+cPanel or any IMAP server, per mailbox, from the admin Mail page and the customer Email
+page. The agent's `mail.import` runs imapsync in a one-off container on the mail
+container's network and signs in to Dovecot as a master user (`dovecot-masters.cf`,
+written with every sync), so the mailbox's own password is never needed. Passwords go
+to imapsync in files, never on the command line; the source password is forgotten when
+the import ends. Results: messages, folders, bytes, errors and the last 16 KB of log.
+**Webmail**: Roundcube (`roundcube/roundcubemail`) beside the mail container on its own
+hostname, routed and certified by Traefik; customers get "Open webmail" and per-mailbox
+links with the address filled in, and the mail-app settings.
+
+**One-click webmail**: "Webmail" on a mailbox asks the panel for a 60-second, single-use
+link (`POST …/mailboxes/{box}/webmail`). The `dmp_sso` Roundcube plugin, written into its
+own volume at install, redeems the token server to server at `/api/v1/webmail-sso/{token}`
+with a per-server bearer and signs in as `box*dmpimport` (the Dovecot master user), so no
+password is typed or stored in the browser. **Live progress**: while imapsync runs, the
+agent reads its log every 10 s and reports "N of M messages copied" with a percentage,
+shown on the import list.
+
+Left: importing from the migration wizard (MIG-001).
+
+## 1e. Scaling and load balancing (SCL, USCL)
+
+Built: copies of an app on its server (SCL-1, USCL-1). The primary container is
+`app-<name>`; copies are `app-<name>-r2…rN` from the current release with the same
+Traefik service labels, so Traefik balances across them; health checks (path, interval,
+timeout) take a failing copy out of rotation and sticky sessions pin visitors by cookie
+(SCL-3/4). Scaling down stops a copy with a 30 s grace before removing it, and a deploy
+replaces copies one at a time (SCL-5). Modes: fixed, autoscale on CPU (3 min above the
+target adds a copy, 15 min under half removes one, the maximum is recorded as a warning)
+and scheduled windows (SCL-2), evaluated every minute by `scaling:evaluate`; every change
+is logged with reason and result. Shared-state warnings (SCL-9) and plan limits
+`max_replicas` / `autoscale` / `traffic_splitting` for customers (SCL-10, USCL-1..3; routing settings read-only for customers). Screens: Scaling tab on
+the admin app page and the customer app page.
+
+Placement (SCL-6): `servers` in the scaling settings lists more servers for copies; copies
+are dealt round-robin over the app's server and those that are on the private network and
+online. A copy elsewhere publishes its port on that server's mesh address only (port
+`30000 + …`), and the file provider gives the app's routers an `app-<name>-pool` service
+over every copy (health-checked, sticky when asked). Canaries (SCL-7): `POST
+/applications/{id}/canary {image, weight}` runs `app-<name>-canary` from the live release's
+settings with another image; `app-<name>-split` weighs it against the live app; `PATCH`
+changes the share, `…/promote` deploys the image as the next release, `DELETE` aborts. Both
+need the Traefik file provider (`CERT_DRIVER=traefik`) and are admin-only.
+
+Left: edge nodes and DNS failover between ingress servers (SCL-8), least-connections,
+requests-per-second autoscaling, and billing extra copies by usage.
+
+## 2. Firewall — enforced through CrowdSec (#14)
+
+> Update (FW-010..014): **under attack mode** (one switch, all domains or one) renders a
+> CrowdSec trigger scenario that captchas every visitor; **IP allow and block lists**
+> (`firewall_ip_lists`: CIDR, scope, note, expiry) render as a ban scenario on
+> `IpInRange` and a `dmp-allowlist.yaml` whitelist parser, which the agent writes to
+> `parsers/s02-enrich/` with the scenarios and rolls back with them; expired entries are
+> skipped and `firewall:expire-ips` (every minute) removes them. The Events tab exports
+> CSV (formula-safe) and has Allow IP / Block IP on each row. Blocking a range that
+> holds your own address is refused with 409 until confirmed. FW-015: customers manage
+> protected pages and country rules for their own domains at /app/firewall, within the
+> plan's `firewall_paths` / `firewall_countries` limits. Left: a ban already issued for a removed block entry lasts until it times out.
+
+> Update: rate limits, country blocks and challenges now reach traffic through
+> CrowdSec and its Traefik bouncer, and `firewall_events` is filled from
+> CrowdSec decisions. The table below is the state before #14.
 
 Schema (`firewall_rules`, `firewall_countries`, `firewall_protected_paths`,
 `firewall_events`), settings, renderer, API and page are all in place, at
@@ -91,10 +305,8 @@ Design note worth remembering: **a Traefik middleware cannot match a path**, so
 a path-scoped rule gets its own router at a higher priority pointing at the
 same service. Site-wide rules attach to the domain router.
 
-- [ ] Decide the enforcement route: GeoIP plugin, CrowdSec, or Cloudflare at
-      the edge. Everything above is blocked on that one choice.
-- [ ] Nothing writes `firewall_events` yet — it needs a log shipper or a
-      Traefik access-log reader on the ingress.
+- [x] Enforcement route: CrowdSec with its Traefik bouncer (#14).
+- [x] `firewall_events` is filled by `firewall:sync-events` from CrowdSec's alerts.
 - [ ] The challenge keys must be entered by the operator in Settings. Do not
       handle them.
 
@@ -102,14 +314,23 @@ same service. Site-wide rules attach to the domain router.
 
 ## 3. Operations — the real remaining value
 
+Step-by-step, with checks and undo for each: [`docs/runbooks/infrastructure.md`](runbooks/infrastructure.md).
+
 - [ ] **Restore `shopexpress.lk` · `diygeek.cc` · `softkeymart.com` ·
       `livezenbiz.com`.** Check each for a live copy first (see warnings).
 - [ ] Retire old copies on `51.89.192.43` once restored sites are verified
 - [ ] **Bring the 7 live sites under panel management.** They are served by
-      hand-written Traefik files (`giantforests.yml`, `security.yml`, …), so
-      `dmp-domains.yml` renders empty and the firewall renderer is proven by
-      tests, not live traffic. Until this is done the Firewall page cannot
-      affect them.
+      hand-written Traefik files (`giantforests.yml`, `security.yml`, …). The
+      tool now exists: Servers → server → **Routes** → Scan reads the files
+      (`proxy.scan`), lists each with its hosts and upstream, and **Adopt**
+      creates a managed domain per host with that upstream (firewall, WAF,
+      bouncer, public pages and uptime then apply), pushes the panel's route,
+      renames the old file to `<name>.adopted` (`proxy.retire`) and checks
+      each host over HTTPS; if one answers 500+ or not at all the file is put
+      back (`proxy.restore`) and the managed route withdrawn. Files that only
+      hold middlewares (`security.yml`) or point at Docker-label services are
+      listed as not adoptable. Needs `CERT_DRIVER=traefik`. To do on the live
+      servers: run it per site, one at a time.
 - [ ] CloudPanel: `8433:8443/tcp` is open to the world on a self-signed cert
 - [ ] A brute-force source was hammering `dazzlingtours.com/wp-login.php`
       (34 requests, not the outage cause). Blocking it is what the firewall is
@@ -117,19 +338,18 @@ same service. Site-wide rules attach to the domain router.
 - [ ] `dazzlingtours` memory is at 2 GB on a wrong diagnosis; the other six are
       at 1 GB. Consider putting it back.
 
-## 4. Monitoring to 100%
+## 4. Monitoring — COMPLETE
 
-- [ ] Auto-restart policies for failed containers
-- [ ] Uptime reports and downtime history
-- [ ] Per-customer scoped incident views
-- [ ] Alert dedup, cooldowns, maintenance windows, escalation
-- [ ] WhatsApp / Telegram / SMS channels
+- [x] Auto-restart policies for failed containers
+- [x] Uptime reports and downtime history
+- [x] Per-customer scoped incident views
+- [x] Alert dedup, cooldowns, maintenance windows, escalation
+- [x] WhatsApp and SMS channels (`6d361b1`)
+- [x] Telegram channel (the settings form now stores each channel's address and token in the keys its type uses; they were dropped before)
+- [x] Public status page: Monitoring → Public status page picks components (a name per verified domain), a title and a notice; `GET /api/v1/status` (public, cached 60 s) and `/status` show the overall state, each component's state (maintenance windows count), 90 days of daily uptime (a day without checks is unknown, not 100%) and the past 14 days' incidents with start and end only; domain names and alert text never leave the panel
+- [x] Grafana: `docs/deploy/observability/grafana` provisions the Prometheus and Loki data sources and a "WorkSuite fleet" dashboard (servers, CPU, memory, disk, network, requests/s, 5xx share, p95 per app, top containers, error logs) with a server filter; localhost-only, admin password from `GRAFANA_ADMIN_PASSWORD`
 
-## 5. WorkSuite Server v3.2
-
-- [ ] Blocked: no readable source for the image. Needs access before anything.
-
-## 6. Housekeeping
+## 5. Housekeeping
 
 - [ ] **`config:cache` breaks the test suite** — it makes `DNS_DRIVER=fake`
       from `phpunit.xml` inert, and the suite then reports ~34 failures that

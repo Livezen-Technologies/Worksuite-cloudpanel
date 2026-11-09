@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: gitea-with-mysql
+name: Gitea With Mysql
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Gitea is a self-hosted, lightweight Git service, offering version control, collaboration, and code hosting.
+port: 3000
+source: coolify
+documentation: https://docs.gitea.com
+compose: "services:\n  gitea:\n    image: gitea/gitea:latest\n    environment:\n      USER_UID: '1000'\n      USER_GID: '1000'\n      GITEA__database__DB_TYPE: mysql\n      GITEA__database__HOST: mysql\n      GITEA__database__NAME: ${MYSQL_DATABASE-gitea}\n      GITEA__database__USER: ${SERVICE_USER_MYSQL}\n      GITEA__database__PASSWD: ${SERVICE_PASSWORD_MYSQL}\n    volumes:\n    - gitea-data:/data\n    - gitea-timezone:/etc/timezone\n    - gitea-localtime:/etc/localtime\n    depends_on:\n      mysql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  mysql:\n    image: mysql:8.0\n    volumes:\n    - gitea-mysql-data:/var/lib/mysql\n    environment:\n      MYSQL_USER:\
+  \ ${SERVICE_USER_MYSQL}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQL}\n      MYSQL_DATABASE: gitea\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}\n    healthcheck:\n      test:\n      - CMD\n      - mysqladmin\n      - ping\n      - -h\n      - 127.0.0.1\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  gitea-data: {}\n  gitea-timezone: {}\n  gitea-localtime: {}\n  gitea-mysql-data: {}\n"

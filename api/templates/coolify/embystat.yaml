@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: embystat
+name: Embystat
+category: Analytics
+version: 1
+type: compose
+accent: '#6B16ED'
+description: EmbyStat is a web analytics tool, designed to provide insight into website traffic and user behavior.
+port: 6555
+source: coolify
+documentation: https://github.com/mregni/EmbyStat
+compose: "services:\n  embystat:\n    image: lscr.io/linuxserver/embystat:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: Europe/Madrid\n    volumes:\n    - embystat-config:/config\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:6555\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6555'\nvolumes:\n  embystat-config: {}\n"

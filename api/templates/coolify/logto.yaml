@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: logto
+name: Logto
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: A comprehensive identity solution covering both the front and backend, complete with pre-built infrastructure and enterprise-grade solutions.
+port: 3001
+source: coolify
+documentation: https://docs.logto.io/docs/tutorials/get-started/#logto-oss-self-hosted
+compose: "services:\n  logto:\n    image: svhd/logto:${TAG-latest}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    entrypoint:\n    - sh\n    - -c\n    - npm run cli db seed -- --swe && npm run alteration deploy latest && npm start\n    environment:\n      TRUST_PROXY_HEADER: '1'\n      DB_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-logto}\n      ENDPOINT: $LOGTO_ENDPOINT\n      ADMIN_ENDPOINT: $LOGTO_ADMIN_ENDPOINT\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - exit 0\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3001'\n  postgres:\n    image: postgres:14-alpine\n    user: postgres\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB:\
+  \ ${POSTGRES_DB:-logto}\n    volumes:\n    - logto-postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD\n      - pg_isready\n      - -U\n      - ${SERVICE_USER_POSTGRES}\n      - -d\n      - $POSTGRES_DB\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  logto-postgres-data: {}\n"

@@ -1,0 +1,293 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\MailAlias;
+use App\Models\Mailbox;
+use App\Models\MailDomain;
+use App\Models\MailServer;
+use App\Models\Server;
+use App\Services\MailService;
+use Illuminate\Http\Request;
+
+/** Mail hosting (SRS MAIL-001..010, 012, 014). */
+class MailController extends Controller
+{
+    public function __construct(private MailService $mail) {}
+
+    public function index()
+    {
+        $servers = Server::allTenants()->pluck('name', 'id');
+
+        return $this->data([
+            'servers' => MailServer::query()->get()->map(fn (MailServer $m) => [
+                'id' => $m->id, 'server_id' => $m->server_id, 'server' => $servers[$m->server_id] ?? null, 'hostname' => $m->hostname,
+                'status' => $m->status, 'error' => $m->error, 'synced_at' => $m->synced_at?->toIso8601ZuluString(),
+                'webmail_hostname' => $m->webmail_hostname, 'webmail_status' => $m->webmail_status,
+                'backup_server_id' => $m->backup_server_id, 'backup_hostname' => $m->backup_hostname,
+                'settings' => $this->presentSettings($m), 'health' => $m->health, 'tls' => $m->tls, 'health_checked_at' => $m->health_checked_at?->toIso8601ZuluString(),
+            ]),
+            'domains' => MailDomain::query()->orderBy('name')->get()->map(fn (MailDomain $d) => $this->presentDomain($d)),
+        ]);
+    }
+
+    public function install(Request $request)
+    {
+        $data = $request->validate(['server_id' => 'required|string', 'hostname' => ['required', 'string', 'max:190', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i']]);
+        $request->attributes->set('audit_skip', true);
+        $m = $this->mail->install(Server::findOrFail($data['server_id']), $data['hostname'], $request->user()->id);
+
+        return $this->data(['id' => $m->id, 'status' => $m->status], 202);
+    }
+
+    public function storeDomain(Request $request)
+    {
+        $data = $request->validate(['mail_server_id' => 'required|string', 'name' => ['required', 'string', 'max:190', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i']]);
+        $request->attributes->set('audit_skip', true);
+        $d = $this->mail->addDomain(MailServer::findOrFail($data['mail_server_id']), $data['name'], $request->user()->id);
+
+        return $this->data($this->presentDomain($d, true), 201);
+    }
+
+    public function showDomain(string $id)
+    {
+        return $this->data($this->presentDomain(MailDomain::findOrFail($id), true));
+    }
+
+    public function updateDomain(Request $request, string $id)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate(['catch_all' => 'nullable|email|max:190']);
+        $d->update(['catch_all' => $data['catch_all'] ?? null]);
+        $this->mail->sync(MailServer::findOrFail($d->mail_server_id), $request->user()->id);
+
+        return $this->data($this->presentDomain($d, true));
+    }
+
+    public function destroyDomain(Request $request, string $id)
+    {
+        $d = MailDomain::findOrFail($id);
+        $server = MailServer::findOrFail($d->mail_server_id);
+        $d->delete();
+        $this->mail->sync($server, $request->user()->id);
+
+        return response()->noContent();
+    }
+
+    /** MAIL-005 */
+    public function checkDns(string $id)
+    {
+        return $this->data($this->mail->checkDns(MailDomain::findOrFail($id)));
+    }
+
+    public function publishDns(string $id)
+    {
+        return $this->data($this->mail->publish(MailDomain::findOrFail($id)));
+    }
+
+    /** MAIL-003 */
+    public function storeMailbox(Request $request, string $id)
+    {
+        $data = $request->validate(['local_part' => 'required|string|max:64', 'password' => 'required|string|min:10|max:200', 'quota_mb' => 'sometimes|integer|min:50|max:102400']);
+        $request->attributes->set('audit_skip', true);
+        $box = $this->mail->saveMailbox(MailDomain::findOrFail($id), $data, null, $request->user()->id);
+
+        return $this->data($this->presentBox($box), 201);
+    }
+
+    public function updateMailbox(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate(['password' => 'sometimes|string|min:10|max:200', 'quota_mb' => 'sometimes|integer|min:50|max:102400', 'enabled' => 'sometimes|boolean']);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data($this->presentBox($this->mail->saveMailbox($d, $data, Mailbox::where('mail_domain_id', $d->id)->findOrFail($box), $request->user()->id)));
+    }
+
+    public function destroyMailbox(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        Mailbox::where('mail_domain_id', $d->id)->findOrFail($box)->delete();
+        $this->mail->sync(MailServer::findOrFail($d->mail_server_id), $request->user()->id);
+
+        return response()->noContent();
+    }
+
+    /** MAIL-004 */
+    public function storeAlias(Request $request, string $id)
+    {
+        $data = $request->validate(['local_part' => 'required|string|max:64', 'destinations' => 'required|array|min:1|max:50', 'destinations.*' => 'string|max:190']);
+        $request->attributes->set('audit_skip', true);
+        $a = $this->mail->saveAlias(MailDomain::findOrFail($id), $data['local_part'], $data['destinations'], $request->user()->id);
+
+        return $this->data(['id' => $a->id, 'local_part' => $a->local_part, 'destinations' => $a->destinations], 201);
+    }
+
+    public function destroyAlias(Request $request, string $id, string $alias)
+    {
+        $d = MailDomain::findOrFail($id);
+        MailAlias::where('mail_domain_id', $d->id)->findOrFail($alias)->delete();
+        $this->mail->sync(MailServer::findOrFail($d->mail_server_id), $request->user()->id);
+
+        return response()->noContent();
+    }
+
+    /** MAIL-008 / MAIL-009 */
+    public function updateServer(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'send_per_hour' => 'sometimes|integer|min:1|max:100000', 'spam_reject' => 'sometimes|numeric|min:5|max:100', 'spam_header' => 'sometimes|numeric|min:1|max:99',
+            'relay' => 'sometimes|nullable|array', 'relay.host' => ['required_with:relay', 'string', 'max:190', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
+            'relay.port' => 'sometimes|integer|in:25,465,587,2525', 'relay.username' => 'required_with:relay|string|max:190', 'relay.password' => 'sometimes|string|max:255',
+        ]);
+        $request->attributes->set('audit_skip', true);
+        $m = $this->mail->updateSettings(MailServer::findOrFail($id), $data, $request->user()->id);
+
+        return $this->data($this->presentSettings($m));
+    }
+
+
+    public function health(string $id)
+    {
+        return $this->data($this->mail->checkHealth(MailServer::findOrFail($id)));
+    }
+
+    /** MAIL-005: copy a renewed certificate from Traefik now (also daily). */
+    public function certs(string $id)
+    {
+        $job = $this->mail->refreshCerts(MailServer::findOrFail($id)) ?? throw \App\Exceptions\ApiException::conflict('The mail server is not running on an online server.');
+
+        return $this->accepted($job);
+    }
+
+    /** MAIL-010 */
+    public function backups(Request $request, string $id)
+    {
+        $data = $request->validate(['schedule' => 'sometimes|string|max:100', 'retention_days' => 'sometimes|integer|min:1|max:3650', 'copy_destination_from' => 'sometimes|nullable|string']);
+        $policy = $this->mail->backupPolicy(MailServer::findOrFail($id), $data);
+
+        return $this->data(['policy_id' => $policy->id, 'destination' => $policy->destination, 'schedule' => $policy->schedule, 'retention_days' => $policy->retention_days], 201);
+    }
+
+    /** MAIL-014 */
+    public function logs(Request $request, string $id)
+    {
+        return $this->data($this->mail->logs(MailServer::findOrFail($id), min(1000, max(10, (int) $request->query('tail', 200)))));
+    }
+
+    /** MAIL-006 */
+    public function dkim(Request $request, string $id, string $step)
+    {
+        $d = MailDomain::findOrFail($id);
+        $request->attributes->set('audit_skip', true);
+        $d = $step === 'rotate' ? $this->mail->rotateDkim($d, $request->user()->id) : $this->mail->completeDkimRotation($d, $request->user()->id);
+
+        return $this->data($this->presentDomain($d, true));
+    }
+
+    /** MAIL-012 */
+    public function autoresponder(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate(['enabled' => 'required|boolean', 'subject' => 'required_if:enabled,true|nullable|string|max:200', 'body' => 'required_if:enabled,true|nullable|string|max:5000', 'until' => 'nullable|date|after_or_equal:today']);
+        $request->attributes->set('audit_skip', true);
+        $b = $this->mail->setAutoresponder(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box), $data['enabled'] ? $data : null, $request->user()->id);
+
+        return $this->data($this->presentBox($b));
+    }
+
+    private function presentSettings(MailServer $m): array
+    {
+        $set = $this->mail->settings($m);
+        if ($set['relay']) {
+            $set['relay']['password_set'] = (bool) $m->relay_password;
+        }
+
+        return $set;
+    }
+
+    private function presentDomain(MailDomain $d, bool $detail = false): array
+    {
+        $out = [
+            'id' => $d->id, 'name' => $d->name, 'mail_server_id' => $d->mail_server_id, 'catch_all' => $d->catch_all,
+            'mailboxes' => Mailbox::where('mail_domain_id', $d->id)->count(), 'aliases' => MailAlias::where('mail_domain_id', $d->id)->count(),
+            'dkim_selector' => $d->dkim_selector, 'dkim_next_selector' => $d->dkim_next_selector, 'dkim_previous_selector' => $d->dkim_previous_selector,
+            'dkim_rotated_at' => $d->dkim_rotated_at?->toIso8601ZuluString(),
+            'dns_ok' => $d->dns ? collect($d->dns)->reject(fn ($r) => $r['optional'] ?? false)->every(fn ($r) => $r['status'] === 'ok') : null, 'dns_checked_at' => $d->dns_checked_at?->toIso8601ZuluString(),
+        ];
+        if ($detail) {
+            $out += [
+                'records' => $this->mail->records($d), 'dns' => $d->dns ?? [],
+                'mailbox_list' => Mailbox::where('mail_domain_id', $d->id)->orderBy('local_part')->get()->map(fn ($b) => $this->presentBox($b)),
+                'alias_list' => MailAlias::where('mail_domain_id', $d->id)->orderBy('local_part')->get()->map(fn ($a) => ['id' => $a->id, 'local_part' => $a->local_part, 'destinations' => $a->destinations]),
+            ];
+        }
+
+        return $out;
+    }
+
+    private function presentBox(Mailbox $b): array
+    {
+        return ['id' => $b->id, 'local_part' => $b->local_part, 'quota_mb' => $b->quota_mb, 'enabled' => $b->enabled, 'autoresponder' => $b->autoresponder, 'spam' => $b->spam, 'held_at' => $b->held_at, 'held_reason' => $b->held_reason, 'created_at' => $b->created_at?->toIso8601ZuluString()];
+    }
+
+    /** MCL-10: start an IMAP import into a mailbox. */
+    /** MCL: a one-click, single-use webmail sign-in link for this mailbox. */
+    public function webmailLink(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data(['url' => $this->mail->webmailLink(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box))]);
+    }
+
+    public function startImport(Request $request, string $id, string $box)
+    {
+        $d = MailDomain::findOrFail($id);
+        $data = $request->validate([
+            'host' => 'required|string|max:253', 'port' => 'sometimes|integer|min:1|max:65535', 'security' => 'sometimes|in:ssl,starttls,none',
+            'username' => 'required|string|max:190', 'password' => 'required|string|max:500',
+        ]);
+        $request->attributes->set('audit_skip', true);
+        $import = app(\App\Services\MailImportService::class)->start(Mailbox::where('mail_domain_id', $d->id)->findOrFail($box), $data, $request->user()->id);
+
+        return $this->accepted(\App\Models\Job::find($import->job_id), ['import' => \App\Services\MailImportService::present($import)]);
+    }
+
+    /** Imports into a domain's mailboxes, newest first, with the provider presets. */
+    public function imports(string $id)
+    {
+        $d = MailDomain::findOrFail($id);
+        $boxes = Mailbox::where('mail_domain_id', $d->id)->pluck('id');
+
+        return $this->data([
+            'presets' => \App\Services\MailImportService::PRESETS,
+            'imports' => \App\Models\MailImport::whereIn('mailbox_id', $boxes)->latest()->limit(50)->get()->map(fn ($i) => \App\Services\MailImportService::present($i)),
+        ]);
+    }
+
+    /** MCL: a backup MX on another server (server_id null removes it). */
+    public function backup(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'server_id' => 'nullable|uuid',
+            'hostname' => ['required_with:server_id', 'nullable', 'string', 'max:253', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
+        ]);
+        $mail = MailServer::findOrFail($id);
+        $server = ! empty($data['server_id']) ? \App\Models\Server::findOrFail($data['server_id']) : null;
+        $mail = $this->mail->setBackup($mail, $server, $data['hostname'] ?? null, $request->user()->id);
+
+        return $this->data(['backup_server_id' => $mail->backup_server_id, 'backup_hostname' => $mail->backup_hostname], $server ? 202 : 200);
+    }
+
+    /** Roundcube webmail beside the mail container, on its own hostname. */
+    public function webmail(Request $request, string $id)
+    {
+        $data = $request->validate(['hostname' => ['required', 'string', 'max:253', 'regex:/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i']]);
+        $request->attributes->set('audit_skip', true);
+        $mail = $this->mail->installWebmail(MailServer::findOrFail($id), $data['hostname'], $request->user()->id);
+
+        return $this->data(['webmail_hostname' => $mail->webmail_hostname, 'webmail_status' => $mail->webmail_status], 202);
+    }
+}

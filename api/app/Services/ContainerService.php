@@ -140,6 +140,7 @@ class ContainerService
         if (! $container->docker_id || $container->state !== 'running') {
             throw ApiException::conflict('The container must be running to open a terminal.');
         }
+        TerminalService::preflight();
         $token = Str::random(48);
         $session = TerminalSession::create([
             'container_id' => $container->id, 'user_id' => $user->id, 'token_hash' => hash('sha256', $token),

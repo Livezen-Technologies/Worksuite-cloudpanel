@@ -38,7 +38,7 @@ class OperationsTest extends TestCase
     public function test_default_alert_rules_seeded_and_evaluated(): void
     {
         [, $org, $token] = $this->org();
-        $this->assertSame(7, AlertRule::allTenants()->where('organization_id', $org->id)->where('is_default', true)->count());
+        $this->assertSame(8, AlertRule::allTenants()->where('organization_id', $org->id)->where('is_default', true)->count());
         $server = $this->server($org, ['cpu_pct' => 97]);
         foreach (range(0, 9) as $m) {
             Metric::create(['organization_id' => $org->id, 'server_id' => $server->id, 'cpu_pct' => 97, 'ram_pct' => 20, 'disk_pct' => 30, 'recorded_at' => now()->subMinutes($m)]);
@@ -127,7 +127,12 @@ class OperationsTest extends TestCase
         $this->server($org, ['name' => 'findme-01']);
         $this->api($token)->getJson('/api/v1/search?q=findme')->assertOk()->assertJsonPath('data.0.type', 'server');
         $ids = collect($this->api($token)->getJson('/api/v1/app/templates')->assertOk()->json('data'))->pluck('id')->all();
-        $this->assertSame(['wordpress', 'n8n', 'ghost', 'postgresql', 'redis', 'uptime-kuma'], $ids);
+        foreach (['wordpress', 'n8n', 'ghost', 'postgresql', 'redis', 'uptime-kuma', 'grafana'] as $id) {
+            $this->assertContains($id, $ids);
+        }
+        $this->assertNotContains('portainer', $ids, 'admin-only templates are hidden');
+        $this->assertContains('wordpress-mariadb', $ids, 'stacks are placed on a server like any customer app');
+        $this->assertGreaterThanOrEqual(35, count($ids));
     }
 
     public function test_database_from_template_uses_secret_reference(): void

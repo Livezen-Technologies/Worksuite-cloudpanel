@@ -19,7 +19,7 @@ class IntegrationController extends CrudController
 
         return [
             'name' => "{$req}|string|max:120",
-            'provider' => "{$req}|in:hetzner,digitalocean,vultr,linode,aws,proxmox,github,gitlab,gitea,cloudflare,route53,stripe,oidc",
+            'provider' => [$req, \Illuminate\Validation\Rule::in(array_unique(array_merge(['proxmox'], array_keys(config('integrations.services')))))],
             'credentials' => 'nullable|array',
             'config' => 'nullable|array',
             'enabled' => 'sometimes|boolean',

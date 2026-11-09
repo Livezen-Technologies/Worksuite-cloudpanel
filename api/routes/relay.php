@@ -10,3 +10,4 @@ Route::post('terminal-sessions/{id}/connect', [RelayController::class, 'connect'
 Route::get('terminal-sessions/{id}', [RelayController::class, 'status'])->where('id', $uuid)->name('relay.terminal.status');
 Route::post('terminal-sessions/{id}/closed', [RelayController::class, 'closed'])->where('id', $uuid)->name('relay.terminal.closed');
 Route::post('terminal-sessions/{id}/recording', [RelayController::class, 'recording'])->where('id', $uuid)->name('relay.terminal.recording');
+Route::post('ssh/session', [RelayController::class, 'sshSession'])->name('relay.ssh.session');

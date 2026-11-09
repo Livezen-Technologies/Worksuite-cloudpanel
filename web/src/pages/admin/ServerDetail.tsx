@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
-import type { Container, Server } from '../../api/types'
-import { Card, Field, Meter, StatTile, Toggle } from '../../components/Card'
+import type { Container, Server, ServerDisk } from '../../api/types'
+import { Card, Field, Meter, StatTile, Toggle, PageHeader } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
 import { Tabs } from '../../components/Tabs'
 import { DataTable, type Column } from '../../components/DataTable'
@@ -10,9 +10,37 @@ import { ConfirmDialog } from '../../components/Overlay'
 import { LineChart } from '../../components/Charts'
 import { ago, mb, pct, str } from '../../lib/format'
 import { num, type R } from '../../lib/util'
+import { CleanupPanel } from '../../components/CleanupPanel'
+import { TunnelPanel } from '../../components/TunnelPanel'
+import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
 
-const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Agent', 'Settings'] as const
+const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
+
+/**
+ * Megabytes in, the largest sensible unit out: a 1.8 TB array must not read as
+ * "1874560 MB", and a 988 MB /boot must not read as "0 GB".
+ */
+function fsSize(mb?: number) {
+  const n = num(mb)
+  if (!n) return '\u2014'
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} TB`
+  if (n >= 1024) return `${Math.round(n / 1024)} GB`
+  return `${n} MB`
+}
+
+/**
+ * disk_pct and disk_gb are the root filesystem's. On a host whose data sits on
+ * a second array that alone under-reports the machine, so the tile also names
+ * the total once there is more than one filesystem.
+ */
+function diskDelta(rootGB: number | undefined, disks: ServerDisk[]) {
+  if (disks.length > 1) {
+    const total = disks.reduce((a, d) => a + num(d.size_mb), 0)
+    return `${fsSize(num(rootGB) * 1024)} root \u00b7 ${fsSize(total)} total`
+  }
+  return rootGB ? `${rootGB} GB` : undefined
+}
 
 function SimpleList({ path, query, columns, label }: { path: string; query?: R; columns: Column<R>[]; label: string }) {
   const { rows, isLoading } = useList<R>(path, query)
@@ -26,28 +54,39 @@ export default function ServerDetail() {
   const { item: s, isLoading } = useOne<Server>(`/servers/${id}`, undefined, { refetchInterval: 15000 })
   const { run, busy } = useAction()
   const [confirmDel, setConfirmDel] = useState(false)
+  const [drainOpen, setDrainOpen] = useState(false)
+  const [revokeOpen, setRevokeOpen] = useState(false)
+  const [drained, setDrained] = useState<{ moving: { name: string }[]; kept: { name: string; reason: string }[] } | null>(null)
+  // What still lives on the server: drain moves stateless apps; the rest is moved with a backup and restore.
+  const residents = useOne<{ apps: { name: string; stateful: boolean }[]; databases: { name: string }[]; volumes: number }>(id ? `/servers/${id}/residents` : null, undefined, { refetchInterval: 30000 })
+  const left = residents.item ? residents.item.apps.length + residents.item.databases.length : 0
   const [edit, setEdit] = useState<R | null>(null)
   const containers = useList<Container>(`/servers/${id}/containers`)
   const metrics = useOne<R>(tab === 'Monitoring' || tab === 'Overview' ? '/metrics' : null, { server_id: id, range: '6h' })
   const audit = useList<R>(tab === 'Logs' || tab === 'Security' ? '/audit-logs' : null, { server_id: id })
   if (isLoading || !s) return <Card>{isLoading ? 'Loading server…' : 'Server not found.'}</Card>
   const series = (metrics.item?.series ?? metrics.item ?? {}) as R
+  const disks = (s.disks ?? []) as ServerDisk[]
   const f = edit ?? { name: s.name, environment: s.environment, region: s.region, tags: (s.tags ?? []).join(', ') }
 
   return (
     <>
-      <Link to="/admin/servers" className="text-sm font-semibold">← Servers</Link>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="m-0 text-[28px] font-bold tracking-tight">{s.name}</h1>
-        <Badge tone={toneFor(s.status)}>{s.status}</Badge>
-        <span className="font-mono text-sm text-muted">{s.ip}</span>
-        <div className="ml-auto flex gap-2 flex-wrap">
+      <PageHeader title={s.name} back={<Link to="/admin/servers" className="link-action">← Servers</Link>}
+        badge={<><Badge tone={toneFor(s.status)}>{s.status}</Badge><span className="font-mono text-sm text-muted">{s.ip}</span></>}
+        actions={<>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/maintenance`, body: { enabled: s.status !== 'maintenance' }, label: s.status === 'maintenance' ? 'Leave maintenance' : 'Enter maintenance' })}>
             {s.status === 'maintenance' ? 'End maintenance' : 'Maintenance mode'}
           </button>
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/servers/${s.id}/agent/restart`, label: `Restart agent on ${s.name}` })}>Restart agent</button>
+          <button type="button" className="btn" disabled={busy || !left} title={left ? undefined : 'Nothing runs here'} onClick={() => setDrainOpen(true)}>Drain server</button>
+          <button type="button" className="btn btn-ghost text-danger" disabled={busy || s.status === 'pending'} onClick={() => setRevokeOpen(true)}>Revoke agent</button>
+        </>} />
+      {drained && (
+        <div role="status" className="card p-3 text-sm flex flex-col gap-1">
+          <span className="font-semibold">{drained.moving.length ? `Moving ${drained.moving.length} app(s): ${drained.moving.map((m) => m.name).join(', ')}. Follow them on the Applications page.` : 'No app could be moved automatically.'}</span>
+          {drained.kept.map((k) => <span key={k.name} className="text-muted"><span className="font-semibold text-fg">{k.name}</span>: {k.reason}</span>)}
         </div>
-      </div>
+      )}
       {s.status === 'maintenance' && <div className="card p-3 text-sm" style={{ background: 'var(--b-bg)', color: 'var(--b-fg)' }}>Maintenance mode is on: new deployments to this server are blocked.</div>}
       <Tabs tabs={TABS.map((t) => ({ id: t, label: t }))} value={tab} onChange={setTab} label="Server sections" />
 
@@ -56,7 +95,7 @@ export default function ServerDetail() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <StatTile label="CPU" value={pct(s.cpu_pct)} delta={`${s.cpu_cores ?? '—'} cores`} pct={s.cpu_pct} />
             <StatTile label="Memory" value={pct(s.ram_pct)} delta={mb(s.ram_mb)} pct={s.ram_pct} />
-            <StatTile label="Disk" value={pct(s.disk_pct)} delta={s.disk_gb ? `${s.disk_gb} GB` : undefined} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? 'var(--r-fg)' : undefined} />
+            <StatTile label="Disk" value={pct(s.disk_pct)} delta={diskDelta(s.disk_gb, disks)} pct={s.disk_pct} barColor={num(s.disk_pct) >= 85 ? 'var(--r-fg)' : undefined} />
             <StatTile label="Containers" value={s.container_count ?? containers.rows.length} />
           </div>
           <Card title="System">
@@ -73,6 +112,19 @@ export default function ServerDetail() {
       {tab === 'Applications' && <SimpleList label="Applications" path="/applications" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'source_type', header: 'Source' }, { key: 'environment', header: 'Environment' }, { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> }]} />}
       {tab === 'Networks' && <SimpleList label="Networks" path="/networks" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'driver', header: 'Driver' }, { key: 'subnet', header: 'Subnet', render: (r) => <span className="font-mono text-xs">{r.subnet ?? '—'}</span> }, { key: 'exposure', header: 'Exposure' }]} />}
       {tab === 'Volumes' && <SimpleList label="Volumes" path="/volumes" query={{ server_id: id }} columns={[{ key: 'name', header: 'Name' }, { key: 'type', header: 'Type' }, { key: 'size', header: 'Size', render: (r) => r.size ?? mb(r.size_mb) }, { key: 'backup_policy', header: 'Backup', render: (r) => r.backup_policy ? str(r.backup_policy?.name ?? r.backup_policy) : <Badge tone="y">no policy</Badge> }]} />}
+      {tab === 'Storage' && disks.length > 0 && (
+        <Card title="Filesystems">
+          <DataTable label="Mounted filesystems" rows={disks} rowKey={(r) => r.mount}
+            columns={[
+              { key: 'mount', header: 'Mount', render: (r) => <span className="font-mono text-xs">{r.mount}</span> },
+              { key: 'device', header: 'Device', render: (r) => <span className="font-mono text-xs">{r.device ?? '\u2014'}</span> },
+              { key: 'fstype', header: 'Type', value: (r) => r.fstype ?? '\u2014' },
+              { key: 'size_mb', header: 'Size', value: (r) => fsSize(r.size_mb) },
+              { key: 'used_mb', header: 'Used', value: (r) => fsSize(r.used_mb) },
+              { key: 'used_pct', header: '', render: (r) => <div className="w-40"><Meter value={num(r.used_pct)} label={`${r.mount} used`} /></div> },
+            ]} />
+        </Card>
+      )}
       {tab === 'Storage' && <SimpleList label="Storage pools" path="/storage-pools" query={{ server_id: id }} columns={[{ key: 'name', header: 'Pool' }, { key: 'type', header: 'Type' }, { key: 'used', header: 'Used', render: (r) => <div className="w-40"><Meter value={num(r.used_pct ?? (r.capacity_gb ? (num(r.used_gb) / num(r.capacity_gb)) * 100 : 0))} label={`${r.name} used`} /></div> }]} />}
       {tab === 'Monitoring' && (
         <Card title="Resources — last 6 h">
@@ -83,6 +135,9 @@ export default function ServerDetail() {
         columns={[{ key: 'created_at', header: 'Time', render: (r) => ago(r.created_at) }, { key: 'user', header: 'User', value: (r) => r.user_name ?? r.user?.name ?? r.user }, { key: 'action', header: 'Action' }, { key: 'resource', header: 'Resource', value: (r) => r.resource ?? r.resource_type }, { key: 'ip', header: 'Source IP', render: (r) => <span className="font-mono text-xs">{r.ip ?? r.source_ip}</span> }]} />}
       {tab === 'Security' && <Card title="Agent transport"><p className="m-0 text-sm text-muted">The agent connects outbound over HTTPS with a per-agent secret; every command is HMAC-signed and checked against local policy. No Docker socket is exposed.</p></Card>}
       {tab === 'Backups' && <SimpleList label="Backup jobs" path="/backup-jobs" query={{ server_id: id }} columns={[{ key: 'policy', header: 'Policy', value: (r) => r.policy_name ?? r.policy?.name ?? r.policy_id }, { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> }, { key: 'created_at', header: 'When', render: (r) => ago(r.created_at) }]} />}
+      {tab === 'Cleanup' && id && <CleanupPanel serverId={id} />}
+      {tab === 'Tunnel' && id && <TunnelPanel serverId={id} />}
+      {tab === 'Routes' && id && <AdoptRoutesPanel serverId={id} />}
       {tab === 'Agent' && (
         <Card title="Agent">
           <dl className="grid gap-3 m-0 text-sm mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -123,6 +178,11 @@ export default function ServerDetail() {
                 onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('app'); else { roles.delete('app'); roles.add('builder') } run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: 'Save roles', success: 'Roles saved' }).catch(() => {}) }} />
               <span className="text-sm"><span className="font-semibold">Runs applications</span> <span className="text-muted">— the scheduler may place workloads here.</span></span>
             </div>
+            <div className="flex items-center gap-3 mt-4">
+              <Toggle checked={(s.roles ?? ['app']).includes('vps')} label="Hosts customer VPS"
+                onChange={(v) => { const roles = new Set(s.roles ?? ['app']); if (v) roles.add('vps'); else roles.delete('vps'); run({ method: 'PATCH', path: `/servers/${s.id}`, body: { roles: [...roles] }, label: 'Save roles', success: 'Roles saved' }).catch(() => {}) }} />
+              <span className="text-sm"><span className="font-semibold">Hosts customer VPS</span> <span className="text-muted">— container VPS with root access. Requires the Sysbox runtime (sysbox-runc) on this server; without it, creating a VPS fails.</span></span>
+            </div>
           </Card>
           <Card title="Remove server">
             <div className="flex flex-wrap gap-3 items-center justify-between rounded-lg p-4 border border-danger-line">
@@ -135,6 +195,19 @@ export default function ServerDetail() {
       <ConfirmDialog open={confirmDel} onClose={() => setConfirmDel(false)} danger confirmText={s.name} confirmLabel="Remove server" title={`Remove ${s.name}?`} busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/servers/${s.id}`, label: `Remove ${s.name}`, success: 'Server removed' }).then(() => nav('/admin/servers')).catch(() => {})}>
         <p className="m-0">The agent is disconnected and the server leaves the fleet. This cannot be undone.</p>
+        {left > 0 && <p className="m-0 font-semibold text-danger">{left} app(s) or database(s) still run here. Drain the server and move the rest first; removing is refused until it is empty.</p>}
+      </ConfirmDialog>
+      <ConfirmDialog open={revokeOpen} onClose={() => setRevokeOpen(false)} danger confirmText={s.name} confirmLabel="Revoke agent" title={`Revoke the agent on ${s.name}?`} busy={busy}
+        onConfirm={() => run({ path: `/servers/${s.id}/agent/revoke`, body: { confirm: s.name }, label: 'Revoke agent', success: 'Agent revoked; enrol it again to reconnect' }).then(() => setRevokeOpen(false)).catch(() => {})}>
+        <p className="m-0">Use this if the server may be compromised or is being handed back. The agent's credentials and certificates stop working at once, so the panel can no longer manage it or receive its data. Apps keep running on the machine. To reconnect, enrol the agent again with a new one-time token.</p>
+      </ConfirmDialog>
+      <ConfirmDialog open={drainOpen} onClose={() => setDrainOpen(false)} confirmLabel="Drain server" title={`Drain ${s.name}?`} busy={busy}
+        onConfirm={() => run<{ data?: { moving: { name: string }[]; kept: { name: string; reason: string }[] } }>({ path: `/servers/${s.id}/drain`, label: `Drain ${s.name}`, success: 'Drain started' }).then((r) => { setDrained(r?.data ?? null); setDrainOpen(false); residents.refetch() }).catch(() => {})}>
+        <p className="m-0">The server goes into maintenance and each app without a data volume is redeployed on another healthy server.</p>
+        {residents.item && <ul className="m-0 pl-5 text-sm">
+          {residents.item.apps.map((a) => <li key={a.name}>{a.name} {a.stateful ? <span className="text-muted">(data volume: stays, move with backup and restore)</span> : <span className="text-muted">(moves)</span>}</li>)}
+          {residents.item.databases.map((d) => <li key={d.name}>{d.name} <span className="text-muted">(database: stays, move with backup and restore)</span></li>)}
+        </ul>}
       </ConfirmDialog>
     </>
   )

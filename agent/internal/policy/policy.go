@@ -69,7 +69,7 @@ func (s *Store) Check(typ string) error {
 			return fmt.Errorf("command type %s disabled by local policy", typ)
 		}
 	}
-	if p.MaintenanceMode && (typ == "container.create" || typ == "compose.up") {
+	if p.MaintenanceMode && (typ == "container.create" || typ == "compose.up" || typ == "vps.create") {
 		return fmt.Errorf("server in maintenance mode: %s refused", typ)
 	}
 	return nil

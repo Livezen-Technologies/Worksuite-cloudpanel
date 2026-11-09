@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: vert
+name: Vert
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The next-generation file converter. Open source, fully local and free forever.
+port: 80
+source: coolify
+documentation: https://github.com/VERT-sh/VERT
+compose: "services:\n  vert:\n    image: ghcr.io/vert-sh/vert:latest\n    environment:\n      PUB_VERT_URL: ${SERVICE_URL}\n      PUB_HOSTNAME: ${SERVICE_URL}\n      PUB_PORT: '80'\n      PUB_ENV: production\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n"

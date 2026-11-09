@@ -38,6 +38,9 @@ type agent struct {
 	certs           *mtls.Store
 	advertisedRelay atomic.Value // string
 	lastRenewTry    time.Time
+	// lastContact is the unix time of the last successful heartbeat; the cron
+	// runner takes over when it is older than executor.RunnerGrace.
+	lastContact atomic.Int64
 }
 
 func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, error) {
@@ -65,18 +68,22 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		up.PublicKey = k
 	}
 	ex := &executor.Executor{
-		Docker:           dc,
-		Policy:           &policy.Store{Path: cfg.PolicyPath},
-		HMACKey:          []byte(cfg.HMACKey),
-		Journal:          &executor.Journal{Path: filepath.Join(cfg.StateDir, "journal.json")},
-		Report:           client.ReportResult,
-		StateDir:         cfg.StateDir,
-		AllowedBindRoots: []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
-		AllowLocalGit:    os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
-		Updater:          up,
-		ProxyDir:         cfg.ProxyConfigDir,
-		AcmeJSON:         cfg.AcmeJSON,
-		Log:              logger,
+		Docker:            dc,
+		Run:               executor.ExecRunner,
+		Policy:            &policy.Store{Path: cfg.PolicyPath},
+		HMACKey:           []byte(cfg.HMACKey),
+		Journal:           &executor.Journal{Path: filepath.Join(cfg.StateDir, "journal.json")},
+		Report:            client.ReportResult,
+		StateDir:          cfg.StateDir,
+		AllowedBindRoots:  []string{filepath.Join(cfg.StateDir, "data"), "/srv/dockermgr"},
+		AllowLocalGit:     os.Getenv("DOCKERMGR_ALLOW_LOCAL_GIT") == "1",
+		Updater:           up,
+		ProxyDir:          cfg.ProxyConfigDir,
+		AcmeJSON:          cfg.AcmeJSON,
+		CrowdSecDir:       cfg.CrowdSecDir,
+		CrowdSecContainer: cfg.CrowdSecContainer,
+		ClamAVContainer:   cfg.ClamAVContainer,
+		Log:               logger,
 	}
 	ex.Terminal = &executor.TerminalConfig{RelayURL: cfg.RelayURL, Secret: cfg.AgentSecret, Shells: cfg.TerminalShells,
 		TLS: func() *tls.Config { return tlsCfg }}
@@ -123,6 +130,7 @@ func (a *agent) Run(ctx context.Context) {
 		}
 	}()
 	go a.relayLoop(ctx)
+	go a.cronRunnerLoop(ctx)
 	failures := 0
 	for ctx.Err() == nil {
 		var wait time.Duration
@@ -142,6 +150,24 @@ func (a *agent) Run(ctx context.Context) {
 	<-done
 }
 
+// cronRunnerLoop runs the server's scheduled jobs itself while the panel is
+// unreachable (CRON). Until the first contact the panel counts as reachable,
+// so a restarting agent does not run jobs the panel may also be dispatching.
+func (a *agent) cronRunnerLoop(ctx context.Context) {
+	a.lastContact.CompareAndSwap(0, time.Now().Unix())
+	t := time.NewTicker(20 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			down := now.Sub(time.Unix(a.lastContact.Load(), 0)) > executor.RunnerGrace
+			a.exec.CronRunnerTick(ctx, now, down)
+		}
+	}
+}
+
 func (a *agent) beat(ctx context.Context) error {
 	req := protocol.HeartbeatRequest{AgentVersion: version, Stats: a.sampler.Sample()}
 	ictx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -152,12 +178,18 @@ func (a *agent) beat(ctx context.Context) error {
 	} else {
 		req.Containers, req.Images, req.Networks, req.Volumes = inv.Containers, inv.Images, inv.Networks, inv.Volumes
 	}
+	results, delivered := a.exec.CronOutbox()
+	if len(results) > 0 {
+		req.CronResults = results
+	}
 	hctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	resp, err := a.client.Heartbeat(hctx, req)
 	if err != nil {
 		return err
 	}
+	a.lastContact.Store(time.Now().Unix())
+	delivered()
 	a.clearUpdateMarker()
 	if resp.RelayURL != "" {
 		a.advertisedRelay.Store(resp.RelayURL)

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: nitropage-with-postgresql
+name: Nitropage With Postgresql
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Nitropage is an extensible, visual website builder, offering a growing library of versatile building blocks, focal-point image cropping and sovereign font management.
+port: 3000
+source: coolify
+documentation: https://nitropage.org
+compose: "services:\n  nitropage:\n    image: nitropage/nitropage\n    environment:\n      NP_AUTH_SALT: ${SERVICE_BASE64_SALT}\n      NP_AUTH_PASSWORD: ${SERVICE_PASSWORD_SESSION}\n      DATABASE_URL: postgresql://${SERVICE_USER_POSTGRESQL}:${SERVICE_PASSWORD_POSTGRESQL}@postgresql:5432/${POSTGRESQL_DATABASE:-nitropage}\n    volumes:\n    - nitropage-data:/app/.data\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000/admin\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - nitropage-postgresql-data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n\
+  \      POSTGRES_DB: ${POSTGRESQL_DATABASE:-nitropage}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  nitropage-data: {}\n  nitropage-postgresql-data: {}\n"

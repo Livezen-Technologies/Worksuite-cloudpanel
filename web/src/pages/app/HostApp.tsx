@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api, isApiError, type ApiError } from '../../api/client'
 import { useJob, useList, useOne } from '../../api/hooks'
-import { Card, Field } from '../../components/Card'
+import { Card, Field, PageHeader } from '../../components/Card'
 import { StepWizard } from '../../components/StepWizard'
 import { JobTimeline } from '../../components/JobTimeline'
 import { logLines } from '../../lib/logs'
@@ -36,7 +36,10 @@ export default function HostApp() {
   const [step, setStep] = useState(0)
   const [max, setMax] = useState(0)
   const [src, setSrc] = useState<SourceType>('image')
-  const [s, setS] = useState({ image: '', private: false, username: '', password: '', repo: '', branch: 'main', compose: '', template: '' })
+  const [s, setS] = useState({ image: '', private: false, username: '', password: '', repo: '', branch: 'main', access: '', compose: '', template: '' })
+  const git = useOne<R>(src === 'git' ? '/app/git' : null)
+  const gitConns = ((git.item?.connections as R[]) ?? []).filter((x) => x.status === 'connected')
+  const gitKeys = (git.item?.keys as R[]) ?? []
   const [c, setC] = useState({ name: '', port: '80', region: '', volume: false, volume_path: '/data', health_path: '/' })
   const [env, setEnv] = useState<Env[]>([{ key: '', value: '', secret: false }])
   const [size, setSize] = useState<string>('standard')
@@ -47,6 +50,9 @@ export default function HostApp() {
   const [srcOk, setSrcOk] = useState(false)
   const [deploy, setDeploy] = useState<{ app: R; job_id: string } | null>(null)
   const templates = useList<R>('/app/templates')
+  const [tq, setTq] = useState('')
+  const [vars, setVars] = useState<Record<string, string>>({})
+  const picked = templates.rows.find((t) => t.id === s.template)
   const plans = useOne<R | R[]>('/app/billing/plans')
   const { job } = useJob(deploy?.job_id)
   const failed = job?.status === 'failed'
@@ -67,13 +73,15 @@ export default function HostApp() {
   }
 
   const source = () => (src === 'image' ? { type: src, image: s.image.trim(), ...(s.private ? { registry_auth: { username: s.username, password: s.password } } : {}) }
-    : src === 'git' ? { type: src, repo: s.repo.trim(), branch: s.branch || 'main' }
+    : src === 'git' ? { type: src, repo: s.repo.trim(), branch: s.branch || 'main',
+      ...(s.access.startsWith('conn:') ? { git_connection_id: s.access.slice(5) } : s.access.startsWith('key:') ? { git_ssh_key_id: s.access.slice(4) } : {}) }
     : src === 'compose' ? { type: src, compose: s.compose }
-    : { type: src, template: s.template })
+    : { type: src, template: s.template, ...(Object.keys(vars).length ? { variables: vars } : {}) })
 
   const validateSource = async () => {
     const local = src === 'image' && !s.image.trim() ? 'Enter the image name, for example nginx:1.27-alpine.'
-      : src === 'git' && !/^(https:\/\/|git@)/.test(s.repo.trim()) ? 'Enter the repository address, starting with https://'
+      : src === 'git' && s.access.startsWith('key:') && !/^(ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(s.repo.trim()) ? 'A deploy key needs the SSH address, like git@github.com:you/my-shop.git'
+      : src === 'git' && !/^(https:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(s.repo.trim()) ? 'Enter the repository address, starting with https://'
       : src === 'compose' && !s.compose.trim() ? 'Paste your compose file or upload it.'
       : src === 'template' && !s.template ? 'Pick a template.'
       : src === 'image' && s.private && (!s.username || !s.password) ? 'Enter the username and password for the private registry.' : null
@@ -153,20 +161,42 @@ export default function HostApp() {
             <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
               <Field label="Repository URL"><input className="input font-mono" value={s.repo} onChange={(e) => setS({ ...s, repo: e.target.value })} placeholder="https://github.com/you/my-shop" /></Field>
               <Field label="Branch"><input className="input" value={s.branch} onChange={(e) => setS({ ...s, branch: e.target.value })} /></Field>
+              <Field label="Access" hint="For a private repository, use your Git connection or a deploy key"><Select className="input" value={s.access} onChange={(e) => setS({ ...s, access: e.target.value })}>
+                <option value="">Public repository</option>
+                {gitConns.map((x) => <option key={String(x.id)} value={`conn:${x.id}`}>{String(x.provider)} · {String(x.account ?? '')}</option>)}
+                {gitKeys.map((k) => <option key={String(k.id)} value={`key:${k.id}`}>Deploy key · {String(k.name)}</option>)}
+              </Select></Field>
+              <p className="m-0 text-xs text-muted col-span-full">Private repository? <Link to="/app/git">Connect your Git account or create a deploy key</Link>.</p>
             </div>
           )}
           {src === 'compose' && (
             <>
-              <label className="label">Compose file<textarea className="input font-mono" rows={10} value={s.compose} onChange={(e) => setS({ ...s, compose: e.target.value })} placeholder="services:\n  web:\n    image: nginx" /></label>
-              <label className="label">Or upload compose.yaml<input type="file" accept=".yml,.yaml" className="text-sm font-normal min-h-[44px]" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, compose: await f.text() }) }} /></label>
+              <Field label="Compose file"><textarea className="input font-mono" rows={10} value={s.compose} onChange={(e) => setS({ ...s, compose: e.target.value })} placeholder="services:\n  web:\n    image: nginx" /></Field>
+              <Field label="Or upload compose.yaml"><input type="file" accept=".yml,.yaml" className="text-sm font-normal min-h-[44px]" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, compose: await f.text() }) }} /></Field>
             </>
           )}
           <div className="text-sm font-semibold">{src === 'template' ? 'Pick a template:' : 'Or start from a template:'}</div>
+          {templates.rows.length > 8 && <input className="input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder={`Search ${templates.rows.length} templates…`} aria-label="Search templates" />}
           <div className="flex flex-wrap gap-2">
-            {(templates.rows.length ? templates.rows.map((t) => ({ id: String(t.id), name: String(t.name ?? t.id) })) : TEMPLATES.map((t) => ({ id: t.toLowerCase().replace(/\s+/g, '-'), name: t }))).map((t) => (
-              <button key={t.id} type="button" className="chip" aria-pressed={src === 'template' && s.template === t.id} onClick={() => { setSrc('template'); setS({ ...s, template: t.id }) }}>{t.name}</button>
+            {(templates.rows.length ? templates.rows.map((t) => ({ id: String(t.id), name: String(t.name ?? t.id), text: `${t.name} ${t.category ?? ''} ${t.description ?? ''}` })) : TEMPLATES.map((t) => ({ id: t.toLowerCase().replace(/\s+/g, '-'), name: t, text: t })))
+              .filter((t) => !tq || t.text.toLowerCase().includes(tq.toLowerCase()) || t.id === s.template).map((t) => (
+              <button key={t.id} type="button" className="chip" aria-pressed={src === 'template' && s.template === t.id} onClick={() => {
+                setSrc('template'); setS({ ...s, template: t.id })
+                const tpl = templates.rows.find((x) => x.id === t.id)
+                setVars(Object.fromEntries(((tpl?.variables as R[]) ?? []).map((v) => [String(v.key), String(v.default ?? '')])))
+              }}>{t.name}</button>
             ))}
           </div>
+          {src === 'template' && picked && (
+            <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
+              <p className="m-0 text-sm">{String(picked.description ?? '')}{picked.type === 'compose' ? ` A stack of ${((picked.services as string[]) ?? []).join(', ')}, run together on one server.` : ''}{Number(picked.generates) > 0 ? ` We create ${picked.generates === 1 ? 'a password' : `${picked.generates} passwords and keys`} for it and keep ${picked.generates === 1 ? 'it' : 'them'} secret.` : ''}</p>
+              {((picked.variables as R[]) ?? []).map((v) => (
+                <Field key={String(v.key)} label={String(v.label ?? v.key)} required={!!v.required}>
+                  <input className="input font-mono" type={v.secret ? 'password' : 'text'} autoComplete="off" value={vars[String(v.key)] ?? ''} onChange={(e) => setVars({ ...vars, [String(v.key)]: e.target.value })} />
+                </Field>
+              ))}
+            </div>
+          )}
         </div>
       ),
     },
@@ -279,7 +309,7 @@ export default function HostApp() {
   ]
   return (
     <>
-      <div><h1 className="m-0 text-[28px] font-bold">Host a Docker app</h1><p className="m-0 mt-1.5 text-sm text-muted">Four steps — we handle the server, HTTPS and restarts</p></div>
+      <PageHeader title="Host a Docker app" subtitle="Four steps — we handle the server, HTTPS and restarts" />
       <Card>
         <StepWizard steps={steps} step={step} maxReached={deploy ? 3 : max} busy={busy || (!!deploy && !done && !failed)} error={err}
           onStep={(n) => { if (deploy && n < 3 && !failed) return; setErr(null); setStep(n) }} hideNav={step === 3} />

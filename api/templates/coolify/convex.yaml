@@ -1,0 +1,14 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: convex
+name: Convex
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Convex is the open-source reactive database for app developers.
+port: 6791
+source: coolify
+documentation: https://github.com/get-convex/convex-backend/blob/main/self-hosted/README.md
+compose: "services:\n  backend:\n    image: ghcr.io/get-convex/convex-backend:a9a760ca10399ed42e1b4bb87c78539a235488c7\n    volumes:\n    - data:/convex/data\n    environment:\n      INSTANCE_NAME: ${INSTANCE_NAME:-self-hosted-convex}\n      INSTANCE_SECRET: ${SERVICE_HEX_SECRET}\n      CONVEX_RELEASE_VERSION_DEV: ${CONVEX_RELEASE_VERSION_DEV:-}\n      ACTIONS_USER_TIMEOUT_SECS: ${ACTIONS_USER_TIMEOUT_SECS:-}\n      CONVEX_CLOUD_ORIGIN: ${SERVICE_URL}\n      CONVEX_SITE_ORIGIN: ${SERVICE_URL}\n      DATABASE_URL: ${DATABASE_URL:-}\n      DISABLE_BEACON: ${DISABLE_BEACON:?false}\n      REDACT_LOGS_TO_CLIENT: ${REDACT_LOGS_TO_CLIENT:?false}\n      DO_NOT_REQUIRE_SSL: ${DO_NOT_REQUIRE_SSL:?true}\n      POSTGRES_URL: ${POSTGRES_URL:-}\n      MYSQL_URL: ${MYSQL_URL:-}\n      RUST_LOG: ${RUST_LOG:-info}\n      RUST_BACKTRACE: ${RUST_BACKTRACE:-}\n      AWS_REGION: ${AWS_REGION:-}\n      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}\n      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}\n      AWS_SESSION_TOKEN:\
+  \ ${AWS_SESSION_TOKEN:-}\n      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-}\n      AWS_S3_DISABLE_SSE: ${AWS_S3_DISABLE_SSE:-}\n      AWS_S3_DISABLE_CHECKSUMS: ${AWS_S3_DISABLE_CHECKSUMS:-}\n      S3_STORAGE_EXPORTS_BUCKET: ${S3_STORAGE_EXPORTS_BUCKET:-}\n      S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET: ${S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET:-}\n      S3_STORAGE_MODULES_BUCKET: ${S3_STORAGE_MODULES_BUCKET:-}\n      S3_STORAGE_FILES_BUCKET: ${S3_STORAGE_FILES_BUCKET:-}\n      S3_STORAGE_SEARCH_BUCKET: ${S3_STORAGE_SEARCH_BUCKET:-}\n      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}\n    healthcheck:\n      test: curl -f http://127.0.0.1:3210/version\n      interval: 5s\n      start_period: 10s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '6791'\n  dashboard:\n    image: ghcr.io/get-convex/convex-dashboard:a9a760ca10399ed42e1b4bb87c78539a235488c7\n    environment:\n\
+  \      NEXT_PUBLIC_DEPLOYMENT_URL: ${SERVICE_URL}\n    depends_on:\n      backend:\n        condition: service_healthy\n    healthcheck:\n      test: curl -f http://127.0.0.1:6791/\n      interval: 5s\n      start_period: 5s\nvolumes:\n  data: {}\n"

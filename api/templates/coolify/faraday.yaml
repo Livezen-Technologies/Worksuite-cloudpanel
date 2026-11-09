@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: faraday
+name: Faraday
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Faraday is a powerful, open-source, web-based vulnerability management tool.
+port: 5985
+source: coolify
+documentation: https://faradaysec.com/
+compose: "services:\n  postgresql:\n    image: postgres:latest\n    volumes:\n    - faraday-db:/var/lib/postgresql/data\n    environment:\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_DB: ${POSTGRES_DB:-faraday}\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -d $faraday -U $${POSTGRES_USER}\n      interval: 15s\n      timeout: 10s\n      retries: 15\n  redis:\n    image: redis:alpine\n    command: --save 60 1 --loglevel warning\n    volumes:\n    - redis:/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - redis-cli ping | grep PONG\n      interval: 15s\n      timeout: 10s\n      retries: 15\n  faraday:\n    image: faradaysec/faraday:latest\n    entrypoint: /entrypoint.sh\n    environment:\n      AUTHENTIK_POSTGRESQL__PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      PGSQL_USER: ${SERVICE_USER_POSTGRESQL}\n      PGSQL_PASSWD: ${SERVICE_PASSWORD_POSTGRESQL}\n      PGSQL_DBNAME: faraday\n\
+  \      PGSQL_HOST: postgresql\n      REDIS_SERVER: redis\n    volumes:\n    - faraday:/home/faraday/.faraday\n    depends_on:\n      postgresql:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - nc\n      - -z\n      - localhost\n      - '5985'\n      interval: 30s\n      timeout: 10s\n      retries: 3\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5985'\nvolumes:\n  faraday-db: {}\n  redis: {}\n  faraday: {}\n"

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: gitea-with-postgresql
+name: Gitea With Postgresql
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Gitea is a self-hosted, lightweight Git service, offering version control, collaboration, and code hosting.
+port: 3000
+source: coolify
+documentation: https://docs.gitea.com
+compose: "services:\n  gitea:\n    image: gitea/gitea:latest\n    environment:\n      USER_UID: '1000'\n      USER_GID: '1000'\n      GITEA__database__DB_TYPE: postgres\n      GITEA__database__HOST: postgresql\n      GITEA__database__NAME: ${POSTGRESQL_DATABASE-gitea}\n      GITEA__database__USER: ${SERVICE_USER_POSTGRESQL}\n      GITEA__database__PASSWD: ${SERVICE_PASSWORD_POSTGRESQL}\n    volumes:\n    - gitea-data:/data\n    - gitea-timezone:/etc/timezone\n    - gitea-localtime:/etc/localtime\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:3000\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - gitea-postgresql-data:/var/lib/postgresql/data\n\
+  \    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRESQL}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRESQL}\n      POSTGRES_DB: gitea\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  gitea-data: {}\n  gitea-timezone: {}\n  gitea-localtime: {}\n  gitea-postgresql-data: {}\n"

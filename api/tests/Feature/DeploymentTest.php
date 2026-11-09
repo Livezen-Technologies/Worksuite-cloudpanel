@@ -201,4 +201,43 @@ class DeploymentTest extends TestCase
         $job = Job::allTenants()->find($jobId);
         $this->assertNotNull(collect($job->stages)->firstWhere('name', 'rollback'));
     }
+
+    public function test_a_deployment_can_be_cancelled_and_late_results_are_ignored(): void
+    {
+        [, , $token, , $secret, $appId] = $this->setUpApp();
+
+        // Cancelled before the agent picked it up: the command is withdrawn.
+        $first = $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202)->json('data');
+        $this->api($token)->postJson("/api/v1/deployments/{$first['deployment_id']}/cancel")->assertOk()->assertJsonPath('data.status', 'cancelled');
+        $this->assertSame([], $this->heartbeat($secret)['commands']);
+        $this->assertSame('cancelled', Job::allTenants()->find($first['job_id'])->status);
+        $this->api($token)->postJson("/api/v1/deployments/{$first['deployment_id']}/cancel")->assertStatus(409);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'deployment.cancel']);
+
+        // Cancelled after the command was sent: its result no longer moves the deployment on.
+        $second = $this->api($token)->postJson('/api/v1/deployments', ['application_id' => $appId])->assertStatus(202)->json('data');
+        $commands = $this->heartbeat($secret)['commands'];
+        $this->api($token)->postJson("/api/v1/deployments/{$second['deployment_id']}/cancel")->assertOk();
+        $this->commandResult($secret, $commands[0]['id'], 'succeeded', ['output' => ['container_id' => 'd-1']])->assertOk();
+        $this->assertSame('cancelled', Deployment::allTenants()->find($second['deployment_id'])->status);
+        $this->assertSame([], $this->heartbeat($secret)['commands'], 'no health check is queued for a cancelled deployment');
+    }
+
+    public function test_servers_report_an_outdated_agent_and_update_all_sends_it(): void
+    {
+        config(['platform.agent_latest_version' => '2.0.0']);
+        [, $org, $token] = $this->org();
+        $old = $this->server($org, ['agent_version' => '1.4.0', 'name' => 'old-box']);
+        $this->server($org, ['agent_version' => '2.0.0', 'name' => 'new-box']);
+        $this->server($org, ['agent_version' => 'dev', 'name' => 'dev-box']);
+
+        $rows = collect($this->api($token)->getJson('/api/v1/servers')->assertOk()->json('data'))->keyBy('name');
+        $this->assertSame([true, false, false], [$rows['old-box']['agent_outdated'], $rows['new-box']['agent_outdated'], $rows['dev-box']['agent_outdated']]);
+        $this->assertSame('2.0.0', $rows['old-box']['agent_latest']);
+
+        // Only the outdated server is attempted; one that cannot take the command is reported, not fatal.
+        $res = $this->api($token)->postJson('/api/v1/servers/agents/update')->assertOk()->json('data');
+        $this->assertSame([$old->id], array_merge(array_column($res['updating'], 'server_id'), array_column($res['skipped'], 'server_id')));
+    }
 }
+

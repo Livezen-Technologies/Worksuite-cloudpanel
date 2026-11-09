@@ -6,8 +6,11 @@ use App\Contracts\HandlesCommandResults;
 use App\Models\AgentCommand;
 use App\Models\Application;
 use App\Models\Certificate;
+use App\Models\Container;
+use App\Models\DnsZone;
 use App\Models\Domain;
 use App\Models\Job;
+use App\Models\Release;
 use App\Models\Secret;
 use App\Models\Server;
 use App\Support\Tenant;
@@ -31,9 +34,13 @@ class TraefikConfigService implements HandlesCommandResults
         'hetzner' => ['HETZNER_API_KEY'],
         'route53' => ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
         'gandiv5' => ['GANDIV5_PERSONAL_ACCESS_TOKEN'],
+        'pdns' => ['PDNS_API_URL', 'PDNS_API_KEY'],
     ];
 
-    public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall) {}
+    /** DNS-013: panel DNS provider type => lego provider used for its zones. */
+    public const ZONE_PROVIDERS = ['cloudflare' => 'cloudflare', 'powerdns' => 'pdns'];
+
+    public function __construct(private CommandBus $bus, private JobService $jobs, private FirewallConfigService $firewall, private CrowdSecConfigService $crowdsec) {}
 
     public static function enabled(): bool
     {
@@ -54,15 +61,45 @@ class TraefikConfigService implements HandlesCommandResults
         // Without a dedicated ingress every app server runs its own Traefik.
         // Servers pushed before stay included so removed routers are removed there too.
         $serverIds = Application::allTenants()->whereIn('id', Domain::allTenants()->whereNotNull('application_id')->select('application_id'))->pluck('server_id')
-            ->merge(Cache::get('traefik-config:servers', []))->filter()->unique();
+            ->merge(Cache::get('traefik-config:servers', []))
+            // Adopted sites live on the server their hand-written file was on.
+            ->merge(Domain::allTenants()->whereNull('application_id')->get()->map(fn (Domain $d) => self::upstream($d)['server_id'] ?? null))
+            ->filter()->unique();
 
         return Server::allTenants()->whereIn('id', $serverIds)->get();
+    }
+
+    /** AV-9: modes a domain can choose. */
+    public const WAF_MODES = ['off', 'detect', 'block'];
+
+    /** The Coraza middleware for a domain, or null when the WAF is off for it or not installed. */
+    public static function wafMiddleware(Domain $domain): ?array
+    {
+        $waf = $domain->options['waf'] ?? [];
+        $mode = $waf['mode'] ?? 'off';
+        if (! config('platform.waf.enabled') || $mode === 'off') {
+            return null;
+        }
+        $directives = [
+            'Include @coraza.conf-recommended',
+            'Include @crs-setup.conf.example',
+            'Include @owasp_crs/*.conf',
+            'SecRuleEngine '.($mode === 'block' ? 'On' : 'DetectionOnly'),
+        ];
+        foreach ($waf['exclusions'] ?? [] as $id) {
+            $directives[] = 'SecRuleRemoveById '.(int) $id;
+        }
+
+        return ['plugin' => [config('platform.waf.plugin') => ['directives' => $directives]]];
     }
 
     public function resolverFor(Domain $domain): string
     {
         if ($domain->challenge === 'dns-01') {
-            return config('platform.traefik.dns_resolver_prefix').($domain->dns_provider ?: 'cloudflare');
+            $zone = $domain->dns_secret_id ? null : DnsZone::forDomain($domain->name, $domain->organization_id);
+            $provider = $zone ? self::ZONE_PROVIDERS[$zone->provider->type] : ($domain->dns_provider ?: 'cloudflare');
+
+            return config('platform.traefik.dns_resolver_prefix').$provider;
         }
 
         return config('platform.traefik.http_resolver');
@@ -76,8 +113,24 @@ class TraefikConfigService implements HandlesCommandResults
     /** Domains served through the server's Traefik (all tenants: the ingress is shared). */
     private function domainsFor(Server $server, bool $dedicated): Collection
     {
-        return Domain::allTenants()->with('application')->where('dns_status', 'verified')->whereNotNull('application_id')->get()
-            ->filter(fn (Domain $d) => $d->application && ($dedicated || $d->application->server_id === $server->id))->values();
+        return Domain::allTenants()->with('application')->where('dns_status', 'verified')->get()
+            ->filter(function (Domain $d) use ($server, $dedicated) {
+                if ($d->application_id) {
+                    return $d->application && ($dedicated || $d->application->server_id === $server->id);
+                }
+                // Adopted from a hand-written file: a fixed upstream on the server the file was on.
+                $up = self::upstream($d);
+
+                return $up && ($dedicated || $up['server_id'] === $server->id);
+            })->values();
+    }
+
+    /** An adopted domain's upstream ({server_id, url, file, state}) while it is managed, else null. */
+    public static function upstream(Domain $domain): ?array
+    {
+        $up = $domain->options['upstream'] ?? null;
+
+        return ! $domain->application_id && is_array($up) && in_array($up['state'] ?? null, ['adopting', 'active'], true) && ! empty($up['url']) ? $up : null;
     }
 
     /** @return array{http: array}|array{} Dynamic configuration for one ingress server; empty when it routes nothing. */
@@ -86,10 +139,16 @@ class TraefikConfigService implements HandlesCommandResults
         $routers = [];
         $middlewares = [];
         $suffix = config('platform.traefik.docker_service_suffix');
+        $upstreams = [];
         foreach ($this->domainsFor($server, $dedicated) as $domain) {
             $app = $domain->application;
             $name = self::routerName($domain);
-            $service = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name)).$suffix;
+            if ($up = self::upstream($domain)) {
+                $service = $name.'-upstream';
+                $upstreams[$service] = ['loadBalancer' => ['passHostHeader' => true, 'servers' => [['url' => $up['url']]]]];
+            } else {
+                $service = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name)).$suffix;
+            }
             $base = ltrim($domain->name, '*.');
             if ($domain->wildcard) {
                 $rule = 'HostRegexp(`^[a-z0-9-]+\\.'.str_replace('.', '\\.', $base).'$`) || Host(`'.$base.'`)';
@@ -116,7 +175,49 @@ class TraefikConfigService implements HandlesCommandResults
             if ($fw['site']) {
                 $routers[$name]['middlewares'] = array_merge($routers[$name]['middlewares'] ?? [], $fw['site']);
             }
+            // FW-001 via CrowdSec: the bouncer runs first on the domain's router and on
+            // every path router, so a banned IP never reaches a rate limit or the app.
+            if (CrowdSecConfigService::enabled() && ($org = \App\Models\Organization::find($domain->organization_id))) {
+                $bouncer = CrowdSecConfigService::middlewareName($org->id);
+                $middlewares[$bouncer] ??= $this->crowdsec->middleware($org);
+                foreach (array_merge([$name], array_keys($fw['routers'])) as $r) {
+                    $routers[$r]['middlewares'] = array_values(array_unique(array_merge([$bouncer], $routers[$r]['middlewares'] ?? [])));
+                }
+            }
         }
+        // AV-9: the WAF runs after the CrowdSec bouncer, so banned sources never cost a rule evaluation.
+        foreach ($this->domainsFor($server, $dedicated) as $domain) {
+            $waf = self::wafMiddleware($domain);
+            if (! $waf) {
+                continue;
+            }
+            $name = self::routerName($domain);
+            $middlewares[$name.'-waf'] = $waf;
+            foreach (array_keys($routers) as $r) {
+                if ($r === $name || str_starts_with($r, $name.'-')) {
+                    $mw = $routers[$r]['middlewares'] ?? [];
+                    $at = (CrowdSecConfigService::enabled() && $mw && str_starts_with($mw[0], 'dmp-crowdsec-')) ? 1 : 0;
+                    array_splice($mw, $at, 0, [$name.'-waf']);
+                    $routers[$r]['middlewares'] = array_values(array_unique($mw));
+                }
+            }
+        }
+        // SCL-6/7: copies on other servers and canaries need a file-provider service in front of the app.
+        [$services, $swap] = $this->scalingServices($this->domainsFor($server, $dedicated)->pluck('application')->filter()->unique('id'));
+        $services += $upstreams;
+        foreach ($routers as $r => $router) {
+            if (isset($router['service'], $swap[$router['service']])) {
+                $routers[$r]['service'] = $swap[$router['service']];
+            }
+        }
+        // PUB-1..4: maintenance, suspended, expired and welcome pages take over a domain; down apps get the busy page.
+        $pages = app(PublicPagesService::class);
+        [$pageRouters, $pageMiddlewares, $pageServices] = $pages->traefik($this->domainsFor($server, $dedicated)->concat($pages->domains()), $routers);
+        $routers = array_replace($routers, $pageRouters);
+        $middlewares += $pageMiddlewares;
+        // Empty unless the pages service has to be declared here rather than
+        // discovered by Traefik's docker provider.
+        $services += $pageServices;
         // Traefik rejects an empty routers map ("routers cannot be a standalone
         // element") and drops the whole file-provider configuration when it sees
         // one - taking every other site on the ingress down with it. With nothing
@@ -126,11 +227,95 @@ class TraefikConfigService implements HandlesCommandResults
         }
 
         $http = ['routers' => (object) $routers];
+        if (collect($routers)->contains(fn ($r) => ($r['service'] ?? null) === 'dmp-panel-wake')) {
+            $services['dmp-panel-wake'] = ['loadBalancer' => ['passHostHeader' => false, 'servers' => [['url' => rtrim((string) config('app.url'), '/')]]]];
+        }
+        if ($services) {
+            $http['services'] = $services;
+        }
         if ($middlewares) {
             $http['middlewares'] = $middlewares;
         }
 
         return ['http' => $http];
+    }
+
+    /**
+     * SCL-6: an app with copies on other servers gets `<app>-pool` (every copy's URL,
+     * health-checked, optionally sticky). SCL-7: a running canary gets `<app>-split`,
+     * a weighted service over the live app and `<app>-canary`.
+     *
+     * @return array{0: array, 1: array<string,string>} services, and router service → replacement
+     */
+    private function scalingServices(Collection $apps): array
+    {
+        $scaling = app(ScalingService::class);
+        $suffix = config('platform.traefik.docker_service_suffix');
+        $services = [];
+        $swap = [];
+        foreach ($apps as $app) {
+            $base = 'app-'.preg_replace('/[^a-z0-9-]/', '-', strtolower($app->name));
+            $s = ScalingService::settings($app);
+            $live = $base.$suffix;
+            if ($urls = $scaling->pool($app)) {
+                $lb = ['servers' => array_map(fn ($u) => ['url' => $u], $urls), 'healthCheck' => ['path' => (string) $s['health']['path'], 'interval' => (int) $s['health']['interval'].'s', 'timeout' => (int) $s['health']['timeout'].'s']];
+                if ($s['sticky']) {
+                    $lb['sticky'] = ['cookie' => ['name' => 'ws_affinity', 'secure' => true, 'httpOnly' => true]];
+                }
+                if (($s['strategy'] ?? 'round_robin') === 'least_connections') {
+                    $lb['strategy'] = 'p2c';
+                }
+                $services[$base.'-pool'] = ['loadBalancer' => $lb];
+                $live = $base.'-pool';
+            }
+            // Without a docker provider there is nothing to turn the app's container labels
+            // into `<app>@docker`, so the service its routers name has to be declared here or
+            // Traefik drops every one of them. A pool already replaced it, so only the plain
+            // case needs it.
+            if ($suffix !== '@docker' && $live === $base.$suffix && $lb = $this->appService($app)) {
+                $services[$base] = $lb;
+            }
+            if (! empty($s['canary']['image'])) {
+                $w = max(0, min(100, (int) $s['canary']['weight']));
+                if ($suffix !== '@docker' && $lb = $this->appService($app, '-canary')) {
+                    $services[$base.'-canary'] = $lb;
+                }
+                $services[$base.'-split'] = ['weighted' => ['services' => [['name' => $live, 'weight' => 100 - $w], ['name' => $base.'-canary'.$suffix, 'weight' => $w]]]];
+                $live = $base.'-split';
+            }
+            if ($live !== $base.$suffix) {
+                $swap[$base.$suffix] = $live;
+            }
+        }
+
+        return [$services, $swap];
+    }
+
+    /**
+     * The app's own containers on its own server as a file-provider load balancer, for an
+     * ingress with no docker provider. Replicas on that server are all listed, as the docker
+     * provider would have done from their shared label; copies on other servers belong to
+     * `<app>-pool` instead. Falls back to the name the panel gives the container when the
+     * inventory has not reported one yet, so a fresh app still routes.
+     */
+    private function appService(Application $app, string $part = ''): ?array
+    {
+        $port = Release::find($app->current_release_id)?->config['port'] ?? $app->port;
+        if (! $port) {
+            return null;
+        }
+        $names = Container::allTenants()->where('application_id', $app->id)
+            ->where('server_id', $app->server_id)
+            ->whereNotIn('state', ['removing', 'removed'])
+            ->orderBy('name')   // stable order: an unchanged app must not rewrite the proxy config
+            ->pluck('name')
+            ->filter(fn ($n) => str_ends_with((string) $n, '-canary') === ($part === '-canary'))
+            ->values();
+        if ($names->isEmpty()) {
+            $names = collect([$app->containerName().$part]);
+        }
+
+        return ['loadBalancer' => ['servers' => $names->map(fn ($n) => ['url' => "http://{$n}:{$port}"])->all()]];
     }
 
     public function yaml(Server $server, bool $dedicated = true): string
@@ -145,6 +330,17 @@ class TraefikConfigService implements HandlesCommandResults
     public function dnsSecrets(): array
     {
         $out = [];
+        // DNS-013: domains without their own token use the credentials of the zone that holds them.
+        // Lego reads one set of variables per provider, so a token given on a domain wins.
+        foreach (Domain::allTenants()->where('challenge', 'dns-01')->whereNull('dns_secret_id')->get() as $domain) {
+            $zone = DnsZone::forDomain($domain->name, $domain->organization_id);
+            $c = $zone?->provider?->credentials ?? [];
+            $out += match ($zone?->provider?->type) {
+                'cloudflare' => ['CF_DNS_API_TOKEN' => (string) ($c['token'] ?? '')],
+                'powerdns' => ['PDNS_API_URL' => (string) ($c['api_url'] ?? ''), 'PDNS_API_KEY' => (string) ($c['api_key'] ?? ''), 'PDNS_SERVER_NAME' => (string) ($c['server_id'] ?? 'localhost')],
+                default => [],
+            };
+        }
         foreach (Domain::allTenants()->where('challenge', 'dns-01')->whereNotNull('dns_secret_id')->get() as $domain) {
             $secret = Secret::allTenants()->find($domain->dns_secret_id);
             $vars = self::DNS_PROVIDERS[$domain->dns_provider ?: 'cloudflare'] ?? [];
@@ -154,12 +350,12 @@ class TraefikConfigService implements HandlesCommandResults
             $values = count($vars) > 1 ? (json_decode($secret->value, true) ?: []) : [$vars[0] => $secret->value];
             foreach ($vars as $var) {
                 if (isset($values[$var])) {
-                    $out[$var] = (string) $values[$var];
+                    $explicit[$var] = (string) $values[$var];
                 }
             }
         }
 
-        return $out;
+        return ($explicit ?? []) + $out;
     }
 
     /** Pushes the rendered config to every ingress server whose content changed. Returns commands queued. */
@@ -173,12 +369,17 @@ class TraefikConfigService implements HandlesCommandResults
         $count = 0;
         foreach ($this->ingressServers() as $server) {
             $files = [config('platform.traefik.file_name') => $this->yaml($server, $dedicated)];
-            $hash = hash('sha256', json_encode([$files, $secrets]));
+            $cs = CrowdSecConfigService::enabled() ? $this->crowdsec->render($this->domainsFor($server, $dedicated)) : null;
+            $pages = $cs !== null ? app(PublicPagesService::class)->bouncerPages() : null;
+            $hash = hash('sha256', json_encode([$files, $secrets, $cs, $pages]));
             $key = 'traefik-config:'.$server->id;
             if (! $force && Cache::get($key) === $hash) {
                 continue;
             }
-            $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null]));
+            $this->bus->dispatch($server, 'proxy.config', array_filter(['files' => $files, 'prune_prefix' => 'dmp-', 'secrets' => $secrets ? (object) $secrets : null, 'pages' => $pages]));
+            if ($cs !== null) {
+                $this->bus->dispatch($server, 'crowdsec.apply', ['scenarios' => (object) $cs['scenarios'], 'profiles' => $cs['profiles'], 'whitelist' => $cs['whitelist']]);
+            }
             Cache::put($key, $hash, now()->addDays(30));
             Cache::forever('traefik-config:servers', array_values(array_unique(array_merge(Cache::get('traefik-config:servers', []), [$server->id]))));
             $count++;
@@ -224,6 +425,13 @@ class TraefikConfigService implements HandlesCommandResults
             foreach ($domains as $domain) {
                 app(Tenant::class)->as($domain->organization_id, function () use ($domain, $cert, $names, &$updated) {
                     $expires = Carbon::parse($cert['not_after']);
+                    // Renewal normally happens 30 days out; one still this close has not renewed.
+                    if ($expires->isFuture() && now()->diffInDays($expires) <= 14) {
+                        app(EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                            'domain' => $domain->name, 'days' => (string) (int) now()->diffInDays($expires),
+                            'reason' => 'Automatic renewal has not replaced it yet. Check that DNS still points at the platform.',
+                        ], $domain->id, 1440);
+                    }
                     $current = Certificate::where('domain_id', $domain->id)->whereIn('status', ['active', 'issuing'])->latest()->first();
                     if ($current && $current->status === 'active' && $current->expires_at?->equalTo($expires)) {
                         $current->update(['checked_at' => now()]);

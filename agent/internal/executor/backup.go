@@ -56,13 +56,15 @@ func (e *Executor) stream(ctx context.Context, env []string, stdin io.Reader, st
 	return s(ctx, env, stdin, stdout, name, args...)
 }
 
-var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_"}
+// RCLONE_CONFIG_* carries an rclone remote (SFTP, Google Drive) without a config file (BKM-007).
+var resticEnvPrefixes = []string{"RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_", "RCLONE_CONFIG_"}
 
 var (
 	reContainer  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 	reDBIdent    = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,62}$`)
 	reSubset     = regexp.MustCompile(`^((100|[0-9]{1,2}(\.[0-9]+)?)%|[0-9]+/[0-9]+|[0-9]+[KMG])$`)
 	reYAMLName   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,120}\.ya?ml$`)
+	rePageName   = regexp.MustCompile(`^dmp-[a-z0-9-]{1,40}\.html$`)
 	reSecretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 )
 
@@ -311,6 +313,9 @@ type forgetSpec struct {
 	KeepMonthly int    `json:"keep_monthly"`
 	KeepWithin  string `json:"keep_within"`
 	Tag         string `json:"tag"`
+	// NoPrune forgets snapshots without deleting their data: an object-locked
+	// bucket refuses deletes until the lock ends (BKM-008).
+	NoPrune bool `json:"no_prune"`
 }
 
 type checkSpec struct {
@@ -392,7 +397,11 @@ func (e *Executor) backupRun(ctx context.Context, raw []byte, progress func(int,
 		if err != nil {
 			return out, err
 		}
-		fb, ferr := e.run(cctx, "/", r.env, r.bin, append(append(append([]string{}, r.base...), "forget", "--prune", "--json"), fa...)...)
+		verb := []string{"forget", "--prune", "--json"}
+		if p.Forget.NoPrune {
+			verb = []string{"forget", "--json"}
+		}
+		fb, ferr := e.run(cctx, "/", r.env, r.bin, append(append(append([]string{}, r.base...), verb...), fa...)...)
 		if ferr != nil {
 			return out, fmt.Errorf("restic forget: %w: %s", ferr, tailString(lastLine(fb), 512))
 		}
@@ -609,12 +618,18 @@ func safeName(s string) string {
 func (e *Executor) backupTest(ctx context.Context, id string, raw []byte, progress func(int, string)) (any, error) {
 	var p struct {
 		resticRepo
-		Snapshot string     `json:"snapshot"`
-		Engine   string     `json:"engine"`
-		Check    *checkSpec `json:"check"`
+		Snapshot string       `json:"snapshot"`
+		Engine   string       `json:"engine"`
+		Check    *checkSpec   `json:"check"`
+		Sandbox  *SandboxSpec `json:"sandbox"`
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
+	}
+	if p.Sandbox != nil {
+		if err := p.Sandbox.validate(p.Engine); err != nil {
+			return nil, err
+		}
 	}
 	snap := firstNonEmpty(p.Snapshot, "latest")
 	if !reSnap.MatchString(snap) {
@@ -667,6 +682,14 @@ func (e *Executor) backupTest(ctx context.Context, id string, raw []byte, progre
 		out["check"] = c
 		if c["ok"] != true {
 			return out, errors.New("restic integrity check failed")
+		}
+	}
+	// BKM-009: start what was restored and look inside it.
+	if p.Sandbox != nil {
+		sb, err := e.sandbox(cctx, id, p.Sandbox, p.Engine, tmp, progress)
+		out["sandbox"] = sb
+		if err != nil {
+			return out, err
 		}
 	}
 	return out, nil
@@ -815,11 +838,33 @@ func (e *Executor) proxyConfig(raw []byte) (any, error) {
 		// Secrets are DNS-01 provider credentials, written as <dir>/../secrets/<NAME> (0600)
 		// for Traefik's NAME_FILE environment variables.
 		Secrets map[string]string `json:"secrets"`
+		// Pages are the CrowdSec bouncer's captcha and ban pages (dmp-*.html), written to
+		// <dir>/../pages so Traefik's file provider never tries to parse them.
+		Pages map[string]string `json:"pages"`
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
 	}
 	dir := firstNonEmpty(e.ProxyDir, DefaultProxyDir)
+	pages := []string{}
+	if len(p.Pages) > 0 {
+		pdir := filepath.Join(filepath.Dir(dir), "pages")
+		if err := os.MkdirAll(pdir, 0o755); err != nil {
+			return nil, err
+		}
+		for n, content := range p.Pages {
+			if !rePageName.MatchString(n) || len(content) > 256<<10 {
+				return nil, fmt.Errorf("invalid page %q", n)
+			}
+		}
+		for n, content := range p.Pages {
+			if err := writeAtomic(filepath.Join(pdir, n), []byte(content), 0o644); err != nil {
+				return nil, err
+			}
+			pages = append(pages, n)
+		}
+		sort.Strings(pages)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -872,7 +917,7 @@ func (e *Executor) proxyConfig(raw []byte) (any, error) {
 		}
 		sort.Strings(secretNames)
 	}
-	return map[string]any{"dir": dir, "written": names, "removed": removed, "secrets": secretNames}, nil
+	return map[string]any{"dir": dir, "written": names, "removed": removed, "secrets": secretNames, "pages": pages}, nil
 }
 
 // ProxyCerts reads Traefik's acme.json and returns names and expiry only;
@@ -927,4 +972,35 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// backupProbe (BKM-007) checks that a repository can be reached with its keys and
+// reports how much it stores: restic snapshots + stats --mode raw-data.
+func (e *Executor) backupProbe(ctx context.Context, raw []byte) (any, error) {
+	var p resticRepo
+	if err := decode(raw, &p); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	r, err := e.resticSetup(cctx, p)
+	if err != nil {
+		return nil, err
+	}
+	b, err := e.run(cctx, "/", r.env, r.bin, append(append([]string{}, r.base...), "snapshots", "--json", "--no-lock")...)
+	if err != nil {
+		return map[string]any{"reachable": false, "message": tailString(lastLine(b), 512)}, nil
+	}
+	var snaps []json.RawMessage
+	_ = json.Unmarshal(b, &snaps)
+	out := map[string]any{"reachable": true, "snapshots": len(snaps)}
+	if sb, err := e.run(cctx, "/", r.env, r.bin, append(append([]string{}, r.base...), "stats", "--mode", "raw-data", "--json", "--no-lock")...); err == nil {
+		var st struct {
+			TotalSize int64 `json:"total_size"`
+		}
+		if json.Unmarshal(sb, &st) == nil {
+			out["stored_bytes"] = st.TotalSize
+		}
+	}
+	return out, nil
 }

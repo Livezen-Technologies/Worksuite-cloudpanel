@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: cap-captcha
+name: Cap Captcha
+category: Security
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The self-hosted CAPTCHA for the modern web.
+port: 3000
+source: coolify
+documentation: https://capjs.js.org/guide/
+compose: "services:\n  cap:\n    image: tiago2/cap:3.0.4\n    environment:\n      ADMIN_KEY: ${SERVICE_PASSWORD_ADMIN}\n      REDIS_URL: redis://valkey:6379\n    healthcheck:\n      test:\n      - CMD\n      - bun\n      - -e\n      - fetch('http://localhost:3000').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 5s\n    depends_on:\n      valkey:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  valkey:\n    image: valkey/valkey:9-alpine\n    volumes:\n    - valkey-data:/data\n    command: valkey-server --save 60 1 --loglevel warning --maxmemory-policy noeviction\n    healthcheck:\n      test:\n      - CMD\n      - valkey-cli\n      - ping\n      interval: 5s\n      timeout: 3s\n      retries: 5\nvolumes:\n  valkey-data:\
+  \ {}\n"

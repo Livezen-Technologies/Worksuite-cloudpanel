@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: joomla-with-mariadb
+name: Joomla With Mariadb
+category: CMS
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Joomla! is the mobile-ready and user-friendly way to build your website. Choose from thousands of features and designs. Joomla! is free and open source.
+port: 80
+source: coolify
+documentation: https://joomla.org
+compose: "services:\n  joomla:\n    image: joomla:latest\n    volumes:\n    - joomla_data:/var/www/html\n    environment:\n      JOOMLA_DB_HOST: mariadb\n      JOOMLA_DB_USER: ${SERVICE_USER_JOOMLA}\n      JOOMLA_DB_PASSWORD: ${SERVICE_PASSWORD_JOOMLA}\n      JOOMLA_DB_NAME: ${MYSQL_DATABASE:-joomla-db}\n    depends_on:\n      mariadb:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1\n      interval: 2s\n      timeout: 10s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '80'\n  mariadb:\n    image: mariadb:11\n    volumes:\n    - joomla_mariadb_data:/var/lib/mysql\n    environment:\n      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_ROOT}\n      MYSQL_DATABASE: ${MYSQL_DATABASE:-joomla-db}\n      MYSQL_USER: ${SERVICE_USER_JOOMLA}\n      MYSQL_PASSWORD: ${SERVICE_PASSWORD_JOOMLA}\n\
+  \    healthcheck:\n      test:\n      - CMD\n      - healthcheck.sh\n      - --connect\n      - --innodb_initialized\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  joomla_data: {}\n  joomla_mariadb_data: {}\n"

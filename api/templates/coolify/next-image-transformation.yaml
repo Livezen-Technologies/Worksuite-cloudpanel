@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: next-image-transformation
+name: Next Image Transformation
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Drop-in replacement for Vercel's Nextjs image optimization service.
+port: 3000
+source: coolify
+documentation: https://github.com/coollabsio/next-image-transformation
+compose: "services:\n  next-image-transformation:\n    image: ghcr.io/coollabsio/next-image-transformation:latest\n    environment:\n      NODE_ENV: production\n      ALLOWED_REMOTE_DOMAINS: ${ALLOWED_REMOTE_DOMAINS:-*}\n      IMGPROXY_URL: ${IMGPROXY_URL:-http://imgproxy:8080}\n    healthcheck:\n      test: wget -qO- http://127.0.0.1:3000/health || exit 1\n      interval: 2s\n      timeout: 10s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '3000'\n  imgproxy:\n    image: darthsim/imgproxy\n    environment:\n      IMGPROXY_ENABLE_WEBP_DETECTION: 'true'\n      IMGPROXY_JPEG_PROGRESSIVE: 'true'\n      IMGPROXY_USE_ETAG: 'true'\n    healthcheck:\n      test:\n      - CMD\n      - imgproxy\n      - health\n      interval: 2s\n      timeout: 10s\n      retries: 5\n"

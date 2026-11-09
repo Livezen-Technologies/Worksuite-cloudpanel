@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: pocketbase
+name: Pocketbase
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Open Source backend for your next SaaS and Mobile app in 1 file
+port: 8080
+source: coolify
+documentation: https://pocketbase.io/docs/
+compose: "services:\n  pocketbase:\n    image: ghcr.io/coollabsio/pocketbase:latest\n    environment: {}\n    volumes:\n    - pocketbase-data:/app/pb_data\n    - pocketbase-hooks:/app/pb_hooks\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8080'\nvolumes:\n  pocketbase-data: {}\n  pocketbase-hooks: {}\n"

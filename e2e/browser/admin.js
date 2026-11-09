@@ -2,7 +2,7 @@
 const { execFileSync, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
-const { test, run, login, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB, API, OUT } = require('./lib')
+const { test, run, login, settle, shot, mainText, dashCount, assert, expectText, apiCall, apiLogin, WEB, API, OUT, choose } = require('./lib')
 
 const AGENT_BIN = process.env.AGENT_BIN || path.join(OUT, '..', 'agent', 'dockermgr-agent')
 const started = (name) => execFileSync('docker', ['inspect', '-f', '{{.State.StartedAt}}', name]).toString().trim()
@@ -21,10 +21,10 @@ async function jobDone(id, ms = 90000) {
 test('admin: login and Overview shows real KPI numbers', async ({ page }) => {
   await login(page, 'admin@example.com', { ui: true })
   assert(page.url().endsWith('/admin'), `landed on ${page.url()}`)
-  await page.getByText('Connected servers').waitFor()
+  await page.getByText('Running containers').first().waitFor()
   const k = (await api('GET', '/dashboard?range=6h')).json.data.kpis
   const text = await mainText(page)
-  assert(text.includes(`${k.servers_online} / ${k.servers_total}`), `servers tile != ${k.servers_online} / ${k.servers_total}`)
+  assert(new RegExp(`Servers\\s+${k.servers_total}\\b`).test(text) && new RegExp(`Online\\s+${k.servers_online}\\b`).test(text), `servers tiles != ${k.servers_online} online of ${k.servers_total}`)
   assert(new RegExp(`Running containers\\s+${k.containers_running}\\b`).test(text), `running containers tile != ${k.containers_running}`)
   assert(new RegExp(`CPU usage\\s+${Math.round(k.cpu_pct)}%`).test(text), 'cpu tile')
   for (const s of ['Backups (24 h)', 'Certificates', 'Image security', 'Recent deployments', 'Top resource consumers', 'Alex Admin']) assert(text.includes(s), `missing "${s}"`)
@@ -42,7 +42,7 @@ test('admin: Servers list and add-server wizard reaches install command, real ag
   const name = `e2e-wizard-${Date.now() % 100000}`
   await page.getByLabel('Server name', { exact: true }).fill(name)
   await page.getByLabel('IP address').fill('127.0.0.1')
-  await page.getByRole('dialog').getByLabel('Environment').selectOption('development')
+  await choose(page.getByRole('dialog').getByLabel('Environment'), 'development')
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
   const pre = page.locator('pre', { hasText: '--token' }); await pre.waitFor({ timeout: 15000 })
@@ -74,7 +74,7 @@ test('admin: Containers list shows the agent container; Restart produces a job t
   await login(page, 'admin@example.com')
   await page.goto(WEB + '/admin/containers'); await settle(page)
   const sid = (await api('GET', '/servers?search=e2e-local')).json.data.find((s) => s.status === 'online').id
-  await page.getByLabel('Server', { exact: true }).selectOption(sid)
+  await choose(page.getByLabel('Server', { exact: true }), sid)
   await page.getByPlaceholder(/Filter by name/).fill('e2e-web')
   const row = page.locator('tr', { hasText: 'e2e-web' }).first(); await row.waitFor()
   const rowText = await row.innerText()
@@ -99,9 +99,9 @@ test('admin: Applications create (image), deploy twice via agent, roll back', as
   await dlg.getByRole('button', { name: /Docker image/ }).click()
   await dlg.getByLabel('Name').fill(name)
   await dlg.getByLabel('Image').fill('e2e/hello:1')
-  await dlg.getByLabel('Environment').selectOption('staging')
+  await choose(dlg.getByLabel('Environment'), 'staging')
   const sid = (await api('GET', '/servers?search=e2e-local')).json.data.find((s) => s.status === 'online').id
-  await dlg.getByLabel('Target server').selectOption(sid)
+  await choose(dlg.getByLabel('Target server'), sid)
   await dlg.getByRole('button', { name: /Recreate/ }).click()
   await dlg.getByRole('button', { name: 'Create application' }).click()
   const row = page.locator('tr', { hasText: name }).first(); await row.waitFor()

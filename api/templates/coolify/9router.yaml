@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: 9router
+name: 9Router
+category: AI
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Free AI coding gateway. Routes Claude Code, Codex, Cursor, Cline, Copilot requests to 40+ LLM providers with auto-fallback and token savings.
+port: 20128
+source: coolify
+documentation: https://github.com/decolua/9router
+compose: "services:\n  9router:\n    image: decolua/9router:0.5.65\n    volumes:\n    - 9router:/app/data\n    environment:\n      DATA_DIR: /app/data\n      INITIAL_PASSWORD: ${SERVICE_PASSWORD_PASSWORD}\n      JWT_SECRET: ${SERVICE_PASSWORD_JWTSECRET}\n      API_KEY_SECRET: ${SERVICE_PASSWORD_KEYSECRET}\n      MACHINE_ID_SALT: ${SERVICE_HEX_HMACSALT}\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --spider\n      - http://127.0.0.1:20128/\n      interval: 5s\n      timeout: 10s\n      retries: 5\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '20128'\nvolumes:\n  9router: {}\n"

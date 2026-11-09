@@ -1,15 +1,28 @@
 <?php
 
 return [
+    // PNET-7: CIDRs the admin API answers from (comma-separated); empty = anywhere.
+    'admin_allowed_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ADMIN_ALLOWED_CIDRS', ''))))),
+
     // Terminal relay (agent/cmd/relay). The relay calls /internal/relay/* with X-Relay-Secret.
     'relay' => [
         'secret' => env('RELAY_SECRET'),
         // Base the agent dials back to (signed into terminal.open) and keeps its control connection on.
         // Browser-facing base for ws_url (relative URLs resolve against the panel origin).
         'ws_url' => env('TERMINAL_WS_URL', '/relay/terminal'),
+        // Checked before a terminal opens, so a relay that is not running is named instead of the
+        // browser's WebSocket simply failing. Empty turns the check off.
+        'health_url' => env('RELAY_HEALTH_URL', 'http://127.0.0.1:'.env('RELAY_PORT', '8090').'/relay/healthz'),
+        'preflight' => (bool) env('RELAY_PREFLIGHT', true),
         'agent_url' => env('RELAY_AGENT_URL', rtrim(env('PANEL_URL', env('APP_URL', 'http://localhost')), '/').'/relay'),
         'recording_disk' => env('TERMINAL_RECORDING_DISK', 'local'),
         'recording_max_bytes' => (int) env('TERMINAL_RECORDING_MAX_BYTES', 8 * 1024 * 1024),
+    ],
+    // SSH-GW: shells over SSH through the relay's SSH listener (RELAY_SSH_LISTEN on the relay).
+    'ssh_gateway' => [
+        'enabled' => (bool) env('SSH_GATEWAY_ENABLED', false),
+        'host' => env('SSH_GATEWAY_HOST', parse_url((string) env('PANEL_URL', env('APP_URL', 'http://localhost')), PHP_URL_HOST) ?: 'localhost'),
+        'port' => (int) env('SSH_GATEWAY_PORT', 2222),
     ],
     'terminal' => [
         // Fixed shell list (first entry is used); the agent enforces its own list too.

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: sequin
+name: Sequin
+category: Analytics
+version: 1
+type: compose
+accent: '#6B16ED'
+description: The fastest Postgres change data capture
+port: 7376
+source: coolify
+documentation: https://sequinstream.com/docs/
+compose: "services:\n  sequin:\n    image: sequin/sequin:latest\n    environment:\n      SERVER_HOST: ${SERVICE_FQDN}\n      PG_HOSTNAME: postgres\n      PG_DATABASE: ${POSTGRES_DB:-sequin-db}\n      PG_PORT: '5432'\n      PG_USERNAME: ${SERVICE_USER_POSTGRES}\n      PG_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      PG_POOL_SIZE: '20'\n      SECRET_KEY_BASE: ${SERVICE_BASE64_SECRETKEY}\n      VAULT_KEY: ${SERVICE_BASE64_VAULTKEY}\n      REDIS_URL: redis://redis:6379\n      CONFIG_FILE_PATH: /config/playground.yml\n      FEATURE_ACCOUNT_SELF_SIGNUP: ${FEATURE_ACCOUNT_SELF_SIGNUP:-false}\n      SEQUIN_TELEMETRY_DISABLED: ${SEQUIN_TELEMETRY_DISABLED:-false}\n      CRASH_REPORTING_DISABLED: ${CRASH_REPORTING_DISABLED:-false}\n    depends_on:\n      redis:\n        condition: service_healthy\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - http://localhost:7376/health\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule:\
+  \ Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '7376'\n  postgres:\n    image: postgres:16\n    environment:\n      POSTGRES_DB: ${POSTGRES_DB:-sequin-db}\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n    command:\n    - postgres\n    - -c\n    - wal_level=logical\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U ${SERVICE_USER_POSTGRES} -d sequin\n      interval: 10s\n      timeout: 2s\n      retries: 5\n      start_period: 2s\n      start_interval: 1s\n    volumes:\n    - postgres_data:/var/lib/postgresql/data\n  redis:\n    image: redis:7\n    command:\n    - redis-server\n    - --port\n    - '6379'\n    healthcheck:\n      test:\n      - CMD\n      - redis-cli\n      - ping\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    volumes:\n    - redis_data:/data\nvolumes:\n  postgres_data: {}\n  redis_data: {}\n"

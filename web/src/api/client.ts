@@ -26,13 +26,16 @@ export class ApiError extends Error {
   status: number
   fields: Record<string, string[]>
   requestId?: string
-  constructor(opts: { code: ErrorCode; status: number; message?: string; fields?: Record<string, string[]>; requestId?: string }) {
+  /** Extra keys the API put beside code/message (e.g. mfa_required, ticket). */
+  extra: Record<string, unknown>
+  constructor(opts: { code: ErrorCode; status: number; message?: string; fields?: Record<string, string[]>; requestId?: string; extra?: Record<string, unknown> }) {
     super(opts.message || FRIENDLY[opts.code] || 'Request failed')
     this.name = 'ApiError'
     this.code = opts.code
     this.status = opts.status
     this.fields = opts.fields ?? {}
     this.requestId = opts.requestId
+    this.extra = opts.extra ?? {}
   }
   /** First message for a field, if the server sent one. */
   field(name: string): string | undefined { return this.fields[name]?.[0] }
@@ -66,6 +69,22 @@ export function apiBase(): string {
   return env.replace(/\/$/, '') + '/api/v1'
 }
 
+/** Downloads an authenticated file (e.g. a CSV export) and saves it under the server's filename. */
+export async function downloadFile(path: string, query?: Record<string, string | undefined>, fallbackName = 'download'): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(buildUrl(path, query as Record<string, string>), { headers: { Accept: 'text/csv, application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new Error(body.error?.message ?? `Download failed (${res.status})`)
+  }
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(await res.blob())
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return 'k-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)
@@ -94,7 +113,8 @@ export async function parseError(res: Response): Promise<ApiError> {
   try { body = await res.json() } catch { /* non-JSON */ }
   const err = (body as { error?: { code?: string; message?: string; fields?: Record<string, string[]>; request_id?: string } } | null)?.error
   const code = (err?.code as ErrorCode) || STATUS_CODES[res.status] || 'server_error'
-  return new ApiError({ code, status: res.status, message: err?.message, fields: err?.fields, requestId: err?.request_id })
+  const { code: _c, message: _m, fields: _f, request_id: _r, ...extra } = (err ?? {}) as Record<string, unknown>
+  return new ApiError({ code, status: res.status, message: err?.message, fields: err?.fields, requestId: err?.request_id, extra })
 }
 
 export async function request<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {

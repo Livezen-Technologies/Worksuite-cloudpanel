@@ -3,87 +3,21 @@ import { useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { useAction, useJob, useList, useOne, useServerName } from '../../api/hooks'
 import type { JobStage, Server } from '../../api/types'
-import { Card, Field, PageHeader, Toggle, Empty } from '../../components/Card'
+import { Card, Field, PageHeader, Empty, Loading } from '../../components/Card'
 import { Badge, StatusBadge } from '../../components/Badge'
 import { DataTable } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
-import { JobTimeline } from '../../components/JobTimeline'
+import { JobTimeline, seconds } from '../../components/JobTimeline'
 import { CodeEditor } from '../../components/CodeEditor'
 import { useToast } from '../../components/Toasts'
 import { ago, unwrap } from '../../lib/format'
 import { type R } from '../../lib/util'
 import Select from '../../components/Select'
-
-const SOURCES = [['git', 'Git repository', 'GitHub · GitLab · Gitea'], ['image', 'Docker image', 'Public or private registry'], ['dockerfile', 'Dockerfile', 'Build from source, isolated runner'], ['compose', 'Compose stack', 'Multi-service application']] as const
-const STRATEGIES = [['recreate', 'Recreate', 'Simple; brief downtime'], ['rolling', 'Rolling update', 'Replace instances one by one'], ['blue_green', 'Blue-green', 'Switch traffic after health checks']] as const
-const PIPELINE = ['Webhook validated & authorised', 'Source checkout', 'Build & image scan', 'Push image by digest', 'Server selection', 'Deploy', 'Health check', 'Complete']
+import { BuildUsage } from '../../components/BuildUsage'
+import NewApplicationWizard from './NewApplicationWizard'
 
 function choice(on: boolean) { return on ? { border: '2px solid var(--accent)', background: 'var(--sel)' } : undefined }
-
-function NewApplication({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const servers = useList<Server>('/servers')
-  const registries = useList<R>('/registries')
-  const { run, busy } = useAction()
-  const [f, setF] = useState({ name: '', source_type: 'git' as string, repo: '', branch: 'main', image: '', environment: 'production', strategy: 'rolling' as string, server_id: '', require_approval: true,
-    port: '', health_path: '/', dockerfile_path: 'Dockerfile', context: '.', push_registry_id: '', git_token: '' })
-  const builds = f.source_type === 'git' || f.source_type === 'dockerfile'
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const submit = async () => {
-    try {
-      const body = {
-        name: f.name, source_type: f.source_type, environment: f.environment, strategy: f.strategy, server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
-        port: f.port ? Number(f.port) : null, health_path: f.health_path || null,
-        ...(f.source_type === 'image' ? { image: f.image } : {
-          source: { repo: f.repo, branch: f.branch, ...(builds ? { dockerfile_path: f.dockerfile_path || 'Dockerfile', context: f.context || '.', push_registry_id: f.push_registry_id || null, ...(f.git_token ? { git_token: f.git_token } : {}) } : {}) },
-        }),
-      }
-      await run({ path: '/applications', body, label: `Create ${f.name}`, success: 'Application created' })
-      onClose()
-    } catch (e) { setErrors(Object.fromEntries(Object.entries((e as { fields?: Record<string, string[]> }).fields ?? {}).map(([k, v]) => [k, v[0]]))) }
-  }
-  return (
-    <Modal open={open} onClose={onClose} title="New application" width={760}
-      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn btn-primary" disabled={busy || !f.name} onClick={submit}>Create application</button></>}>
-      <div className="flex flex-col gap-4">
-        <fieldset className="border-0 p-0 m-0"><legend className="text-[13px] font-semibold mb-2">Source</legend>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-            {SOURCES.map(([id, t, s]) => (
-              <button key={id} type="button" aria-pressed={f.source_type === id} onClick={() => setF({ ...f, source_type: id })} className="card p-4 text-left cursor-pointer text-fg" style={choice(f.source_type === id)}>
-                <span className="block font-semibold text-sm">{t}</span><span className="block text-xs text-muted mt-1">{s}</span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-          <Field label="Name" error={errors.name}><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-          {f.source_type === 'image' ? <Field label="Image" error={errors.image}><input className="input font-mono" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} /></Field>
-            : <><Field label="Repository URL" error={errors.repo ?? errors['source.repo']}><input className="input font-mono" value={f.repo} onChange={(e) => setF({ ...f, repo: e.target.value })} /></Field>
-              <Field label="Branch"><input className="input" value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} /></Field></>}
-          {builds && <>
-            <Field label="Dockerfile path" error={errors['source.dockerfile_path']}><input className="input font-mono" value={f.dockerfile_path} onChange={(e) => setF({ ...f, dockerfile_path: e.target.value })} /></Field>
-            <Field label="Build context" error={errors['source.context']}><input className="input font-mono" value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></Field>
-            <Field label="Push to registry" hint="Without one the image stays on the builder, which must then be the target"><Select className="input" value={f.push_registry_id} onChange={(e) => setF({ ...f, push_registry_id: e.target.value })}><option value="">Do not push</option>{registries.rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>
-            <Field label="Git access token" hint="Optional; stored as an encrypted secret"><input className="input font-mono" type="password" autoComplete="off" value={f.git_token} onChange={(e) => setF({ ...f, git_token: e.target.value })} /></Field>
-          </>}
-          <Field label="Container port" error={errors.port}><input className="input" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} /></Field>
-          <Field label="Health check path" hint="GET on the port after start; 2xx/3xx passes" error={errors.health_path}><input className="input font-mono" value={f.health_path} onChange={(e) => setF({ ...f, health_path: e.target.value })} /></Field>
-          <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option><option>preview</option></Select></Field>
-          <Field label="Target server" hint="Leave empty to let the scheduler place it"><Select className="input" value={f.server_id} onChange={(e) => setF({ ...f, server_id: e.target.value })}><option value="">Automatic placement</option>{servers.rows.map((s) => <option key={s.id} value={s.id} disabled={s.status === 'maintenance'}>{s.name}{s.status === 'maintenance' ? ' (maintenance)' : ''}</option>)}</Select></Field>
-        </div>
-        <fieldset className="border-0 p-0 m-0"><legend className="text-[13px] font-semibold mb-2">Release strategy</legend>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
-            {STRATEGIES.map(([id, t, s]) => (
-              <button key={id} type="button" aria-pressed={f.strategy === id} onClick={() => setF({ ...f, strategy: id })} className="card p-4 text-left cursor-pointer text-fg" style={choice(f.strategy === id)}>
-                <span className="block font-semibold text-sm">{t}</span><span className="block text-xs text-muted mt-1">{s}</span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <div className="flex items-center gap-3"><Toggle checked={f.require_approval} onChange={(v) => setF({ ...f, require_approval: v })} label="Require approval for production" /><span className="text-sm font-semibold">Require approval for production</span></div>
-      </div>
-    </Modal>
-  )
-}
+const PIPELINE = ['Webhook validated & authorised', 'Source checkout', 'Build & image scan', 'Push image by digest', 'Server selection', 'Deploy', 'Health check', 'Complete']
 
 function DeployDialog({ open, onClose, apps }: { open: boolean; onClose: () => void; apps: R[] }) {
   const [app, setApp] = useState('')
@@ -96,13 +30,28 @@ function DeployDialog({ open, onClose, apps }: { open: boolean; onClose: () => v
   )
 }
 
+const IN_PROGRESS = ['running', 'queued', 'pending', 'awaiting_approval']
+
+/**
+ * The newest deployment. While it runs, its whole pipeline shows; once it has finished it folds into one
+ * line (status, app, version, when, how long) with the steps a click away, so the app list stays in view.
+ */
 function Pipeline({ d }: { d: R }) {
   const { job } = useJob(d.job_id)
+  const status = String(job?.status ?? d.status)
+  const live = IN_PROGRESS.includes(status)
+  const [open, setOpen] = useState(false)
   const stages: JobStage[] = job?.stages?.length ? job.stages : (d.stages as JobStage[] | undefined) ?? PIPELINE.map((name) => ({ name, status: 'pending' }))
+  const title = `${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}`.trim()
+  const took = d.started_at && d.finished_at ? seconds(Math.max(0, Math.round((new Date(d.finished_at).getTime() - new Date(d.started_at).getTime()) / 1000))) : null
+  const showSteps = live || open
+  const { run, busy } = useAction()
   return (
-    <Card title={`Pipeline · ${appLabel(d) ?? 'deployment'} ${d.version ?? imageTag(d.image) ?? ''}${d.environment ? ` → ${d.environment}` : ''}`} actions={<StatusBadge status={job?.status ?? d.status} />}>
-      <JobTimeline job={job} stages={stages} />
-      {!!job?.build_log?.length && <BuildLog lines={job.build_log} />}
+    <Card title={<span className="flex flex-wrap items-center gap-2"><span className="text-muted font-normal">{live ? 'Deploying' : 'Last deployment'}</span>{title}{d.environment ? <StatusBadge status={d.environment} /> : null}</span>}
+      subtitle={!live ? [ago(d.finished_at ?? d.created_at), took ? `took ${took}` : null, stages.filter((s) => s.status === 'skipped').length ? `${stages.filter((s) => s.status === 'skipped').length} steps skipped` : null].filter(Boolean).join(' · ') : undefined}
+      actions={<span className="flex items-center gap-2"><StatusBadge status={status} />{live && <button type="button" className="btn btn-sm btn-ghost text-danger" disabled={busy} onClick={() => { if (window.confirm('Cancel this deployment? The app keeps running its current release.')) run({ path: `/deployments/${d.id}/cancel`, label: 'Cancel deployment', success: 'Deployment cancelled' }).catch(() => {}) }}>Cancel</button>}{!live && <button type="button" className="btn btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide steps' : 'Show steps'}</button>}</span>}>
+      {showSteps && <JobTimeline job={live ? job : undefined} stages={stages} />}
+      {showSteps && !!job?.build_log?.length && <BuildLog lines={job.build_log} />}
     </Card>
   )
 }
@@ -173,9 +122,10 @@ export function Applications() {
           </ul>
         </Card>
       )}
-      {active && <Pipeline d={active} />}
+      {active && <Pipeline key={active.id} d={active} />}
       <DataTable label="Applications" rows={apps.rows} loading={apps.isLoading} rowKey={(r) => r.id} onRowClick={(r) => setParams({ id: r.id })} selectedRowId={selected?.id}
         filters={[{ id: 'production', label: 'Production', test: (r) => r.environment === 'production' }, { id: 'staging', label: 'Staging', test: (r) => r.environment === 'staging' }]}
+        actions={(r) => [{ label: `Deploy ${r.name}`, icon: 'rocket', onClick: () => run({ path: '/deployments', body: { application_id: r.id }, label: `Deploy ${r.name}` }).catch(() => {}) }]}
         columns={[
           { key: 'name', header: 'Application', render: (r) => <a className="font-semibold" href={`/admin/applications/${r.id}`} onClick={(e) => e.stopPropagation()}>{r.name}</a> },
           { key: 'source_type', header: 'Source' },
@@ -183,11 +133,15 @@ export function Applications() {
           { key: 'strategy', header: 'Strategy' },
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-          { key: 'deploy', header: '', sortable: false, render: (r) => <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); run({ path: '/deployments', body: { application_id: r.id }, label: `Deploy ${r.name}` }).catch(() => {}) }}>Deploy</button> },
         ]} />
       {selected && <Releases app={selected} />}
+      <BuildUsage path="/builds/usage" />
       <Card title="Release history" pad={false}>
         <DataTable label="Deployments" rows={deployments.rows} loading={deployments.isLoading} rowKey={(r) => r.id}
+          actions={(r) => [
+            ...(r.status === 'awaiting_approval' ? [{ label: 'Approve', icon: 'check', onClick: () => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' }).catch(() => {}) }] : []),
+            ...(IN_PROGRESS.includes(r.status) ? [{ label: 'Cancel deployment', icon: 'close', danger: true, onClick: () => { if (window.confirm('Cancel this deployment? The app keeps running its current release.')) run({ path: `/deployments/${r.id}/cancel`, label: 'Cancel deployment', success: 'Deployment cancelled' }).catch(() => {}) } }] : []),
+          ]}
           columns={[
             { key: 'application', header: 'Application', value: (r) => appLabel(r), render: (r) => <span className="font-semibold">{appLabel(r)}</span> },
             { key: 'version', header: 'Version', render: (r) => <span className="font-mono text-xs">{r.version ?? imageTag(r.image) ?? '—'}</span> },
@@ -196,11 +150,10 @@ export function Applications() {
             { key: 'source', header: 'Source', render: (r) => <span className="font-mono text-xs text-muted">{r.source ?? r.commit ?? '—'}</span> },
             { key: 'author', header: 'Author', value: (r) => r.author ?? r.user_name },
             { key: 'created_at', header: 'When', render: (r) => ago(r.created_at) },
-            { key: 'approve', header: '', sortable: false, render: (r) => r.status === 'awaiting_approval' ? <button type="button" className="btn btn-sm btn-primary" onClick={() => run({ path: `/deployments/${r.id}/approve`, label: 'Approve deployment', success: 'Deployment approved' })}>Approve</button> : null },
           ]} />
       </Card>
       <DeployDialog open={params.get('deploy') === '1'} onClose={() => setParams({})} apps={apps.rows} />
-      <NewApplication open={newApp} onClose={() => setNewApp(false)} />
+      <NewApplicationWizard open={newApp} onClose={() => setNewApp(false)} />
     </>
   )
 }
@@ -311,7 +264,7 @@ export function Compose() {
     <>
       <PageHeader title="Compose Stacks" subtitle="One Compose project per target server · versioned revisions with rollback"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New stack</button>} />
-      {isLoading ? <Card>Loading stacks…</Card> : rows.length === 0 ? <Card><Empty>No stacks yet.</Empty></Card> : (
+      {isLoading ? <Loading label="Loading stacks…" /> : rows.length === 0 ? <Card><Empty>No stacks yet.</Empty></Card> : (
         <ul className="list-none m-0 p-0 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
           {rows.map((s) => (
             <li key={s.id}>
@@ -333,7 +286,7 @@ export function Compose() {
             <Field label="Environment"><Select className="input" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })}><option>production</option><option>staging</option></Select></Field>
           </div>
           <Field label="Import from Git (optional)" hint="Repository URL containing compose.yaml"><input className="input font-mono" value={f.git_url} onChange={(e) => setF({ ...f, git_url: e.target.value })} /></Field>
-          <label className="label">Upload compose.yaml<input type="file" accept=".yml,.yaml" className="text-sm font-normal" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setF({ ...f, yaml: await file.text() }) }} /></label>
+          <Field label="Upload compose.yaml"><input type="file" accept=".yml,.yaml" className="text-sm font-normal" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setF({ ...f, yaml: await file.text() }) }} /></Field>
           <CodeEditor label="compose.yaml" value={f.yaml} onChange={(v) => setF({ ...f, yaml: v })} rows={12} />
         </div>
       </Modal>

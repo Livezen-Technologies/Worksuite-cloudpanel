@@ -24,6 +24,7 @@ class Alert extends Model
             'last_notified_at' => 'datetime',
             'escalated_at' => 'datetime',
             'suppressed' => 'boolean',
+            'snoozed_until' => 'datetime',
         ];
     }
 

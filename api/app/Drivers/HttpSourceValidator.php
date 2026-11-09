@@ -36,19 +36,59 @@ class HttpSourceValidator implements SourceValidator
         }
     }
 
-    public function git(string $repository, string $branch): array
+    public function git(string $repository, string $branch, ?string $sshPrivateKey = null): array
     {
-        if (! preg_match('#^(https://|git@)[\w.@:/~-]+$#', $repository)) {
-            return ['ok' => false, 'message' => 'Use an https:// or git@ repository address.'];
+        if (! preg_match('#^(https://|git@|ssh://[\w.-]+@)[\w.@:/~-]+$#', $repository)) {
+            return ['ok' => false, 'message' => 'Use an https://, git@ or ssh:// repository address.'];
         }
-        $process = new Process(['git', 'ls-remote', '--heads', $repository, $branch], null, ['GIT_TERMINAL_PROMPT' => '0']);
+        if (! preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]*$#', $branch)) {
+            return ['ok' => false, 'message' => 'Invalid branch name.'];
+        }
+        $env = ['GIT_TERMINAL_PROMPT' => '0'];
+        $dir = null;
+        if ($sshPrivateKey !== null) {
+            // A private temp dir for the key and the host keys seen on first contact.
+            $dir = sys_get_temp_dir().'/gitkey-'.bin2hex(random_bytes(8));
+            mkdir($dir, 0700);
+            file_put_contents("{$dir}/id", rtrim($sshPrivateKey)."\n");
+            chmod("{$dir}/id", 0600);
+            $env['GIT_SSH_COMMAND'] = 'ssh -i '.escapeshellarg("{$dir}/id").' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile='.escapeshellarg("{$dir}/known_hosts");
+        }
+        try {
+            $process = new Process(['git', 'ls-remote', '--heads', $repository, $branch], null, $env);
+            $process->setTimeout(20);
+            $process->run();
+        } finally {
+            if ($dir !== null) {
+                @unlink("{$dir}/id");
+                @unlink("{$dir}/known_hosts");
+                @rmdir($dir);
+            }
+        }
+        $line = trim($process->getOutput());
+        if ($process->isSuccessful() && $line !== '') {
+            return ['ok' => true, 'message' => 'Repository reachable.', 'commit' => substr($line, 0, 40)];
+        }
+        if ($process->isSuccessful()) {
+            return ['ok' => false, 'message' => "The repository has no branch {$branch}."];
+        }
+        $err = (string) $process->getErrorOutput();
+
+        return ['ok' => false, 'message' => str_contains($err, 'Permission denied') || str_contains($err, 'publickey')
+            ? 'The repository refused the deploy key. Add the public key to the repository (read access is enough) and try again.'
+            : "We couldn't read branch {$branch} from {$repository}."];
+    }
+
+    public function defaultBranch(string $repository): ?string
+    {
+        if (! preg_match('#^(https://|git@)[\w.@:/~%-]+$#', $repository)) {
+            return null;
+        }
+        $process = new Process(['git', 'ls-remote', '--symref', $repository, 'HEAD'], null, ['GIT_TERMINAL_PROMPT' => '0']);
         $process->setTimeout(15);
         $process->run();
-        $line = trim($process->getOutput());
 
-        return $process->isSuccessful() && $line !== ''
-            ? ['ok' => true, 'message' => 'Repository reachable.', 'commit' => substr($line, 0, 40)]
-            : ['ok' => false, 'message' => "We couldn't read branch {$branch} from {$repository}."];
+        return $process->isSuccessful() && preg_match('#^ref:\s+refs/heads/(\S+)\s+HEAD#m', $process->getOutput(), $m) ? $m[1] : null;
     }
 
     /** @return array{0: string, 1: string, 2: string} registry, repository, tag */

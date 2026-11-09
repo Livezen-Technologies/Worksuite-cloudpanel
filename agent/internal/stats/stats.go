@@ -7,10 +7,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -64,7 +64,98 @@ func (s *Sampler) Sample() protocol.Stats {
 		}
 	}
 	st.NetRx, st.NetTx = NetCounters(s.proc("net/dev"))
+	st.Disks = s.Disks()
 	return st
+}
+
+// maxDisks bounds the heartbeat payload on hosts with very many mounts.
+const maxDisks = 32
+
+// Filesystems that carry no capacity worth reporting: pseudo filesystems, RAM
+// backed mounts, read-only images (snaps, the OVH rescue partition) and the
+// overlays Docker stacks on top of a filesystem already reported.
+var skipFS = map[string]bool{
+	"tmpfs": true, "devtmpfs": true, "ramfs": true, "overlay": true,
+	"squashfs": true, "iso9660": true, "autofs": true, "efivarfs": true,
+}
+
+// Disks lists mounted local block filesystems, largest first.
+//
+// A device is reported once however many places it is mounted, so a bind mount
+// never counts the same array twice, and mounts Docker owns are left out
+// because they describe a filesystem the engine's own root already covers.
+func (s *Sampler) Disks() []protocol.Disk {
+	fh, err := os.Open(s.proc("mounts"))
+	if err != nil {
+		return nil
+	}
+	defer fh.Close()
+
+	seen := map[string]bool{}
+	var out []protocol.Disk
+	sc := bufio.NewScanner(fh)
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) < 3 {
+			continue
+		}
+		dev, mount, fstype := f[0], unescapeMount(f[1]), f[2]
+		if !strings.HasPrefix(dev, "/dev/") || skipFS[fstype] || seen[dev] {
+			continue
+		}
+		if mount == "/var/lib/docker" || strings.HasPrefix(mount, "/var/lib/docker/") {
+			continue
+		}
+		var fs syscall.Statfs_t
+		if syscall.Statfs(mount, &fs) != nil || fs.Blocks == 0 {
+			continue
+		}
+		used := fs.Blocks - fs.Bfree
+		d := protocol.Disk{
+			Mount:  mount,
+			Device: dev,
+			FSType: fstype,
+			// Megabytes, because a 988 MB /boot truncates to 0 in whole gigabytes.
+			SizeMB: int64(fs.Blocks) * int64(fs.Bsize) / (1 << 20),
+			UsedMB: int64(used) * int64(fs.Bsize) / (1 << 20),
+		}
+		// Match df: the denominator excludes blocks only root may use.
+		if denom := used + fs.Bavail; denom > 0 {
+			d.UsedPct = round(float64(used) / float64(denom) * 100)
+		}
+		seen[dev] = true
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SizeMB != out[j].SizeMB {
+			return out[i].SizeMB > out[j].SizeMB
+		}
+		return out[i].Mount < out[j].Mount
+	})
+	if len(out) > maxDisks {
+		out = out[:maxDisks]
+	}
+	return out
+}
+
+// unescapeMount decodes the octal escapes /proc/mounts writes for spaces,
+// tabs, newlines and backslashes in a mount point.
+func unescapeMount(p string) string {
+	if !strings.Contains(p, `\`) {
+		return p
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' && i+3 < len(p) {
+			if n, err := strconv.ParseUint(p[i+1:i+4], 8, 8); err == nil {
+				b.WriteByte(byte(n))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
 }
 
 func (s *Sampler) cpu() float64 {

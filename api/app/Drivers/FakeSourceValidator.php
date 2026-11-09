@@ -19,8 +19,17 @@ class FakeSourceValidator implements SourceValidator
         return ['ok' => true, 'message' => 'Image found.', 'digest' => 'sha256:'.hash('sha256', $reference)];
     }
 
-    public function git(string $repository, string $branch): array
+    public function defaultBranch(string $repository): ?string
     {
+        return str_contains($repository, 'missing') ? null : (str_contains($repository, 'legacy') ? 'master' : 'main');
+    }
+
+    public function git(string $repository, string $branch, ?string $sshPrivateKey = null): array
+    {
+        if ($sshPrivateKey !== null && str_contains($repository, 'denied')) {
+            return ['ok' => false, 'message' => 'The repository refused the deploy key. Add the public key to the repository first.'];
+        }
+
         return str_contains($repository, 'missing')
             ? ['ok' => false, 'message' => "We couldn't reach {$repository}."]
             : ['ok' => true, 'message' => 'Repository reachable.', 'commit' => substr(hash('sha1', $repository.$branch), 0, 40)];

@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: pgbackweb
+name: Pgbackweb
+category: Development
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Effortless PostgreSQL backups with a user-friendly web interface!
+port: 8085
+source: coolify
+documentation: https://github.com/eduardolat/pgbackweb
+compose: "services:\n  pgbackweb:\n    image: eduardolat/pgbackweb:latest\n    volumes:\n    - pgbackweb_backups:/backups\n    environment:\n      PBW_ENCRYPTION_KEY: ${SERVICE_PASSWORD_PGBACKWEB}\n      PBW_POSTGRES_CONN_STRING: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/${POSTGRES_DB:-pgbackweb-db}?sslmode=disable\n      TZ: ${TIME_ZONE:-UTC}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8085'\n  postgres:\n    image: postgres:17\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-pgbackweb-db}\n    volumes:\n    - pgbackweb_postgres_data:/var/lib/postgresql/data\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U ${SERVICE_USER_POSTGRES}\
+  \ -d pgbackweb\n      interval: 5s\n      timeout: 5s\n      retries: 5\nvolumes:\n  pgbackweb_backups: {}\n  pgbackweb_postgres_data: {}\n"

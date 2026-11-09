@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: redis-insight
+name: Redis Insight
+category: Database
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Redis Insight lets you do both GUI- and CLI-based interactions in a fully-featured desktop GUI client.
+port: 5540
+source: coolify
+documentation: https://redis.io/docs/latest/operate/redisinsight/
+compose: "services:\n  redisinsight:\n    image: redis/redisinsight:2.70\n    environment:\n      RI_APP_HOST: 0.0.0.0\n      RI_APP_PORT: '5540'\n      RI_ENCRYPTION_KEY: ${SERVICE_PASSWORD_RI_ENCRYPTION_KEY}\n      RI_LOG_LEVEL: ${RI_LOG_LEVEL:-info}\n      RI_FILES_LOGGER: ${RI_FILES_LOGGER:-true}\n      RI_STDOUT_LOGGER: ${RI_STDOUT_LOGGER:-true}\n    volumes:\n    - redis_insight_data:/data\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --spider\n      - http://0.0.0.0:5540/api/health\n      interval: 10s\n      retries: 3\n      timeout: 10s\n      start_period: 10s\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5540'\nvolumes:\n  redis_insight_data: {}\n"

@@ -32,6 +32,8 @@ type fakeDocker struct {
 	pullStatus int
 	// localImages are answered by GET /images/{ref}/json; others are 404.
 	localImages map[string]bool
+	// runtimes is answered by GET /info.
+	runtimes string
 }
 
 func (f *fakeDocker) handler(t *testing.T) http.Handler {
@@ -51,6 +53,11 @@ func (f *fakeDocker) handler(t *testing.T) http.Handler {
 				return
 			}
 			w.Write([]byte(`{"Id":"sha256:abc"}`))
+		case r.URL.Path == "/info":
+			w.Write([]byte(`{"Runtimes":{` + f.runtimes + `}}`))
+		case strings.HasSuffix(r.URL.Path, "/exec"):
+			w.WriteHeader(201)
+			w.Write([]byte(`{"Id":"ex1"}`))
 		case r.URL.Path == "/containers/create":
 			b, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
@@ -252,6 +259,8 @@ func TestOtherDockerCommands(t *testing.T) {
 		{"image.prune", `{}`, "POST /images/prune"},
 		{"network.create", `{"name":"proxy"}`, "POST /networks/create"},
 		{"network.remove", `{"network_id":"proxy"}`, "DELETE /networks/proxy"},
+		{"network.connect", `{"network":"wscp-env-abc","container":"host-traefik-1"}`, "POST /networks/wscp-env-abc/connect"},
+		{"network.disconnect", `{"network":"wscp-env-abc","container":"app-foo"}`, "POST /networks/wscp-env-abc/disconnect"},
 		{"volume.create", `{"name":"data"}`, "POST /volumes/create"},
 		{"volume.remove", `{"name":"data"}`, "DELETE /volumes/data"},
 	}
@@ -358,5 +367,32 @@ func TestCreatePullAlwaysFailsWithoutLocalImage(t *testing.T) {
 	}
 	if fd.has("POST /containers/create") {
 		t.Fatal("must not create without an image", fd.calls)
+	}
+}
+
+func TestCronExecRunsBesideTheQueueAndReportsWhenDone(t *testing.T) {
+	e, _, fp, _ := setup(t)
+	release := make(chan struct{})
+	e.Run = func(ctx context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
+		<-release
+		return []byte("ok"), nil
+	}
+	r, err := e.Handle(context.Background(), cmd("cr-1", "cron.exec", `{"container":"app-shop","command":"sleep 60","user":"1000"}`, now.Add(-time.Minute)))
+	if err != nil || r.Status != "running" {
+		t.Fatalf("a scheduled job must not block the queue: %+v %v", r, err)
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		fp.mu.Lock()
+		got := fp.results["cr-1"]
+		fp.mu.Unlock()
+		if len(got) == 2 && got[1].Status == "succeeded" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no final result: %+v", got)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

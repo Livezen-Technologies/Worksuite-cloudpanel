@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: ryot
+name: Ryot
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Roll your own tracker! Ryot is a self-hosted platform for tracking various aspects of life such as media consumption, fitness activities, and more.
+port: 8000
+source: coolify
+documentation: https://github.com/ignisda/ryot
+compose: "services:\n  ryot:\n    image: ignisda/ryot:v10.3.0\n    environment:\n      DATABASE_URL: postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgresql:5432/ryot-db\n      SERVER_ADMIN_ACCESS_TOKEN: ${SERVICE_PASSWORD_RYOT}\n      TZ: ${TZ:-Europe/Amsterdam}\n    depends_on:\n      postgresql:\n        condition: service_healthy\n    healthcheck:\n      test:\n      - CMD\n      - curl\n      - -f\n      - http://127.0.0.1:8000/health\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '8000'\n  postgresql:\n    image: postgres:16-alpine\n    volumes:\n    - ryot_postgresql_data:/var/lib/postgresql/data\n    environment:\n      POSTGRES_USER: ${SERVICE_USER_POSTGRES}\n      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}\n      POSTGRES_DB: ${POSTGRES_DB:-ryot-db}\n      TZ: ${TZ:-Europe/Amsterdam}\n\
+  \    healthcheck:\n      test:\n      - CMD-SHELL\n      - pg_isready -U $${POSTGRES_USER} -d $ryot-db\n      interval: 5s\n      timeout: 20s\n      retries: 10\nvolumes:\n  ryot_postgresql_data: {}\n"

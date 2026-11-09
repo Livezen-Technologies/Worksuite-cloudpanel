@@ -1,0 +1,13 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: mosquitto
+name: Mosquitto
+category: Messaging
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Mosquitto is lightweight and suitable for use on all devices, from low-power single-board computers to full servers.
+port: 1883
+source: coolify
+documentation: https://mosquitto.org/documentation/
+compose: "services:\n  mosquitto:\n    image: eclipse-mosquitto\n    environment:\n      MQTT_USERNAME: ${SERVICE_USER_MOSQUITTO}\n      MQTT_PASSWORD: ${SERVICE_PASSWORD_MOSQUITTO}\n      REQUIRE_CERTIFICATE: ${REQUIRE_CERTIFICATE:-false}\n      ALLOW_ANONYMOUS: ${ALLOW_ANONYMOUS:-true}\n    volumes:\n    - mosquitto-mosquitto-config:/mosquitto/config\n    - mosquitto-certs:/certs\n    healthcheck:\n      test:\n      - CMD-SHELL\n      - exit 0\n      interval: 30s\n      timeout: 10s\n      retries: 3\n    entrypoint: sh -c \" if [ '$REQUIRE_CERTIFICATE' = 'true' ]; then echo 'listener 8883' > /mosquitto/config/mosquitto.conf && echo 'cafile /certs/ca.crt' >> /mosquitto/config/mosquitto.conf && echo 'certfile /certs/server.crt' >> /mosquitto/config/mosquitto.conf && echo 'keyfile  /certs/server.key' >> /mosquitto/config/mosquitto.conf; else echo 'listener 1883' > /mosquitto/config/mosquitto.conf; fi && echo 'require_certificate '$REQUIRE_CERTIFICATE >> /mosquitto/config/mosquitto.conf\
+  \ && echo 'allow_anonymous '$ALLOW_ANONYMOUS >> /mosquitto/config/mosquitto.conf; if [ -n '${SERVICE_USER_MOSQUITTO}' ] && [ -n '${SERVICE_PASSWORD_MOSQUITTO}' ]; then echo 'password_file /mosquitto/config/passwords' >> /mosquitto/config/mosquitto.conf && rm -f /mosquitto/config/passwords && mosquitto_passwd -b -c /mosquitto/config/passwords ${SERVICE_USER_MOSQUITTO} ${SERVICE_PASSWORD_MOSQUITTO} && chown mosquitto:mosquitto /mosquitto/config/passwords; fi && exec mosquitto -c /mosquitto/config/mosquitto.conf\n      \"\n    labels:\n      traefik.tcp.routers.mqtt.entrypoints: mqtt\n      traefik.tcp.routers.mqtts.entrypoints: mqtts\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '1883'\nvolumes:\n  mosquitto-mosquitto-config: {}\n  mosquitto-certs: {}\n"

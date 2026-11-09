@@ -15,7 +15,7 @@ class User extends Authenticatable
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['password', 'remember_token', 'mfa_secret'];
+    protected $hidden = ['password', 'remember_token', 'mfa_secret', 'mfa_recovery_codes'];
 
     protected function casts(): array
     {
@@ -24,8 +24,10 @@ class User extends Authenticatable
             'last_login_at' => 'datetime',
             'last_activity_at' => 'datetime',
             'password' => 'hashed',
+            'email_preferences' => 'array',
             'mfa_secret' => 'encrypted',
             'mfa_enabled' => 'boolean',
+            'mfa_recovery_codes' => 'array',
         ];
     }
 
@@ -64,5 +66,11 @@ class User extends Authenticatable
     public function hasPermission(string $permission): bool
     {
         return $this->grant($permission) !== null;
+    }
+
+    /** MFA-POL: a second factor is set up when the person has an authenticator app or at least one passkey. */
+    public function hasSecondFactor(): bool
+    {
+        return (bool) $this->mfa_enabled || \App\Models\Passkey::where('user_id', $this->id)->exists();
     }
 }

@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: overseerr
+name: Overseerr
+category: Media
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Overseerr is a request management and media discovery tool built to work with your existing Plex ecosystem.
+port: 5055
+source: coolify
+documentation: https://docs.overseerr.dev/getting-started/installation#docker
+compose: "services:\n  overseerr:\n    image: sctx/overseerr:latest\n    environment:\n      PUID: '1000'\n      PGID: '1000'\n      TZ: ${TZ:-America/Toronto}\n    volumes:\n    - overseerr-config:/app/config\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - --tries\n      - '1'\n      - --no-verbose\n      - --spider\n      - http://localhost:5055/api/v1/status\n      interval: 2s\n      timeout: 10s\n      retries: 15\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5055'\nvolumes:\n  overseerr-config: {}\n"

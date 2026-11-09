@@ -1,0 +1,12 @@
+# Imported from Coolify (Apache-2.0): https://github.com/coollabsio/coolify/tree/main/templates/compose
+id: firefox
+name: Firefox
+category: Productivity
+version: 1
+type: compose
+accent: '#6B16ED'
+description: Fast, private, and self-hosted secure browser for browsing without limits.
+port: 5800
+source: coolify
+documentation: https://github.com/jlesage/docker-firefox
+compose: "services:\n  firefox:\n    image: jlesage/firefox\n    environment: {}\n    volumes:\n    - firefox_config:/config\n    healthcheck:\n      test:\n      - CMD\n      - wget\n      - -q\n      - --spider\n      - http://127.0.0.1:5800/\n      interval: 5s\n      timeout: 20s\n      retries: 10\n    labels:\n      traefik.enable: 'true'\n      traefik.http.routers.${STACK}.rule: Host(`${SERVICE_FQDN}`)\n      traefik.http.services.${STACK}.loadbalancer.server.port: '5800'\nvolumes:\n  firefox_config: {}\n"
