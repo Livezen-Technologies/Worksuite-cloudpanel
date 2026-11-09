@@ -8,7 +8,6 @@ use App\Support\Tenant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -103,7 +102,7 @@ class StoreProductController extends CrudController
     {
         $delta = (int) $request->validate(['delta' => 'required|integer|not_in:0|min:-1000000|max:1000000', 'reason' => 'nullable|string|max:190'])['delta'];
         $product = $this->find($id);
-        StoreProduct::query()->whereKey($product->getKey())->update(['stock' => DB::raw('stock + '.$delta)]);
+        StoreProduct::query()->whereKey($product->getKey())->increment('stock', $delta);
 
         return $this->data($this->present($product->fresh()));
     }
