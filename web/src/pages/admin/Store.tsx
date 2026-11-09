@@ -92,7 +92,6 @@ function Products() {
         searchKeys={(r) => `${r.name} ${r.sku} ${r.barcode ?? ''} ${r.category_name ?? ''} ${r.brand_name ?? ''}`}
         searchPlaceholder="Search name, SKU, barcode…"
         filters={[
-          { id: 'all', label: 'All', test: () => true },
           { id: 'pos', label: 'POS', test: (r) => r.sell_pos },
           { id: 'online', label: 'Online', test: (r) => r.sell_online },
           { id: 'low', label: 'Low stock', test: (r) => r.stock_status === 'low' },
