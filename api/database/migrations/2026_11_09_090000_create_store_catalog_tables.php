@@ -21,7 +21,7 @@ return new class extends Migration
     {
         Schema::create('store_categories', function (Blueprint $t) {
             $this->tenant($t);
-            $t->foreignUuid('parent_id')->nullable()->constrained('store_categories')->nullOnDelete();
+            $t->uuid('parent_id')->nullable();
             $t->string('name');
             $t->string('slug');
             $t->text('description')->nullable();
@@ -30,6 +30,10 @@ return new class extends Migration
             $t->boolean('active')->default(true);
             $t->timestamps();
             $t->unique(['organization_id', 'slug']);
+        });
+        // A self-reference must be added once the primary key exists (PostgreSQL).
+        Schema::table('store_categories', function (Blueprint $t) {
+            $t->foreign('parent_id')->references('id')->on('store_categories')->nullOnDelete();
         });
 
         Schema::create('store_brands', function (Blueprint $t) {
