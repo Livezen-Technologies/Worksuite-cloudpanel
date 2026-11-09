@@ -11,6 +11,17 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
+- **Store catalogue** (STORE-001) — a new Store section at `/admin/store` with
+  Products, Categories, Brands and POS tabs.
+  - `store_categories` (one level of nesting), `store_brands` and
+    `store_products`, all scoped by organisation. Products carry SKU, barcode,
+    price/cost in minor units, tax rate, stock tracking with a low-stock
+    threshold, and `sell_online` / `sell_pos` channel flags.
+  - `GET store/pos/lookup?code=` finds an active POS product by barcode or SKU;
+    `POST store/products/{id}/stock` applies a signed stock delta atomically;
+    `GET store/summary` feeds the overview tiles.
+  - The POS tab has barcode scanning, a cart with tax, and "Complete sale"
+    decrements stock.
 - **Firewall** (FW-001, FW-002) — a new section at `/admin/firewall` with five
   tabs: rate limits, challenges, country block, reCAPTCHA and events.
   - `firewall_rules`, `firewall_countries`, `firewall_protected_paths` and
