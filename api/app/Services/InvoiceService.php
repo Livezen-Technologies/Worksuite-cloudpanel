@@ -56,10 +56,16 @@ class InvoiceService
         }
         $currency = config('billing.currency');
         $lines = [];
+        // CUST-5: the customer's groups may re-price a plan or discount the
+        // whole invoice. Asked once, here, so every line below sees the same
+        // answer even if membership changes mid-run.
+        $pricing = app(CustomerService::class)->pricingFor($org);
         $sub = Subscription::with('plan')->latest()->first();
         if ($sub?->plan) {
-            $lines[] = ['description' => "{$sub->plan->name} plan, ".$start->format('M Y'), 'quantity' => 1, 'unit' => 'month',
-                'unit_cents' => $sub->plan->price_cents, 'amount_cents' => $sub->plan->price_cents, 'kind' => 'plan'];
+            $planCents = $pricing['plan_overrides'][$sub->plan->id] ?? $sub->plan->price_cents;
+            $note = $planCents === $sub->plan->price_cents ? '' : ' (group price)';
+            $lines[] = ['description' => "{$sub->plan->name} plan, ".$start->format('M Y').$note, 'quantity' => 1, 'unit' => 'month',
+                'unit_cents' => $planCents, 'amount_cents' => $planCents, 'kind' => 'plan'];
             $currency = $sub->plan->currency ?: $currency;
         }
         $hoursPerMonth = (int) config('billing.hours_per_month');
@@ -95,12 +101,22 @@ class InvoiceService
         if (! $lines) {
             return null;
         }
-        $subtotal = (int) array_sum(array_column($lines, 'amount_cents'));
+        $gross = (int) array_sum(array_column($lines, 'amount_cents'));
+        // The discount is a line of its own so the invoice shows what it gave,
+        // and tax is charged on what the customer actually owes.
+        $discount = (int) round($gross * $pricing['discount_percent'] / 100);
+        if ($discount > 0) {
+            $lines[] = ['description' => "{$pricing['group_name']} discount ({$pricing['discount_percent']}%)",
+                'quantity' => 1, 'unit' => 'discount', 'unit_cents' => -$discount,
+                'amount_cents' => -$discount, 'kind' => 'discount'];
+        }
+        $subtotal = $gross - $discount;
         $rate = (float) config('billing.tax_rate');
         $tax = (int) round($subtotal * $rate);
         $invoice = Invoice::create([
             'number' => $number, 'period_start' => $start->toDateString(), 'period_end' => $end->toDateString(),
             'line_items' => $lines, 'subtotal_cents' => $subtotal, 'tax_rate' => $rate, 'tax_cents' => $tax,
+            'discount_cents' => $discount, 'customer_group_id' => $discount > 0 ? $pricing['group_id'] : null,
             'amount_cents' => $subtotal + $tax, 'currency' => $currency, 'status' => 'open', 'due_at' => now()->addDays(14),
         ]);
         // The payment provider collects it (fake: paid at once; Stripe: invoice items, paid via webhook).

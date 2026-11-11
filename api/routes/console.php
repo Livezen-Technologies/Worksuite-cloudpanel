@@ -349,6 +349,12 @@ Artisan::command('monitoring:prune', function () {
     $this->info("uptime_checks rows pruned: {$n}");
 })->purpose('Drop uptime checks past the retention window');
 
+Artisan::command('customers:recompute-groups', function (\App\Services\CustomerGroupService $groups) {
+    foreach ($groups->recomputeAll() as $slug => $result) {
+        $this->line("{$slug}: {$result['matched']} matched (+{$result['added']} / -{$result['removed']})");
+    }
+})->purpose('CUST-5: refill every dynamic customer group from its rules');
+
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
@@ -358,6 +364,8 @@ Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('templates:sync')->daily();
+// Membership drives pricing, so it is refreshed before the nightly billing run.
+Schedule::command('customers:recompute-groups')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('registry:gc')->dailyAt('03:30');
 Schedule::command('cron:sync-runners')->hourly()->withoutOverlapping();
 Schedule::command('tunnels:sync')->everyFiveMinutes()->withoutOverlapping();
