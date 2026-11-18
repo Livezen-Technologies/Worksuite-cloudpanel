@@ -163,6 +163,20 @@ Artisan::command('backups:run-due', function (BackupService $backups) {
     $this->info("Backups started: {$count}");
 })->purpose('Start backups whose policy schedule is due (BAK-001)');
 
+Artisan::command('backups:record-external {policy : Policy id (method "external")} {--status=succeeded} {--error=} {--started=} {--manifest= : TSV of name, bytes, sha256, location}', function (BackupService $backups) {
+    $policy = \App\Models\BackupPolicy::allTenants()->findOrFail($this->argument('policy'));
+    $items = [];
+    if ($path = $this->option('manifest')) {
+        foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            [$name, $bytes, $sha, $location] = array_pad(explode("\t", $line), 4, '');
+            $items[] = ['name' => $name, 'bytes' => (int) $bytes, 'sha256' => $sha, 'location' => $location];
+        }
+    }
+    $started = $this->option('started') ? \Illuminate\Support\Carbon::parse($this->option('started')) : now();
+    $job = app(Tenant::class)->as($policy->organization_id, fn () => $backups->recordExternal($policy, (string) $this->option('status'), $this->option('error') ?: null, $started, $items));
+    $this->info("Recorded {$job->status} run {$job->id} with ".count($items).' artifact(s)');
+})->purpose('Record a run of an external backup policy (a job outside the panel that reports here)');
+
 Artisan::command('backups:prune', function (BackupService $backups) {
     $this->info('Expired artifacts removed: '.$backups->pruneExpired());
 })->purpose('Apply backup retention');
