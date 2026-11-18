@@ -32,8 +32,8 @@ class BackupStoragePoolTest extends TestCase
     {
         [, $org, $token] = $this->org();
         Process::fake([
-            'ssh-keyscan*' => Process::result("40.160.59.90 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample\n"),
-            'rclone about*' => Process::result('{"total":4000000000000,"used":1000000000000,"free":3000000000000}'),
+            '*ssh-keyscan*' => Process::result("40.160.59.90 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample\n"),
+            '*rclone*about*' => Process::result('{"total":4000000000000,"used":1000000000000,"free":3000000000000}'),
             '*' => Process::result(''),
         ]);
         $a = $this->api($token)->postJson('/api/v1/backup-storage-servers', ['name' => 'A', 'host' => '40.160.59.90', 'username' => 'pb'])->json('data');
@@ -52,8 +52,8 @@ class BackupStoragePoolTest extends TestCase
     {
         [, , $token] = $this->org();
         Process::fake([
-            'ssh-keyscan*' => Process::result("h ssh-ed25519 AAAA\n"),
-            'rclone about*' => Process::result('', 'Failed to create file system: ssh: handshake failed: unable to authenticate', 1),
+            '*ssh-keyscan*' => Process::result("h ssh-ed25519 AAAA\n"),
+            '*rclone*about*' => Process::result('', 'Failed to create file system: ssh: handshake failed: unable to authenticate', 1),
             '*' => Process::result(''),
         ]);
         $a = $this->api($token)->postJson('/api/v1/backup-storage-servers', ['name' => 'A', 'host' => 'h.example', 'username' => 'pb'])->json('data');
