@@ -163,8 +163,17 @@ Artisan::command('backups:run-due', function (BackupService $backups) {
     $this->info("Backups started: {$count}");
 })->purpose('Start backups whose policy schedule is due (BAK-001)');
 
-Artisan::command('backups:record-external {policy : Policy id (method "external")} {--status=succeeded} {--error=} {--started=} {--manifest= : TSV of name, bytes, sha256, location}', function (BackupService $backups) {
-    $policy = \App\Models\BackupPolicy::allTenants()->findOrFail($this->argument('policy'));
+Artisan::command('backups:record-external {policy : Policy id (method "external"), or "-" with --name} {--name= : Find or create the external policy by name} {--org= : Organisation for --name} {--server= : Server the backed-up site lives on, for --name} {--schedule=15 2 * * *} {--retention=30} {--status=succeeded} {--error=} {--started=} {--manifest= : TSV of name, bytes, sha256, location}', function (BackupService $backups) {
+    if ($this->argument('policy') === '-') {
+        $org = (string) $this->option('org');
+        $policy = app(Tenant::class)->as($org, fn () => \App\Models\BackupPolicy::firstOrCreate(
+            ['name' => (string) $this->option('name')],
+            ['organization_id' => $org, 'target_type' => 'server', 'target_id' => $this->option('server'), 'method' => 'external', 'destination' => 'sftp',
+                'schedule' => (string) $this->option('schedule'), 'retention_days' => (int) $this->option('retention'), 'encrypted' => false, 'enabled' => true],
+        ));
+    } else {
+        $policy = \App\Models\BackupPolicy::allTenants()->findOrFail($this->argument('policy'));
+    }
     $items = [];
     if ($path = $this->option('manifest')) {
         foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
@@ -176,6 +185,20 @@ Artisan::command('backups:record-external {policy : Policy id (method "external"
     $job = app(Tenant::class)->as($policy->organization_id, fn () => $backups->recordExternal($policy, (string) $this->option('status'), $this->option('error') ?: null, $started, $items));
     $this->info("Recorded {$job->status} run {$job->id} with ".count($items).' artifact(s)');
 })->purpose('Record a run of an external backup policy (a job outside the panel that reports here)');
+
+Artisan::command('backups:pool-check', function (\App\Services\BackupPoolService $pool) {
+    foreach (\App\Models\BackupStorageServer::allTenants()->where('enabled', true)->get() as $s) {
+        $s = app(Tenant::class)->as($s->organization_id, fn () => $pool->check($s));
+        $this->line("{$s->name} ({$s->host}): {$s->status}".($s->free_bytes !== null ? ', '.round($s->free_bytes / 1073741824).' GB free' : '').($s->message ? " - {$s->message}" : ''));
+    }
+})->purpose('Check every backup storage server: reachability and free space');
+
+Artisan::command('backups:pool-target {dir : Private directory to write the key and known_hosts into} {--org=}', function (\App\Services\BackupPoolService $pool) {
+    $s = $pool->pick($this->option('org') ?: null);
+    foreach ($pool->rcloneEnv($s, $this->argument('dir')) + ['POOL_SERVER_ID' => $s->id, 'POOL_SERVER_NAME' => $s->name, 'POOL_PATH' => trim($s->path, '/')] as $k => $v) {
+        $this->line('export '.$k.'='.escapeshellarg($v));
+    }
+})->purpose('Print the rclone environment for the pool server with the most free space (used by host backup jobs)');
 
 Artisan::command('backups:prune', function (BackupService $backups) {
     $this->info('Expired artifacts removed: '.$backups->pruneExpired());
@@ -411,6 +434,7 @@ Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
 Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('backups:pool-check')->hourly()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();
 Schedule::command('metrics:prune')->daily();

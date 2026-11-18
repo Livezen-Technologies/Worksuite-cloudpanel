@@ -18,6 +18,7 @@ import { useToast } from '../../components/Toasts'
 import { backupDownloadUrl } from '../../lib/download'
 import Select from '../../components/Select'
 import { Icon } from '../../components/Icon'
+import { BackupStoragePool } from './BackupStoragePool'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive', 'sftp']
 const S3_LIKE = ['s3', 'b2', 'r2']
@@ -103,7 +104,7 @@ const RESTORE_BLANK: R = { scope: 'everything', mode: 'replace', fresh_backup: t
 
 /** BKM-001..009: the Backup manager — Policies, Snapshots, Restore, Destinations, Restore tests. */
 export function Backups() {
-  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'tests'>('policies')
+  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'pool' | 'tests'>('policies')
   const [target, setTarget] = useState('')
   const policies = useList<R>('/backup-policies')
   const summary = useOne<R>('/backups/summary', undefined, { refetchInterval: 30000 })
@@ -125,7 +126,7 @@ export function Backups() {
   const [del, setDel] = useState<R | null>(null)
   const days = useMemo(() => last14(jobs.rows), [jobs.rows])
   const s = summary.item ?? {}
-  const restorable = artifacts.rows.filter((a) => a.snapshot_id)
+  const restorable = artifacts.rows.filter((a) => a.snapshot_id && policies.rows.find((p) => p.id === a.backup_policy_id)?.method !== 'external')
   const targets = useMemo(() => {
     const seen = new Map<string, string>()
     for (const p of policies.rows) seen.set(String(p.target_id), `${p.name} (${p.target_type})`)
@@ -135,6 +136,7 @@ export function Backups() {
   const isDump = !!artifact?.dump_engine
   const wizardOk = !(opts.mode === 'side_by_side' && isDump)
   const newPolicy = () => setEdit({ schedule: '0 3 * * *', destination: 'local', retention_days: 14, target_type: 'volume', check_subset: '5%', restore_test_schedule: '0 4 * * 0' })
+  const isExternal = (a: R) => policies.rows.find((p) => p.id === a.backup_policy_id)?.method === 'external'
   const destOf = (a: R) => String(policies.rows.find((p) => p.id === a.backup_policy_id)?.destination ?? 'local')
   const snapFilter = (
     <Select className="input !w-auto" aria-label="Filter snapshots by target" value={target} onChange={(e) => setTarget(e.target.value)}>
@@ -152,8 +154,9 @@ export function Backups() {
       <span className="min-w-[70px] tabular-nums">{fmtMb(num(r.size_mb))}</span>
       <span title={r.verify_message ?? undefined}><Badge tone={r.verified ? 'g' : 'y'}>{r.verified ? 'verified' : 'unverified'}</Badge></span>
       <span className="flex gap-2 ml-auto">
+        {isExternal(r) ? <span className="text-xs text-muted font-mono truncate max-w-[260px]" title={r.repository}>{r.repository}</span> : <>
         <button type="button" className="btn btn-sm" disabled={preparing === r.id} onClick={() => download(r)}>{preparing === r.id ? 'Preparing…' : 'Download'}</button>
-        {r.snapshot_id ? <button type="button" className="btn btn-sm btn-primary" onClick={() => openRestore(r)}>Restore</button> : null}
+        {r.snapshot_id ? <button type="button" className="btn btn-sm btn-primary" onClick={() => openRestore(r)}>Restore</button> : null}</>}
       </span>
     </li>
   )
@@ -176,7 +179,7 @@ export function Backups() {
       </div>
       <Tabs value={tab} onChange={setTab} label="Backup manager sections" tabs={[
         { id: 'policies', label: 'Policies' }, { id: 'snapshots', label: 'Snapshots' }, { id: 'restore', label: 'Restore' },
-        { id: 'destinations', label: 'Destinations' }, { id: 'tests', label: 'Restore tests' },
+        { id: 'destinations', label: 'Destinations' }, { id: 'pool', label: 'Storage pool' }, { id: 'tests', label: 'Restore tests' },
       ]} />
 
       {tab === 'policies' && <div className="flex flex-col gap-4">
@@ -253,6 +256,8 @@ export function Backups() {
               </section>)
           })}
         </div>)}
+
+      {tab === 'pool' && <BackupStoragePool />}
 
       {tab === 'tests' && <Card pad={false}>
         {artifacts.isLoading ? <p className="px-5 py-4 m-0 text-sm text-muted">Loading…</p>
