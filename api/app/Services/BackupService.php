@@ -89,6 +89,9 @@ class BackupService implements HandlesCommandResults
 
     public function run(?BackupPolicy $policy, string $targetType, ?string $targetId, string $trigger = 'manual', array $jobPayload = []): BackupJob
     {
+        if ($policy?->method === 'external') {
+            throw ApiException::conflict('This policy is run by a job outside the panel, which reports each run here. It cannot be started from the panel.');
+        }
         $targetType = $policy?->target_type ?? $targetType;
         $targetId = $policy?->target_id ?? $targetId;
         [$server, $paths, $applicationId, $dump] = $this->target($targetType, $targetId);
@@ -139,6 +142,9 @@ class BackupService implements HandlesCommandResults
      */
     public function restore(BackupArtifact $artifact, ?string $userId, bool $freshBackupFirst, array $options = []): RestoreJob
     {
+        if (BackupPolicy::allTenants()->whereKey($artifact->backup_policy_id)->value('method') === 'external') {
+            throw ApiException::conflict('This backup was made by a job outside the panel. Restore it from its destination ('.$artifact->repository.').');
+        }
         $source = $artifact->backupJob;
         $hasDump = $source->target_type === 'database';
         $scope = $options['scope'] ?? 'everything';
@@ -202,6 +208,9 @@ class BackupService implements HandlesCommandResults
     /** BAK-005: restore the latest (or given) snapshot into a scratch dir on the agent and validate it. */
     public function restoreTest(BackupArtifact $artifact, ?string $userId = null): Job
     {
+        if (BackupPolicy::allTenants()->whereKey($artifact->backup_policy_id)->value('method') === 'external') {
+            throw ApiException::conflict('This backup was made by a job outside the panel. Restore it from its destination ('.$artifact->repository.').');
+        }
         $source = $artifact->backupJob;
         $server = Server::findOrFail($source->server_id);
         $dest = $this->destination($source->policy, $artifact->organization_id);
@@ -269,6 +278,9 @@ class BackupService implements HandlesCommandResults
 
     public function export(BackupArtifact $artifact, ?string $userId = null): Job
     {
+        if (BackupPolicy::allTenants()->whereKey($artifact->backup_policy_id)->value('method') === 'external') {
+            throw ApiException::conflict('This backup was made by a job outside the panel. Restore it from its destination ('.$artifact->repository.').');
+        }
         $source = $artifact->backupJob;
         $server = Server::findOrFail($source->server_id);
         $dest = $this->destination($source->policy, $artifact->organization_id);
@@ -629,11 +641,46 @@ class BackupService implements HandlesCommandResults
         ];
     }
 
+    /**
+     * Records one run of a policy whose backups are made outside the panel (method "external"),
+     * e.g. a host cron job that dumps database containers to an SFTP server. Each item becomes an
+     * artifact so the run shows in the Backup manager with its size and checksum.
+     *
+     * @param  array<int, array{name: string, bytes: int, sha256: string, location: string}>  $items
+     */
+    public function recordExternal(BackupPolicy $policy, string $status, ?string $error, \DateTimeInterface $startedAt, array $items, ?string $serverId = null): BackupJob
+    {
+        if ($policy->method !== 'external') {
+            throw ApiException::conflict('Only an external policy can record runs made outside the panel.');
+        }
+        $status = $status === 'succeeded' ? 'succeeded' : 'failed';
+        $serverId ??= $policy->target_type === 'server' ? $policy->target_id : null;
+        $backup = BackupJob::create([
+            'backup_policy_id' => $policy->id, 'server_id' => $serverId, 'target_type' => $policy->target_type, 'target_id' => $policy->target_id,
+            'trigger' => 'schedule', 'kind' => 'backup', 'status' => $status, 'error' => $status === 'failed' ? ($error ?: 'The external job reported a failure.') : null,
+            'started_at' => $startedAt, 'finished_at' => now(),
+        ]);
+        if ($status === 'succeeded') {
+            foreach ($items as $item) {
+                BackupArtifact::create([
+                    'backup_job_id' => $backup->id, 'backup_policy_id' => $policy->id,
+                    'snapshot_id' => $item['name'], 'repository' => $item['location'],
+                    'size_mb' => round($item['bytes'] / 1048576, 2), 'checksum' => $item['sha256'],
+                    'verified' => true, 'verified_at' => now(), 'verify_message' => 'Uploaded by the external job; size matched at the destination',
+                    'encrypted' => false, 'dump_engine' => 'sql', 'expires_at' => now()->addDays($policy->retention_days ?: 30),
+                ]);
+            }
+        }
+        $policy->forceFill(['last_run_at' => now(), 'last_status' => $status])->saveQuietly();
+
+        return $backup;
+    }
+
     /** BKM-004: run every policy that missed its last scheduled time, or whose last run failed. */
     public function runAll(string $which): array
     {
         $started = [];
-        foreach (BackupPolicy::where('enabled', true)->get() as $policy) {
+        foreach (BackupPolicy::where('enabled', true)->where('method', '!=', 'external')->get() as $policy) {
             $due = $which === 'due' && \Cron\CronExpression::isValidExpression($policy->schedule)
                 && (! $policy->last_run_at || $policy->last_run_at->lt((new \Cron\CronExpression($policy->schedule))->getPreviousRunDate(now(), 0, true)));
             $failed = $which === 'failed' && $policy->last_status === 'failed';
@@ -674,14 +721,14 @@ class BackupService implements HandlesCommandResults
 
     public function dueSchedules(): \Illuminate\Support\Collection
     {
-        return BackupPolicy::allTenants()->where('enabled', true)->get()
+        return BackupPolicy::allTenants()->where('enabled', true)->where('method', '!=', 'external')->get()
             ->filter(fn (BackupPolicy $p) => (new \Cron\CronExpression($p->schedule))->isDue(now()));
     }
 
     /** BAK-005: latest verified artifact of each policy whose restore-test schedule is due. */
     public function dueRestoreTests(): \Illuminate\Support\Collection
     {
-        return BackupPolicy::allTenants()->where('enabled', true)->whereNotNull('restore_test_schedule')->get()
+        return BackupPolicy::allTenants()->where('enabled', true)->where('method', '!=', 'external')->whereNotNull('restore_test_schedule')->get()
             ->filter(fn (BackupPolicy $p) => \Cron\CronExpression::isValidExpression($p->restore_test_schedule) && (new \Cron\CronExpression($p->restore_test_schedule))->isDue(now()))
             ->map(fn (BackupPolicy $p) => BackupArtifact::allTenants()->where('backup_policy_id', $p->id)->whereNotNull('snapshot_id')->latest()->first())
             ->filter()

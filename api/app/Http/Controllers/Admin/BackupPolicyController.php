@@ -25,7 +25,7 @@ class BackupPolicyController extends CrudController
             'name' => "{$req}|string|max:120",
             'target_type' => "{$req}|in:application,volume,database,server",
             'target_id' => "{$req}|uuid",
-            'method' => 'sometimes|in:restic,dump',
+            'method' => 'sometimes|in:restic,dump,external',
             'schedule' => ['sometimes', 'string', function ($attr, $value, $fail) {
                 CronExpression::isValidExpression($value) || $fail('Use a valid cron expression, e.g. "0 3 * * *".');
             }],

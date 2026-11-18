@@ -193,7 +193,7 @@ export function Backups() {
               ]}
             columns={[
               { key: 'name', header: 'Target', render: (r) => <span><span className="block font-semibold">{r.name}</span><span className="block text-xs text-muted">{TARGET_KIND[String(r.target_type)] ?? r.target_type}<span className="font-mono"> · {String(r.target_id ?? '').slice(0, 12)}</span></span></span> },
-              { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{METHOD[String(r.target_type)] ?? 'Restic snapshot'}</span> },
+              { key: 'target_type', header: 'Method', render: (r) => <span className="text-muted">{r.method === 'external' ? 'External job' : (METHOD[String(r.target_type)] ?? 'Restic snapshot')}</span> },
               { key: 'schedule', header: 'Schedule', render: (r) => <span><span className="block font-mono text-xs">{r.schedule}</span>{r.next_run_at && r.enabled !== false && <span className="block text-xs text-muted mt-1">next {new Date(String(r.next_run_at)).toLocaleString()}</span>}</span> },
               { key: 'destination', header: 'Destination', render: (r) => <span className="text-muted">{DEST_LABEL[String(r.destination)] ?? r.destination}{r.object_lock_days ? <> <Badge tone="b">locked {r.object_lock_days} d</Badge></> : null}</span> },
               { key: 'retention', header: 'Retention', value: (r) => (r.keep_daily || r.keep_weekly || r.keep_monthly) ? [r.keep_daily && `${r.keep_daily}d`, r.keep_weekly && `${r.keep_weekly}w`, r.keep_monthly && `${r.keep_monthly}m`].filter(Boolean).join(' · ') : `${r.retention_days} days` },
