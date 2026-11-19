@@ -32,6 +32,15 @@ class ServerController extends Controller
             'scheduling_weight' => 'sometimes|integer|min:0|max:1000',
             'max_containers' => 'nullable|integer|min:1|max:10000',
             'shared_pool' => 'sometimes|boolean',
+            'auto_deploy' => 'sometimes|boolean',
+            'deploy_lock' => 'sometimes|boolean',
+            'reserved_cpu' => 'sometimes|numeric|min:0|max:512',
+            'reserved_ram_mb' => 'sometimes|integer|min:0|max:4194304',
+            'reserved_disk_gb' => 'sometimes|integer|min:0|max:1000000',
+            'cpu_overcommit' => 'sometimes|numeric|min:0.1|max:10',
+            'max_cpu_pct' => 'nullable|integer|min:10|max:100',
+            'max_ram_pct' => 'nullable|integer|min:10|max:100',
+            'max_disk_pct' => 'nullable|integer|min:10|max:100',
         ];
     }
 
@@ -85,7 +94,9 @@ class ServerController extends Controller
 
     public function show(string $id)
     {
-        return $this->data(Server::withCount('containers')->with('agent:id,server_id,version,enrolled_at,last_seen_at')->findOrFail($id));
+        $server = Server::withCount('containers')->with('agent:id,server_id,version,enrolled_at,last_seen_at')->findOrFail($id);
+
+        return $this->data($server->toArray() + ['capacity' => app(\App\Services\Scheduler::class)->capacity($server)]);
     }
 
     public function update(Request $request, string $id)

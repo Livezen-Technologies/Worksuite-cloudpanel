@@ -319,6 +319,12 @@ class DeploymentService implements HandlesCommandResults
             if ($server->maintenance) {
                 throw ApiException::conflict("Server {$server->name} is in maintenance mode; deployments are blocked.");
             }
+            if ($server->deploy_lock) {
+                throw ApiException::conflict("Deployments to server {$server->name} are locked.");
+            }
+            if ($server->status === 'offline') {
+                throw ApiException::conflict("Server {$server->name} is offline, so the app cannot be deployed to it. Bring it back or move the app.");
+            }
 
             return $server;
         }

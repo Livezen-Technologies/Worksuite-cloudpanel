@@ -13,6 +13,7 @@ import { num, type R } from '../../lib/util'
 import { CleanupPanel } from '../../components/CleanupPanel'
 import { TunnelPanel } from '../../components/TunnelPanel'
 import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
+import { ServerCapacityCard } from '../../components/ServerCapacityCard'
 
 const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
@@ -167,6 +168,7 @@ export default function ServerDetail() {
               <div className="flex items-end"><button className="btn btn-primary" disabled={busy}>Save changes</button></div>
             </form>
           </Card>
+          <ServerCapacityCard server={s as unknown as R} />
           <Card title="Roles">
             <div className="flex items-center gap-3">
               <Toggle checked={(s.roles ?? ['app']).includes('builder')} label="Builder"
