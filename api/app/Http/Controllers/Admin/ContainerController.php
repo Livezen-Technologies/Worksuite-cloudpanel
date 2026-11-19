@@ -80,8 +80,14 @@ class ContainerController extends Controller
             'cap_add' => 'nullable|array',
             'cmd' => 'nullable|array',
             'labels' => 'nullable|array',
+            'project_id' => 'nullable|uuid|exists:projects,id',
         ]);
         $server = Server::findOrFail($data['server_id']);
+        if (! empty($data['project_id'])) {
+            // A service container added to a project (worker, queue, cron…): the label keeps it grouped there.
+            $data['labels'] = ((array) ($data['labels'] ?? [])) + ['io.dockermgr.project' => $data['project_id']];
+        }
+        unset($data['project_id']);
 
         return $this->accepted($this->containers->create($server, $data));
     }
