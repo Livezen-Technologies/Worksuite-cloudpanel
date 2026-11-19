@@ -508,6 +508,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:firewall.view')->name('firewall.show');
     Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:firewall.view')->name('firewall.events');
     Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:firewall.manage')->name('firewall.countries');
+    Route::match(['put', 'patch'], 'firewall/isps', [Admin\FirewallController::class, 'isps'])->middleware('perm:firewall.manage')->name('firewall.isps');
     Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:firewall.manage')->name('firewall.paths.store');
     Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:firewall.manage')->name('firewall.paths.update');
     Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:firewall.manage')->name('firewall.paths.destroy');

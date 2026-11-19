@@ -132,6 +132,12 @@ class CrowdSecConfigService
                     continue;
                 }
                 $list = $this->list($codes->pluck('code')->map(fn ($c) => strtoupper($c))->unique()->values()->all());
+                if ($state === 'allow') {
+                    // Always allowed countries: never banned by any scenario on these hosts.
+                    $allowed[] = 'evt.Meta.target_fqdn in '.$this->list($hosts).' && evt.Enriched.IsoCode in '.$list;
+
+                    continue;
+                }
                 $country = $mode === 'allow' && $state === 'block'
                     ? "evt.Enriched.IsoCode != '' && !(evt.Enriched.IsoCode in {$list})"
                     : "evt.Enriched.IsoCode in {$list}";
@@ -144,6 +150,39 @@ class CrowdSecConfigService
                     'groupby' => 'evt.Meta.source_ip',
                     'blackhole' => '1m',
                     'labels' => ['service' => 'http', 'type' => 'dmp_country', 'remediation' => true],
+                ]);
+                $state === 'block' ? $bans[] = $name : $captchas[] = $name;
+            }
+
+            // ISP (autonomous system) rules, from CrowdSec's GeoLite2 ASN enrichment.
+            $ispScope = fn ($i) => $i->domain_id ? 'd'.$i->domain_id : ($i->application_id ? 'a'.$i->application_id : ($i->project_id ? 'p'.$i->project_id : '*'));
+            foreach (\App\Models\FirewallIsp::allTenants()->where('organization_id', $orgId)->get()->groupBy(fn ($i) => $i->state.'|'.$ispScope($i)) as $key => $isps) {
+                [$state, $scope] = explode('|', $key);
+                $sid = $scope === '*' ? '*' : substr($scope, 1);
+                $hosts = match ($scope[0]) {
+                    '*' => $orgHosts,
+                    'd' => $this->hosts($domains->where('id', $sid)),
+                    'a' => $this->hosts($domains->where('application_id', $sid)),
+                    'p' => $this->hosts($domains->whereIn('application_id', \App\Models\Application::allTenants()->where('project_id', $sid)->pluck('id'))),
+                };
+                if (! $hosts) {
+                    continue;
+                }
+                $asns = $this->list($isps->pluck('asn')->map(fn ($a) => (string) $a)->unique()->values()->all());
+                if ($state === 'allow') {
+                    $allowed[] = 'evt.Meta.target_fqdn in '.$this->list($hosts).' && evt.Enriched.ASNNumber in '.$asns;
+
+                    continue;
+                }
+                $name = 'dmp/isp-'.$orgId.'-'.$state.($scope === '*' ? '' : '-'.$this->short($sid));
+                $scenarios['dmp-isp-'.$this->short($orgId).'-'.$state.($scope === '*' ? '' : '-'.$this->short($sid)).'.yaml'] = $this->yaml([
+                    'type' => 'trigger',
+                    'name' => $name,
+                    'description' => 'ISP policy ('.$state.')',
+                    'filter' => $this->filter($hosts, ['*'], []).' && evt.Enriched.ASNNumber in '.$asns,
+                    'groupby' => 'evt.Meta.source_ip',
+                    'blackhole' => '1m',
+                    'labels' => ['service' => 'http', 'type' => 'dmp_isp', 'remediation' => true],
                 ]);
                 $state === 'block' ? $bans[] = $name : $captchas[] = $name;
             }
