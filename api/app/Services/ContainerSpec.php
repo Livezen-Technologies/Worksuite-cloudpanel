@@ -86,19 +86,20 @@ class ContainerSpec
         }
         // Unset limits mean unlimited, so one tenant's container can starve the
         // host. Fall back to the resource envelope the customer is sold.
+        // The app's own limits win; the organisation's plan is the ceiling and the fallback.
         $limits = $input['limits'] ?? [];
         $plan = self::planFor($org);
+        $memory = $limits['memory_mb'] ?? $input['memory_mb'] ?? null;
+        $cpus = $limits['cpus'] ?? $input['cpus'] ?? null;
         if ($plan) {
-            $limits += array_filter([
-                'cpus' => $plan->vcpu ?: null,
-                'memory_mb' => $plan->ram_mb ?: null,
-            ]);
+            $memory = $plan->ram_mb ? min((int) ($memory ?? $plan->ram_mb), (int) $plan->ram_mb) : $memory;
+            $cpus = $plan->vcpu ? min((float) ($cpus ?? $plan->vcpu), (float) $plan->vcpu) : $cpus;
         }
-        if (isset($limits['memory_mb']) || isset($input['memory_mb'])) {
-            $spec['memory_mb'] = (int) ($limits['memory_mb'] ?? $input['memory_mb']);
+        if ($memory !== null) {
+            $spec['memory_mb'] = (int) $memory;
         }
-        if (isset($limits['cpus']) || isset($input['cpus'])) {
-            $spec['cpus'] = (float) ($limits['cpus'] ?? $input['cpus']);
+        if ($cpus !== null) {
+            $spec['cpus'] = (float) $cpus;
         }
         if (! empty($input['cap_add'])) {
             $bad = array_diff($input['cap_add'], self::SAFE_CAPS);
