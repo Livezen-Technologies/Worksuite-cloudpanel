@@ -94,6 +94,9 @@ class BackupService implements HandlesCommandResults
         }
         $targetType = $policy?->target_type ?? $targetType;
         $targetId = $policy?->target_id ?? $targetId;
+        if ($targetType === 'project') {
+            return app(ProjectBackupService::class)->backup(\App\Models\Project::findOrFail($targetId), $trigger, $policy);
+        }
         [$server, $paths, $applicationId, $dump] = $this->target($targetType, $targetId);
         $job = $this->jobs->create('backup', $dump ? ['dump', 'snapshot', 'retention', 'verify'] : ['snapshot', 'retention', 'verify'], null, $jobPayload + ['paths' => $paths]);
         $backup = BackupJob::create([
