@@ -143,7 +143,7 @@ function Row({ k, v }: { k: string; v: ReactNode }) {
 }
 
 /** INST-1..5: five-step install wizard for every catalogue template (single image or Compose stack). */
-export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBack: () => void }) {
+export default function InstallWizard({ t, onBack, projectId }: { t: CatalogTemplate; onBack: () => void; projectId?: string }) {
   const nav = useNavigate()
   const { run, busy } = useAction()
   const { rows: servers } = useList<Server>('/servers')
@@ -239,6 +239,7 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
     [d, dbMode, dbId, vars, adv, env, databases])
 
   const body = () => ({
+      ...(projectId ? { project_id: projectId } : {}),
       name: d.name, environment: d.environment, domain_mode: d.domain_mode,
       domain: d.domain_mode === 'custom' ? d.domain.trim() : null, subdomain: d.domain_mode === 'subdomain' ? d.subdomain : null,
       server_id: linked ? null : (d.placement === 'manual' || compose ? d.server_id || null : null),
