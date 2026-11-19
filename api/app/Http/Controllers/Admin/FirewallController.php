@@ -242,6 +242,37 @@ class FirewallController extends Controller
         return $this->data(['filename' => 'firewall-events-'.now()->format('Ymd-His').'.csv', 'csv' => $csv]);
     }
 
+    /** Blocked IPs: manual block-list entries and CrowdSec bans, with request counts. */
+    public function blocked(\App\Services\BlockedIpService $blocked)
+    {
+        return $this->data(['items' => $blocked->list(), 'refreshed_at' => \App\Models\FirewallBlockedIp::max('updated_at')]);
+    }
+
+    public function refreshBlocked(\App\Services\BlockedIpService $blocked)
+    {
+        return $this->data(['servers' => $blocked->refresh()], 202);
+    }
+
+    public function unblock(Request $request, \App\Services\BlockedIpService $blocked)
+    {
+        $data = $request->validate(['key' => 'required|string|max:120', 'reason' => 'nullable|string|max:255']);
+        $blocked->unblock($data['key'], $data['reason'] ?? null);
+
+        return $this->data(['ok' => true]);
+    }
+
+    public function blockedAction(Request $request, \App\Services\BlockedIpService $blocked, string $action)
+    {
+        $data = $request->validate(['key' => 'required|string|max:120', 'reason' => 'nullable|string|max:255', 'duration' => 'nullable|string|max:8']);
+        match ($action) {
+            'extend' => $blocked->extend($data['key'], (string) $data['duration'], $data['reason'] ?? null),
+            'permanent' => $blocked->permanent($data['key'], $data['reason'] ?? null),
+            'allow' => $blocked->allow($data['key'], $data['reason'] ?? null),
+        };
+
+        return $this->data(['ok' => true]);
+    }
+
     /** Locks an application: every one of its domains answers 403 to the public. */
     public function lockApp(Request $request, string $id)
     {

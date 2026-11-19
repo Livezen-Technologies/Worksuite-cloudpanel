@@ -57,6 +57,10 @@ Artisan::command('wordpress:cron', function (\App\Services\WordPressService $wp)
     $this->info('Ran WP-Cron for '.$wp->runCron().' site(s).');
 })->purpose('WP-003: run due WP-Cron events for sites using platform-run cron');
 
+Artisan::command('firewall:refresh-blocked', function (\App\Services\BlockedIpService $blocked) {
+    $this->info('Asked '.$blocked->refresh().' ingress server(s) for their current bans');
+})->purpose('Refresh the Blocked IPs list from CrowdSec on every ingress');
+
 Artisan::command('firewall:sync-events', function (\App\Services\FirewallEventService $events) {
     $this->info('Queued crowdsec.alerts on '.$events->sync().' ingress server(s).');
 })->purpose('FW-001: pull recent CrowdSec alerts into the firewall event log');
@@ -410,6 +414,7 @@ Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('firewall:refresh-blocked')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
 Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();

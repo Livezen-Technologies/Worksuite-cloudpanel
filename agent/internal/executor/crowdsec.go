@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -260,4 +261,115 @@ func (e *Executor) crowdsecAlerts(ctx context.Context, raw json.RawMessage) (any
 		res = append(res, al)
 	}
 	return map[string]any{"alerts": res}, nil
+}
+
+// crowdsec.decisions: the panel's Blocked IPs tab. op "list" returns the active decisions this
+// node's CrowdSec made itself or was given by hand (the community blocklist is left out: tens of
+// thousands of entries nobody unblocks one by one); "delete" lifts every decision on one address;
+// "add" bans one address for a duration (used to extend a block).
+var (
+	reDuration = regexp.MustCompile(`^[0-9]{1,5}[smhd]$`)
+	reReason   = regexp.MustCompile(`^[A-Za-z0-9 _./:,()-]{0,120}$`)
+)
+
+type CrowdSecDecision struct {
+	ID       int64  `json:"id"`
+	IP       string `json:"ip"`
+	Scope    string `json:"scope"`
+	Type     string `json:"type"`
+	Origin   string `json:"origin"`
+	Scenario string `json:"scenario"`
+	Until    string `json:"until"`
+	Duration string `json:"duration"`
+	Country  string `json:"country"`
+	Events   int64  `json:"events"`
+	At       string `json:"at"`
+}
+
+func (e *Executor) crowdsecDecisions(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p struct {
+		Op       string `json:"op"`
+		IP       string `json:"ip"`
+		Duration string `json:"duration"`
+		Reason   string `json:"reason"`
+	}
+	if err := decode(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Op != "list" {
+		if ip := net.ParseIP(strings.Split(p.IP, "/")[0]); ip == nil {
+			return nil, fmt.Errorf("invalid ip %q", p.IP)
+		}
+	}
+	switch p.Op {
+	case "list":
+		out, err := e.cscli(ctx, "cscli", "alerts", "list", "-o", "json", "--limit", "0", "--origin", "crowdsec")
+		if err != nil {
+			return nil, fmt.Errorf("cscli alerts: %s", tailString(strings.TrimSpace(string(out)), 300))
+		}
+		manual, err := e.cscli(ctx, "cscli", "alerts", "list", "-o", "json", "--limit", "0", "--origin", "cscli")
+		if err != nil {
+			return nil, fmt.Errorf("cscli alerts: %s", tailString(strings.TrimSpace(string(manual)), 300))
+		}
+		res := []CrowdSecDecision{}
+		for _, blob := range [][]byte{out, manual} {
+			var alerts []struct {
+				ID          int64  `json:"id"`
+				Scenario    string `json:"scenario"`
+				CreatedAt   string `json:"created_at"`
+				EventsCount int64  `json:"events_count"`
+				Source      struct {
+					CN string `json:"cn"`
+				} `json:"source"`
+				Decisions []struct {
+					ID       int64  `json:"id"`
+					Value    string `json:"value"`
+					Scope    string `json:"scope"`
+					Type     string `json:"type"`
+					Origin   string `json:"origin"`
+					Duration string `json:"duration"`
+					Until    string `json:"until"`
+				} `json:"decisions"`
+			}
+			if s := strings.TrimSpace(string(blob)); s != "" && s != "null" {
+				if err := json.Unmarshal([]byte(s), &alerts); err != nil {
+					return nil, fmt.Errorf("cscli alerts: unexpected output: %w", err)
+				}
+			}
+			for _, a := range alerts {
+				for _, d := range a.Decisions {
+					if strings.HasPrefix(d.Duration, "-") { // expired
+						continue
+					}
+					res = append(res, CrowdSecDecision{ID: d.ID, IP: d.Value, Scope: d.Scope, Type: d.Type, Origin: d.Origin, Scenario: a.Scenario,
+						Until: d.Until, Duration: d.Duration, Country: a.Source.CN, Events: a.EventsCount, At: a.CreatedAt})
+				}
+			}
+		}
+		return map[string]any{"decisions": res}, nil
+	case "delete":
+		out, err := e.cscli(ctx, "cscli", "decisions", "delete", "--ip", p.IP)
+		if err != nil {
+			return nil, fmt.Errorf("cscli decisions delete: %s", tailString(strings.TrimSpace(string(out)), 300))
+		}
+		return map[string]any{"deleted": strings.TrimSpace(string(out))}, nil
+	case "add":
+		d := firstNonEmpty(p.Duration, "4h")
+		if !reDuration.MatchString(d) {
+			return nil, fmt.Errorf("invalid duration %q", d)
+		}
+		if !reReason.MatchString(p.Reason) {
+			return nil, fmt.Errorf("invalid reason")
+		}
+		args := []string{"cscli", "decisions", "add", "--ip", p.IP, "--duration", d, "--type", "ban"}
+		if p.Reason != "" {
+			args = append(args, "--reason", p.Reason)
+		}
+		out, err := e.cscli(ctx, args...)
+		if err != nil {
+			return nil, fmt.Errorf("cscli decisions add: %s", tailString(strings.TrimSpace(string(out)), 300))
+		}
+		return map[string]any{"added": true}, nil
+	}
+	return nil, fmt.Errorf("unknown op %q", p.Op)
 }

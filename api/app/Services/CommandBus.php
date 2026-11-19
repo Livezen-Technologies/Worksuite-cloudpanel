@@ -32,7 +32,7 @@ class CommandBus
         'image.build', 'image.scan', 'container.healthcheck', 'terminal.open',
         'fs.list', 'fs.read', 'fs.write', 'fs.mkdir', 'fs.rename', 'fs.delete', 'fs.upload', 'fs.download',
         'fs.copy', 'fs.move', 'fs.compress', 'fs.extract', 'fs.trash', 'fs.trash_list', 'fs.trash_restore', 'fs.trash_purge', 'fs.chmod', 'fs.chown', 'fs.search', 'fs.scan', 'fs.history_list', 'fs.history_read', 'fs.history_restore',
-        'crowdsec.apply', 'crowdsec.alerts', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
+        'crowdsec.apply', 'crowdsec.alerts', 'crowdsec.decisions', 'av.scan', 'av.quarantine', 'av.restore', 'av.delete',
         'fim.baseline', 'fim.check', 'egress.apply', 'av.realtime', 'av.events', 'wp.cli', 'wp.inventory', 'wp.copy_tables', 'wp.drop_tables', 'migrate.fetch', 'migrate.inspect', 'migrate.extract', 'migrate.import_db', 'migrate.cleanup', 'cron.exec', 'cron.stop', 'mail.import', 'mail.certs',
         'svc.list', 'svc.action', 'svc.install', 'svc.create', 'svc.delete', 'svc.logs',
     ];
@@ -53,6 +53,7 @@ class CommandBus
         'image.scan' => ScanService::class,
         'files' => FileService::class,
         'crowdsec.alerts' => FirewallEventService::class,
+        'crowdsec.decisions' => BlockedIpService::class,
         'av.scan' => AntivirusService::class,
         'av.action' => AntivirusService::class,
         'integrity' => IntegrityService::class,
