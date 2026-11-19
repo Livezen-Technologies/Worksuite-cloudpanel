@@ -167,6 +167,9 @@ export default function InstallWizard({ t, onBack, projectId }: { t: CatalogTemp
   // Which engine the app most likely wants, from its variable names; MySQL otherwise.
   const guessEngine = () => { const k = keys.join(' '); return /POSTGRES|\bPG_|PGHOST/.test(k) ? 'postgres' : /MARIADB/.test(k) ? 'mariadb' : /MONGO/.test(k) ? 'mongodb' : /REDIS/.test(k) && !/MYSQL|DB_HOST/.test(k) ? 'redis' : 'mysql' }
   const [newDb, setNewDb] = useState<{ engine: string; version: string }>({ engine: guessEngine(), version: '' })
+  // With managed databases already there, offering one of them stays the default (until the person chooses).
+  const [dbTouched, setDbTouched] = useState(!!draft?.dbMode)
+  useEffect(() => { if (!dbTouched && wantsDb && databases.length > 0 && dbMode === 'create') setDbMode('existing') }, [databases.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const [dbId, setDbId] = useState(draft?.dbId ?? '')
   // Secrets with no default get a strong generated value; the person can still change it.
   const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, (v.secret ? null : draft?.vars?.[v.key]) ?? v.default ?? (v.secret ? generatePassword() : '')])))
@@ -366,8 +369,8 @@ export default function InstallWizard({ t, onBack, projectId }: { t: CatalogTemp
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Choice on={dbMode === 'create'} onClick={() => setDbMode('create')} title="Create a new database">Installed together with the app, on the same server. Password generated and kept secret.</Choice>
-            <Choice on={dbMode === 'existing'} onClick={() => setDbMode('existing')} title="Use a managed database">Credentials are filled in for you and kept secret.</Choice>
+            <Choice on={dbMode === 'create'} onClick={() => { setDbTouched(true); setDbMode('create') }} title="Create a new database">Installed together with the app, on the same server. Password generated and kept secret.</Choice>
+            <Choice on={dbMode === 'existing'} onClick={() => { setDbTouched(true); setDbMode('existing') }} title="Use a managed database">Credentials are filled in for you and kept secret.</Choice>
             <Choice on={dbMode === 'manual'} onClick={() => setDbMode('manual')} title="Enter connection details">An external or self-managed server.</Choice>
             <Choice on={dbMode === 'none'} onClick={() => setDbMode('none')} title={wantsDb ? 'Skip for now' : 'No database'}>{wantsDb ? 'Fill the variables yourself.' : 'This app does not need one.'}</Choice>
           </div>
