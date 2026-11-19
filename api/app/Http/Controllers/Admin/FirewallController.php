@@ -182,6 +182,15 @@ class FirewallController extends Controller
         if (FirewallIpList::where('list', $data['list'])->where('cidr', $cidr)->exists()) {
             throw ApiException::conflict("{$cidr} is already on the {$data['list']} list.");
         }
+        // An entry that overlaps one on the other list makes the outcome depend on rule order: say so.
+        $other = $data['list'] === 'allow' ? 'block' : 'allow';
+        // An organisation-wide entry can clash with any entry; a domain entry only with its domain's and org-wide ones.
+        $clash = FirewallIpList::active()->where('list', $other)
+            ->when($data['domain_id'] ?? null, fn ($q, $d) => $q->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $d)))
+            ->get()->first(fn ($e) => self::overlaps($e->cidr, $cidr));
+        if ($clash && ! ($data['confirm'] ?? false)) {
+            throw ApiException::conflict("{$cidr} overlaps {$clash->cidr} on the {$other} list. A blocked address is refused even when it is also allowed. Send confirm to add it anyway.");
+        }
         $entry = FirewallIpList::create([
             'list' => $data['list'], 'cidr' => $cidr, 'note' => $data['note'] ?? null,
             'expires_at' => $data['expires_at'] ?? null, 'domain_id' => $data['domain_id'] ?? null,
@@ -231,6 +240,39 @@ class FirewallController extends Controller
         $csv = implode("\n", array_map(fn ($r) => implode(',', array_map(fn ($v) => $this->csvCell((string) $v), $r)), $rows))."\n";
 
         return $this->data(['filename' => 'firewall-events-'.now()->format('Ymd-His').'.csv', 'csv' => $csv]);
+    }
+
+    /** Whether two CIDR ranges share any address (one contains the other's network address). */
+    public static function overlaps(string $a, string $b): bool
+    {
+        return FirewallIpList::contains($a, explode('/', $b)[0]) || FirewallIpList::contains($b, explode('/', $a)[0]);
+    }
+
+    /**
+     * Switches a domain between "open" and "allowlist" (only allowed addresses reach it). Refuses
+     * allowlist with no allow entries, and, unless confirmed, when the caller's own address would be shut out.
+     */
+    public function access(Request $request, string $id)
+    {
+        $data = $request->validate(['ip_access' => 'required|in:open,allowlist', 'confirm' => 'sometimes|boolean']);
+        $domain = \App\Models\Domain::findOrFail($id);
+        if ($data['ip_access'] === 'allowlist') {
+            $allow = FirewallIpList::active()->where('list', 'allow')->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $domain->id))->pluck('cidr')
+                ->merge(config('platform.firewall.always_allow', []));
+            if (FirewallIpList::active()->where('list', 'allow')->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $domain->id))->doesntExist()) {
+                throw ApiException::validation(['ip_access' => ['Add at least one address to the allow list for this domain first.']]);
+            }
+            $ip = $request->ip();
+            if ($ip && ! ($data['confirm'] ?? false) && ! $allow->contains(fn ($c) => FirewallIpList::contains($c, $ip))) {
+                throw ApiException::conflict("Your own address ({$ip}) is not on the allow list, so you would lose access to {$domain->name}. Send confirm to switch anyway.");
+            }
+        }
+        $before = $domain->ip_access ?? 'open';
+        $domain->forceFill(['ip_access' => $data['ip_access']])->save();
+        app(\App\Services\AuditLogger::class)->log('firewall.ip_access', 'domains', $domain->id, ['domain' => $domain->name, 'from' => $before, 'to' => $data['ip_access']]);
+        $this->traefik->push();
+
+        return $this->data(['id' => $domain->id, 'name' => $domain->name, 'ip_access' => $domain->ip_access]);
     }
 
     /** FW-014. Refuses, unless confirmed, a block that would lock out the admin making it. */

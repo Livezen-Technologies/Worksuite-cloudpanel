@@ -9,6 +9,7 @@ import { FormModal, type FieldDef } from '../../components/FormModal'
 import { Tabs } from '../../components/Tabs'
 import Select from '../../components/Select'
 import { num, type R } from '../../lib/util'
+import { DomainIpAccess } from '../../components/DomainIpAccess'
 
 /** Actions Traefik enforces on its own; the rest need a challenge middleware. */
 const ENFORCED = ['block', 'throttle', 'log']
@@ -196,7 +197,7 @@ export default function Firewall() {
     run({ path: '/firewall/ips', body, label: body.list === 'allow' ? 'Allow IP' : 'Block IP', success: `${String(body.cidr)} added to the ${String(body.list)} list` })
       .then(() => refetch())
       .catch((e) => {
-        if (isApiError(e) && e.status === 409 && /your own address/.test(e.message)) {
+        if (isApiError(e) && e.status === 409 && /your own address|overlaps/.test(e.message)) {
           setSelfBlock({ body, message: e.message })
           return
         }
@@ -452,7 +453,7 @@ export default function Firewall() {
 
       {tab === 'ips' && (
         <>
-          {!crowdsec && <div className="mb-3"><NotEnforced what="The IP allow and block lists" needs="CrowdSec at the edge" /></div>}
+          <div className="mb-3"><DomainIpAccess /></div>
           <Card title="IP allow and block lists" pad={false} actions={<button type="button" className="btn btn-primary" onClick={() => setIpForm({ list: 'block' })}>Add IP</button>}>
           <DataTable label="IP allow and block lists" rows={ipLists} rowKey={(r) => String(r.id)} pageSize={25}
             searchKeys={(r) => `${r.cidr} ${r.note ?? ''}`}

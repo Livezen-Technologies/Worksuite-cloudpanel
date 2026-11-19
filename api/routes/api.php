@@ -510,6 +510,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.store');
     Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.update');
     Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.destroy');
+    Route::patch('firewall/domains/{id}/access', [Admin\FirewallController::class, 'access'])->middleware('perm:deploy|settings.manage')->name('firewall.domains.access');
 
     // Users, roles, settings, integrations, audit
     Route::middleware('perm:users.manage')->group(function () {
