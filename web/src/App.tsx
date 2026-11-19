@@ -49,6 +49,7 @@ import { UserCron, UserSecurity, UserMail, UserMigrations, UserFirewall } from '
 import { UserDomains, UserBackups, Billing, Account } from './pages/app/Panel'
 import Catalog from './pages/admin/Catalog'
 import Projects from './pages/admin/Projects'
+import ProjectDetail from './pages/admin/ProjectDetail'
 import PrivateNetwork from './pages/admin/PrivateNetwork'
 import { Packages } from './pages/admin/Hosting'
 import { FinanceOverview, FinanceReports, FinanceSettings, FinanceGateways, FinanceProfiles } from './pages/admin/Finance'
@@ -118,6 +119,7 @@ export function AppRoutes() {
         <Route path="applications" element={<Applications />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="projects" element={<Projects />} />
+        <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="git" element={<GitSources />} />
         <Route path="ai" element={<AiAdmin />} />
         <Route path="cluster" element={<Cluster />} />

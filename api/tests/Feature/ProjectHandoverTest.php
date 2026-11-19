@@ -17,6 +17,7 @@ class ProjectHandoverTest extends TestCase
         [$secret] = $this->enrollAgent($server, $staff);
         $this->heartbeat($secret);
         $project = $this->api($staff)->postJson('/api/v1/projects', ['name' => 'Shop'])->assertCreated()->json('data');
+        $this->assertSame($staffOrg->id, $project['organization']['id'], 'the list shows who owns each project');
         $env = collect($project['environments'])->firstWhere('kind', 'production');
         $appId = $this->api($staff)->postJson('/api/v1/applications', ['name' => 'shop-web', 'source_type' => 'image', 'image' => 'nginx:1.27', 'server_id' => $server->id, 'port' => 80, 'environment_id' => $env['id']])
             ->assertCreated()->json('data.id');

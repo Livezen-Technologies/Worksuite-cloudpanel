@@ -20,6 +20,8 @@ class ProjectController extends Controller
         return [
             'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
             'webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'preview_environment_id' => $p->preview_environment_id, 'preview_comments' => (bool) $p->preview_comment_secret_id,
+            // Who owns it, so the list can show projects handed over to a customer.
+            'organization' => ($o = \App\Models\Organization::query()->withoutGlobalScopes()->find($p->organization_id)) ? ['id' => $o->id, 'name' => $o->name] : null,
             'environments' => Environment::where('project_id', $p->id)->orderByRaw("case kind when 'production' then 0 when 'staging' then 1 else 2 end")->orderBy('name')->get()
                 ->map(fn ($e) => $this->envs->present($e))->values(),
         ];
@@ -123,8 +125,11 @@ class ProjectController extends Controller
     public function destroy(string $id)
     {
         $project = Project::findOrFail($id);
-        abort_if(\App\Models\Application::where('project_id', $project->id)->exists(), 409, 'Move or delete the project\'s applications first.');
+        // PWS: never delete a project that still has apps or backups; say which.
+        $blockers = app(\App\Http\Controllers\ProjectWorkspaceController::class)->blockers($project);
+        abort_if($blockers !== [], 409, 'Move or delete the project\'s '.implode(' and ', $blockers).' first.');
         $project->delete();
+        app(\App\Services\AuditLogger::class)->log('project.delete', 'project', $project->id, ['name' => $project->name], $project->organization_id);
 
         return response()->noContent();
     }

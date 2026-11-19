@@ -189,6 +189,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/canvas', [Admin\ProjectController::class, 'canvas'])->name('projects.canvas');
         Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
         Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
+        // PWS: the project workspace and its members; the project role is checked in the controller.
+        Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
+        Route::match(['put', 'patch'], 'projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'setMember'])->name('projects.members.set');
+        Route::delete('projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'removeMember'])->name('projects.members.remove');
         Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
         Route::get('environments/{id}', [Admin\ProjectController::class, 'showEnvironment'])->name('environments.show');
         Route::get('deployments', [Admin\DeploymentController::class, 'index'])->name('deployments.index');
@@ -723,6 +727,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
             Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
             Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
+            // PWS: the project workspace and its members; the project role is checked in the controller.
+            Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
+            Route::match(['put', 'patch'], 'projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'setMember'])->name('projects.members.set');
+            Route::delete('projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'removeMember'])->name('projects.members.remove');
             Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
             Route::match(['put', 'patch'], 'projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
             Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
