@@ -4,12 +4,13 @@ import { useOne } from '../api/hooks'
 import { Card, Empty, Meter, StatTile } from './Card'
 import { Badge, StatusBadge } from './Badge'
 import { ProjectBackups } from './ProjectBackups'
+import { ProjectFirewall } from './ProjectFirewall'
 import { ago } from '../lib/format'
 import { num, type R } from '../lib/util'
 
 const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
 const HEALTH: Record<string, ['g' | 'y' | 'r' | 'n', string]> = { healthy: ['g', 'Healthy'], degraded: ['y', 'Degraded'], down: ['r', 'Down'], empty: ['n', 'No apps yet'] }
-type Tab = 'applications' | 'containers' | 'resources' | 'backups'
+type Tab = 'applications' | 'containers' | 'resources' | 'firewall' | 'backups'
 
 /**
  * Project overview: health, counts and the Applications / Containers / Resources / Backups tabs.
@@ -38,7 +39,7 @@ export function ProjectDashboard({ projectId, base = '', appLink }: { projectId:
         <StatTile label="Backups" value={num(c.backups)} />
       </div>
       <div role="tablist" aria-label="Project overview" className="flex gap-1 border-b border-line">
-        {(['applications', 'containers', 'resources', 'backups'] as const).map((t) => <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
+        {(['applications', 'containers', 'resources', 'firewall', 'backups'] as const).map((t) => <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
           className={`h-10 px-3.5 border-0 bg-transparent cursor-pointer text-sm capitalize ${tab === t ? 'font-semibold' : 'text-muted'}`}
           style={tab === t ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{t}</button>)}
       </div>
@@ -75,6 +76,7 @@ export function ProjectDashboard({ projectId, base = '', appLink }: { projectId:
               <div className="grid gap-2 sm:grid-cols-2"><Meter value={num(n.cpu_pct)} label={`${n.name} CPU`} /><Meter value={num(n.ram_pct)} label={`${n.name} RAM`} /></div></li>))}</ul>}</Card>
       </div>}
 
+      {tab === 'firewall' && <ProjectFirewall projectId={projectId} base={base} />}
       {tab === 'backups' && <ProjectBackups projectId={projectId} base={base} />}
     </div>
   )
