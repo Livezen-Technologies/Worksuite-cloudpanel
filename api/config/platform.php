@@ -105,6 +105,17 @@ return [
         // `proxy`. Empty disables the attach entirely.
         'container' => env('TRAEFIK_CONTAINER', 'host-traefik-1'),
         'file_name' => 'dmp-domains.yml',
+        // How Traefik finds the client address for IP rules and rate limits. 0 = the TCP peer
+        // (right when clients connect directly); N = the Nth address from the right of
+        // X-Forwarded-For (only when every request comes through N trusted proxies, e.g. a CDN).
+        // Anything above 0 without such a proxy lets clients spoof their address.
+        'forwarded_depth' => (int) env('TRAEFIK_FORWARDED_DEPTH', 0),
+    ],
+
+    'firewall' => [
+        // Ranges that an allow-list-only domain always admits, so administrators cannot lock
+        // themselves out (comma separated CIDRs, e.g. the office and the panel host).
+        'always_allow' => array_values(array_filter(array_map('trim', explode(',', (string) env('FIREWALL_ALWAYS_ALLOW', ''))))),
     ],
 
     // SRS 4.25 antivirus: ClamAV on each server (docs/deploy/clamav).

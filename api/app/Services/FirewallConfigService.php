@@ -40,8 +40,57 @@ class FirewallConfigService
         return match ($rule->counted_by) {
             'token_else_ip' => ['requestHeaderName' => 'Authorization'],
             'ip_session' => ['requestHeaderName' => 'Cookie'],
-            default => ['ipStrategy' => ['depth' => (int) config('platform.traefik.forwarded_depth', 1)]],
+            // depth 0 makes Traefik use the TCP peer; never an empty map, which would render as a YAML list.
+            default => ['ipStrategy' => ['depth' => (int) config('platform.traefik.forwarded_depth', 0)]],
         };
+    }
+
+    /** How Traefik picks the client address; depth 0 means the TCP peer. */
+    public static function ipStrategy(): array
+    {
+        $depth = (int) config('platform.traefik.forwarded_depth', 0);
+
+        return $depth > 0 ? ['ipStrategy' => ['depth' => $depth]] : [];
+    }
+
+    /**
+     * IP access for one domain, enforced by Traefik itself:
+     * - block list: a router above the domain's own that matches the blocked addresses and answers
+     *   403 (an ipAllowList that admits nobody). ClientIP() sees the TCP peer, so this only runs when
+     *   clients connect directly (forwarded_depth 0); behind a CDN the block list is left to CrowdSec.
+     * - allow-list-only mode: an ipAllowList on the domain's routers with the allow entries plus the
+     *   always-allowed admin ranges. With no allow entries nothing is rendered, so the mode can never
+     *   lock everyone out by accident.
+     *
+     * @return array{middlewares: array, routers: array, site: array<int,string>}
+     */
+    public function accessFor(Domain $domain, string $router, string $service, string $rule, ?array $tls = null): array
+    {
+        $entries = \App\Models\FirewallIpList::allTenants()->active()
+            ->where('organization_id', $domain->organization_id)
+            ->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $domain->id))
+            ->get();
+        $out = ['middlewares' => [], 'routers' => [], 'site' => []];
+        $block = $entries->where('list', 'block')->pluck('cidr')->unique()->values();
+        if ($block->isNotEmpty() && (int) config('platform.traefik.forwarded_depth', 0) === 0) {
+            $deny = $router.'-ipdeny';
+            $out['middlewares'][$deny] = ['ipAllowList' => ['sourceRange' => ['127.0.0.1/32']]];
+            $out['routers'][$router.'-blocked'] = array_filter([
+                'rule' => '('.$rule.') && ('.$block->map(fn ($c) => 'ClientIP(`'.$c.'`)')->implode(' || ').')',
+                'entryPoints' => [config('platform.traefik.entrypoint')], 'service' => $service,
+                'priority' => 900000, 'middlewares' => [$deny], 'tls' => $tls,
+            ]);
+        }
+        if (($domain->ip_access ?? 'open') === 'allowlist') {
+            $allow = $entries->where('list', 'allow')->pluck('cidr')->merge(config('platform.firewall.always_allow', []))->unique()->values();
+            if ($entries->where('list', 'allow')->isNotEmpty()) {
+                $name = $router.'-ipallow';
+                $out['middlewares'][$name] = ['ipAllowList' => array_filter(['sourceRange' => $allow->all()] + self::ipStrategy())];
+                $out['site'][] = $name;
+            }
+        }
+
+        return $out;
     }
 
     /** Rules in force for one domain: its own, plus the organisation-wide ones. */

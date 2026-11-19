@@ -31,6 +31,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+        // Proxies in front of the panel (Traefik, nginx) whose X-Forwarded-For is believed, so
+        // request()->ip() is the real client. Only these: anything else could spoof an address.
+        if ($trusted = array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '')))))) {
+            $middleware->trustProxies(at: $trusted);
+        }
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
         $middleware->alias([
             'tenant' => \App\Http\Middleware\SetTenant::class,

@@ -207,6 +207,19 @@ Artisan::command('backups:pool-target {dir : Private directory to write the key 
     }
 })->purpose('Print the rclone environment for the pool server with the most free space (used by host backup jobs)');
 
+Artisan::command('firewall:open {domain? : Domain name; all domains when omitted}', function () {
+    // Break-glass: every (or one) domain back to "open" IP access, then the proxy is re-pushed.
+    // Block-list entries stay; delete them in the panel or with tinker if they are the problem.
+    $q = \App\Models\Domain::allTenants()->where('ip_access', 'allowlist');
+    if ($name = $this->argument('domain')) {
+        $q->where('name', $name);
+    }
+    $n = $q->update(['ip_access' => 'open']);
+    app(\App\Services\AuditLogger::class)->log('firewall.emergency_open', 'domains', null, ['domain' => $name, 'count' => $n], null, null, 'console');
+    app(\App\Services\TraefikConfigService::class)->push();
+    $this->info("{$n} domain(s) opened to all addresses; proxy configuration pushed.");
+})->purpose('Emergency: switch allow-list-only domains back to open access');
+
 Artisan::command('backups:prune', function (BackupService $backups) {
     $this->info('Expired artifacts removed: '.$backups->pruneExpired());
 })->purpose('Apply backup retention');

@@ -170,6 +170,16 @@ class TraefikConfigService implements HandlesCommandResults
             // their own higher-priority router, since a middleware cannot match
             // a path; site-wide ones attach to the domain's router.
             $fw = $this->firewall->renderFor($domain, $name, $service, $rule);
+            // IP access first: a blocked or non-allowed address never reaches a rate limit.
+            $access = $this->firewall->accessFor($domain, $name, $service, $rule, $routers[$name]['tls'] ?? null);
+            $middlewares += $access['middlewares'];
+            $routers += $access['routers'];
+            $fw['site'] = array_merge($access['site'], $fw['site']);
+            if ($access['site']) {
+                foreach (array_keys($fw['routers']) as $pr) {
+                    $fw['routers'][$pr]['middlewares'] = array_merge($access['site'], $fw['routers'][$pr]['middlewares'] ?? []);
+                }
+            }
             $middlewares += $fw['middlewares'];
             $fw['routers'] && $routers += $fw['routers'];
             if ($fw['site']) {
