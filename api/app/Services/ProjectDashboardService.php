@@ -20,8 +20,8 @@ class ProjectDashboardService
     {
         $apps = Application::allTenants()->where('project_id', $project->id)
             ->when($customer, fn ($q) => $q->where('kind', 'customer'))->orderBy('name')->get();
-        $containers = $apps->isEmpty() ? collect() : Container::allTenants()->whereIn('application_id', $apps->pluck('id'))->orderBy('name')->get();
-        $servers = Server::allTenants()->whereIn('id', $apps->pluck('server_id')->filter()->unique())->get()->keyBy('id');
+        $containers = Container::allTenants()->where(fn ($q) => $q->where('project_id', $project->id)->when($apps->isNotEmpty(), fn ($q) => $q->orWhereIn('application_id', $apps->pluck('id'))))->orderBy('name')->get();
+        $servers = Server::allTenants()->whereIn('id', $apps->pluck('server_id')->merge($containers->pluck('server_id'))->filter()->unique())->get()->keyBy('id');
         $backups = BackupJob::allTenants()->where('target_type', 'project')->where('project_id', $project->id)->latest()->get(['id', 'status', 'trigger', 'created_at']);
 
         $rows = $apps->map(function (Application $a) use ($containers, $servers) {
@@ -49,6 +49,7 @@ class ProjectDashboardService
                 'applications' => $apps->count(), 'containers' => $containers->count(), 'running' => $containers->where('state', 'running')->count(),
                 'nodes' => $servers->count(), 'backups' => $backups->count(),
             ],
+            'services' => $containers->whereNull('application_id')->count(),
             'resources' => [
                 'cpu_reserved' => round((float) $rows->sum(fn ($r) => $r['cpu_limit'] * $r['replicas']), 2),
                 'memory_reserved_mb' => (int) $rows->sum(fn ($r) => $r['memory_limit_mb'] * $r['replicas']),
@@ -58,11 +59,12 @@ class ProjectDashboardService
             'applications' => $rows,
             'containers' => $containers->map(fn (Container $c) => [
                 'id' => $c->id, 'name' => $c->name, 'image' => $c->image, 'state' => $c->state, 'health' => $c->health,
-                'cpu_pct' => $c->cpu_pct, 'mem_mb' => $c->mem_mb, 'application' => $apps->firstWhere('id', $c->application_id)?->name,
+                'cpu_pct' => $c->cpu_pct, 'mem_mb' => $c->mem_mb, 'application' => $apps->firstWhere('id', $c->application_id)?->name ?? (($c->labels ?? [])['com.docker.compose.project'] ?? 'project'),
+                'role' => $c->application_id ? 'app' : 'service',
                 'server' => $servers[$c->server_id]->name ?? null,
             ])->values(),
             'nodes' => $servers->map(fn (Server $s) => ['id' => $s->id, 'name' => $s->name, 'status' => $s->status, 'cpu_pct' => $s->cpu_pct, 'ram_pct' => $s->ram_pct,
-                'applications' => $apps->where('server_id', $s->id)->count()])->values(),
+                'applications' => $apps->where('server_id', $s->id)->count(), 'containers' => $containers->where('server_id', $s->id)->count()])->values(),
         ];
     }
 }
