@@ -1,3 +1,4 @@
+import Select from '../../components/Select'
 import { useState } from 'react'
 import { useAction, useList, useOne } from '../../api/hooks'
 import { Card, Empty, Toggle } from '../../components/Card'
@@ -52,9 +53,9 @@ export function BackupLogs({ policyName }: { policyName: (id?: string) => string
       <Card pad={false}>
         <div className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3">
           <div className="font-bold flex-1">Backup runs</div>
-          <select className="input !w-auto" aria-label="Filter runs by status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <Select className="input !w-auto" aria-label="Filter runs by status" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All runs</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="running">Running</option>
-          </select>
+          </Select>
         </div>
         {jobs.isLoading ? <p className="px-5 pb-4 m-0 text-sm text-muted">Loading…</p> : !jobs.rows.length ? <div className="px-5 pb-5"><Empty>No backup runs yet.</Empty></div> :
           <ul className="list-none m-0 p-0">{jobs.rows.map((j) => {

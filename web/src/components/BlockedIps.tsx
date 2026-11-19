@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useState } from 'react'
 import { useAction, useOne } from '../api/hooks'
 import { Card, Empty } from './Card'
@@ -52,7 +53,7 @@ export function BlockedIps() {
         footer={<><button type="button" className="btn" onClick={() => setAct(null)}>Cancel</button><button type="button" className="btn btn-primary" disabled={busy} onClick={go}>{act ? TITLES[act.action] : ''}</button></>}>
         <div className="flex flex-col gap-3 text-sm">
           {act?.action === 'extend' && <label><span className="block text-xs text-muted mb-1">Extend by</span>
-            <select className="input" value={duration} onChange={(e) => setDuration(e.target.value)}><option value="4h">4 hours</option><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label>}
+            <Select className="input" value={duration} onChange={(e) => setDuration(e.target.value)}><option value="4h">4 hours</option><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></Select></label>}
           {act?.action === 'allow' && <p className="m-0">The block is lifted and the address is added to the allow list for all domains.</p>}
           <label><span className="block text-xs text-muted mb-1">Reason (kept in the audit log)</span><input className="input" value={reason} maxLength={255} onChange={(e) => setReason(e.target.value)} placeholder="e.g. customer office, false positive" /></label>
         </div>

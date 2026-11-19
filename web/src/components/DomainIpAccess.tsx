@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useState } from 'react'
 import { isApiError } from '../api/client'
 import { useAction, useList } from '../api/hooks'
@@ -29,9 +30,9 @@ export function DomainIpAccess() {
             <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-2.5 border-t border-line text-[13.5px]">
               <span className="flex-1 min-w-0 font-mono text-xs truncate">{d.name}</span>
               {locked ? <Badge tone="y">allow list only</Badge> : <Badge tone="g">open</Badge>}
-              <select className="input !w-auto" aria-label={`IP access for ${d.name}`} disabled={busy} value={locked ? 'allowlist' : 'open'} onChange={(e) => set(String(d.id), e.target.value)}>
+              <Select className="input !w-auto" aria-label={`IP access for ${d.name}`} disabled={busy} value={locked ? 'allowlist' : 'open'} onChange={(e) => set(String(d.id), e.target.value)}>
                 <option value="open">Open</option><option value="allowlist">Allow list only</option>
-              </select>
+              </Select>
             </li>)
         })}</ul>}
       <ConfirmDialog open={!!pending} onClose={() => setPending(null)} danger title="Switch to allow list only?" confirmLabel="Switch anyway" busy={busy}

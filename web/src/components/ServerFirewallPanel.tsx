@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useEffect, useState } from 'react'
 import { useAction, useOne } from '../api/hooks'
 import { Card } from './Card'
@@ -33,9 +34,9 @@ export function ServerFirewallPanel({ serverId }: { serverId: string }) {
         <p className="m-0 mb-3 text-xs text-muted">Filters traffic to this server and its containers before Docker sees it, in its own table; UFW and Docker rules stay as they are. {fw.applied_at ? `Last applied ${ago(String(fw.applied_at))}.` : 'Never applied.'}{fw.message ? ` ${fw.message}` : ''}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm"><span className="block text-xs text-muted mb-1">Mode</span>
-            <select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}>
+            <Select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}>
               <option value="block">Block listed addresses</option><option value="allow_only">Allow only listed addresses (on the ports below)</option>
-            </select></label>
+            </Select></label>
           <label className="text-sm"><span className="block text-xs text-muted mb-1">Ports (empty = all; required for "allow only")</span>
             <input className="input font-mono" value={f.ports} placeholder="3306, 5432" onChange={(e) => setF({ ...f, ports: e.target.value })} /></label>
           <label className="text-sm"><span className="block text-xs text-muted mb-1">Block (one IP or CIDR per line)</span>
