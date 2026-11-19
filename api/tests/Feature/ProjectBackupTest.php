@@ -38,8 +38,8 @@ class ProjectBackupTest extends TestCase
     {
         $n = 0;
         foreach (collect($this->heartbeat($secret)['commands'])->where('type', 'backup.run') as $cmd) {
-            $job = BackupJob::allTenants()->where('job_id', $cmd['job_id'] ?? null)->first()
-                ?? BackupJob::allTenants()->whereIn('status', ['running'])->whereNotNull('parent_id')->get()->first(fn ($b) => in_array('job-'.$b->id, $cmd['payload']['tags'] ?? [], true));
+            $tag = collect($cmd['payload']['tags'] ?? [])->first(fn ($t) => str_starts_with($t, 'job-'));
+            $job = $tag ? BackupJob::allTenants()->find(substr($tag, 4)) : null;
             $bad = $job && in_array($job->application_id, $fail, true);
             $this->commandResult($secret, $cmd['id'], $bad ? 'failed' : 'succeeded', $bad ? ['message' => 'disk full'] : ['output' => ['snapshot_id' => 'snap'.$n, 'summary' => ['snapshot_id' => 'snap'.$n, 'total_bytes_processed' => 10485760], 'check' => ['ok' => true, 'subset' => '5%']]])->assertOk();
             $n++;
