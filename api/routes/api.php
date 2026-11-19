@@ -408,6 +408,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
     $crud('firewall-rules', Admin\FirewallRuleController::class, 'firewall.view', 'firewall.manage');
     // DNS zones (SRS 4.18)
+    Route::get('project-domains', [Admin\ProjectDomainAdminController::class, 'index'])->middleware('perm:project_domains.manage|resources.view')->name('project-domains.index');
+    Route::post('project-domains/{id}/validate', [Admin\ProjectDomainAdminController::class, 'validateDns'])->middleware(['perm:project_domains.manage', 'throttle:30,1'])->name('project-domains.validate');
     Route::get('dns/providers', [Admin\DnsController::class, 'providers'])->middleware('perm:resources.view|servers.view')->name('dns.providers');
     Route::post('dns/providers', [Admin\DnsController::class, 'connect'])->middleware('perm:deploy|settings.manage')->name('dns.providers.store');
     Route::delete('dns/providers/{id}', [Admin\DnsController::class, 'disconnect'])->middleware('perm:deploy|settings.manage')->name('dns.providers.destroy');
@@ -753,6 +755,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects/{id}/dns/history', [Customer\ProjectDomainController::class, 'history'])->name('projects.dns.history');
             Route::get('projects/{id}/dns/permissions', [Customer\ProjectDomainController::class, 'grants'])->name('projects.dns.permissions');
             Route::match(['put', 'patch'], 'projects/{id}/dns/permissions/{userId}', [Customer\ProjectDomainController::class, 'grant'])->name('projects.dns.permissions.update');
+            Route::delete('projects/{id}/dns/permissions/{userId}', [Customer\ProjectDomainController::class, 'revokeAll'])->name('projects.dns.permissions.revoke');
+            Route::get('projects/{id}/dns/providers', [Customer\ProjectDomainController::class, 'providers'])->name('projects.dns.providers');
+            Route::post('projects/{id}/dns/providers', [Customer\ProjectDomainController::class, 'connectProvider'])->middleware('throttle:10,1')->name('projects.dns.providers.store');
+            Route::get('projects/{id}/dns/providers/{account}/zones', [Customer\ProjectDomainController::class, 'providerZones'])->middleware('throttle:30,1')->name('projects.dns.providers.zones');
+            Route::delete('projects/{id}/dns/providers/{account}', [Customer\ProjectDomainController::class, 'disconnectProvider'])->name('projects.dns.providers.destroy');
+            Route::post('projects/{id}/dns/domains/{domain}/zone', [Customer\ProjectDomainController::class, 'attachZone'])->middleware('throttle:20,1')->name('projects.dns.zone');
+            Route::get('projects/{id}/dns/domains/{domain}/zone-records', [Customer\ProjectDomainController::class, 'zoneRecords'])->name('projects.dns.zone-records');
             Route::get('projects/{id}/environments', [Customer\EnvironmentController::class, 'index'])->name('environments.index');
             Route::post('projects/{id}/environments', [Customer\EnvironmentController::class, 'store'])->name('environments.store');
             Route::post('environments/{id}/promote', [Customer\EnvironmentController::class, 'promote'])->name('environments.promote');

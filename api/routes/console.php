@@ -245,11 +245,33 @@ Artisan::command('servers:check-heartbeats', function () {
     }
 })->purpose('Record servers that went offline (no heartbeat for 90 s)');
 
-Artisan::command('domains:check-dns', function (DomainService $domains) {
-    foreach (Domain::allTenants()->where('platform_subdomain', false)->where(fn ($q) => $q->where('dns_status', '!=', 'verified')->orWhere('https_status', '!=', 'active'))->get() as $domain) {
-        app(Tenant::class)->as($domain->organization_id, fn () => rescue(fn () => $domains->verify($domain)));
+Artisan::command('domains:check-dns', function (DomainService $domains, \App\Services\DomainStateNotifier $notifier) {
+    // Pending domains every run; live project domains every 30 minutes too, so one that breaks
+    // again is noticed (PDNS-2). Each change of state notifies the project once.
+    $due = Domain::allTenants()->where('platform_subdomain', false)->where(fn ($q) => $q->where('dns_status', '!=', 'verified')->orWhere('https_status', '!=', 'active')
+        ->orWhere(fn ($q) => $q->whereNotNull('project_id')->where(fn ($q) => $q->whereNull('dns_checked_at')->orWhere('dns_checked_at', '<', now()->subMinutes(30)))));
+    foreach ($due->get() as $domain) {
+        app(Tenant::class)->as($domain->organization_id, function () use ($domain, $domains, $notifier) {
+            $notifier->baseline($domain);
+            rescue(fn () => $domains->verify($domain));
+            rescue(fn () => $notifier->afterCheck($domain));
+        });
     }
-})->purpose('Re-check pending DNS every 2 minutes (UDOM-003)');
+})->purpose('Re-check pending DNS every 2 minutes (UDOM-003) and notify project domain state changes (PDNS-2)');
+
+Artisan::command('dns:refresh-psl', function () {
+    // PDNS-2: fetch the current Public Suffix List into storage; the bundled copy stays as the fallback.
+    $body = \Illuminate\Support\Facades\Http::timeout(30)->get('https://publicsuffix.org/list/public_suffix_list.dat')->throw()->body();
+    if (strlen($body) < 100000 || ! str_contains($body, '===BEGIN ICANN DOMAINS===')) {
+        $this->error('The downloaded list does not look like the Public Suffix List; kept the current one.');
+
+        return 1;
+    }
+    @mkdir(storage_path('app/psl'), 0755, true);
+    file_put_contents(storage_path('app/psl/public_suffix_list.dat'), $body);
+    \App\Support\DomainName::forget();
+    $this->info('Public Suffix List updated ('.strlen($body).' bytes).');
+})->purpose('Refresh the Public Suffix List used for apex/subdomain detection (PDNS-2)');
 
 Artisan::command('networks:reconcile', function (\App\Services\NetworkService $networks) {
     // PRJ-NET: make sure every environment that has running apps owns a Docker
@@ -462,6 +484,7 @@ Schedule::command('deployments:resume')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('certificates:renew')->dailyAt('02:40')->withoutOverlapping();
 Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
+Schedule::command('dns:refresh-psl')->monthly()->withoutOverlapping();
 Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:pool-check')->hourly()->withoutOverlapping();
 Schedule::command('projects:link-containers')->everyFiveMinutes()->withoutOverlapping();

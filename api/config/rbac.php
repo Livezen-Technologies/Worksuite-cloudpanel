@@ -20,6 +20,7 @@ return [
         'logs.view' => ['Logs', 'Logs & audit'],
         'audit.view' => ['Audit log', 'Logs & audit'],
         'customers.manage' => ['Manage customers, companies and groups', 'Customers'],
+        'project_domains.manage' => ['Project domains: view every customer\'s project domains and run validation', 'Hosting'],
         'users.manage' => ['Manage users & roles', 'Administration'],
         'settings.manage' => ['Manage settings & integrations', 'Administration'],
         'approvals.decide' => ['Approve requests', 'Administration'],
@@ -40,6 +41,7 @@ return [
             'containers.operate' => 'all', 'terminal' => 'all+approval', 'network_storage.manage' => 'all',
             'logs.view' => 'all', 'audit.view' => 'all', 'approvals.decide' => 'all',
             'firewall.view' => 'all', 'firewall.unblock' => 'all', 'firewall.ips' => 'all', 'firewall.manage' => 'all', 'app.lock' => 'all',
+            'project_domains.manage' => 'all',
         ]],
         'owner' => ['label' => 'Organisation Owner', 'scope' => 'both', 'grants' => [
             'resources.view' => 'own_org', 'servers.view' => 'own_org', 'servers.manage' => 'own_org', 'deploy' => 'own_org',
@@ -54,6 +56,7 @@ return [
             'containers.operate' => 'all', 'terminal' => 'all+approval', 'production.delete' => 'all+approval',
             'logs.view' => 'all', 'audit.view' => 'all', 'approvals.decide' => 'all',
             'firewall.view' => 'all', 'firewall.unblock' => 'all', 'firewall.ips' => 'all', 'firewall.manage' => 'all', 'app.lock' => 'all',
+            'project_domains.manage' => 'all',
         ]],
         'developer' => ['label' => 'Developer', 'scope' => 'both', 'grants' => [
             'resources.view' => 'assigned', 'deploy' => 'assigned', 'containers.operate' => 'assigned', 'logs.view' => 'assigned',
@@ -63,7 +66,7 @@ return [
         'support' => ['label' => 'Support Engineer', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'all', 'servers.view' => 'all', 'deploy' => 'all', 'terminal' => 'all+approval',
             'logs.view' => 'all', 'audit.view' => 'all', 'customers.manage' => 'all',
-            'firewall.view' => 'all', 'firewall.unblock' => 'all',
+            'firewall.view' => 'all', 'firewall.unblock' => 'all', 'project_domains.manage' => 'all',
         ]],
         'billing' => ['label' => 'Billing Manager', 'scope' => 'both', 'grants' => [
             'billing.manage' => 'all', 'logs.view' => 'read', 'audit.view' => 'read', 'app.billing' => 'own_org',

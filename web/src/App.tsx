@@ -18,6 +18,7 @@ import ServerDetail from './pages/admin/ServerDetail'
 import Containers from './pages/admin/Containers'
 import { Applications, Compose } from './pages/admin/Deploy'
 import DeploymentProgress from './pages/admin/DeploymentProgress'
+import { ProjectDomains } from './pages/admin/ProjectDomains'
 import { Images, Networks, Volumes, Domains, Databases } from './pages/admin/Resources'
 import { FileManager } from './pages/admin/FileManager'
 import { Backups, Monitoring, Logs, Automation } from './pages/admin/Operations'
@@ -111,6 +112,7 @@ export function AppRoutes() {
         <Route path="firewall" element={<Firewall />} />
         <Route path="antivirus" element={<Antivirus />} />
         <Route path="dns" element={<DnsZones />} />
+        <Route path="project-domains" element={<ProjectDomains />} />
         <Route path="wordpress" element={<WordPress />} />
         <Route path="migrations" element={<Migrations />} />
         <Route path="mail" element={<Mail />} />

@@ -42,6 +42,28 @@ class CloudflareDnsProvider implements DnsProvider
         return 'Cloudflare token '.substr((string) ($token['id'] ?? ''), 0, 8);
     }
 
+    /**
+     * PDNS-2: every zone the token can see, for the customer to pick from.
+     *
+     * @return list<array{id: string, name: string, status: string}>
+     */
+    public function listZones(int $maxPages = 20): array
+    {
+        $out = [];
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $response = $this->http()->get('/zones', ['per_page' => 50, 'page' => $page]);
+            $rows = $this->result($response) ?? [];
+            foreach ($rows as $z) {
+                $out[] = ['id' => (string) $z['id'], 'name' => strtolower((string) $z['name']), 'status' => ($z['status'] ?? '') === 'active' ? 'active' : 'pending'];
+            }
+            if ($page >= (int) ($response->json('result_info.total_pages') ?? 1) || ! $rows) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
     private function zone(array $z): array
     {
         return ['id' => $z['id'], 'status' => $z['status'] === 'active' ? 'active' : 'pending', 'nameservers' => array_values($z['name_servers'] ?? [])];
