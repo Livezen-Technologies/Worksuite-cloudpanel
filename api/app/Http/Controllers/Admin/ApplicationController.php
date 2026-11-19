@@ -50,6 +50,8 @@ class ApplicationController extends Controller
             'service' => ['nullable', 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
             'region' => 'nullable|string|max:60',
             'size' => 'nullable|in:small,standard,pro',
+            'cpu_limit' => 'nullable|numeric|min:0.1|max:64',
+            'memory_limit_mb' => 'nullable|integer|min:64|max:262144',
             'port' => 'nullable|integer|between:1,65535',
             'volume_path' => 'nullable|string|max:255',
             'requires_approval' => 'sometimes|boolean',

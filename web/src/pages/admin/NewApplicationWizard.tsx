@@ -14,7 +14,8 @@ import { mergeEnv, parseDotEnv, type EnvRow } from './InstallWizard'
 type SourceType = 'git' | 'image' | 'dockerfile' | 'compose'
 type DomainMode = 'auto' | 'subdomain' | 'custom' | 'none'
 type Check = { key: string; step: 'source' | 'build' | 'deploy'; status: 'pass' | 'warn' | 'fail'; label: string; message: string }
-type Preflight = { ok: boolean; failed: number; warnings: number; checks: Check[]; detected?: { commit?: string; default_branch?: string; server?: { id: string; name: string } }; platform_domain?: string }
+type Spec = { placement: string; server?: { id: string; name: string } | null; cpus: number; memory_mb: number; limits_from: string; image?: string | null; repository?: string | null; branch?: string | null; port?: number | null; volume_path?: string | null; strategy: string; restart_policy: string; health_path?: string | null; environment: string; env_keys: string[] }
+type Preflight = { ok: boolean; failed: number; warnings: number; checks: Check[]; spec?: Spec; detected?: { commit?: string; default_branch?: string; server?: { id: string; name: string } }; platform_domain?: string }
 type KV = { key: string; value: string }
 
 const STEPS = [
@@ -92,7 +93,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
   const [f, setF] = useState({
     source_type: 'git' as SourceType, name: '', repo: '', branch: '', image: '', git_token: '', git_ssh_key_id: '', environment_id: '',
     builder: 'auto', dockerfile_path: 'Dockerfile', context: '.', no_cache: false, push_registry_id: '',
-    environment: 'production', server_id: '', port: '', health_path: '/', strategy: 'rolling', require_approval: true,
+    environment: 'production', server_id: '', port: '', health_path: '/', strategy: 'rolling', require_approval: true, size: 'standard', cpu_limit: '', memory_limit_mb: '',
     domain_mode: 'auto' as DomainMode, subdomain: '', domain: '', deploy: true,
   })
   const [buildArgs, setBuildArgs] = useState<KV[]>([])
@@ -115,6 +116,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
     name: f.name, source_type: f.source_type, environment: f.environment, environment_id: f.environment_id || null, strategy: f.strategy,
     server_id: f.server_id || null, requires_approval: f.require_approval && f.environment === 'production',
     port: f.port ? Number(f.port) : null, health_path: f.health_path || null,
+    size: f.size, cpu_limit: f.cpu_limit ? Number(f.cpu_limit) : null, memory_limit_mb: f.memory_limit_mb ? Math.round(Number(f.memory_limit_mb) * 1024) : null,
     domain_mode: f.domain_mode, domain: f.domain_mode === 'custom' ? f.domain.trim() : null, subdomain: f.domain_mode === 'subdomain' ? f.subdomain : null,
     env: env.filter((e) => e.key), deploy,
     ...(isImage ? { image: f.image.trim() } : {
@@ -204,6 +206,7 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
     ['Server', server?.name ?? (pre?.detected?.server ? `Automatic → ${pre.detected.server.name}` : 'Automatic placement')],
     ['Address', address],
     ['Port', f.port || '—'],
+    ['Resources', pre?.spec ? `${pre.spec.cpus} vCPU · ${pre.spec.memory_mb >= 1024 ? `${+(pre.spec.memory_mb / 1024).toFixed(1)} GB` : `${pre.spec.memory_mb} MB`} RAM (${pre.spec.limits_from})` : (f.cpu_limit || f.memory_limit_mb ? `${f.cpu_limit || '—'} vCPU · ${f.memory_limit_mb || '—'} GB RAM` : `Size ${f.size}`)],
   ], [f, server, pre, address, builds, isImage])
 
   const content: ReactNode[] = [
@@ -281,6 +284,13 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
           <Field label="Health check path" hint="GET on the port after start; 2xx/3xx passes" error={fieldErr.health_path}><input className="input font-mono" value={f.health_path} onChange={(e) => set('health_path', e.target.value)} /></Field>
         </div>
       </Section>
+      <Section title="Resources" hint="Docker enforces these limits on the container; placement reserves them on the server. Leave the limits empty to use the size.">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Size"><Select className="input" value={f.size} onChange={(e) => set('size', e.target.value)}><option value="small">Small</option><option value="standard">Standard</option><option value="pro">Pro</option></Select></Field>
+          <Field label="CPU limit (vCPU)" hint="e.g. 2" error={fieldErr.cpu_limit}><input className="input" inputMode="decimal" value={f.cpu_limit} placeholder="from size" onChange={(e) => set('cpu_limit', e.target.value.replace(/[^0-9.]/g, ''))} /></Field>
+          <Field label="RAM limit (GB)" hint="e.g. 4" error={fieldErr.memory_limit_mb}><input className="input" inputMode="decimal" value={f.memory_limit_mb} placeholder="from size" onChange={(e) => set('memory_limit_mb', e.target.value.replace(/[^0-9.]/g, ''))} /></Field>
+        </div>
+      </Section>
       <Section title="Public address" hint="DNS, routing through the proxy and the HTTPS certificate are set up automatically.">
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Choice on={f.domain_mode === 'auto'} onClick={() => set('domain_mode', 'auto')} title="Generated" text={`Free name under ${platform}`} />
@@ -325,6 +335,15 @@ export default function NewApplicationWizard({ open, onClose }: { open: boolean;
           </>
         )}
       </Section>
+      {pre?.spec && <Section title="Deployment specification" hint="A preview of what will be deployed. Nothing is created until you press the button.">
+        <pre className="m-0 p-3 rounded-lg bg-sel text-xs font-mono overflow-auto max-h-[300px] whitespace-pre-wrap">{JSON.stringify({
+          placement: pre.spec.placement === 'automatic' ? `automatic → ${pre.spec.server?.name ?? 'no eligible server'}` : `manual → ${pre.spec.server?.name ?? '—'}`,
+          resources: { cpus: pre.spec.cpus, memory_mb: pre.spec.memory_mb, from: pre.spec.limits_from },
+          source: pre.spec.image ?? (pre.spec.repository ? `${pre.spec.repository}${pre.spec.branch ? `@${pre.spec.branch}` : ''}` : null),
+          port: pre.spec.port, volume: pre.spec.volume_path, environment: pre.spec.environment, strategy: pre.spec.strategy,
+          restart: pre.spec.restart_policy, health_check: pre.spec.health_path, env: pre.spec.env_keys,
+        }, null, 2)}</pre>
+      </Section>}
       <div className="flex items-center gap-3"><Toggle checked={f.deploy} onChange={(v: boolean) => set('deploy', v)} label="Deploy now" /><span className="text-sm">{f.deploy ? 'Deploy right away and follow the progress' : 'Only create it; deploy later'}</span></div>
       <p className="m-0 text-xs text-muted">You and the customer's owners get an email when the deployment finishes, with the address and status. Secrets are never included.</p>
     </div>,

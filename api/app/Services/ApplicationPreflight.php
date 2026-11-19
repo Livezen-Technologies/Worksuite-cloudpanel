@@ -102,7 +102,7 @@ class ApplicationPreflight
                 }
             }
         } else {
-            $probe = new Application(['size' => $d['size'] ?? 'standard', 'region' => $d['region'] ?? null]);
+            $probe = new Application(['size' => $d['size'] ?? 'standard', 'region' => $d['region'] ?? null, 'cpu_limit' => $d['cpu_limit'] ?? null, 'memory_limit_mb' => $d['memory_limit_mb'] ?? null]);
             $probe->organization_id = Tenant::current()?->id;
             try {
                 $server = $this->scheduler->place($probe, $this->scheduler->ramFor($probe));
@@ -136,7 +136,37 @@ class ApplicationPreflight
         $failed = count(array_filter($checks, fn ($c) => $c['status'] === 'fail'));
 
         return ['ok' => $failed === 0, 'failed' => $failed, 'warnings' => count(array_filter($checks, fn ($c) => $c['status'] === 'warn')),
-            'checks' => $checks, 'detected' => $detected, 'platform_domain' => (string) config('platform.domain')];
+            'checks' => $checks, 'detected' => $detected, 'platform_domain' => (string) config('platform.domain'),
+            'spec' => $this->spec($d, $detected)];
+    }
+
+    /**
+     * What would be deployed, without deploying: placement, limits Docker will enforce, image or
+     * source, port, volume, strategy, health check and env variable names (never values).
+     */
+    public function spec(array $d, array $detected): array
+    {
+        $probe = new Application(['size' => $d['size'] ?? 'standard', 'cpu_limit' => $d['cpu_limit'] ?? null, 'memory_limit_mb' => $d['memory_limit_mb'] ?? null]);
+        $server = ! empty($d['server_id']) ? Server::find($d['server_id']) : null;
+
+        return [
+            'placement' => $server ? 'manual' : 'automatic',
+            'server' => $server ? ['id' => $server->id, 'name' => $server->name] : ($detected['server'] ?? null),
+            'cpus' => $this->scheduler->vcpuFor($probe),
+            'memory_mb' => $this->scheduler->ramFor($probe),
+            'limits_from' => (! empty($d['cpu_limit']) || ! empty($d['memory_limit_mb'])) ? 'custom' : 'size '.($d['size'] ?? 'standard'),
+            'source_type' => $d['source_type'] ?? 'git',
+            'image' => $d['image'] ?? ($d['source']['image'] ?? null),
+            'repository' => $d['source']['repository'] ?? ($d['source']['url'] ?? null),
+            'branch' => $d['source']['branch'] ?? null,
+            'port' => isset($d['port']) ? (int) $d['port'] : ($detected['port'] ?? null),
+            'volume_path' => $d['volume_path'] ?? null,
+            'strategy' => $d['strategy'] ?? 'recreate',
+            'restart_policy' => ($d['auto_restart'] ?? true) ? 'unless-stopped' : 'no',
+            'health_path' => $d['health_path'] ?? null,
+            'environment' => $d['environment'] ?? 'production',
+            'env_keys' => array_values(array_filter(array_map(fn ($e) => $e['key'] ?? null, (array) ($d['env'] ?? [])))),
+        ];
     }
 
     /** Saved credentials for the image's registry host, if any (never returned to the browser). */

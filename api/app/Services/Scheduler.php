@@ -103,11 +103,11 @@ class Scheduler
 
     public function ramFor(Application $app): int
     {
-        return (int) (Plan::where('code', $app->size)->value('ram_mb') ?? 512);
+        return (int) ($app->memory_limit_mb ?: (Plan::where('code', $app->size)->value('ram_mb') ?? 512));
     }
 
     public function vcpuFor(Application $app): float
     {
-        return (float) (Plan::where('code', $app->size)->value('vcpu') ?? 0.5);
+        return (float) ($app->cpu_limit ?: (Plan::where('code', $app->size)->value('vcpu') ?? 0.5));
     }
 }
