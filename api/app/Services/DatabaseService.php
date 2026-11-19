@@ -35,6 +35,11 @@ class DatabaseService implements HandlesCommandResults
 
         $containerName = 'db-'.Str::slug($data['name']);
         $env = [$template['password_env'] => $secret->value];
+        // An initial database for the app that will use it (installed together from the catalogue).
+        if (! empty($data['database'])) {
+            $dbEnv = ['mysql' => 'MYSQL_DATABASE', 'mariadb' => 'MARIADB_DATABASE', 'postgres' => 'POSTGRES_DB', 'mongodb' => 'MONGO_INITDB_DATABASE'][$data['engine']] ?? null;
+            $dbEnv && $env[$dbEnv] = (string) $data['database'];
+        }
         $input = [
             'name' => $containerName,
             'image' => $template['image'].':'.$version,
