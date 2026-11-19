@@ -11,6 +11,7 @@ import Select from '../../components/Select'
 import { num, type R } from '../../lib/util'
 import { DomainIpAccess } from '../../components/DomainIpAccess'
 import { BlockedIps } from '../../components/BlockedIps'
+import { FirewallIsps } from '../../components/FirewallIsps'
 
 /** "p:<id>" / "a:<id>" / "d:<id>" / "" to the three scope fields, and back. */
 const scopeBody = (v: unknown) => {
@@ -181,9 +182,10 @@ export default function Firewall() {
   const cycleCountry = (code: string) => {
     const next = { ...countries }
     if (mode === 'block') {
-      // allowed -> challenge -> blocked -> allowed
+      // allowed -> challenge -> blocked -> always allowed -> allowed
       if (!next[code]) next[code] = 'challenge'
       else if (next[code] === 'challenge') next[code] = 'block'
+      else if (next[code] === 'block') next[code] = 'allow'
       else delete next[code]
     } else {
       if (next[code]) delete next[code]
@@ -198,7 +200,7 @@ export default function Firewall() {
 
   const countryLabel = (code: string) => {
     const s = countries[code]
-    if (mode === 'block') return s === 'challenge' ? 'challenge' : s ? 'blocked' : 'allowed'
+    if (mode === 'block') return s === 'challenge' ? 'challenge' : s === 'allow' ? 'always allowed' : s ? 'blocked' : 'allowed'
     return s ? 'allowed' : 'blocked'
   }
 
@@ -297,7 +299,8 @@ export default function Firewall() {
         <Tabs value={tab} onChange={setTab} label="Firewall sections" tabs={[
           { id: 'rules', label: 'Rate limits' },
           { id: 'challenges', label: 'Challenges' },
-          { id: 'countries', label: 'Country block' },
+          { id: 'countries', label: 'Countries' },
+          { id: 'isps', label: 'ISPs' },
           { id: 'recaptcha', label: 'reCAPTCHA' },
           { id: 'blocked', label: 'Blocked IPs' },
           { id: 'ips', label: 'IP lists' },
@@ -379,6 +382,8 @@ export default function Firewall() {
         </div>
       )}
 
+      {tab === 'isps' && <FirewallIsps isps={(item?.isps ?? []) as R[]} suggestions={(item?.isp_suggestions ?? []) as R[]} onSaved={() => refetch()} />}
+
       {tab === 'countries' && (
         <Card title="Country rules" actions={
           <div role="group" aria-label="Country policy mode" className="flex gap-1 p-[3px] rounded-lg bg-head border border-line">
@@ -392,7 +397,7 @@ export default function Firewall() {
           <NotEnforced what="The country policy" needs="a GeoIP plugin such as traefik-geoip2, or CrowdSec" crowdsec={item?.country_enforcement === 'crowdsec'} />
           <p className="mt-3 text-sm text-muted">
             {mode === 'block'
-              ? 'Every country is allowed except the ones you mark. Click a country to cycle allowed → challenge → blocked.'
+              ? 'Every country is allowed except the ones you mark. Click a country to cycle allowed → challenge → blocked → always allowed (never banned by any rule).'
               : 'Every country is blocked except the ones you mark. Click a country to allow or block it.'}
           </p>
           <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
@@ -403,7 +408,7 @@ export default function Firewall() {
                   className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-lg bg-card border border-line text-left text-[13px] font-medium cursor-pointer hover:bg-head">
                   <span className="font-mono text-xs text-muted w-6">{code}</span>
                   <span className="flex-1 truncate">{name}</span>
-                  <Badge tone={label === 'blocked' ? 'r' : label === 'challenge' ? 'y' : 'g'}>{label}</Badge>
+                  <Badge tone={label === 'blocked' ? 'r' : label === 'challenge' ? 'y' : label === 'always allowed' ? 'b' : 'g'}>{label}</Badge>
                 </button>
               )
             })}
