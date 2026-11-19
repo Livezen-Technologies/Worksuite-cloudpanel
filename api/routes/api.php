@@ -512,6 +512,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.store');
     Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.update');
     Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:firewall.ips|firewall.unblock|firewall.manage')->name('firewall.ips.destroy');
+    Route::get('servers/{id}/firewall', [Admin\ServerFirewallController::class, 'show'])->middleware('perm:firewall.view')->name('servers.firewall.show');
+    Route::match(['put', 'patch'], 'servers/{id}/firewall', [Admin\ServerFirewallController::class, 'update'])->middleware('perm:firewall.manage')->name('servers.firewall.update');
+    Route::post('servers/{id}/firewall/preview', [Admin\ServerFirewallController::class, 'preview'])->middleware('perm:firewall.manage')->name('servers.firewall.preview');
+    Route::post('servers/{id}/firewall/apply', [Admin\ServerFirewallController::class, 'apply'])->middleware('perm:firewall.manage')->name('servers.firewall.apply');
+    Route::post('servers/{id}/firewall/disable', [Admin\ServerFirewallController::class, 'disable'])->middleware('perm:firewall.manage')->name('servers.firewall.disable');
     Route::get('firewall/blocked', [Admin\FirewallController::class, 'blocked'])->middleware('perm:firewall.view')->name('firewall.blocked');
     Route::post('firewall/blocked/refresh', [Admin\FirewallController::class, 'refreshBlocked'])->middleware('perm:firewall.view')->name('firewall.blocked.refresh');
     Route::post('firewall/blocked/unblock', [Admin\FirewallController::class, 'unblock'])->middleware('perm:firewall.unblock|firewall.ips|firewall.manage')->name('firewall.blocked.unblock');

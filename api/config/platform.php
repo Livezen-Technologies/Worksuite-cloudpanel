@@ -130,6 +130,8 @@ return [
     'firewall' => [
         // Ranges that an allow-list-only domain always admits, so administrators cannot lock
         // themselves out (comma separated CIDRs, e.g. the office and the panel host).
+        // The panel's own public address, never blocked by a host firewall.
+        'panel_ip' => env('PANEL_PUBLIC_IP'),
         'always_allow' => array_values(array_filter(array_map('trim', explode(',', (string) env('FIREWALL_ALWAYS_ALLOW', ''))))),
     ],
 
