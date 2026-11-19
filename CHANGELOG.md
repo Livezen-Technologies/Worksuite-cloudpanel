@@ -9,6 +9,36 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-11-19
+
+(Number may need renumbering: 1.17.0 is reserved for Project DNS slice 2.)
+
+### Added
+
+- **Projects list** (admin Deploy → Projects). One compact row per project on the shared
+  DataTable (search, filters, sort, list/grid layouts, saved views): name, status
+  (running/degraded/stopped with running/total), environments, apps, last deploy, owner, and row
+  actions (Open, Show canvas, Settings, Hand over to customer). "New project" and the empty state kept.
+- **Project workspace** at `/admin/projects/:id` (slice A). Breadcrumb Projects / name, health and
+  role badges, Add application, Project settings, Show canvas and Hand over. Sections, each the
+  existing capability scoped by project id: Dashboard (Applications / Containers / Active nodes /
+  Domains tiles plus the existing project dashboard), Applications (Installed, Deployments,
+  Catalog, GitHub integration), Environments (the old cards: Edit, Duplicate, Promote, Wake),
+  Docker (Services & containers, Nodes & replicas, Networks), DNS & domains (domain list plus the
+  existing ProjectDns UI, mounted unchanged), Backups & restore, Environment variables (keys only),
+  Monitoring & logs (audit activity), Team & permissions, Canvas, Settings (webhook, PR previews,
+  ownership, delete). Databases, Storage, Firewall and Quotas show "not yet available" states.
+  Section and sub-page are in the URL (`?s=…&sub=…`); old `?tab=` links still resolve.
+- **Project roles** (`project_members`): owner, developer, viewer, plus platform admin for
+  super_admin / infra_admin / devops and owner for the owning organisation's owner. Enforced on the
+  server for `GET projects/{id}/workspace` and `PUT|PATCH|DELETE projects/{id}/members/{user}`
+  (admin and `/app` routes); member changes are audited.
+- `organization` (id, name) on admin project responses.
+
+### Changed
+
+- Deleting a project is blocked while it has applications **or backups**, with the reason named;
+  deletions are audited.
 ## [1.17.0] — 2026-11-19
 
 ### Added
