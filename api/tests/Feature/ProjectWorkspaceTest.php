@@ -23,7 +23,7 @@ class ProjectWorkspaceTest extends TestCase
         $this->api($owner)->putJson("/api/v1/app/projects/{$project['id']}/members/{$dev->id}", ['role' => 'developer'])->assertOk()->assertJsonPath('data.0.role', 'developer');
         $this->assertSame(1, AuditLog::query()->withoutGlobalScopes()->where('action', 'project.member.set')->count());
         $this->api($devToken)->getJson("/api/v1/app/projects/{$project['id']}/workspace")->assertOk()
-            ->assertJsonPath('data.role', 'developer')->assertJsonPath('data.abilities', ['view', 'deploy']);
+            ->assertJsonPath('data.role', 'developer')->assertJsonPath('data.abilities', ['view', 'deploy', 'settings']);
         $this->api($devToken)->putJson("/api/v1/app/projects/{$project['id']}/members/{$dev->id}", ['role' => 'owner'])->assertForbidden();
         $this->api($viewerToken)->getJson("/api/v1/app/projects/{$project['id']}/workspace")->assertForbidden();
 

@@ -9,6 +9,29 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-11-19
+
+### Added
+
+- **Project roles enforced on every existing endpoint** (Project workspace slice B). A new
+  `project.role` middleware on the authenticated API group resolves the project behind any
+  app, container, deployment, environment, project or backup route (admin and `/app`), and for
+  creates the `project_id` / `application_id` in the body, then checks the caller's project role
+  after the organisation RBAC: viewer is read only; developer may deploy, redeploy, restart,
+  roll back, cancel, run container actions, read logs and change the permitted app settings
+  (`health_path`, `auto_restart`, `restart`, non-secret env vars); owner may do everything inside
+  the project. Deletes need `delete`, member/transfer/DNS-permission routes need `members`.
+- A developer's env change can neither create a secret, change one's value, nor drop one (the env
+  list is a full replace, so omitting a secret would delete it).
+- Every refusal is audited as `project.access.denied` with the route, ability and role.
+- New `settings` ability on owner, developer and platform admin.
+
+### Decision recorded
+
+- Organisation members **without** a `project_members` row keep the organisation RBAC they had
+  before (nobody loses access on upgrade); an owner restricts someone by giving them a project role.
+  The workspace page itself still requires a role, as in slice A. Changing that default is the owner's call.
+
 ## [1.18.0] — 2026-11-19
 
 (Number may need renumbering: 1.17.0 is reserved for Project DNS slice 2.)

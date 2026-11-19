@@ -20,9 +20,9 @@ class ProjectAccess
     public const PLATFORM_ROLES = ['super_admin', 'infra_admin', 'devops'];
 
     public const ABILITIES = [
-        'platform_admin' => ['view', 'deploy', 'manage', 'members', 'delete'],
-        'owner' => ['view', 'deploy', 'manage', 'members', 'delete'],
-        'developer' => ['view', 'deploy'],
+        'platform_admin' => ['view', 'deploy', 'settings', 'manage', 'members', 'delete'],
+        'owner' => ['view', 'deploy', 'settings', 'manage', 'members', 'delete'],
+        'developer' => ['view', 'deploy', 'settings'],
         'viewer' => ['view'],
     ];
 

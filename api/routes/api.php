@@ -50,7 +50,7 @@ Route::get('status', [Admin\StatusPageController::class, 'public'])->middleware(
 Route::post('webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.stripe');
 Route::post('webhooks/paypal', [\App\Http\Controllers\PayPalWebhookController::class, 'handle'])->middleware('throttle:api')->name('webhooks.paypal');
 
-Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit'])->group(function () {
+Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit', 'project.role'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('me', [AuthController::class, 'me'])->name('me.show');
     Route::patch('me/profile', [\App\Http\Controllers\MeController::class, 'profile'])->name('me.profile');

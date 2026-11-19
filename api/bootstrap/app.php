@@ -45,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'agent' => \App\Http\Middleware\AuthenticateAgent::class,
             'partner' => \App\Http\Middleware\AuthenticatePartner::class,
             'admin.network' => \App\Http\Middleware\AdminNetwork::class,
+            'project.role' => \App\Http\Middleware\ProjectRole::class,
         ]);
         $middleware->redirectGuestsTo(fn () => null);
         $middleware->trimStrings(except: ['yaml', 'source.compose', 'compose_yaml', 'password', 'value']);
