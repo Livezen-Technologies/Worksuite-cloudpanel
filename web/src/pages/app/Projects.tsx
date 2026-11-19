@@ -155,7 +155,7 @@ export default function UserProjects() {
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [pick, setPick] = useState('')
-  const [view, setView] = useState<'overview' | 'list' | 'canvas' | 'environments' | 'backups'>('overview')
+  const [view, setView] = useState<'overview' | 'list' | 'canvas' | 'environments' | 'backups'>('canvas')
   const w = page.item ?? {}
   const projects = (w.projects as R[]) ?? []
   const unassigned = (w.unassigned as R[]) ?? []
