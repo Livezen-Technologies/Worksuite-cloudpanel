@@ -729,6 +729,18 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::put('projects/{id}/canvas/layout', [Customer\ProjectController::class, 'saveLayout'])->name('projects.canvas.layout');
             Route::post('projects/{id}/canvas/links', [Customer\ProjectController::class, 'link'])->name('projects.canvas.link');
             Route::delete('projects/{id}/canvas/links', [Customer\ProjectController::class, 'unlink'])->name('projects.canvas.unlink');
+            // PDNS: Project → DNS & Domains.
+            Route::get('projects/{id}/dns', [Customer\ProjectDomainController::class, 'index'])->name('projects.dns.index');
+            Route::post('projects/{id}/dns/domains', [Customer\ProjectDomainController::class, 'store'])->middleware('throttle:30,1')->name('projects.dns.store');
+            Route::get('projects/{id}/dns/domains/{domain}', [Customer\ProjectDomainController::class, 'show'])->name('projects.dns.show');
+            Route::patch('projects/{id}/dns/domains/{domain}', [Customer\ProjectDomainController::class, 'update'])->name('projects.dns.update');
+            Route::delete('projects/{id}/dns/domains/{domain}', [Customer\ProjectDomainController::class, 'destroy'])->name('projects.dns.destroy');
+            Route::post('projects/{id}/dns/domains/{domain}/validate', [Customer\ProjectDomainController::class, 'validateDns'])->middleware('throttle:20,1')->name('projects.dns.validate');
+            Route::post('projects/{id}/dns/domains/{domain}/publish', [Customer\ProjectDomainController::class, 'publish'])->middleware('throttle:20,1')->name('projects.dns.publish');
+            Route::post('projects/{id}/dns/domains/{domain}/certificate', [Customer\ProjectDomainController::class, 'certificate'])->middleware('throttle:10,1')->name('projects.dns.certificate');
+            Route::get('projects/{id}/dns/history', [Customer\ProjectDomainController::class, 'history'])->name('projects.dns.history');
+            Route::get('projects/{id}/dns/permissions', [Customer\ProjectDomainController::class, 'grants'])->name('projects.dns.permissions');
+            Route::match(['put', 'patch'], 'projects/{id}/dns/permissions/{userId}', [Customer\ProjectDomainController::class, 'grant'])->name('projects.dns.permissions.update');
             Route::get('projects/{id}/environments', [Customer\EnvironmentController::class, 'index'])->name('environments.index');
             Route::post('projects/{id}/environments', [Customer\EnvironmentController::class, 'store'])->name('environments.store');
             Route::post('environments/{id}/promote', [Customer\EnvironmentController::class, 'promote'])->name('environments.promote');

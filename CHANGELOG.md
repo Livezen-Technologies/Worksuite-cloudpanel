@@ -9,6 +9,39 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-11-19
+
+### Added
+
+- **Project → DNS & Domains** (PDNS, first slice). A new project tab with sub-pages: Connected
+  domains (counts, primary flag, verification and SSL status, Manage / Make primary / Remove),
+  Add domain (wizard: own domain or Livezen Cloud subdomain, target app in the project, manual
+  records or automatic through a connected DNS provider zone, then the exact records), DNS records,
+  DNS validation, DNS provider, SSL certificates, Domain routing, Change history and Permissions.
+- **Validate DNS** runs every check on the server, live, and reports each separately with expected
+  and found values: ownership TXT, A/AAAA/CNAME resolution, resolved address vs the cluster ingress
+  (and a clear message when it points at the node running the app), CNAME target, the ingress
+  endpoint itself, propagation across Cloudflare, Google and Quad9 (DNS-over-HTTPS), certificate
+  validity / names / expiry, HTTPS routing and the app's health. Each run is kept (`dns_checks.kind
+  = validation`).
+- **Ownership verification**: a custom domain added through a project carries a token proven by
+  `_livezen-verify.<domain> TXT livezen-verify=<token>`; DNS is not verified and no certificate is
+  issued until it is. The existing 2-minute `domains:check-dns` re-check detects when the customer
+  has finished.
+- **Ingress endpoint setting** `PLATFORM_INGRESS_HOSTNAME` / `PLATFORM_INGRESS_IPS` /
+  `PLATFORM_INGRESS_IPV6`: project domains point at the cluster ingress (CNAME for subdomains,
+  A/AAAA for apex), never the Docker node, so a Swarm move never changes customer DNS.
+- **Per-project DNS permissions** the organisation owner grants: view, add + verify, update records,
+  change primary, manage SSL, remove. Removing the active primary domain needs its name typed back.
+  Every change is written to the audit log and shown in Change history.
+
+### Changed
+
+- Zone publishing (DNS-013) now also refuses a CNAME where any other record exists at that name,
+  and any record beside an existing CNAME, so it can never replace a customer's website record.
+  Project domains set to manual DNS are never written to a zone.
+- Domains created before PDNS keep their records and behaviour unchanged.
+
 ## [1.15.0] — 2026-11-04
 
 ### Added
