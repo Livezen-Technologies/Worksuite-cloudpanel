@@ -1,3 +1,4 @@
+import { ProjectDashboard } from '../../components/ProjectDashboard'
 import { ProjectBackups } from '../../components/ProjectBackups'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -154,7 +155,7 @@ export default function UserProjects() {
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [pick, setPick] = useState('')
-  const [view, setView] = useState<'list' | 'canvas' | 'environments' | 'backups'>('canvas')
+  const [view, setView] = useState<'overview' | 'list' | 'canvas' | 'environments' | 'backups'>('overview')
   const w = page.item ?? {}
   const projects = (w.projects as R[]) ?? []
   const unassigned = (w.unassigned as R[]) ?? []
@@ -182,10 +183,11 @@ export default function UserProjects() {
             <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${cur.name}? Its apps stay, without a project.`)) run({ path: `/app/projects/${cur.id}`, method: 'DELETE', label: 'Delete project', success: 'Project deleted' }).then(() => { setOpenId(null); refetch() }).catch(() => {}) }}>Delete</button>
           </span>} />
         <div role="tablist" aria-label="Project view" className="flex gap-1 border-b border-line">
-          {(['canvas', 'list', 'environments', 'backups'] as const).map((v) => <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
+          {(['overview', 'canvas', 'list', 'environments', 'backups'] as const).map((v) => <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
             className={`h-10 px-3.5 border-0 bg-transparent cursor-pointer text-sm ${view === v ? 'font-semibold' : 'text-muted'}`}
-            style={view === v ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{v === 'canvas' ? 'Canvas' : v === 'list' ? 'Apps' : v === 'environments' ? 'Environments' : 'Backups'}</button>)}
+            style={view === v ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{v === 'overview' ? 'Overview' : v === 'canvas' ? 'Canvas' : v === 'list' ? 'Apps' : v === 'environments' ? 'Environments' : 'Backups'}</button>)}
         </div>
+        {view === 'overview' && <ProjectDashboard projectId={String(cur.id)} base="/app" appLink={(id) => `/app/apps/${id}`} />}
         {view === 'canvas' && <Card><ProjectCanvas projectId={String(cur.id)} /></Card>}
         {view === 'environments' && <ProjectEnvironments projectId={String(cur.id)} />}
         {view === 'backups' && <ProjectBackups projectId={String(cur.id)} base="/app" />}
