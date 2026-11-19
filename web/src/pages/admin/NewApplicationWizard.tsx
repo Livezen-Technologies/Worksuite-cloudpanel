@@ -74,11 +74,18 @@ function Rows({ rows, onChange, keyLabel, secret, addLabel }: { rows: (KV & { se
  * the server re-checks access, capacity and the address before anything is created, and the first
  * deployment runs as a background job whose progress page opens on confirm.
  */
-export default function NewApplicationWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function NewApplicationWizard({ open, onClose, projectId }: { open: boolean; onClose: () => void; projectId?: string }) {
   const nav = useNavigate()
   const servers = useList<Server>('/servers')
   const registries = useList<R>('/registries')
   const projects = useList<R>('/projects')
+  // Opened from a project: preselect that project's production environment (or its first one).
+  useEffect(() => {
+    if (!open || !projectId) return
+    const envs = ((projects.rows.find((p) => p.id === projectId)?.environments ?? []) as R[])
+    const env = envs.find((e) => e.kind === 'production') ?? envs[0]
+    if (env) setF((p) => (p.environment_id ? p : { ...p, environment_id: String(env.id) }))
+  }, [open, projectId, projects.rows]) // eslint-disable-line react-hooks/exhaustive-deps
   const git = useOne<R>('/git')
   const deployKeys = ((git.item?.keys as R[]) ?? [])
   const { run, busy } = useAction()

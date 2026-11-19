@@ -61,6 +61,7 @@ class TemplateController extends Controller
             'server_id' => 'nullable|uuid|exists:servers,id',
             'domain' => ['nullable', 'string', 'max:253', 'regex:/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
             'environment' => 'sometimes|in:production,staging,development',
+            'project_id' => 'nullable|uuid|exists:projects,id', // install straight into a project
             'variables' => 'sometimes|array', 'variables.*' => 'nullable|string|max:4096',
             // INST-2..4: options from the install wizard (single-image apps).
             'size' => 'nullable|in:small,standard,pro',

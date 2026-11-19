@@ -222,6 +222,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');
         Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
+        Route::post('projects/{id}/apps', [Admin\ProjectController::class, 'assign'])->name('projects.apps.assign');
         Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
         Route::match(['put', 'patch'], 'projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
         Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');

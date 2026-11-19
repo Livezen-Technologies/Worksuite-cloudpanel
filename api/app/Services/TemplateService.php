@@ -300,6 +300,11 @@ class TemplateService
                 if ($host) {
                     app(DomainService::class)->create(['name' => $host, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platformHost], $platformHost);
                 }
+                if (! empty($data['project_id'])) {
+                    // Into a project: the app joins the project's environment of the same kind.
+                    $env = app(EnvironmentService::class)->environmentFor($data['project_id'], $app->environment ?: 'production');
+                    $app->update(['project_id' => $data['project_id'], 'environment_id' => $env->id, 'environment' => $env->kind]);
+                }
                 $type = 'application';
                 $id = $app->id;
             }
