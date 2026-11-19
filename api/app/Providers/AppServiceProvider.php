@@ -52,6 +52,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // PWS-D: an app joining a project (created in it or assigned to it) must fit the project's quotas.
+        \App\Models\Application::saving(function (\App\Models\Application $app) {
+            if ($app->project_id && ($app->isDirty('project_id') || ! $app->exists) && ($project = \App\Models\Project::allTenants()->find($app->project_id))) {
+                app(\App\Services\ProjectQuotaService::class)->assert($project, $app);
+            }
+        });
         $this->applyStoredSmtp();
 
         Sanctum::usePersonalAccessTokenModel(AccessToken::class);

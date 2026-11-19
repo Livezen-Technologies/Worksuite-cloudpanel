@@ -91,6 +91,9 @@ class ScalingService
         if (! $app->current_release_id) {
             throw ApiException::conflict('Deploy the app once before adding copies.');
         }
+        if ($to > $from && $app->project_id && ($project = \App\Models\Project::allTenants()->find($app->project_id))) {
+            app(ProjectQuotaService::class)->assert($project, $app, [], $to);
+        }
         $server = Server::allTenants()->find($app->server_id);
         if (! $server?->isOnline()) {
             throw ApiException::conflict('The app\'s server is offline.');
