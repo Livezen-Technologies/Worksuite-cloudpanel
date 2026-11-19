@@ -24,12 +24,13 @@ class DatabaseService implements HandlesCommandResults
         if (! $template) {
             throw ApiException::validation(['engine' => ['Unknown database engine.']]);
         }
-        $server = Server::findOrFail($data['server_id']);
+        $server = ($data['any_tenant_server'] ?? false) ? Server::allTenants()->findOrFail($data['server_id']) : Server::findOrFail($data['server_id']);
         $version = $data['version'] ?? $template['versions'][0];
         $secret = Secret::create(['name' => $data['name'].'-password', 'value' => Str::password(32, symbols: false)]);
         $database = Database::create([
             'server_id' => $server->id, 'name' => $data['name'], 'engine' => $data['engine'], 'version' => $version,
             'environment' => $data['environment'] ?? 'production', 'secret_id' => $secret->id, 'status' => 'creating',
+            'project_id' => $data['project_id'] ?? null,
         ]);
         $secret->update(['owner_type' => 'Database', 'owner_id' => $database->id]);
 
@@ -51,7 +52,7 @@ class DatabaseService implements HandlesCommandResults
         $spec = ContainerSpec::build($input, Tenant::current());
         $job = $this->jobs->create('database.create', ['execute'], $database);
         $this->bus->dispatch($server, 'container.create', $spec, $job);
-        $container = Container::create(['server_id' => $server->id, 'name' => $containerName, 'image' => $spec['image'], 'state' => 'creating', 'spec' => ContainerSpec::redact($spec)]);
+        $container = Container::create(['server_id' => $server->id, 'project_id' => $data['project_id'] ?? null, 'name' => $containerName, 'image' => $spec['image'], 'state' => 'creating', 'spec' => ContainerSpec::redact($spec)]);
         $database->update(['container_id' => $container->id]);
 
         return ['database' => $this->toApi($database->fresh()), 'job_id' => $job->id];
@@ -63,6 +64,19 @@ class DatabaseService implements HandlesCommandResults
         $ok = $command->status === 'succeeded';
         $database?->update(['status' => $ok ? 'running' : 'failed']);
         $ok ? $this->jobs->succeed($job, ['database_id' => $database?->id]) : $this->jobs->fail($job, $command->message ?: 'Database container failed to start', 'execute');
+    }
+
+    /** PWS-C: connection details with the password masked; the secret stays behind its own audited endpoint. */
+    public function connection(Database $db): array
+    {
+        $template = config('platform.database_templates')[$db->engine] ?? [];
+        $user = match ($db->engine) { 'postgres' => 'postgres', 'mysql', 'mariadb' => 'root', 'mongodb' => 'root', default => null };
+        $host = 'db-'.Str::slug($db->name);
+
+        return [
+            'host' => $host, 'port' => $template['port'] ?? null, 'username' => $user, 'password' => $db->secret_id ? '••••••••' : null,
+            'url' => $user ? "{$db->engine}://{$user}:••••••••@{$host}:".($template['port'] ?? '') : "{$db->engine}://:••••••••@{$host}:".($template['port'] ?? ''),
+        ];
     }
 
     public function toApi(Database $db): array

@@ -9,6 +9,26 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-11-19
+
+### Added
+
+- **Project databases and Storage & volumes** (Project workspace slice C). `databases.project_id`
+  and `volumes.project_id`, backfilled where a link already exists (a database through its
+  container's project or app; a volume when every container mounting it is in one project).
+- `GET/POST projects/{id}/databases`, attach/detach, and `GET projects/{id}/databases/{db}/credentials`
+  (owner only, audited as `project.database.credentials`); `GET/POST projects/{id}/volumes`,
+  attach/detach. Same endpoints on admin and `/app`. Lists show connection details with the
+  password masked; everything is looked up inside the project's own organisation.
+- Provisioning is limited to nodes the project already runs on (staff may also use the
+  organisation's servers); the database's container is tagged with the project.
+- Workspace Databases and Storage & volumes sections use a shared `ProjectResources` component
+  (the customer workspace reuses it).
+
+### Note
+
+- New databases still join the node's shared `internal` network; per-project networks are slice F.
+
 ## [1.19.0] — 2026-11-19
 
 ### Added

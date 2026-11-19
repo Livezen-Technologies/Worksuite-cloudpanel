@@ -11,6 +11,7 @@ import { ProjectBackups } from '../../components/ProjectBackups'
 import { ProjectCanvas } from '../../components/ProjectCanvas'
 import { ProjectDashboard } from '../../components/ProjectDashboard'
 import { ProjectDns } from '../../components/ProjectDns'
+import { ProjectResources } from '../../components/ProjectResources'
 import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
@@ -146,8 +147,8 @@ export default function ProjectDetail() {
         columns: [{ key: 'name', header: 'Network', value: (n) => String(n.name) }, { key: 'scope', header: 'Scope', value: (n) => String(n.scope ?? '') }, { key: 'status', header: 'Status', value: (n) => String(n.status ?? ''), render: (n) => <StatusBadge status={String(n.status)} /> }],
         empty: "No project networks yet. Per-project networks are a later slice; apps share the node's networks for now." })}
 
-      {section === 'databases' && <NotYet link={<Link to="/admin/databases" className="btn">All databases</Link>}>Not yet available per project. Databases are not linked to a project yet, so they are listed with all databases for now.</NotYet>}
-      {section === 'storage' && <NotYet link={<Link to="/admin/volumes" className="btn">All volumes</Link>}>Not yet available per project. Volumes are tracked per server and app, not per project; a project view is a later slice.</NotYet>}
+      {section === 'databases' && <ProjectResources projectId={p.id} kind="databases" canManage={can('manage')} />}
+      {section === 'storage' && <ProjectResources projectId={p.id} kind="volumes" canManage={can('manage')} />}
 
       {section === 'dns' && <div className="flex flex-col gap-4">
         {table({ label: 'Domains', rows: ws?.domains ?? [], loading: wsq.isLoading,

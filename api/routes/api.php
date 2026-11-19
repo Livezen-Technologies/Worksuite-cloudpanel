@@ -191,6 +191,16 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
         // PWS: the project workspace and its members; the project role is checked in the controller.
         Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
+        // PWS-C: project databases and volumes; the project role is checked in the controller.
+        Route::get('projects/{id}/databases', [\App\Http\Controllers\ProjectResourceController::class, 'databases'])->name('projects.databases');
+        Route::post('projects/{id}/databases', [\App\Http\Controllers\ProjectResourceController::class, 'storeDatabase'])->name('projects.databases.store');
+        Route::post('projects/{id}/databases/{dbId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachDatabase'])->whereUuid(['dbId'])->name('projects.databases.attach');
+        Route::delete('projects/{id}/databases/{dbId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachDatabase'])->whereUuid(['dbId'])->name('projects.databases.detach');
+        Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
+        Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
+        Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
+        Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
+        Route::delete('projects/{id}/volumes/{volumeId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.detach');
         Route::match(['put', 'patch'], 'projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'setMember'])->name('projects.members.set');
         Route::delete('projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'removeMember'])->name('projects.members.remove');
         Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
@@ -736,6 +746,16 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
             // PWS: the project workspace and its members; the project role is checked in the controller.
             Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
+            // PWS-C: project databases and volumes; the project role is checked in the controller.
+            Route::get('projects/{id}/databases', [\App\Http\Controllers\ProjectResourceController::class, 'databases'])->name('projects.databases');
+            Route::post('projects/{id}/databases', [\App\Http\Controllers\ProjectResourceController::class, 'storeDatabase'])->name('projects.databases.store');
+            Route::post('projects/{id}/databases/{dbId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachDatabase'])->whereUuid(['dbId'])->name('projects.databases.attach');
+            Route::delete('projects/{id}/databases/{dbId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachDatabase'])->whereUuid(['dbId'])->name('projects.databases.detach');
+            Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
+            Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
+            Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
+            Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
+            Route::delete('projects/{id}/volumes/{volumeId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.detach');
             Route::match(['put', 'patch'], 'projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'setMember'])->name('projects.members.set');
             Route::delete('projects/{id}/members/{userId}', [\App\Http\Controllers\ProjectWorkspaceController::class, 'removeMember'])->name('projects.members.remove');
             Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
