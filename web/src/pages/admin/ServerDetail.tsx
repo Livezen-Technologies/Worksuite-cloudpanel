@@ -14,8 +14,9 @@ import { CleanupPanel } from '../../components/CleanupPanel'
 import { TunnelPanel } from '../../components/TunnelPanel'
 import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
 import { ServerCapacityCard } from '../../components/ServerCapacityCard'
+import { ServerFirewallPanel } from '../../components/ServerFirewallPanel'
 
-const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
+const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Firewall', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
 
 /**
@@ -136,6 +137,7 @@ export default function ServerDetail() {
         columns={[{ key: 'created_at', header: 'Time', render: (r) => ago(r.created_at) }, { key: 'user', header: 'User', value: (r) => r.user_name ?? r.user?.name ?? r.user }, { key: 'action', header: 'Action' }, { key: 'resource', header: 'Resource', value: (r) => r.resource ?? r.resource_type }, { key: 'ip', header: 'Source IP', render: (r) => <span className="font-mono text-xs">{r.ip ?? r.source_ip}</span> }]} />}
       {tab === 'Security' && <Card title="Agent transport"><p className="m-0 text-sm text-muted">The agent connects outbound over HTTPS with a per-agent secret; every command is HMAC-signed and checked against local policy. No Docker socket is exposed.</p></Card>}
       {tab === 'Backups' && <SimpleList label="Backup jobs" path="/backup-jobs" query={{ server_id: id }} columns={[{ key: 'policy', header: 'Policy', value: (r) => r.policy_name ?? r.policy?.name ?? r.policy_id }, { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> }, { key: 'created_at', header: 'When', render: (r) => ago(r.created_at) }]} />}
+      {tab === 'Firewall' && id && <ServerFirewallPanel serverId={id} />}
       {tab === 'Cleanup' && id && <CleanupPanel serverId={id} />}
       {tab === 'Tunnel' && id && <TunnelPanel serverId={id} />}
       {tab === 'Routes' && id && <AdoptRoutesPanel serverId={id} />}
