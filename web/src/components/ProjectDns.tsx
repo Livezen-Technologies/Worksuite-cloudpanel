@@ -72,7 +72,7 @@ export function ProjectDns({ projectId, initial = 'domains' }: { projectId: stri
       {page !== 'domains' && page !== 'add' && page !== 'history' && page !== 'permissions' && !cur && <Card><Empty icon="globe">No domains in this project yet.</Empty></Card>}
       {page === 'records' && cur && <Records domain={cur} base={base} canPublish={perms.has('records')} />}
       {page === 'validation' && cur && <Validation key={String(cur.id)} domain={cur} base={base} />}
-      {page === 'provider' && cur && <Provider domain={cur} base={base} canPublish={perms.has('records')} />}
+      {page === 'provider' && cur && <Provider domain={cur} base={base} canPublish={perms.has('records')} canConnect={perms.has('provider')} />}
       {page === 'ssl' && cur && <Ssl domain={cur} base={base} canManage={perms.has('ssl')} />}
       {page === 'routing' && <Routing data={d} base={base} canChange={perms.has('records')} />}
       {page === 'history' && <History base={base} />}
@@ -196,7 +196,7 @@ function Records({ domain, base, canPublish }: { domain: R; base: string; canPub
   const { run, busy } = useAction()
   const [out, setOut] = useState<R[] | null>(null)
   return (
-    <Card title={`DNS records for ${String(domain.name)}`} subtitle={domain.platform_subdomain ? 'Managed by Livezen Cloud.' : 'Create these at your DNS provider. Leave your other records (MX, SPF, DKIM, DMARC) as they are.'}
+    <Card title={`DNS records for ${String(domain.name)}${domain.platform_subdomain ? '' : domain.subdomain ? ' (subdomain: CNAME)' : ' (apex domain: A/AAAA)'}`} subtitle={domain.platform_subdomain ? 'Managed by Livezen Cloud.' : 'Create these at your DNS provider. Leave your other records (MX, SPF, DKIM, DMARC) as they are.'}
       actions={canPublish && domain.dns_zone ? <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run<R>({ path: `${base}/domains/${domain.id}/publish`, label: 'Write records to provider' }).then((r) => setOut((unwrap<R>(r).records as R[]) ?? [])).catch(() => {})}>Write missing records to {String((domain.dns_zone as R).provider ?? 'provider')}</button> : undefined}>
       <RecordsTable records={(domain.records as Rec[]) ?? []} />
       {out && <ul className="text-sm mb-0">{out.map((p) => <li key={String(p.type) + String(p.name)}><span className="font-mono">{String(p.type)} {String(p.name)}</span>: <StatusBadge status={String(p.status)} /> {p.message ? <span className="text-muted">{String(p.message)}</span> : null}</li>)}</ul>}
@@ -228,12 +228,90 @@ function Validation({ domain, base }: { domain: R; base: string }) {
   )
 }
 
-function Provider({ domain, base, canPublish }: { domain: R; base: string; canPublish: boolean }) {
+function Provider({ domain, base, canPublish, canConnect }: { domain: R; base: string; canPublish: boolean; canConnect: boolean }) {
+  const providers = useOne<R[]>(`${base}/providers`)
+  const { run, busy } = useAction()
+  const [token, setToken] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [pick, setPick] = useState<string | null>(null)
+  const [zones, setZones] = useState<R[] | null>(null)
+  const [drop, setDrop] = useState<R | null>(null)
+  const list = (providers.item as R[] | undefined) ?? []
   const zone = domain.dns_zone as R | null
-  return zone ? <Records domain={domain} base={base} canPublish={canPublish} /> : (
-    <Card title="DNS provider integration">
-      <p className="mt-0 text-sm">{String(domain.name)} is not in a DNS zone connected to this account, so its records are added by hand.</p>
-      <p className="mb-0 text-sm text-muted">Connect your Cloudflare zone under DNS with an API token limited to that zone’s DNS. The token is stored encrypted. We only create the records a domain needs and never change or delete your existing records; a clash is reported for you to decide.</p>
+  const connect = () => {
+    setErr(null)
+    run<R>({ path: `${base}/providers`, body: { type: 'cloudflare', token: token.trim() }, label: 'Connect Cloudflare', success: 'Cloudflare connected', silent: true })
+      .then((r) => { const a = unwrap<R>(r); setToken(''); setPick(String(a.id)); setZones((a.zones as R[]) ?? []); providers.refetch() })
+      .catch((e: { message?: string; fields?: Record<string, string[]> }) => setErr(e?.fields?.token?.[0] ?? e?.message ?? 'Cloudflare refused the token.'))
+  }
+  const loadZones = (id: string) => { setPick(id); setZones(null); api.get<{ data: R[] }>(`${base}/providers/${id}/zones`).then((r) => setZones(r.data)).catch(() => setZones([])) }
+  return (
+    <div className="flex flex-col gap-3">
+      <Card title="DNS provider" subtitle="Connect your own Cloudflare account. The token is checked with Cloudflare, stored encrypted for this organisation only, and never shown again.">
+        {list.length === 0 && <p className="mt-0 text-sm text-muted">No DNS provider connected. Records for {String(domain.name)} are added by hand until you connect one.</p>}
+        {list.length > 0 && <ul className="list-none m-0 p-0 mb-3">{list.map((a) => (
+          <li key={String(a.id)} className="flex flex-wrap items-center gap-2 py-2 border-t border-line first:border-t-0 text-sm">
+            <span className="font-semibold">{String(a.name)}</span><Badge tone="n">{String(a.type)}</Badge>{a.source === 'customer' ? null : <Badge tone="b">Connected by Livezen</Badge>}
+            <span className="text-muted">{((a.zones as R[]) ?? []).map((z) => String(z.name)).join(', ') || 'no zones in use'}</span>
+            <span className="ml-auto flex gap-2">
+              {canConnect && a.type === 'cloudflare' && <button type="button" className="btn btn-sm" onClick={() => loadZones(String(a.id))}>Choose zone</button>}
+              {canConnect && !!a.can_disconnect && <button type="button" className="btn btn-sm" onClick={() => setDrop(a)}>Disconnect</button>}
+            </span>
+          </li>
+        ))}</ul>}
+        {canConnect ? (
+          <div className="flex flex-col gap-2">
+            <Field label="Cloudflare API token" hint="Create it in Cloudflare under My Profile → API Tokens with Zone:Read and DNS:Edit, limited to the zone that holds your domain.">
+              <input className="input font-mono" type="password" autoComplete="off" aria-label="Cloudflare API token" value={token} onChange={(e) => setToken(e.target.value)} />
+            </Field>
+            {err && <p role="alert" className="m-0 text-sm text-danger">{err}</p>}
+            <div><button type="button" className="btn btn-primary btn-sm" disabled={busy || token.trim().length < 20} onClick={connect}>Connect Cloudflare</button></div>
+          </div>
+        ) : <p className="m-0 text-sm text-muted">Ask the project owner for the “Connect a DNS provider” permission to connect an account.</p>}
+        {pick && (
+          <div className="mt-3">
+            <div className="text-sm font-semibold mb-2">Zone for {String(domain.name)}</div>
+            {zones === null ? <p className="m-0 text-sm text-muted">Loading zones…</p> : zones.length === 0 ? <p className="m-0 text-sm text-muted">This token can see no zones.</p> : (
+              <ul className="list-none m-0 p-0" aria-label="Cloudflare zones">{zones.map((z) => {
+                const fits = String(domain.name) === z.name || String(domain.name).endsWith(`.${String(z.name)}`)
+                return (
+                  <li key={String(z.id)} className="flex items-center gap-2 py-1.5 text-sm">
+                    <span className="font-mono">{String(z.name)}</span> <StatusBadge status={String(z.status)} />
+                    <button type="button" className="btn btn-sm ml-auto" disabled={!fits || busy} title={fits ? undefined : `${String(domain.name)} is not in this zone`}
+                      onClick={() => run({ path: `${base}/domains/${domain.id}/zone`, body: { provider_id: pick, zone_id: z.id }, label: `Use ${String(z.name)}`, success: 'Zone connected' }).then(() => { setPick(null); providers.refetch() }).catch(() => {})}>Use for this domain</button>
+                  </li>
+                )
+              })}</ul>
+            )}
+          </div>
+        )}
+      </Card>
+      {zone && <ZoneRecords domain={domain} base={base} />}
+      {zone && <Records domain={domain} base={base} canPublish={canPublish} />}
+      <ConfirmDialog open={!!drop} onClose={() => setDrop(null)} danger busy={busy} title={`Disconnect ${String(drop?.name ?? '')}?`} confirmLabel="Disconnect"
+        onConfirm={() => drop && run({ method: 'DELETE', path: `${base}/providers/${drop.id}`, label: 'Disconnect provider', success: 'Disconnected' }).then(() => { setDrop(null); setPick(null); providers.refetch() }).catch(() => {})}>
+        <p className="m-0 text-sm">The panel forgets the token and stops writing records. Nothing is deleted at Cloudflare: your domains keep working.</p>
+      </ConfirmDialog>
+    </div>
+  )
+}
+
+function ZoneRecords({ domain, base }: { domain: R; base: string }) {
+  const q = useOne<R>(`${base}/domains/${domain.id}/zone-records`)
+  const rows = ((q.item?.records as R[]) ?? [])
+  return (
+    <Card title={`Records in ${String((q.item?.zone as R | null)?.name ?? (domain.dns_zone as R)?.name ?? 'the zone')}`} subtitle="Records marked Managed are the ones the panel created for this domain. The rest are yours and are never changed or deleted." pad={false}>
+      {rows.length === 0 ? <Empty icon="globe">No records for {String(domain.name)} in the zone yet.</Empty> : (
+        <div className="overflow-x-auto"><table className="tbl min-w-[620px]" aria-label="Zone records">
+          <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Type</th><th className="p-2.5">Name</th><th className="p-2.5">Value</th><th className="p-2.5">Owner</th></tr></thead>
+          <tbody>{rows.map((r, i) => (
+            <tr key={i} className="border-t border-line">
+              <td className="py-2.5 px-5 font-mono font-semibold">{String(r.type)}</td><td className="p-2.5 font-mono break-all">{String(r.name)}</td><td className="p-2.5 font-mono break-all">{String(r.value)}</td>
+              <td className="p-2.5">{r.managed ? <Badge tone="b">Managed</Badge> : <Badge tone="n">Yours — kept</Badge>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
     </Card>
   )
 }
@@ -277,7 +355,7 @@ function Routing({ data, base, canChange }: { data: R; base: string; canChange: 
 function History({ base }: { base: string }) {
   const h = useOne<R[]>(`${base}/history`)
   const rows = (h.item as R[] | undefined) ?? []
-  const LABEL: Record<string, string> = { 'domain.added': 'Added', 'domain.removed': 'Removed', 'domain.primary_changed': 'Primary changed', 'domain.ownership_verified': 'Ownership verified', 'domain.dns_published': 'Records written to provider', 'domain.routing_changed': 'Routing changed', 'domain.certificate_requested': 'Certificate requested', 'domain.permissions_changed': 'Permissions changed' }
+  const LABEL: Record<string, string> = { 'domain.added': 'Added', 'domain.removed': 'Removed', 'domain.primary_changed': 'Primary changed', 'domain.ownership_verified': 'Ownership verified', 'domain.dns_published': 'Records written to provider', 'domain.routing_changed': 'Routing changed', 'domain.certificate_requested': 'Certificate requested', 'domain.permissions_changed': 'Permissions changed', 'domain.permissions_revoked': 'All permissions revoked', 'domain.zone_attached': 'Zone connected', 'domain.state_changed': 'Status changed', 'dns.provider_connected': 'DNS provider connected', 'dns.provider_disconnected': 'DNS provider disconnected' }
   return (
     <Card title="DNS change history" pad={false}>
       {rows.length === 0 ? <Empty icon="clock">No changes yet.</Empty> : (
@@ -296,12 +374,13 @@ function History({ base }: { base: string }) {
 function Permissions({ base, isOwner, labels }: { base: string; isOwner: boolean; labels: Record<string, string> }) {
   const g = useOne<R[]>(`${base}/permissions`)
   const { run, busy } = useAction()
+  const [revoke, setRevoke] = useState<R | null>(null)
   const rows = (g.item as R[] | undefined) ?? []
   const keys = Object.keys(labels)
   return (
     <Card title="Who can manage this project’s DNS" subtitle={isOwner ? 'Everyone in the project can view its domains. Grant the rest per person.' : 'Only the project owner can change these.'} pad={false}>
       <div className="overflow-x-auto"><table className="tbl min-w-[640px]">
-        <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Member</th>{keys.map((k) => <th key={k} className="p-2.5">{labels[k]}</th>)}</tr></thead>
+        <thead><tr className="text-left text-xs text-muted bg-head"><th className="py-2.5 px-5">Member</th>{keys.map((k) => <th key={k} className="p-2.5">{labels[k]}</th>)}{isOwner && <th className="p-2.5"><span className="sr-only">Actions</span></th>}</tr></thead>
         <tbody>{rows.map((m) => {
           const has = new Set((m.permissions as string[]) ?? [])
           return (
@@ -309,10 +388,15 @@ function Permissions({ base, isOwner, labels }: { base: string; isOwner: boolean
               <td className="py-2.5 px-5">{String(m.name ?? m.email)} {m.owner ? <Badge tone="b">Owner</Badge> : null}</td>
               {keys.map((k) => <td key={k} className="p-2.5"><input type="checkbox" aria-label={`${labels[k]} for ${m.name ?? m.email}`} checked={has.has(k)} disabled={!isOwner || !!m.owner || k === 'view' || busy}
                 onChange={(e) => { const next = new Set(has); if (e.target.checked) next.add(k); else next.delete(k); run({ method: 'PATCH', path: `${base}/permissions/${m.user_id}`, body: { permissions: [...next].filter((p) => p !== 'view') }, label: 'Save permissions', success: 'Permissions saved' }).catch(() => {}) }} /></td>)}
+              {isOwner && <td className="p-2.5">{!m.owner && has.size > 1 && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setRevoke(m)}>Revoke all</button>}</td>}
             </tr>
           )
         })}</tbody>
       </table></div>
+      <ConfirmDialog open={!!revoke} onClose={() => setRevoke(null)} danger busy={busy} title={`Revoke all DNS permissions of ${String(revoke?.name ?? revoke?.email ?? '')}?`} confirmLabel="Revoke all"
+        onConfirm={() => revoke && run({ method: 'DELETE', path: `${base}/permissions/${revoke.user_id}`, label: 'Revoke DNS permissions', success: 'Permissions revoked' }).then(() => { setRevoke(null); g.refetch() }).catch(() => {})}>
+        <p className="m-0 text-sm">They keep seeing the project’s domains, but can no longer add, change, publish or remove anything. This is recorded in the change history.</p>
+      </ConfirmDialog>
     </Card>
   )
 }

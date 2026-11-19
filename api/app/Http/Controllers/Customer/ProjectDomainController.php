@@ -120,4 +120,61 @@ class ProjectDomainController extends Controller
 
         return $this->data($this->pdns->grants($project));
     }
+    /** PDNS-2: revoke every DNS permission of one member, at once. Owner only. */
+    public function revokeAll(Request $request, string $id, string $userId)
+    {
+        $project = Project::findOrFail($id);
+        abort_unless($this->pdns->isOwner($request->user(), $project), 403, 'Only the project owner can change DNS permissions.');
+        $this->pdns->revokeAll($project, $userId);
+
+        return $this->data($this->pdns->grants($project));
+    }
+
+    // ---- PDNS-2: the customer's own Cloudflare account ----
+
+    public function providers(Request $request, string $id)
+    {
+        $this->project($request, $id, 'view');
+
+        return $this->data($this->pdns->providers());
+    }
+
+    public function connectProvider(Request $request, string $id)
+    {
+        $project = $this->project($request, $id, 'provider');
+        $data = $request->validate(['type' => ['sometimes', Rule::in(['cloudflare'])], 'token' => 'required|string|min:20|max:255', 'name' => 'nullable|string|max:100']);
+        $request->attributes->set('audit_skip', true);
+
+        return $this->data($this->pdns->connectCloudflare($project, trim($data['token']), $data['name'] ?? null), 201);
+    }
+
+    public function providerZones(Request $request, string $id, string $account)
+    {
+        $this->project($request, $id, 'provider');
+
+        return $this->data($this->pdns->remoteZones($account));
+    }
+
+    public function disconnectProvider(Request $request, string $id, string $account)
+    {
+        $project = $this->project($request, $id, 'provider');
+        $this->pdns->disconnect($project, $account);
+
+        return response()->noContent();
+    }
+
+    public function attachZone(Request $request, string $id, string $domain)
+    {
+        $project = $this->project($request, $id, 'provider');
+        $data = $request->validate(['provider_id' => 'required|uuid', 'zone_id' => 'required|string|max:64']);
+
+        return $this->data($this->pdns->attachZone($project, $this->pdns->find($project, $domain), $data['provider_id'], $data['zone_id']));
+    }
+
+    public function zoneRecords(Request $request, string $id, string $domain)
+    {
+        $project = $this->project($request, $id, 'view');
+
+        return $this->data($this->pdns->managedRecords($this->pdns->find($project, $domain)));
+    }
 }

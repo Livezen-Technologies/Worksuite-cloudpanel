@@ -24,12 +24,15 @@ describe('Project DNS & Domains', () => {
       if (url.endsWith('/app/projects/p1/dns') && method === 'GET') return json(200, { data: {
         counts: { total: 1, verified: 0, pending: 1, ssl_active: 0 }, domains: [domain], apps: [{ id: 'a1', name: 'web', status: 'running' }],
         ingress: { hostname: 'ingress.livezencloud.test', ips: ['203.0.113.50'] }, platform_domain: 'livezen.app',
-        permissions: ['view', 'add', 'records', 'primary', 'ssl', 'remove'], is_owner: true, permission_labels: { view: 'View', add: 'Add' },
+        permissions: ['view', 'add', 'records', 'primary', 'ssl', 'remove', 'provider'], is_owner: true, permission_labels: { view: 'View', add: 'Add' },
       } })
       if (url.endsWith('/domains/d1/validate')) return json(200, { data: { ok: false, checked_at: new Date().toISOString(), checks: [
         { key: 'ownership', label: 'Domain ownership (TXT)', status: 'fail', expected: '_livezen-verify.shop.example.com TXT livezen-verify=abc', actual: 'no TXT record', message: 'Add the TXT record shown.' },
         { key: 'cname_target', label: 'CNAME target', status: 'pass', expected: 'ingress.livezencloud.test', actual: 'ingress.livezencloud.test' },
       ], records: [{ ...domain.records[1], actual: [], status: 'fail' }] } })
+      if (url.endsWith('/dns/providers') && method === 'POST') return json(201, { data: { id: 'pa1', name: 'Cloudflare', zones: [{ id: 'z1', name: 'example.com', status: 'active' }, { id: 'z2', name: 'other.org', status: 'active' }] } })
+      if (url.endsWith('/dns/providers') && method === 'GET') return json(200, { data: [{ id: 'pa1', name: 'Cloudflare', type: 'cloudflare', source: 'customer', can_disconnect: true, zones: [] }] })
+      if (url.endsWith('/dns/permissions') && method === 'GET') return json(200, { data: [{ user_id: 'u2', name: 'Dev', email: 'dev@example.test', owner: false, permissions: ['view', 'add'] }] })
       if (url.endsWith('/dns/domains') && method === 'POST') return json(201, { data: { ...domain, id: 'd2', name: 'blog.example.com', published: [] } })
       return json(200, { data: [] })
     }))
@@ -64,5 +67,31 @@ describe('Project DNS & Domains', () => {
     const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/dns/domains'))!
     expect(JSON.parse(post.body!)).toMatchObject({ kind: 'custom', name: 'blog.example.com', app_id: 'a1', method: 'manual' })
     expect(screen.getByText('ingress.livezencloud.test')).toBeInTheDocument()
+  })
+
+  it('connects a Cloudflare token, lists its zones and picks the one holding the domain', async () => {
+    renderIt()
+    await userEvent.click(await screen.findByRole('tab', { name: 'DNS provider' }))
+    await userEvent.type(screen.getByLabelText('Cloudflare API token'), 'cf-token-0123456789abcdef')
+    await userEvent.click(screen.getByRole('button', { name: 'Connect Cloudflare' }))
+    const zones = await screen.findByRole('list', { name: 'Cloudflare zones' })
+    expect(zones).toHaveTextContent('example.com')
+    const buttons = screen.getAllByRole('button', { name: 'Use for this domain' })
+    expect(buttons[1]).toBeDisabled()
+    await userEvent.click(buttons[0])
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/domains/d1/zone'))).toBe(true))
+    const post = calls.find((c) => c.url.endsWith('/domains/d1/zone'))!
+    expect(JSON.parse(post.body!)).toEqual({ provider_id: 'pa1', zone_id: 'z1' })
+    expect(JSON.parse(calls.find((c) => c.method === 'POST' && c.url.endsWith('/dns/providers'))!.body!)).toMatchObject({ type: 'cloudflare', token: 'cf-token-0123456789abcdef' })
+  })
+
+  it('revokes every DNS permission of a member after confirmation', async () => {
+    renderIt()
+    await userEvent.click(await screen.findByRole('tab', { name: 'Permissions' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Revoke all' }))
+    expect(screen.getByText(/Revoke all DNS permissions of Dev/)).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Revoke all' }).at(-1)!)
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/dns/permissions/u2'))).toBe(true))
   })
 })

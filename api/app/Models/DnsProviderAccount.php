@@ -22,7 +22,7 @@ class DnsProviderAccount extends Model
 
     protected function casts(): array
     {
-        return ['credentials' => 'encrypted:array'];
+        return ['credentials' => 'encrypted:array', 'verified_at' => 'datetime'];
     }
 
     public function driver(): DnsProvider
