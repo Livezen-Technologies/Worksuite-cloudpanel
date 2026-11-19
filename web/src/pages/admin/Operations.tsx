@@ -19,6 +19,7 @@ import { backupDownloadUrl } from '../../lib/download'
 import Select from '../../components/Select'
 import { Icon } from '../../components/Icon'
 import { BackupStoragePool } from './BackupStoragePool'
+import { BackupLogs } from './BackupLogs'
 
 const REMOTE = ['s3', 'b2', 'r2', 'gdrive', 'sftp']
 const S3_LIKE = ['s3', 'b2', 'r2']
@@ -104,7 +105,7 @@ const RESTORE_BLANK: R = { scope: 'everything', mode: 'replace', fresh_backup: t
 
 /** BKM-001..009: the Backup manager — Policies, Snapshots, Restore, Destinations, Restore tests. */
 export function Backups() {
-  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'pool' | 'tests'>('policies')
+  const [tab, setTab] = useState<'policies' | 'snapshots' | 'restore' | 'destinations' | 'pool' | 'logs' | 'tests'>('policies')
   const [target, setTarget] = useState('')
   const policies = useList<R>('/backup-policies')
   const summary = useOne<R>('/backups/summary', undefined, { refetchInterval: 30000 })
@@ -179,7 +180,7 @@ export function Backups() {
       </div>
       <Tabs value={tab} onChange={setTab} label="Backup manager sections" tabs={[
         { id: 'policies', label: 'Policies' }, { id: 'snapshots', label: 'Snapshots' }, { id: 'restore', label: 'Restore' },
-        { id: 'destinations', label: 'Destinations' }, { id: 'pool', label: 'Storage pool' }, { id: 'tests', label: 'Restore tests' },
+        { id: 'destinations', label: 'Destinations' }, { id: 'pool', label: 'Storage pool' }, { id: 'logs', label: 'Logs & alerts' }, { id: 'tests', label: 'Restore tests' },
       ]} />
 
       {tab === 'policies' && <div className="flex flex-col gap-4">
@@ -258,6 +259,8 @@ export function Backups() {
         </div>)}
 
       {tab === 'pool' && <BackupStoragePool />}
+
+      {tab === 'logs' && <BackupLogs policyName={policyName} />}
 
       {tab === 'tests' && <Card pad={false}>
         {artifacts.isLoading ? <p className="px-5 py-4 m-0 text-sm text-muted">Loading…</p>

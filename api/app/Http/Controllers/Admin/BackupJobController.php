@@ -20,6 +20,15 @@ class BackupJobController extends Controller
         return response()->json(Lists::paginate(BackupJob::with('artifacts'), $request, [], ['created_at', 'status'], ['status', 'backup_policy_id', 'target_type', 'target_id', 'application_id']));
     }
 
+    /** Backup manager → Logs: one run's log, error and files. */
+    public function log(string $id)
+    {
+        $job = BackupJob::with('artifacts')->findOrFail($id);
+
+        return $this->data(['id' => $job->id, 'status' => $job->status, 'error' => $job->error, 'log' => $job->log,
+            'started_at' => $job->started_at, 'finished_at' => $job->finished_at, 'artifacts' => $job->artifacts]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate(['policy_id' => 'required|uuid']);

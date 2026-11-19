@@ -64,4 +64,27 @@ class BackupExternalPolicyTest extends TestCase
         $this->assertSame('upload=FAILED', $job->error);
         $this->assertSame(0, app(Tenant::class)->as($org->id, fn () => BackupArtifact::count()));
     }
+
+    public function test_run_log_is_kept_and_fetched_per_job(): void
+    {
+        [$org, $token, , $p] = $this->external();
+        $log = tempnam(sys_get_temp_dir(), 'l');
+        file_put_contents($log, "dump gpet-db ok\nupload FAILED: connection reset\n");
+        $this->assertSame(0, Artisan::call('backups:record-external', ['policy' => $p['id'], '--status' => 'failed', '--error' => 'upload=FAILED', '--log' => $log]));
+        $job = app(Tenant::class)->as($org->id, fn () => BackupJob::where('backup_policy_id', $p['id'])->sole());
+
+        $list = $this->api($token)->getJson('/api/v1/backup-jobs')->assertOk()->json('data.0');
+        $this->assertArrayNotHasKey('log', $list);
+        $this->api($token)->getJson("/api/v1/backup-jobs/{$job->id}/log")->assertOk()
+            ->assertJsonPath('data.status', 'failed')->assertJsonPath('data.error', 'upload=FAILED')
+            ->assertSee('connection reset');
+    }
+
+    public function test_seed_defaults_adds_the_overdue_rule_once(): void
+    {
+        [, $org] = $this->org();
+        $this->assertSame(0, Artisan::call('alerts:seed-defaults'));
+        $this->assertSame(0, Artisan::call('alerts:seed-defaults'));
+        $this->assertSame(1, \App\Models\AlertRule::allTenants()->where('organization_id', $org->id)->where('metric', 'backup_overdue')->count());
+    }
 }
