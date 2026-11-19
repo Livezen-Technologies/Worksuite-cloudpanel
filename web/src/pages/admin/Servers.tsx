@@ -16,6 +16,26 @@ import Select from '../../components/Select'
 
 const meterColor = (v: number) => (v >= 85 ? 'var(--r-fg)' : v >= 70 ? 'var(--y-fg)' : 'var(--accent)')
 
+/** One server as a compact row (list view). */
+function ServerRow({ s }: { s: Server }) {
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3 border-t border-line first:border-t-0 text-[13.5px]">
+      <Dot tone={toneFor(s.status)} />
+      <span className="flex-[1_1_200px] min-w-0">
+        <Link to={`/admin/servers/${s.id}`} className="block font-semibold truncate text-fg">{s.name}</Link>
+        <span className="block text-xs text-muted font-mono truncate">{s.ip ?? '—'}{s.region ? ` · ${s.region}` : ''}</span>
+      </span>
+      {([['CPU', s.cpu_pct], ['RAM', s.ram_pct], ['Disk', s.disk_pct]] as [string, number | undefined][]).map(([k, v]) => (
+        <span key={k} className="w-[92px]"><span className="flex justify-between text-xs"><span className="text-muted">{k}</span><span className="font-semibold tabular-nums">{v == null ? '—' : `${Math.round(v)}%`}</span></span><Meter value={v ?? 0} label={`${s.name} ${k}`} /></span>
+      ))}
+      <span className="text-xs text-muted min-w-[90px]">{s.container_count ?? 0} containers</span>
+      {s.agent_outdated ? <Badge tone="y">agent {s.agent_version}</Badge> : null}
+      <Badge tone={toneFor(s.status)}>{s.status}</Badge>
+      <Link to={`/admin/servers/${s.id}`} className="btn btn-sm btn-ghost !px-1.5" aria-label={`View ${s.name}`} title="View server"><Icon name="eye" size={16} /></Link>
+    </li>
+  )
+}
+
 export function ServerCard({ s }: { s: Server }) {
   const meters: [string, number | undefined][] = [['CPU', s.cpu_pct], ['RAM', s.ram_pct], ['Disk', s.disk_pct]]
   return (
@@ -23,6 +43,7 @@ export function ServerCard({ s }: { s: Server }) {
       <div className="flex items-center gap-2.5">
         <Dot tone={toneFor(s.status)} />
         <Link to={`/admin/servers/${s.id}`} className="flex-1 truncate py-0.5 text-[15px] font-bold text-fg">{s.name}</Link>
+        <Link to={`/admin/servers/${s.id}`} className="btn btn-sm btn-ghost !px-1.5" aria-label={`View ${s.name}`} title="View server"><Icon name="eye" size={16} /></Link>
         <Badge tone={toneFor(s.status)}>{s.status}</Badge>
       </div>
       <div className="text-xs text-muted"><span className="font-mono">{s.ip}</span>{s.provider ? ` · ${s.provider}` : ''} · {s.region}</div>
@@ -224,6 +245,8 @@ export default function Servers() {
   const [params, setParams] = useSearchParams()
   const { rows, isLoading } = useList<Server>('/servers', undefined, { refetchInterval: 15000 })
   const [group, setGroup] = useState<'none' | 'environment' | 'region'>('none')
+  const [view, setViewState] = useState<'cards' | 'list'>(() => { try { return localStorage.getItem('servers:view') === 'list' ? 'list' : 'cards' } catch { return 'cards' } })
+  const setView = (v: 'cards' | 'list') => { setViewState(v); try { localStorage.setItem('servers:view', v) } catch { /* private mode */ } }
   const open = params.get('add') === '1'
   const groups = group === 'none' ? [['', rows] as const] : Object.entries(rows.reduce<Record<string, Server[]>>((a, s) => { const k = String((s as unknown as R)[group] ?? '—'); (a[k] ??= []).push(s); return a }, {}))
   const { run: updRun, busy: updBusy } = useAction()
@@ -234,6 +257,12 @@ export default function Servers() {
           <label className="flex items-center gap-2 text-sm text-muted">Group by
             <Select className="input !w-auto" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}><option value="none">None</option><option value="environment">Environment</option><option value="region">Region</option></Select>
           </label>
+          <div className="flex rounded-lg border border-line overflow-hidden" role="group" aria-label="Server view">
+            {([['cards', 'grid', 'Cards'], ['list', 'list', 'List']] as const).map(([v, icon, label]) => (
+              <button key={v} type="button" aria-pressed={view === v} title={`${label} view`} aria-label={`${label} view`} onClick={() => setView(v)}
+                className={`h-10 w-10 grid place-items-center border-0 cursor-pointer ${view === v ? 'bg-sel text-accent' : 'bg-transparent text-muted'}`}><Icon name={icon} size={18} /></button>
+            ))}
+          </div>
           <button type="button" className="btn btn-primary" onClick={() => setParams({ add: '1' })}>Add server</button>
         </>} />
       {rows.some((s) => s.agent_outdated) && (
@@ -247,9 +276,9 @@ export default function Servers() {
       {groups.map(([g, list]) => (
         <div key={g} className="flex flex-col gap-3">
           {g && <h2 className="m-0 text-sm font-semibold text-muted">{g}</h2>}
-          <ul className="list-none m-0 p-0 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+          {view === 'cards' ? <ul className="list-none m-0 p-0 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
             {list.map((s) => <ServerCard key={s.id} s={s} />)}
-          </ul>
+          </ul> : <Card pad={false}><ul className="list-none m-0 p-0">{list.map((s) => <ServerRow key={s.id} s={s} />)}</ul></Card>}
         </div>
       ))}
       <AddServerWizard open={open} onClose={() => setParams({})} />
