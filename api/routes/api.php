@@ -510,6 +510,10 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.store');
     Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.update');
     Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:firewall.ips|firewall.unblock|firewall.manage')->name('firewall.ips.destroy');
+    Route::get('firewall/blocked', [Admin\FirewallController::class, 'blocked'])->middleware('perm:firewall.view')->name('firewall.blocked');
+    Route::post('firewall/blocked/refresh', [Admin\FirewallController::class, 'refreshBlocked'])->middleware('perm:firewall.view')->name('firewall.blocked.refresh');
+    Route::post('firewall/blocked/unblock', [Admin\FirewallController::class, 'unblock'])->middleware('perm:firewall.unblock|firewall.ips|firewall.manage')->name('firewall.blocked.unblock');
+    Route::post('firewall/blocked/{action}', [Admin\FirewallController::class, 'blockedAction'])->whereIn('action', ['extend', 'permanent', 'allow'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.blocked.action');
     Route::post('applications/{id}/lock', [Admin\FirewallController::class, 'lockApp'])->middleware('perm:app.lock')->name('applications.lock');
     Route::post('applications/{id}/unlock', [Admin\FirewallController::class, 'unlockApp'])->middleware('perm:app.lock')->name('applications.unlock');
     Route::patch('firewall/domains/{id}/access', [Admin\FirewallController::class, 'access'])->middleware('perm:firewall.manage')->name('firewall.domains.access');

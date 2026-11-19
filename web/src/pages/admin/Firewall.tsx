@@ -10,6 +10,7 @@ import { Tabs } from '../../components/Tabs'
 import Select from '../../components/Select'
 import { num, type R } from '../../lib/util'
 import { DomainIpAccess } from '../../components/DomainIpAccess'
+import { BlockedIps } from '../../components/BlockedIps'
 
 /** Actions Traefik enforces on its own; the rest need a challenge middleware. */
 const ENFORCED = ['block', 'throttle', 'log']
@@ -281,6 +282,7 @@ export default function Firewall() {
           { id: 'challenges', label: 'Challenges' },
           { id: 'countries', label: 'Country block' },
           { id: 'recaptcha', label: 'reCAPTCHA' },
+          { id: 'blocked', label: 'Blocked IPs' },
           { id: 'ips', label: 'IP lists' },
           { id: 'events', label: 'Events' },
         ]} />
@@ -450,6 +452,8 @@ export default function Firewall() {
           </Card>
         </div>
       )}
+
+      {tab === 'blocked' && <BlockedIps />}
 
       {tab === 'ips' && (
         <>
