@@ -97,7 +97,9 @@ class FirewallListsTest extends TestCase
         $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'block', 'cidr' => '127.0.0.0/8'])
             ->assertStatus(409)->assertSee("your own address");
         $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'block', 'cidr' => '127.0.0.0/8', 'confirm' => true])->assertCreated();
-        $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'allow', 'cidr' => '127.0.0.1'])->assertCreated();
+        // It overlaps the block just added, so it needs confirming too.
+        $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'allow', 'cidr' => '127.0.0.1'])->assertStatus(409);
+        $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'allow', 'cidr' => '127.0.0.1', 'confirm' => true])->assertCreated();
     }
 
     public function test_events_export_as_csv_with_filters_and_no_formulas(): void

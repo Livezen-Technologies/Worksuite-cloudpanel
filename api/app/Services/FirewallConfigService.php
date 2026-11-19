@@ -40,7 +40,8 @@ class FirewallConfigService
         return match ($rule->counted_by) {
             'token_else_ip' => ['requestHeaderName' => 'Authorization'],
             'ip_session' => ['requestHeaderName' => 'Cookie'],
-            default => self::ipStrategy(),
+            // depth 0 makes Traefik use the TCP peer; never an empty map, which would render as a YAML list.
+            default => ['ipStrategy' => ['depth' => (int) config('platform.traefik.forwarded_depth', 0)]],
         };
     }
 

@@ -68,7 +68,7 @@ class FirewallEnforcementTest extends TestCase
         $this->api($token)->patchJson("/api/v1/firewall/domains/{$domain->id}/access", ['ip_access' => 'allowlist'])->assertStatus(422);
         $this->api($token)->postJson('/api/v1/firewall/ips', ['list' => 'allow', 'cidr' => '198.51.100.7', 'domain_id' => $domain->id])->assertCreated();
         // The caller (127.0.0.1 in tests) is not allowed: needs confirm.
-        $this->api($token)->patchJson("/api/v1/firewall/domains/{$domain->id}/access", ['ip_access' => 'allowlist'])->assertStatus(409)->assertSee('your own address', false);
+        $this->api($token)->patchJson("/api/v1/firewall/domains/{$domain->id}/access", ['ip_access' => 'allowlist'])->assertStatus(409)->assertSee('own address', false);
         $this->api($token)->patchJson("/api/v1/firewall/domains/{$domain->id}/access", ['ip_access' => 'allowlist', 'confirm' => true])->assertOk()->assertJsonPath('data.ip_access', 'allowlist');
 
         $y = $this->yaml($secret, $org->id);
