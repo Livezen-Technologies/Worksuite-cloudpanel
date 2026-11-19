@@ -187,6 +187,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects', [Admin\ProjectController::class, 'index'])->name('projects.index');
         Route::get('projects/{id}', [Admin\ProjectController::class, 'show'])->name('projects.show');
         Route::get('projects/{id}/canvas', [Admin\ProjectController::class, 'canvas'])->name('projects.canvas');
+        Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
+        Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
         Route::get('environments/{id}', [Admin\ProjectController::class, 'showEnvironment'])->name('environments.show');
         Route::get('deployments', [Admin\DeploymentController::class, 'index'])->name('deployments.index');
         Route::get('deployments/{id}', [Admin\DeploymentController::class, 'show'])->name('deployments.show');
@@ -212,6 +214,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');
         Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
+        Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
+        Route::put('projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
+        Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::patch('projects/{id}', [Admin\ProjectController::class, 'update'])->name('projects.update');
         Route::put('projects/{id}/canvas/layout', [Admin\ProjectController::class, 'saveLayout'])->name('projects.canvas.layout');
@@ -708,6 +713,11 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::post('ai/actions/{id}/{decision}', [Customer\AiController::class, 'decide'])->whereIn('decision', ['approve', 'reject'])->name('ai.actions.decide');
             // UPRJ: the customer's own projects.
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
+            Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
+            Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
+            Route::put('projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
+            Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
+            Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');
             Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
             Route::patch('projects/{id}', [Customer\ProjectController::class, 'update'])->name('projects.update');
             Route::get('projects/{id}/canvas', [Customer\ProjectController::class, 'canvas'])->name('projects.canvas');

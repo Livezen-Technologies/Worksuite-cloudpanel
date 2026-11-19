@@ -23,7 +23,7 @@ class BackupPolicyController extends CrudController
 
         return [
             'name' => "{$req}|string|max:120",
-            'target_type' => "{$req}|in:application,volume,database,server",
+            'target_type' => "{$req}|in:application,volume,database,server,project",
             'target_id' => "{$req}|uuid",
             'method' => 'sometimes|in:restic,dump,external',
             'schedule' => ['sometimes', 'string', function ($attr, $value, $fail) {
