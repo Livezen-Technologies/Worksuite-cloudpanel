@@ -12,6 +12,13 @@ import { num, type R } from '../../lib/util'
 import { DomainIpAccess } from '../../components/DomainIpAccess'
 import { BlockedIps } from '../../components/BlockedIps'
 
+/** "p:<id>" / "a:<id>" / "d:<id>" / "" to the three scope fields, and back. */
+const scopeBody = (v: unknown) => {
+  const [k, id] = String(v ?? '').split(':')
+  return { domain_id: k === 'd' ? id : null, application_id: k === 'a' ? id : null, project_id: k === 'p' ? id : null }
+}
+const scopeOf = (r: R) => r.project_id ? `p:${r.project_id}` : r.application_id ? `a:${r.application_id}` : r.domain_id ? `d:${r.domain_id}` : ''
+
 /** Actions Traefik enforces on its own; the rest need a challenge middleware. */
 const ENFORCED = ['block', 'throttle', 'log']
 
@@ -103,6 +110,8 @@ export default function Firewall() {
   const rules = useList<R>('/firewall-rules')
   const events = useList<R>('/firewall/events', undefined, { enabled: tab === 'events' })
   const domains = useList<R>('/domains')
+  const scopeApps = useList<R>('/applications', { per_page: 500 })
+  const scopeProjects = useList<R>('/projects', { per_page: 500 })
   const { run, busy } = useAction()
   const [form, setForm] = useState<R | null>(null)
   const [remove, setRemove] = useState<R | null>(null)
@@ -131,8 +140,14 @@ export default function Firewall() {
   }
   const setP = (patch: R) => setProv({ ...p, ...patch })
 
-  const domainOptions = [{ value: '', label: 'All domains' }, ...domains.rows.map((d) => ({ value: String(d.id), label: String(d.name) }))]
-  const fields: FieldDef[] = [...RULE_FIELDS.slice(0, 1), { name: 'domain_id', label: 'Applies to', type: 'select', options: domainOptions }, ...RULE_FIELDS.slice(1)]
+  // One "Applies to" picker for every scope: all domains, a project, an application or one domain.
+  const domainOptions = [{ value: '', label: 'All domains' },
+    ...scopeProjects.rows.map((p) => ({ value: `p:${p.id}`, label: `Project · ${p.name}` })),
+    ...scopeApps.rows.map((a) => ({ value: `a:${a.id}`, label: `App · ${a.name}` })),
+    ...domains.rows.map((d) => ({ value: `d:${d.id}`, label: `Domain · ${d.name}` }))]
+  const fields: FieldDef[] = [...RULE_FIELDS.slice(0, 1), { name: 'scope', label: 'Applies to', type: 'select', options: domainOptions }, ...RULE_FIELDS.slice(1),
+    { name: 'burst', label: 'Burst', type: 'number', placeholder: 'a tenth of the limit', hint: 'Extra requests allowed in a short spike.' },
+    { name: 'block_minutes', label: 'Block for (minutes)', type: 'number', placeholder: 'platform default', hint: 'How long an address stays blocked after breaking a Block rule (CrowdSec).' }]
 
   const saveSetting = (patch: R, success: string) =>
     run({ method: 'PATCH', path: '/settings', body: { firewall: patch }, label: 'Update firewall settings', success })
@@ -141,7 +156,9 @@ export default function Firewall() {
   const saveRule = (v: Record<string, unknown>) => {
     const body: R = {
       name: v.name,
-      domain_id: v.domain_id || null,
+      ...scopeBody(v.scope),
+      burst: num(v.burst) || null,
+      block_minutes: num(v.block_minutes) || null,
       paths: toList(v.paths_text),
       methods: toList(v.methods_text).map((m) => m.toUpperCase()),
       limit: num(v.limit),
@@ -209,7 +226,7 @@ export default function Firewall() {
     const hours = num(v.expires_in)
     return sendIp({
       list: v.list || 'block', cidr: String(v.cidr ?? '').trim(), note: v.note || null,
-      domain_id: v.domain_id || null,
+      ...scopeBody(v.scope),
       expires_at: hours ? new Date(Date.now() + hours * 3600_000).toISOString() : null,
     })
   }
@@ -294,7 +311,7 @@ export default function Firewall() {
           searchKeys={(r) => `${r.name} ${(r.paths as string[] ?? []).join(' ')}`}
           empty={<Empty>No rules yet. Add one to rate-limit a path.</Empty>}
           actions={(r) => [
-              { label: `Edit ${String(r.name ?? 'rule')}`, icon: 'pencil', onClick: () => setForm({ ...r, paths_text: ((r.paths as string[]) ?? []).join(', '), methods_text: ((r.methods as string[]) ?? []).join(', '), domain_id: r.domain_id ?? '' }) },
+              { label: `Edit ${String(r.name ?? 'rule')}`, icon: 'pencil', onClick: () => setForm({ ...r, paths_text: ((r.paths as string[]) ?? []).join(', '), methods_text: ((r.methods as string[]) ?? []).join(', '), scope: scopeOf(r) }) },
               { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setRemove(r) },
             ]}
           columns={[
@@ -514,7 +531,7 @@ export default function Firewall() {
         initial={ipForm ?? {}} submitLabel="Add" onSubmit={saveIp} fields={[
           { name: 'list', label: 'List', type: 'select', options: [{ value: 'block', label: 'Block list' }, { value: 'allow', label: 'Allow list' }] },
           { name: 'cidr', label: 'Address or CIDR range', required: true, mono: true, placeholder: '203.0.113.0/24', hint: `Your address is ${String(item?.your_ip ?? 'unknown')}.` },
-          { name: 'domain_id', label: 'Applies to', type: 'select', options: domainOptions },
+          { name: 'scope', label: 'Applies to', type: 'select', options: domainOptions },
           { name: 'expires_in', label: 'Expires', type: 'select', options: EXPIRY },
           { name: 'note', label: 'Note', placeholder: 'Why it is listed' },
         ]} />
