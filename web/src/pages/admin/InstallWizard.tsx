@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { api } from '../../api/client'
-import { useAction, useJob, useList } from '../../api/hooks'
+import { useAction, useJob, useList, useOne } from '../../api/hooks'
 import { CopyButton } from '../../components/CopyButton'
 import { Icon } from '../../components/Icon'
 import { Badge } from '../../components/Badge'
@@ -148,6 +148,10 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
   const { run, busy } = useAction()
   const { rows: servers } = useList<Server>('/servers')
   const { rows: databases } = useList<Db>('/databases')
+  // PWS-G: opened from a project workspace (?project=<id>), the install goes straight into that project.
+  const [search] = useSearchParams()
+  const projectId = search.get('project')
+  const project = useOne<{ id: string; name: string }>(projectId ? `/projects/${projectId}` : null).item
   const compose = t.type === 'compose'
   const keys = t.variables.map((v) => v.key)
   const wantsDb = !compose && keys.some((k) => dbFilled(k, keys))
@@ -239,7 +243,7 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
     [d, dbMode, dbId, vars, adv, env, databases])
 
   const body = () => ({
-      name: d.name, environment: d.environment, domain_mode: d.domain_mode,
+      name: d.name, environment: d.environment, domain_mode: d.domain_mode, project_id: projectId || null,
       domain: d.domain_mode === 'custom' ? d.domain.trim() : null, subdomain: d.domain_mode === 'subdomain' ? d.subdomain : null,
       server_id: linked ? null : (d.placement === 'manual' || compose ? d.server_id || null : null),
       variables: Object.fromEntries(Object.entries(vars).filter(([k]) => !(linked && dbFilled(k, keys)))),
@@ -448,6 +452,7 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         <Row k="Template" v={`${t.name} (v${t.version})`} />
         <Row k="Name" v={d.name} />
         <Row k="Environment" v={d.environment} />
+        {projectId && <Row k="Project" v={project?.name ?? '…'} />}
         <Row k="Address" v={{ auto: `Auto-generated under ${platform} · HTTPS`, subdomain: `${d.subdomain}.${platform} · HTTPS`, custom: `${d.domain.trim()}${d.https ? ' · HTTPS' : ''}`, none: 'Internal only' }[d.domain_mode]} />
         <Row k="Server" v={server?.name ?? (compose ? '—' : 'Automatic')} />
         {!compose && <Row k="Resources" v={`${SIZES.find((s) => s.id === d.size)?.label} · ${SIZES.find((s) => s.id === d.size)?.spec} · port ${d.port || '—'}`} />}

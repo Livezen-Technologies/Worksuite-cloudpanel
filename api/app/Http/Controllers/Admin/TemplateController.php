@@ -72,6 +72,8 @@ class TemplateController extends Controller
             'database_id' => 'nullable|uuid',
             'domain_mode' => 'nullable|in:auto,subdomain,custom,none',
             'subdomain' => 'nullable|string|max:63',
+            // PWS-G: install straight into a project (preselected from the project workspace).
+            'project_id' => 'nullable|uuid',
         ];
     }
 

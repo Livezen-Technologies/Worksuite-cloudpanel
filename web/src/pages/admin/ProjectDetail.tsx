@@ -15,6 +15,7 @@ import { ProjectResources } from '../../components/ProjectResources'
 import { ProjectQuotas } from '../../components/ProjectQuotas'
 import { ProjectFirewall } from '../../components/ProjectFirewall'
 import { ProjectNetworking } from '../../components/ProjectNetworking'
+import { ProjectDeployJobs } from '../../components/ProjectDeployJobs'
 import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
@@ -111,14 +112,7 @@ export default function ProjectDetail() {
           { key: 'last', header: 'Last deploy', value: (a) => String(a.last_deployed_at ?? ''), render: (a) => a.last_deployed_at ? ago(String(a.last_deployed_at)) : 'never' },
         ],
         empty: 'No applications yet. Add one from the catalogue, a Git repository or a Docker image.' })}
-      {section === 'applications' && sub === 'deployments' && table({ label: 'Deployments', rows: ws?.deployments ?? [], loading: wsq.isLoading,
-        columns: [
-          { key: 'app', header: 'Application', value: (d) => String(d.application ?? '') },
-          { key: 'status', header: 'Status', value: (d) => String(d.status), render: (d) => <StatusBadge status={String(d.status)} /> },
-          { key: 'when', header: 'Started', value: (d) => String(d.created_at ?? ''), render: (d) => ago(String(d.created_at)) },
-          { key: 'open', header: 'Progress', render: (d) => <Link to={`/admin/deployments/${d.id}`} className="link-action">Open</Link> },
-        ],
-        empty: "No deployments yet. Deployments of this project's apps appear here with their progress and failures." })}
+      {section === 'applications' && sub === 'deployments' && <ProjectDeployJobs projectId={p.id} deploymentLink={(id) => `/admin/deployments/${id}`} />}
       {section === 'applications' && sub === 'catalog' && <NotYet link={<Link to={`/admin/catalog?project=${p.id}`} className="btn btn-primary">Open catalogue</Link>}>Install from the app catalogue. Pick this project's environment in the install form; the catalogue is shared by every project.</NotYet>}
       {section === 'applications' && sub === 'git' && <Card title="Git webhook" subtitle="Pushes and pull requests of a connected repository deploy this project's environments">
         <div className="flex flex-wrap items-center gap-2"><code className="font-mono text-sm break-all">{p.webhook_url}</code><CopyButton value={p.webhook_url} /></div>

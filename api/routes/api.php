@@ -199,6 +199,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
         Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
         Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+        Route::get('projects/{id}/deploy-jobs', [\App\Http\Controllers\ProjectDeployController::class, 'index'])->name('projects.deploy-jobs');
+        Route::post('projects/{id}/deploy-jobs/rollback', [\App\Http\Controllers\ProjectDeployController::class, 'rollback'])->middleware('throttle:20,1')->name('projects.deploy-jobs.rollback');
+        Route::post('projects/{id}/deploy-jobs/{deploymentId}/retry', [\App\Http\Controllers\ProjectDeployController::class, 'retry'])->whereUuid('deploymentId')->middleware('throttle:20,1')->name('projects.deploy-jobs.retry');
         Route::get('projects/{id}/networking', [\App\Http\Controllers\ProjectNetworkController::class, 'show'])->name('projects.networking');
         Route::post('projects/{id}/networking/reconcile', [\App\Http\Controllers\ProjectNetworkController::class, 'reconcile'])->middleware('throttle:10,1')->name('projects.networking.reconcile');
         // PWS-E: the project firewall; the project role is checked in the controller.
@@ -765,6 +768,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
             Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
             Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+            Route::get('projects/{id}/deploy-jobs', [\App\Http\Controllers\ProjectDeployController::class, 'index'])->name('projects.deploy-jobs');
+            Route::post('projects/{id}/deploy-jobs/rollback', [\App\Http\Controllers\ProjectDeployController::class, 'rollback'])->middleware('throttle:20,1')->name('projects.deploy-jobs.rollback');
+            Route::post('projects/{id}/deploy-jobs/{deploymentId}/retry', [\App\Http\Controllers\ProjectDeployController::class, 'retry'])->whereUuid('deploymentId')->middleware('throttle:20,1')->name('projects.deploy-jobs.retry');
             Route::get('projects/{id}/networking', [\App\Http\Controllers\ProjectNetworkController::class, 'show'])->name('projects.networking');
             Route::post('projects/{id}/networking/reconcile', [\App\Http\Controllers\ProjectNetworkController::class, 'reconcile'])->middleware('throttle:10,1')->name('projects.networking.reconcile');
             // PWS-E: the project firewall; the project role is checked in the controller.

@@ -28,7 +28,7 @@ class ProjectGate
     /** Route names (without the app. prefix) whose mutation is a deploy, not a settings change. */
     public const DEPLOY = [
         'deployments.store', 'deployments.cancel', 'applications.rollback', 'apps.rollback', 'apps.redeploy',
-        'apps.restart', 'containers.action',
+        'apps.restart', 'containers.action', 'projects.deploy-jobs.retry', 'projects.deploy-jobs.rollback',
     ];
 
     public const DELETE = ['applications.destroy', 'apps.destroy', 'projects.destroy'];
@@ -137,7 +137,7 @@ class ProjectGate
             $id && $head === 'environments' => Environment::allTenants()->whereKey($id)->value('project_id'),
             $id && in_array($head, ['project-backups', 'backups'], true) => $this->backupProject($id),
             ! $id && in_array($name, ['deployments.store'], true) => $this->appProject($request->input('application_id')),
-            ! $id && in_array($name, ['applications.store', 'apps.store', 'containers.store'], true) => $request->input('project_id'),
+            ! $id && in_array($name, ['applications.store', 'apps.store', 'containers.store', 'templates.install'], true) => $request->input('project_id'),
             default => null,
         };
 

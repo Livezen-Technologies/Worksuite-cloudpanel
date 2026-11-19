@@ -9,6 +9,22 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.24.0] — 2026-11-19
+
+### Added
+
+- **Deploy jobs in the project workspace** (Project workspace slice G). `GET projects/{id}/deploy-jobs`
+  (admin and `/app`): the project's deployments with job progress, stages, the failed stage and
+  its error, the log tail, and the releases available to roll back to.
+  `POST .../deploy-jobs/{deployment}/retry` re-runs the newest failed deploy of an app (an older
+  failure cannot be retried over newer work; a failed rollback retries the same release) and
+  `POST .../deploy-jobs/rollback` deploys an earlier release, both through the existing
+  `DeploymentService` pipeline. Developers may retry and roll back; viewers only watch. Audited.
+- Catalogue installs opened from a project (`/admin/catalog?project=<id>`) go into that project:
+  the wizard sends `project_id`, shows the project on the review step, and the template install
+  accepts it (project role and quotas apply).
+- Workspace Applications → Deployments uses the shared `ProjectDeployJobs` component.
+
 ## [1.23.0] — 2026-11-19
 
 ### Added
