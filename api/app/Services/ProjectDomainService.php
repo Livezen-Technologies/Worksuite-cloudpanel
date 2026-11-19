@@ -26,6 +26,7 @@ class ProjectDomainService
         'primary' => 'Change the primary domain',
         'ssl' => 'Manage SSL certificates',
         'remove' => 'Remove domains',
+        'provider' => 'Connect a DNS provider',
     ];
 
     public function __construct(private DomainService $domains, private AuditLogger $audit) {}
@@ -100,6 +101,9 @@ class ProjectDomainService
         return $this->domains->toApi($domain) + [
             'last_validation' => $last ? ['ok' => $last->ok, 'at' => $last->created_at?->toIso8601ZuluString(), 'checks' => $last->checks] : null,
             'status' => $this->status($domain),
+            // PDNS-2: from the Public Suffix List, so the panel never guesses from the dots.
+            'subdomain' => $domain->platform_subdomain || $this->domains->isSubdomain($domain->name),
+            'registrable_domain' => \App\Support\DomainName::registrable($domain->name),
         ];
     }
 
@@ -234,5 +238,168 @@ class ProjectDomainService
         $permissions = array_values(array_intersect(array_keys(self::PERMISSIONS), $permissions));
         ProjectDomainGrant::updateOrCreate(['project_id' => $project->id, 'user_id' => $userId], ['permissions' => $permissions, 'granted_by' => request()->user()?->id]);
         $this->audit->log('domain.permissions_changed', 'domains', null, ['project_id' => $project->id, 'user_id' => $userId, 'permissions' => $permissions]);
+    }
+
+    /** PDNS-2: takes every DNS permission from a member of this project at once ("view" stays: it comes with the project). */
+    public function revokeAll(Project $project, string $userId): array
+    {
+        $member = \App\Models\Membership::where('organization_id', $project->organization_id)->where('user_id', $userId)->first()
+            ?? throw ApiException::validation(['user_id' => ['That person is not a member of this organisation.']]);
+        if ($member->role === 'owner') {
+            throw ApiException::conflict('The organisation owner always has every permission.');
+        }
+        $grant = ProjectDomainGrant::where('project_id', $project->id)->where('user_id', $userId)->first();
+        $had = array_values((array) ($grant?->permissions ?? []));
+        $grant?->delete();
+        $this->audit->log('domain.permissions_revoked', 'domains', null, ['project_id' => $project->id, 'user_id' => $userId,
+            'email' => $member->user?->email, 'revoked' => $had]);
+
+        return $had;
+    }
+
+    // ---- PDNS-2: the customer's own DNS provider (Cloudflare) ----
+
+    /** Accounts this organisation connected from a project, and any the staff connected for it. */
+    public function providers(): array
+    {
+        return \App\Models\DnsProviderAccount::orderBy('name')->get()->map(fn ($a) => [
+            'id' => $a->id, 'name' => $a->name, 'type' => $a->type, 'label' => $a->account_label, 'source' => $a->source,
+            'connected_by' => $a->connected_by ? \App\Models\User::find($a->connected_by)?->name : null,
+            'verified_at' => $a->verified_at?->toIso8601ZuluString(), 'created_at' => $a->created_at?->toIso8601ZuluString(),
+            'zones' => \App\Models\DnsZone::where('dns_provider_id', $a->id)->orderBy('name')->get(['id', 'name', 'status', 'records_count', 'last_synced_at'])
+                ->map(fn ($z) => ['id' => $z->id, 'name' => $z->name, 'status' => $z->status, 'records_count' => $z->records_count])->values(),
+            'can_disconnect' => $a->source === 'customer',
+        ])->values()->all();
+    }
+
+    /**
+     * Verifies the token with Cloudflare (token verify, then the zone list) before anything is
+     * stored. The token is kept encrypted on the organisation's provider account and never returned.
+     */
+    public function connectCloudflare(Project $project, string $token, ?string $name = null): array
+    {
+        $driver = $this->cloudflare($token);
+        try {
+            $label = $driver->verify();
+            $zones = $driver->listZones();
+        } catch (\Throwable $e) {
+            throw ApiException::validation(['token' => [$this->cloudflareError($e, $token)]]);
+        }
+        if (! $zones) {
+            throw ApiException::validation(['token' => ['The token is valid but can see no zones. Give it Zone:Read and DNS:Edit on the zone that holds your domain.']]);
+        }
+        $account = \App\Models\DnsProviderAccount::create([
+            'name' => $name ?: 'Cloudflare ('.$label.')', 'type' => 'cloudflare', 'credentials' => ['token' => $token],
+            'account_label' => $label, 'source' => 'customer', 'connected_by' => request()->user()?->id, 'verified_at' => now(),
+        ]);
+        $this->audit->log('dns.provider_connected', 'domains', $account->id, ['project_id' => $project->id, 'type' => 'cloudflare', 'name' => $account->name, 'zones' => count($zones), 'source' => 'customer']);
+
+        return ['id' => $account->id, 'name' => $account->name, 'label' => $label, 'zones' => $zones];
+    }
+
+    /** The zones the token can see, marked with the ones already in use here. */
+    public function remoteZones(string $accountId): array
+    {
+        $account = \App\Models\DnsProviderAccount::findOrFail($accountId);
+        if ($account->type !== 'cloudflare') {
+            throw ApiException::conflict('Only Cloudflare accounts can list their zones here.');
+        }
+        try {
+            $zones = $this->cloudflare((string) ($account->credentials['token'] ?? ''))->listZones();
+        } catch (\Throwable $e) {
+            throw ApiException::upstream($this->cloudflareError($e, (string) ($account->credentials['token'] ?? '')));
+        }
+        $account->forceFill(['verified_at' => now()])->saveQuietly();
+        $here = \App\Models\DnsZone::where('dns_provider_id', $account->id)->pluck('name')->all();
+
+        return array_map(fn ($z) => $z + ['connected' => in_array($z['name'], $here, true)], $zones);
+    }
+
+    /**
+     * Puts the domain in one of the account's zones. The zone must hold the domain and be one the
+     * token can see; nothing is written to Cloudflare here (records are written by publish()).
+     */
+    public function attachZone(Project $project, Domain $domain, string $accountId, string $zoneId): array
+    {
+        $account = \App\Models\DnsProviderAccount::findOrFail($accountId);
+        $remote = collect($this->remoteZones($account->id))->firstWhere('id', $zoneId)
+            ?? throw ApiException::validation(['zone_id' => ['That zone is not visible to this Cloudflare token.']]);
+        $host = ltrim($domain->name, '*.');
+        if ($host !== $remote['name'] && ! str_ends_with($host, '.'.$remote['name'])) {
+            throw ApiException::validation(['zone_id' => ["{$domain->name} is not inside the zone {$remote['name']}."]]);
+        }
+        $zone = \App\Models\DnsZone::where('name', $remote['name'])->first();
+        if ($zone && $zone->dns_provider_id !== $account->id) {
+            throw ApiException::conflict("{$remote['name']} is already connected through another DNS provider account. Disconnect that one first.");
+        }
+        $zone ??= \App\Models\DnsZone::create(['dns_provider_id' => $account->id, 'name' => $remote['name'], 'remote_id' => $remote['id'],
+            'status' => $remote['status'], 'nameservers' => []]);
+        $zone->setRelation('provider', $account);
+        rescue(fn () => app(DnsZoneService::class)->sync($zone), report: false);
+        if ($domain->dns_method !== 'provider') {
+            $domain->update(['dns_method' => 'provider']);
+        }
+        $this->audit->log('domain.zone_attached', 'domains', $domain->id, ['domain' => $domain->name, 'project_id' => $project->id, 'zone' => $zone->name]);
+
+        return ['zone' => ['id' => $zone->id, 'name' => $zone->name], 'records' => $this->managedRecords($domain)];
+    }
+
+    /**
+     * The zone's records for this domain's names: which ones the panel manages (they match a record
+     * the domain needs) and which are the customer's own and are never touched.
+     */
+    public function managedRecords(Domain $domain): array
+    {
+        $zone = \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id);
+        if (! $zone) {
+            return ['zone' => null, 'records' => []];
+        }
+        $expected = collect($this->domains->expectedRecords($domain));
+        $names = $expected->pluck('name')->push(ltrim($domain->name, '*.'))->unique()->all();
+        $rows = $zone->records()->withoutGlobalScope('organization')->whereIn('name', $names)->orderBy('name')->orderBy('type')->get();
+
+        return ['zone' => ['id' => $zone->id, 'name' => $zone->name, 'provider' => $zone->provider?->type, 'synced_at' => $zone->last_synced_at?->toIso8601ZuluString()],
+            'records' => $rows->map(function ($r) use ($expected) {
+                $match = $expected->first(fn ($e) => $e['type'] === $r->type && $e['name'] === $r->name && rtrim($e['value'], '.') === rtrim($r->content, '.'));
+
+                return ['type' => $r->type, 'name' => $r->name, 'value' => $r->content, 'ttl' => $r->ttl, 'proxied' => (bool) $r->proxied,
+                    'managed' => (bool) $match, 'purpose' => $match['purpose'] ?? null];
+            })->values()->all()];
+    }
+
+    /**
+     * Removes a customer-connected account and the panel's copy of its zones. Nothing is deleted at
+     * Cloudflare: every record stays where it is, so the domains keep working.
+     */
+    public function disconnect(Project $project, string $accountId): void
+    {
+        $account = \App\Models\DnsProviderAccount::findOrFail($accountId);
+        if ($account->source !== 'customer') {
+            throw ApiException::forbidden('This DNS provider was connected by Livezen staff. Ask support to remove it.');
+        }
+        $zones = \App\Models\DnsZone::where('dns_provider_id', $account->id)->pluck('name')->all();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($account) {
+            \App\Models\DnsZone::where('dns_provider_id', $account->id)->get()->each(function ($z) {
+                $z->records()->withoutGlobalScope('organization')->delete();
+                $z->delete();
+            });
+            $account->delete();
+        });
+        $this->audit->log('dns.provider_disconnected', 'domains', $account->id, ['project_id' => $project->id, 'type' => $account->type, 'name' => $account->name, 'zones' => $zones, 'source' => 'customer']);
+    }
+
+    private function cloudflare(string $token): \App\Drivers\CloudflareDnsProvider
+    {
+        $probe = new \App\Models\DnsProviderAccount(['type' => 'cloudflare', 'credentials' => ['token' => $token]]);
+        $driver = $probe->driver();
+
+        return $driver instanceof \App\Drivers\CloudflareDnsProvider ? $driver : new \App\Drivers\CloudflareDnsProvider($token);
+    }
+
+    private function cloudflareError(\Throwable $e, string $token): string
+    {
+        $message = str_replace($token, '•••', $e->getMessage());
+
+        return str_starts_with($message, 'Cloudflare') ? $message : 'Cloudflare could not be reached: '.mb_substr($message, 0, 200);
     }
 }

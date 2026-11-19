@@ -67,9 +67,23 @@ class DomainService
         if (! $zone || $domain->platform_subdomain || $domain->dns_secret_id) {
             return [];
         }
+        // PDNS-2: read the provider first, so a record the customer added there since the last
+        // sync is seen (and kept) rather than clashed with.
+        rescue(fn () => $this->zones->sync($zone), report: false);
         $existing = $zone->records()->withoutGlobalScope('organization')->get();
         $out = [];
-        foreach ($this->expectedRecords($domain) as $r) {
+        $expected = $this->expectedRecords($domain);
+        foreach ($expected as $r) {
+            // An address record for the routing name that is not ours means the name already serves
+            // something (an existing website): adding ours beside it would split traffic. Refuse.
+            if (in_array($r['type'], ['A', 'AAAA'], true)) {
+                $ours = collect($expected)->whereIn('type', ['A', 'AAAA'])->where('name', $r['name'])->pluck('value')->map(fn ($v) => rtrim($v, '.'))->all();
+                $foreign = $existing->first(fn ($e) => $e->name === $r['name'] && in_array($e->type, ['A', 'AAAA'], true) && ! in_array(rtrim($e->content, '.'), $ours, true));
+                if ($foreign) {
+                    $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'conflict', 'message' => 'The zone already has a '.$foreign->type.' record there ('.$foreign->content.'), probably an existing website. It was left alone.'];
+                    continue;
+                }
+            }
             $same = $existing->filter(fn ($e) => $e->type === $r['type'] && $e->name === $r['name']);
             // A CNAME cannot share its name with any other record, and nothing else may sit beside a
             // CNAME: never replace a customer's existing record (website, MX, SPF, DKIM, DMARC…).
@@ -194,10 +208,13 @@ class DomainService
         return $h !== '' ? $h : null;
     }
 
-    /** More than two labels: "shop.example.com" is a subdomain, "example.com" an apex. */
+    /**
+     * PDNS-2: decided by the Public Suffix List, so "example.co.uk" is an apex and
+     * "erp.example.co.uk" a subdomain ("shop.example.com" a subdomain, "example.com" an apex).
+     */
     public function isSubdomain(string $name): bool
     {
-        return substr_count(ltrim($name, '*.'), '.') >= 2;
+        return \App\Support\DomainName::isSubdomain($name);
     }
 
     public function ingressIp(Domain $domain): string
@@ -227,7 +244,8 @@ class DomainService
         DnsCheck::create(['domain_id' => $domain->id, 'records' => $records, 'ok' => $allOk, 'created_at' => now()]);
         $wasVerified = $domain->dns_status === 'verified';
         $domain->update(['dns_status' => $allOk ? 'verified' : 'pending', 'dns_checked_at' => now()]);
-        if ($allOk && ! $wasVerified) {
+        // A project domain's changes are told by DomainStateNotifier (domains:check-dns) instead.
+        if ($allOk && ! $wasVerified && ! $domain->project_id) {
             app(\App\Services\EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'domain_connected', [
                 'domain' => $domain->name, 'app' => (string) (Application::find($domain->application_id)?->name ?? '—'),
             ]);

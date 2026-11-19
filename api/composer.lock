@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f7f9c51975a361116e49eb44d093c52f",
+    "content-hash": "e061200503b4080bfd7497c77efcfae5",
     "packages": [
         {
             "name": "anthropic-ai/sdk",
@@ -1556,6 +1556,100 @@
                 }
             ],
             "time": "2026-08-24T09:15:32+00:00"
+        },
+        {
+            "name": "jeremykendall/php-domain-parser",
+            "version": "6.4.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/jeremykendall/php-domain-parser.git",
+                "reference": "b3d8346ff66c1054e91bac75ada28ea51089007b"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/jeremykendall/php-domain-parser/zipball/b3d8346ff66c1054e91bac75ada28ea51089007b",
+                "reference": "b3d8346ff66c1054e91bac75ada28ea51089007b",
+                "shasum": ""
+            },
+            "require": {
+                "ext-filter": "*",
+                "php": "^8.1"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.95.32",
+                "guzzlehttp/guzzle": "^7.9.2 || ^8.5.2",
+                "guzzlehttp/psr7": "^1.6 || ^2.7.0 || ^3.4.0",
+                "phpstan/phpstan": "^2.3.6",
+                "phpstan/phpstan-phpunit": "^2.1.2",
+                "phpstan/phpstan-strict-rules": "^2.1.1",
+                "phpunit/phpunit": "^10.5.15 || ^11.5.58 || ^12.5.44 || ^13.4.7",
+                "psr/http-factory": "^1.1.0",
+                "psr/simple-cache": "^1.0.1 || ^2.0.0",
+                "symfony/cache": "^v5.0.0 || ^6.4.16 || ^v7.4.23",
+                "symfony/var-dumper": "^v6.4.18 || ^7.4.22"
+            },
+            "suggest": {
+                "league/uri": "To parse and extract the host from an URL using a RFC3986/RFC3987 URI parser",
+                "psr/http-client-implementation": "To use the storage functionality which depends on PSR-18",
+                "psr/http-factory-implementation": "To use the storage functionality which depends on PSR-17",
+                "psr/simple-cache-implementation": "To use the storage functionality which depends on PSR-16",
+                "rowbot/url": "To parse and extract the host from an URL using a  WHATWG URL parser",
+                "symfony/polyfill-intl-idn": "to handle IDN host via the Symfony polyfill if ext-intl is not present"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "6.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Pdp\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jeremy Kendall",
+                    "homepage": "https://about.me/jeremykendall",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Ignace Nyamagana Butera",
+                    "homepage": "https://nyamsprod.com",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Contributors",
+                    "homepage": "https://github.com/jeremykendall/php-domain-parser/graphs/contributors"
+                }
+            ],
+            "description": "Public Suffix List and IANA Root Zone Database based Domain parsing implemented in PHP.",
+            "homepage": "https://github.com/jeremykendall/php-domain-parser",
+            "keywords": [
+                "PSL",
+                "Public Suffix List",
+                "Top Level Domains",
+                "domain parsing",
+                "iana",
+                "icann",
+                "idn",
+                "tld"
+            ],
+            "support": {
+                "issues": "https://github.com/jeremykendall/php-domain-parser/issues",
+                "source": "https://github.com/jeremykendall/php-domain-parser"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/sponsors/nyamsprod",
+                    "type": "github"
+                }
+            ],
+            "time": "2026-11-17T22:34:28+00:00"
         },
         {
             "name": "laravel/framework",
@@ -10865,5 +10959,5 @@
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }

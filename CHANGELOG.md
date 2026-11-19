@@ -9,6 +9,45 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-11-19
+
+### Added
+
+- **Project DNS & Domains, slice 2 (PDNS-2).**
+  - **Your own Cloudflare account** in the project's DNS provider page: a project owner, or a member
+    granted the new *Connect a DNS provider* permission, pastes a Cloudflare API token. It is checked
+    with Cloudflare's token-verify endpoint and the zone list before anything is stored, kept
+    encrypted on the organisation's account (`dns_providers.source = customer`) and never returned.
+    The customer picks the zone that holds the domain (only zones the token can see, and only one
+    that contains the domain), sees the zone's records for that domain marked *Managed* or *Yours —
+    kept*, and can disconnect: the panel forgets the token and its copy of the zones, and nothing is
+    deleted at Cloudflare.
+  - **Stricter "never overwrite"**: before writing, the zone is re-read from the provider, and a
+    routing A/AAAA record is refused when the name already has an address record of its own (an
+    existing website), alongside slice 1's CNAME and same-name refusals. MX, SPF, DKIM, DMARC and
+    other records are only ever read.
+  - **Apex vs subdomain from the Public Suffix List** (`jeremykendall/php-domain-parser`, ICANN
+    section, list bundled in `api/resources/psl`, refreshed monthly by `dns:refresh-psl` into
+    storage): `example.co.uk` is an apex (A/AAAA to the ingress addresses), `erp.example.co.uk` a
+    subdomain (CNAME to the ingress host name). The API now says which (`subdomain`,
+    `registrable_domain`); the SPA shows it and never guesses.
+  - **State-change notifications**: `domains:check-dns` also re-checks live project domains every 30
+    minutes, and e-mails (`domain_state_changed` template) the organisation owners and every member
+    holding a DNS grant on the project when ownership is verified, DNS verifies or breaks again, or a
+    certificate is issued or HTTPS breaks again. The last notified state is kept on the domain
+    (`domains.notified_state`), so an unchanged state never notifies twice; each change is also in
+    the project's change history.
+  - **Staff view**: Hosting → *Project domains* lists every customer's project domains with
+    customer, project, app, apex/subdomain, status, DNS, HTTPS and last check, filters, a link to the
+    customer, and *Validate* (audited). New permission `project_domains.manage` (super admin, infra
+    admin, DevOps, support); the migration re-runs the reference seeder so it takes effect.
+  - **Revoke all** on the project's DNS permissions: one click, with confirmation, takes every DNS
+    permission from a member (viewing stays) and writes `domain.permissions_revoked` to the audit log.
+
+### Changed
+
+- A project domain no longer sends the old *Domain connected* e-mail; the new notifications cover it.
+
 ## [1.16.0] — 2026-11-19
 
 ### Added
