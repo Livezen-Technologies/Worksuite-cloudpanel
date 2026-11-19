@@ -220,6 +220,10 @@ Artisan::command('firewall:open {domain? : Domain name; all domains when omitted
     $this->info("{$n} domain(s) opened to all addresses; proxy configuration pushed.");
 })->purpose('Emergency: switch allow-list-only domains back to open access');
 
+Artisan::command('projects:link-containers', function (\App\Services\ProjectContainerService $svc) {
+    $this->info($svc->sync().' container(s) regrouped under projects');
+})->purpose("Group each site's containers (database, Redis, workers) under its app's project, by Compose label");
+
 Artisan::command('backups:prune', function (BackupService $backups) {
     $this->info('Expired artifacts removed: '.$backups->pruneExpired());
 })->purpose('Apply backup retention');
@@ -455,6 +459,7 @@ Schedule::command('migrations:cleanup')->dailyAt('04:40')->withoutOverlapping();
 Schedule::command('domains:check-dns')->everyTwoMinutes()->withoutOverlapping();
 Schedule::command('networks:reconcile')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:pool-check')->hourly()->withoutOverlapping();
+Schedule::command('projects:link-containers')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('backups:prune')->hourly();
 Schedule::command('apps:purge')->daily();
 Schedule::command('metrics:prune')->daily();
