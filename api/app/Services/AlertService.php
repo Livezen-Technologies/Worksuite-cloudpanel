@@ -72,7 +72,8 @@ class AlertService
             case 'backup_failed':
                 foreach (BackupJob::where('created_at', '>=', now()->subDay())->get()->groupBy(fn ($j) => $j->backup_policy_id ?? $j->target_id) as $jobs) {
                     $last = $jobs->sortBy('created_at')->last();
-                    $results[$last->id] = [$last->status === 'failed', 'Backup of '.$last->target_type.' failed', null, 'BackupJob', $last->id];
+                    $name = $last->backup_policy_id ? \App\Models\BackupPolicy::whereKey($last->backup_policy_id)->value('name') : null;
+                    $results[$last->id] = [$last->status === 'failed', $name ? "Backup {$name} failed" : 'Backup of '.$last->target_type.' failed', null, 'BackupJob', $last->id];
                 }
                 break;
             case 'backup_overdue':

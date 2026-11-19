@@ -163,7 +163,7 @@ Artisan::command('backups:run-due', function (BackupService $backups) {
     $this->info("Backups started: {$count}");
 })->purpose('Start backups whose policy schedule is due (BAK-001)');
 
-Artisan::command('backups:record-external {policy : Policy id (method "external"), or "-" with --name} {--name= : Find or create the external policy by name} {--org= : Organisation for --name} {--server= : Server the backed-up site lives on, for --name} {--schedule=15 2 * * *} {--retention=30} {--status=succeeded} {--error=} {--started=} {--manifest= : TSV of name, bytes, sha256, location}', function (BackupService $backups) {
+Artisan::command('backups:record-external {policy : Policy id (method "external"), or "-" with --name} {--name= : Find or create the external policy by name} {--org= : Organisation for --name} {--server= : Server the backed-up site lives on, for --name} {--schedule=15 2 * * *} {--retention=30} {--status=succeeded} {--error=} {--started=} {--manifest= : TSV of name, bytes, sha256, location} {--log= : File with the run log to keep with the job}', function (BackupService $backups) {
     if ($this->argument('policy') === '-') {
         $org = (string) $this->option('org');
         $policy = app(Tenant::class)->as($org, fn () => \App\Models\BackupPolicy::firstOrCreate(
@@ -182,7 +182,7 @@ Artisan::command('backups:record-external {policy : Policy id (method "external"
         }
     }
     $started = $this->option('started') ? \Illuminate\Support\Carbon::parse($this->option('started')) : now();
-    $job = app(Tenant::class)->as($policy->organization_id, fn () => $backups->recordExternal($policy, (string) $this->option('status'), $this->option('error') ?: null, $started, $items));
+    $job = app(Tenant::class)->as($policy->organization_id, fn () => $backups->recordExternal($policy, (string) $this->option('status'), $this->option('error') ?: null, $started, $items, null, $this->option('log') && is_file($this->option('log')) ? (string) file_get_contents($this->option('log')) : null));
     $this->info("Recorded {$job->status} run {$job->id} with ".count($items).' artifact(s)');
 })->purpose('Record a run of an external backup policy (a job outside the panel that reports here)');
 
@@ -192,6 +192,13 @@ Artisan::command('backups:pool-check', function (\App\Services\BackupPoolService
         $this->line("{$s->name} ({$s->host}): {$s->status}".($s->free_bytes !== null ? ', '.round($s->free_bytes / 1073741824).' GB free' : '').($s->message ? " - {$s->message}" : ''));
     }
 })->purpose('Check every backup storage server: reachability and free space');
+
+Artisan::command('alerts:seed-defaults', function (AlertService $alerts) {
+    foreach (\App\Models\Organization::all() as $org) {
+        app(Tenant::class)->as($org->id, fn () => $alerts->seedDefaults($org));
+    }
+    $this->info('Default alert rules ensured for every organisation');
+})->purpose('Add any missing default alert rules (e.g. Backups overdue) to existing organisations');
 
 Artisan::command('backups:pool-target {dir : Private directory to write the key and known_hosts into} {--org=}', function (\App\Services\BackupPoolService $pool) {
     $s = $pool->pick($this->option('org') ?: null);

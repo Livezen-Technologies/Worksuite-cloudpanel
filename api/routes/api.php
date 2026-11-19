@@ -359,6 +359,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     // Backups
     $crud('backup-policies', Admin\BackupPolicyController::class, 'resources.view', 'deploy|network_storage.manage');
     Route::get('backup-jobs', [Admin\BackupJobController::class, 'index'])->middleware('perm:resources.view')->name('backup-jobs.index');
+    Route::get('backup-jobs/{id}/log', [Admin\BackupJobController::class, 'log'])->middleware('perm:resources.view')->name('backup-jobs.log');
     Route::get('backup-artifacts', [Admin\BackupJobController::class, 'artifacts'])->middleware('perm:resources.view')->name('backup-artifacts.index');
     Route::get('backups/summary', [Admin\BackupJobController::class, 'summary'])->middleware('perm:resources.view')->name('backups.summary');
     Route::post('backups/run-all', [Admin\BackupJobController::class, 'runAll'])->middleware('perm:deploy|network_storage.manage')->name('backups.run-all');

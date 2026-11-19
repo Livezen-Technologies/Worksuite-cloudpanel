@@ -403,10 +403,10 @@ class BackupService implements HandlesCommandResults
         }
     }
 
-    private function notifyFailed(BackupJob $backup, string $error): void
+    private function notifyFailed(BackupJob $backup, string $error, ?string $label = null): void
     {
         app(\App\Services\EmailTemplateService::class)->notifyOrganization($backup->organization_id, 'backup_failed', [
-            'target' => $this->label($backup->target_type, $backup->target_id), 'error' => $error,
+            'target' => $label ?? $this->label($backup->target_type, $backup->target_id), 'error' => $error,
             'time' => now()->toDayDateTimeString().' UTC',
         ]);
     }
@@ -648,7 +648,7 @@ class BackupService implements HandlesCommandResults
      *
      * @param  array<int, array{name: string, bytes: int, sha256: string, location: string}>  $items
      */
-    public function recordExternal(BackupPolicy $policy, string $status, ?string $error, \DateTimeInterface $startedAt, array $items, ?string $serverId = null): BackupJob
+    public function recordExternal(BackupPolicy $policy, string $status, ?string $error, \DateTimeInterface $startedAt, array $items, ?string $serverId = null, ?string $log = null): BackupJob
     {
         if ($policy->method !== 'external') {
             throw ApiException::conflict('Only an external policy can record runs made outside the panel.');
@@ -659,7 +659,11 @@ class BackupService implements HandlesCommandResults
             'backup_policy_id' => $policy->id, 'server_id' => $serverId, 'target_type' => $policy->target_type, 'target_id' => $policy->target_id,
             'trigger' => 'schedule', 'kind' => 'backup', 'status' => $status, 'error' => $status === 'failed' ? ($error ?: 'The external job reported a failure.') : null,
             'started_at' => $startedAt, 'finished_at' => now(),
+            'log' => $log !== null ? mb_substr($log, -60000) : null,
         ]);
+        if ($status === 'failed') {
+            $this->notifyFailed($backup, (string) $backup->error, $policy->name);
+        }
         if ($status === 'succeeded') {
             foreach ($items as $item) {
                 BackupArtifact::create([

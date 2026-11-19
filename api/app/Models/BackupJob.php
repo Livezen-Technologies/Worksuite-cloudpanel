@@ -14,7 +14,8 @@ class BackupJob extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = [];
+    /** The run log can be long; it is fetched per job (GET backup-jobs/{id}/log). */
+    protected $hidden = ['log'];
 
     protected function casts(): array
     {
