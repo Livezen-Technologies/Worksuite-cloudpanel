@@ -402,7 +402,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('uptime/{id}', [Admin\UptimeController::class, 'show'])->middleware($view)->name('uptime.show');
 
     // Firewall (FW-001). Domain management governs it, as it changes the proxy.
-    $crud('firewall-rules', Admin\FirewallRuleController::class, 'resources.view|servers.view', 'deploy|settings.manage');
+    $crud('firewall-rules', Admin\FirewallRuleController::class, 'firewall.view', 'firewall.manage');
     // DNS zones (SRS 4.18)
     Route::get('dns/providers', [Admin\DnsController::class, 'providers'])->middleware('perm:resources.view|servers.view')->name('dns.providers');
     Route::post('dns/providers', [Admin\DnsController::class, 'connect'])->middleware('perm:deploy|settings.manage')->name('dns.providers.store');
@@ -499,18 +499,20 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('antivirus/threats', [Admin\AntivirusController::class, 'index'])->middleware('perm:resources.view|servers.view')->name('antivirus.threats');
     Route::post('antivirus/scan', [Admin\AntivirusController::class, 'scan'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.scan');
     Route::post('antivirus/threats/{id}/{action}', [Admin\AntivirusController::class, 'action'])->middleware('perm:deploy|network_storage.manage')->name('antivirus.action');
-    Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:resources.view|servers.view')->name('firewall.show');
-    Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:resources.view|servers.view')->name('firewall.events');
-    Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:deploy|settings.manage')->name('firewall.countries');
-    Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.store');
-    Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.update');
-    Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:deploy|settings.manage')->name('firewall.paths.destroy');
-    Route::patch('firewall/under-attack', [Admin\FirewallController::class, 'underAttack'])->middleware('perm:deploy|settings.manage')->name('firewall.under-attack');
-    Route::get('firewall/events/export', [Admin\FirewallController::class, 'exportEvents'])->middleware('perm:resources.view|servers.view')->name('firewall.events.export');
-    Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.store');
-    Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.update');
-    Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:deploy|settings.manage')->name('firewall.ips.destroy');
-    Route::patch('firewall/domains/{id}/access', [Admin\FirewallController::class, 'access'])->middleware('perm:deploy|settings.manage')->name('firewall.domains.access');
+    Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:firewall.view')->name('firewall.show');
+    Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:firewall.view')->name('firewall.events');
+    Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:firewall.manage')->name('firewall.countries');
+    Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:firewall.manage')->name('firewall.paths.store');
+    Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:firewall.manage')->name('firewall.paths.update');
+    Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:firewall.manage')->name('firewall.paths.destroy');
+    Route::patch('firewall/under-attack', [Admin\FirewallController::class, 'underAttack'])->middleware('perm:firewall.manage')->name('firewall.under-attack');
+    Route::get('firewall/events/export', [Admin\FirewallController::class, 'exportEvents'])->middleware('perm:firewall.view')->name('firewall.events.export');
+    Route::post('firewall/ips', [Admin\FirewallController::class, 'storeIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.store');
+    Route::patch('firewall/ips/{id}', [Admin\FirewallController::class, 'updateIp'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.ips.update');
+    Route::delete('firewall/ips/{id}', [Admin\FirewallController::class, 'destroyIp'])->middleware('perm:firewall.ips|firewall.unblock|firewall.manage')->name('firewall.ips.destroy');
+    Route::post('applications/{id}/lock', [Admin\FirewallController::class, 'lockApp'])->middleware('perm:app.lock')->name('applications.lock');
+    Route::post('applications/{id}/unlock', [Admin\FirewallController::class, 'unlockApp'])->middleware('perm:app.lock')->name('applications.unlock');
+    Route::patch('firewall/domains/{id}/access', [Admin\FirewallController::class, 'access'])->middleware('perm:firewall.manage')->name('firewall.domains.access');
 
     // Users, roles, settings, integrations, audit
     Route::middleware('perm:users.manage')->group(function () {
@@ -751,10 +753,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::post('security/threats/{id}/{action}', [Customer\SecurityController::class, 'act'])->whereIn('action', ['quarantine', 'ignore'])->name('security.act');
             // FW-015: protected paths and country rules on the customer's own domains.
             Route::get('firewall', [Customer\FirewallController::class, 'index'])->name('firewall.index');
-            Route::post('firewall/domains/{domain}/paths', [Customer\FirewallController::class, 'storePath'])->name('firewall.paths.store');
-            Route::patch('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'updatePath'])->name('firewall.paths.update');
-            Route::delete('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'destroyPath'])->name('firewall.paths.destroy');
-            Route::patch('firewall/domains/{domain}/countries', [Customer\FirewallController::class, 'countries'])->name('firewall.countries');
+            Route::post('firewall/domains/{domain}/paths', [Customer\FirewallController::class, 'storePath'])->middleware('perm:firewall.manage')->name('firewall.paths.store');
+            Route::patch('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'updatePath'])->middleware('perm:firewall.manage')->name('firewall.paths.update');
+            Route::delete('firewall/domains/{domain}/paths/{id}', [Customer\FirewallController::class, 'destroyPath'])->middleware('perm:firewall.manage')->name('firewall.paths.destroy');
+            Route::patch('firewall/domains/{domain}/countries', [Customer\FirewallController::class, 'countries'])->middleware('perm:firewall.manage')->name('firewall.countries');
+            Route::post('apps/{id}/lock', [Admin\FirewallController::class, 'lockApp'])->middleware('perm:app.lock')->name('apps.lock');
+            Route::post('apps/{id}/unlock', [Admin\FirewallController::class, 'unlockApp'])->middleware('perm:app.lock')->name('apps.unlock');
             // UMAIL: email on the customer's domains.
             Route::get('mail', [Customer\MailController::class, 'index'])->name('mail.index');
             Route::post('mail/domains', [Customer\MailController::class, 'storeDomain'])->name('mail.domains.store');

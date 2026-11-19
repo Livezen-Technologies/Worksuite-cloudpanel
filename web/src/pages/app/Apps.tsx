@@ -1,3 +1,4 @@
+import { AppLockButton } from '../../components/AppLockButton'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
@@ -108,6 +109,7 @@ export function AppDetail() {
         badge={<StatusBadge status={appState(a.state ?? a.status)} />}
         subtitle={<><span className="font-mono">{a.image ?? a.source?.image ?? a.source?.repo}</span>{a.size ? ` · ${a.size} plan` : ''}{a.region ? ` · ${a.region}` : ''}</>}
         actions={<>
+          <AppLockButton app={a} base="/app/apps" />
           <button type="button" className="btn" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/restart`, label: `Restart ${a.name}` }).catch(() => {})}>Restart</button>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => run({ path: `/app/apps/${a.id}/redeploy`, label: `Redeploy ${a.name}` }).catch(() => {})}>Redeploy</button>
         </>} />

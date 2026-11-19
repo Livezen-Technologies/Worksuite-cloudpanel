@@ -242,6 +242,42 @@ class FirewallController extends Controller
         return $this->data(['filename' => 'firewall-events-'.now()->format('Ymd-His').'.csv', 'csv' => $csv]);
     }
 
+    /** Locks an application: every one of its domains answers 403 to the public. */
+    public function lockApp(Request $request, string $id)
+    {
+        $data = $request->validate(['reason' => 'nullable|string|max:255']);
+        $app = $this->lockable($request, $id);
+        $app->forceFill(['public_access' => false, 'lock_reason' => $data['reason'] ?? null, 'locked_at' => now(), 'locked_by' => $request->user()?->id])->save();
+        app(\App\Services\AuditLogger::class)->log('app.lock', 'applications', $app->id, ['application' => $app->name, 'reason' => $data['reason'] ?? null]);
+        $this->traefik->push();
+
+        return $this->data($this->lockState($app));
+    }
+
+    /** Restores public access. IP blocks and the domain's access mode are left as they are. */
+    public function unlockApp(Request $request, string $id)
+    {
+        $app = $this->lockable($request, $id);
+        $was = ['reason' => $app->lock_reason, 'locked_at' => $app->locked_at?->toIso8601String()];
+        $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null])->save();
+        app(\App\Services\AuditLogger::class)->log('app.unlock', 'applications', $app->id, ['application' => $app->name, 'previous' => $was]);
+        $this->traefik->push();
+
+        return $this->data($this->lockState($app));
+    }
+
+    private function lockable(Request $request, string $id): \App\Models\Application
+    {
+        return \App\Models\Application::query()
+            ->when($request->is('api/v1/app/*'), fn ($q) => $q->where('kind', 'customer'))
+            ->findOrFail($id);
+    }
+
+    private function lockState(\App\Models\Application $app): array
+    {
+        return ['id' => $app->id, 'name' => $app->name, 'public_access' => (bool) $app->public_access, 'lock_reason' => $app->lock_reason, 'locked_at' => $app->locked_at];
+    }
+
     /** Whether two CIDR ranges share any address (one contains the other's network address). */
     public static function overlaps(string $a, string $b): bool
     {
