@@ -1,3 +1,4 @@
+import { ProjectBackups } from '../../components/ProjectBackups'
 import { ProjectCanvas } from '../../components/ProjectCanvas'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -90,6 +91,7 @@ export default function Projects() {
   const [secret, setSecret] = useState<string | null>(null)
   const [hand, setHand] = useState<Project | null>(null)
   const [canvas, setCanvas] = useState<string | null>(null)
+  const [backups, setBackups] = useState<string | null>(null)
   const create = () => run<R>({ path: '/projects', body: { name }, label: `Create ${name}`, success: 'Project created' })
     .then((r) => { setOpen(false); setName(''); setSecret((r as R)?.data?.webhook_secret ?? null) }).catch(() => {})
   return (
@@ -102,6 +104,7 @@ export default function Projects() {
           <div className="flex flex-wrap items-baseline gap-3 mb-2">
             <h2 className="text-base font-semibold m-0">{p.name}</h2>
             <button type="button" className="btn btn-sm" aria-expanded={canvas === p.id} onClick={() => setCanvas(canvas === p.id ? null : p.id)}>{canvas === p.id ? 'Hide canvas' : 'Show canvas'}</button>
+            <button type="button" className="btn btn-sm" aria-expanded={backups === p.id} onClick={() => setBackups(backups === p.id ? null : p.id)}>{backups === p.id ? 'Hide backups' : 'Backups'}</button>
             <button type="button" className="btn btn-sm btn-ghost gap-1.5" onClick={() => setHand(p)}><Icon name="users" size={15} />Hand over to customer</button>
             <span className="text-xs text-muted">Webhook (pushes and pull requests): <code className="font-mono">{p.webhook_url}</code></span>
             <label className="text-xs text-muted flex items-center gap-2 ml-auto">Pull request previews copy
@@ -117,6 +120,7 @@ export default function Projects() {
             </span>
           </div>
           {canvas === p.id && <Card className="mb-4"><ProjectCanvas projectId={p.id} staff /></Card>}
+          {backups === p.id && <div className="mb-4"><ProjectBackups projectId={p.id} /></div>}
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">{p.environments.map((e) => <EnvCard key={e.id} project={p} env={e} />)}</div>
         </section>
       ))}

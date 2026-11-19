@@ -215,7 +215,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
         Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
-        Route::put('projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
+        Route::match(['put', 'patch'], 'projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
         Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');
         Route::delete('projects/{id}', [Admin\ProjectController::class, 'destroy'])->name('projects.destroy');
         Route::patch('projects/{id}', [Admin\ProjectController::class, 'update'])->name('projects.update');
@@ -715,7 +715,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
             Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
             Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
-            Route::put('projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
+            Route::match(['put', 'patch'], 'projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
             Route::get('project-backups/{id}', [\App\Http\Controllers\ProjectBackupController::class, 'show'])->name('project-backups.show');
             Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');
             Route::post('projects', [Customer\ProjectController::class, 'store'])->name('projects.store');
