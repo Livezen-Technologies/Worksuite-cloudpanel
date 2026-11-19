@@ -1,3 +1,4 @@
+import { AppLockButton } from '../../components/AppLockButton'
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { api, errorMessage, isApiError } from '../../api/client'
@@ -27,7 +28,7 @@ export default function AppManage() {
     <>
       <PageHeader title={row?.name ?? 'Application'}
         subtitle={row ? `${row.source_type} · ${row.image ?? row.source ?? ''}` : ''}
-        actions={<Link className="btn" to="/admin/applications">All applications</Link>} />
+        actions={<>{row && <AppLockButton app={row} base="/applications" onChange={() => app.refetch()} />}<Link className="btn" to="/admin/applications">All applications</Link></>} />
 
       {!app.isError && (
         <div className="flex flex-wrap gap-1 border-b border-line" role="tablist">

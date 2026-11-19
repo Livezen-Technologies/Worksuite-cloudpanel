@@ -81,6 +81,16 @@ class FirewallConfigService
                 'priority' => 900000, 'middlewares' => [$deny], 'tls' => $tls,
             ]);
         }
+        // Application lock: the whole app is closed to the public; only admin ranges and its allow list get in.
+        $app = $domain->application_id ? \App\Models\Application::allTenants()->find($domain->application_id) : null;
+        if ($app && $app->public_access === false) {
+            $keep = $entries->where('list', 'allow')->pluck('cidr')->merge(config('platform.firewall.always_allow', []))->unique()->values();
+            $name = $router.'-locked';
+            $out['middlewares'][$name] = ['ipAllowList' => array_filter(['sourceRange' => $keep->isEmpty() ? ['127.0.0.1/32'] : $keep->all()] + self::ipStrategy())];
+            $out['site'][] = $name;
+
+            return $out;
+        }
         if (($domain->ip_access ?? 'open') === 'allowlist') {
             $allow = $entries->where('list', 'allow')->pluck('cidr')->merge(config('platform.firewall.always_allow', []))->unique()->values();
             if ($entries->where('list', 'allow')->isNotEmpty()) {

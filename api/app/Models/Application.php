@@ -26,6 +26,8 @@ class Application extends Model
             'purge_after' => 'datetime',
             'scaling' => 'array',
             'replicas' => 'integer',
+            'public_access' => 'boolean',
+            'locked_at' => 'datetime',
         ];
     }
 

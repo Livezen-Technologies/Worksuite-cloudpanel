@@ -23,6 +23,11 @@ return [
         'users.manage' => ['Manage users & roles', 'Administration'],
         'settings.manage' => ['Manage settings & integrations', 'Administration'],
         'approvals.decide' => ['Approve requests', 'Administration'],
+        'firewall.view' => ['Firewall: view rules, blocked IPs and logs', 'Firewall'],
+        'firewall.unblock' => ['Firewall: unblock addresses', 'Firewall'],
+        'firewall.ips' => ['Firewall: manage allow and block lists', 'Firewall'],
+        'firewall.manage' => ['Firewall: change rules, rate limits and access modes', 'Firewall'],
+        'app.lock' => ['Lock and unlock public access to an app', 'Firewall'],
         'app.manage' => ['Customer panel: host and manage apps, domains, backups', 'Customer panel'],
         'app.billing' => ['Customer panel: billing', 'Customer panel'],
         'app.team' => ['Customer panel: team & tokens', 'Customer panel'],
@@ -34,6 +39,7 @@ return [
             'resources.view' => 'all', 'servers.view' => 'all', 'servers.manage' => 'all', 'deploy' => 'all',
             'containers.operate' => 'all', 'terminal' => 'all+approval', 'network_storage.manage' => 'all',
             'logs.view' => 'all', 'audit.view' => 'all', 'approvals.decide' => 'all',
+            'firewall.view' => 'all', 'firewall.unblock' => 'all', 'firewall.ips' => 'all', 'firewall.manage' => 'all', 'app.lock' => 'all',
         ]],
         'owner' => ['label' => 'Organisation Owner', 'scope' => 'both', 'grants' => [
             'resources.view' => 'own_org', 'servers.view' => 'own_org', 'servers.manage' => 'own_org', 'deploy' => 'own_org',
@@ -41,25 +47,30 @@ return [
             'network_storage.manage' => 'own_org', 'billing.manage' => 'own_org', 'logs.view' => 'own_org', 'audit.view' => 'own_org',
             'users.manage' => 'own_org', 'settings.manage' => 'own_org', 'approvals.decide' => 'own_org',
             'app.manage' => 'own_org', 'app.billing' => 'own_org', 'app.team' => 'own_org',
+            'firewall.view' => 'own_org', 'firewall.unblock' => 'own_org', 'firewall.ips' => 'own_org', 'firewall.manage' => 'own_org', 'app.lock' => 'own_org',
         ]],
         'devops' => ['label' => 'DevOps Engineer', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'all', 'servers.view' => 'all', 'servers.manage' => 'all', 'deploy' => 'all',
             'containers.operate' => 'all', 'terminal' => 'all+approval', 'production.delete' => 'all+approval',
             'logs.view' => 'all', 'audit.view' => 'all', 'approvals.decide' => 'all',
+            'firewall.view' => 'all', 'firewall.unblock' => 'all', 'firewall.ips' => 'all', 'firewall.manage' => 'all', 'app.lock' => 'all',
         ]],
         'developer' => ['label' => 'Developer', 'scope' => 'both', 'grants' => [
             'resources.view' => 'assigned', 'deploy' => 'assigned', 'containers.operate' => 'assigned', 'logs.view' => 'assigned',
             'app.manage' => 'own_org',
+            'firewall.view' => 'own_org', // managing IPs and app lock are optional: grant them through a custom role
         ]],
         'support' => ['label' => 'Support Engineer', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'all', 'servers.view' => 'all', 'deploy' => 'all', 'terminal' => 'all+approval',
             'logs.view' => 'all', 'audit.view' => 'all', 'customers.manage' => 'all',
+            'firewall.view' => 'all', 'firewall.unblock' => 'all',
         ]],
         'billing' => ['label' => 'Billing Manager', 'scope' => 'both', 'grants' => [
             'billing.manage' => 'all', 'logs.view' => 'read', 'audit.view' => 'read', 'app.billing' => 'own_org',
         ]],
         'viewer' => ['label' => 'Viewer / Auditor', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'read', 'servers.view' => 'read', 'logs.view' => 'read', 'audit.view' => 'read',
+            'firewall.view' => 'read',
         ]],
     ],
 

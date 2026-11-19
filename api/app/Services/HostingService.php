@@ -226,6 +226,8 @@ class HostingService
             'source' => $app->source_summary,
             'state' => $state,
             'status' => $app->status,
+            'public_access' => $app->public_access !== false,
+            'lock_reason' => $app->lock_reason,
             'primary_domain' => $primary?->name,
             'address' => 'https://'.$app->name.'.'.config('platform.domain'),
             'cpu_pct' => $container?->cpu_pct,
