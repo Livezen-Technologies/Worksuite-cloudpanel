@@ -16,6 +16,9 @@ class Domain extends Model
 
     protected $hidden = [];
 
+    /** PDNS: what the last zone publish did, for the response that created the domain. Not a column. */
+    public ?array $publishedRecords = null;
+
     protected static function booted(): void
     {
         $sync = fn (Domain $d) => app(\App\Services\CloudflareTunnelService::class)->domainChanged($d);
@@ -31,6 +34,8 @@ class Domain extends Model
             'platform_subdomain' => 'boolean',
             'options' => 'array',
             'dns_checked_at' => 'datetime',
+            'is_primary' => 'boolean',
+            'ownership_verified_at' => 'datetime',
         ];
     }
 

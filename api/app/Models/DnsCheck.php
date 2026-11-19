@@ -20,6 +20,7 @@ class DnsCheck extends Model
     {
         return [
             'records' => 'array',
+            'checks' => 'array',
             'ok' => 'boolean',
             'created_at' => 'datetime',
         ];

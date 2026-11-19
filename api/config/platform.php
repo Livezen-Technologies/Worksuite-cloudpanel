@@ -6,6 +6,21 @@ return [
     // PUB-6: the company named in "Hosted on …" at the foot of public pages (maintenance, blocked, 404…).
     'hosted_by' => env('PLATFORM_HOSTED_BY', 'Livezen Cloud'),
     'ingress_ip' => env('PLATFORM_INGRESS_IP', '203.0.113.10'),
+    // PDNS: the cluster ingress customers point their DNS at — never the node a container runs on,
+    // so a Swarm reschedule never changes customer DNS. `hostname` is the CNAME target for
+    // subdomains and must resolve to `ips` (A targets for apex domains). Empty `ips` falls back to
+    // ingress_ip. `resolvers` are the public DNS-over-HTTPS resolvers the propagation check asks.
+    'ingress' => [
+        'hostname' => env('PLATFORM_INGRESS_HOSTNAME'),
+        'ips' => array_values(array_filter(array_map('trim', explode(',', (string) env('PLATFORM_INGRESS_IPS', ''))))),
+        'ipv6' => array_values(array_filter(array_map('trim', explode(',', (string) env('PLATFORM_INGRESS_IPV6', ''))))),
+        'ownership_label' => env('PLATFORM_DOMAIN_VERIFY_LABEL', '_livezen-verify'),
+        'resolvers' => [
+            'Cloudflare' => 'https://cloudflare-dns.com/dns-query',
+            'Google' => 'https://dns.google/resolve',
+            'Quad9' => 'https://dns.quad9.net:5053/dns-query',
+        ],
+    ],
     'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
     // The release, from the repository's VERSION file (one source of truth; see CHANGELOG.md).
     'version' => trim((string) @file_get_contents(base_path('../VERSION'))) ?: env('APP_VERSION', 'dev'),

@@ -40,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
 
         $drivers = config('platform.drivers');
         $this->app->singleton(DnsResolver::class, fn () => $drivers['dns'] === 'fake' ? new FakeDnsResolver : new NativeDnsResolver);
+        $this->app->singleton(\App\Contracts\DomainProbe::class, fn () => $drivers['dns'] === 'fake' ? new \App\Drivers\FakeDomainProbe : new \App\Drivers\NativeDomainProbe);
         $this->app->singleton(CertificateIssuer::class, fn ($app) => config('platform.drivers.certificates') === 'traefik' ? $app->make(\App\Drivers\TraefikCertificateIssuer::class) : new FakeCertificateIssuer);
         $this->app->singleton(ImageScanner::class, FakeImageScanner::class);
         $this->app->singleton(PaymentGateway::class, fn () => match (config('platform.drivers.payments')) { 'stripe' => new \App\Drivers\StripePaymentGateway(config('billing.stripe')), 'paypal' => new \App\Drivers\PayPalPaymentGateway(\App\Drivers\PayPalPaymentGateway::config()), default => new FakePaymentGateway });

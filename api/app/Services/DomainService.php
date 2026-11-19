@@ -23,9 +23,16 @@ class DomainService
         // DNS-013: a domain inside one of the organisation's DNS zones gets its certificate by DNS-01
         // through that zone, unless a challenge or a provider token is given.
         $zone = empty($data['platform_subdomain']) && empty($data['dns_token']) ? \App\Models\DnsZone::forDomain($name, \App\Support\Tenant::current()?->id) : null;
+        $projectId = $data['project_id'] ?? (! empty($data['application_id']) ? Application::find($data['application_id'])?->project_id : null);
+        $method = $data['dns_method'] ?? null;
         $domain = Domain::create([
             'name' => $name,
             'application_id' => $data['application_id'] ?? null,
+            'project_id' => $projectId,
+            'dns_method' => $method,
+            // PDNS: a custom domain added through a project proves ownership with a TXT record first.
+            'ownership_token' => $method && $method !== 'platform' && empty($data['platform_subdomain']) ? \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(32)) : null,
+            'is_primary' => (bool) ($data['is_primary'] ?? false),
             'target_port' => $data['target_port'] ?? null,
             'wildcard' => str_starts_with($name, '*.') || ! empty($data['wildcard']),
             'www_redirect' => (bool) ($data['www_redirect'] ?? false),
@@ -38,8 +45,9 @@ class DomainService
         if (! empty($data['dns_token'])) {
             $this->setDnsToken($domain, $data['dns_token']);
         }
-        if ($zone) {
-            $this->publishToZone($domain);
+        // PDNS: a project domain the customer chose to manage by hand is never written to the zone.
+        if ($zone && $method !== 'manual') {
+            $domain->publishedRecords = $this->publishToZone($domain);
         }
         if ($domain->application_id) {
             Route::create(['domain_id' => $domain->id, 'application_id' => $domain->application_id, 'port' => $domain->target_port]);
@@ -63,6 +71,13 @@ class DomainService
         $out = [];
         foreach ($this->expectedRecords($domain) as $r) {
             $same = $existing->filter(fn ($e) => $e->type === $r['type'] && $e->name === $r['name']);
+            // A CNAME cannot share its name with any other record, and nothing else may sit beside a
+            // CNAME: never replace a customer's existing record (website, MX, SPF, DKIM, DMARC…).
+            $clash = $existing->filter(fn ($e) => $e->name === $r['name'] && $e->type !== $r['type'] && ($r['type'] === 'CNAME' || $e->type === 'CNAME'));
+            if ($clash->isNotEmpty()) {
+                $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'conflict', 'message' => 'The zone already has a '.$clash->first()->type.' record there ('.$clash->first()->content.'). It was left alone.'];
+                continue;
+            }
             if ($same->contains(fn ($e) => rtrim($e->content, '.') === rtrim($r['value'], '.'))) {
                 $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'present'];
                 continue;
@@ -108,6 +123,9 @@ class DomainService
     /** DNS records the customer must create (UDOM-002). */
     public function expectedRecords(Domain $domain): array
     {
+        if ($domain->dns_method && ! $domain->platform_subdomain) {
+            return $this->projectRecords($domain);
+        }
         $ip = $this->ingressIp($domain);
         $records = [['type' => 'A', 'name' => $domain->name, 'value' => $ip]];
         if ($domain->www_redirect) {
@@ -118,6 +136,68 @@ class DomainService
         }
 
         return $records;
+    }
+
+    /**
+     * PDNS: records for a domain added through a project. They name the cluster ingress, never the
+     * node a container runs on: a subdomain is a CNAME to the ingress host name when one is set,
+     * an apex domain gets A (and AAAA) records for the ingress addresses.
+     */
+    public function projectRecords(Domain $domain): array
+    {
+        $name = $domain->name;
+        $host = $this->ingressHostname();
+        $records = [];
+        if ($this->isSubdomain($name) && $host && ! $domain->wildcard) {
+            $records[] = ['type' => 'CNAME', 'name' => $name, 'value' => $host, 'purpose' => 'routing'];
+        } else {
+            foreach ($this->ingressIps() as $ip) {
+                $records[] = ['type' => 'A', 'name' => $name, 'value' => $ip, 'purpose' => 'routing'];
+            }
+            foreach ((array) config('platform.ingress.ipv6', []) as $ip) {
+                $records[] = ['type' => 'AAAA', 'name' => $name, 'value' => $ip, 'purpose' => 'routing'];
+            }
+        }
+        if ($domain->www_redirect) {
+            $records[] = ['type' => 'CNAME', 'name' => 'www.'.$name, 'value' => $name, 'purpose' => 'www'];
+        }
+        if ($domain->ownership_token) {
+            $records[] = ['type' => 'TXT', 'name' => $this->ownershipName($domain), 'value' => $this->ownershipValue($domain), 'purpose' => 'ownership'];
+        }
+        if ($domain->challenge === 'dns-01') {
+            $records[] = ['type' => 'TXT', 'name' => '_acme-challenge.'.ltrim($name, '*.'), 'value' => substr(hash('sha256', $domain->id), 0, 43), 'purpose' => 'certificate'];
+        }
+
+        return $records;
+    }
+
+    public function ownershipName(Domain $domain): string
+    {
+        return config('platform.ingress.ownership_label', '_livezen-verify').'.'.ltrim($domain->name, '*.');
+    }
+
+    public function ownershipValue(Domain $domain): string
+    {
+        return 'livezen-verify='.$domain->ownership_token;
+    }
+
+    /** The configured ingress addresses; the single legacy PLATFORM_INGRESS_IP when none are listed. */
+    public function ingressIps(): array
+    {
+        return (array) config('platform.ingress.ips') ?: [(string) config('platform.ingress_ip')];
+    }
+
+    public function ingressHostname(): ?string
+    {
+        $h = strtolower(rtrim(trim((string) config('platform.ingress.hostname')), '.'));
+
+        return $h !== '' ? $h : null;
+    }
+
+    /** More than two labels: "shop.example.com" is a subdomain, "example.com" an apex. */
+    public function isSubdomain(string $name): bool
+    {
+        return substr_count(ltrim($name, '*.'), '.') >= 2;
     }
 
     public function ingressIp(Domain $domain): string
@@ -139,6 +219,11 @@ class DomainService
             $records[] = $record + ['status' => $ok ? 'verified' : 'waiting', 'found' => $values];
         }
         $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified');
+        $owned = collect($records)->first(fn ($r) => ($r['purpose'] ?? null) === 'ownership');
+        if ($owned && $owned['status'] === 'verified' && ! $domain->ownership_verified_at) {
+            $domain->update(['ownership_verified_at' => now()]);
+            app(AuditLogger::class)->log('domain.ownership_verified', 'domains', $domain->id, ['domain' => $domain->name, 'project_id' => $domain->project_id], $domain->organization_id);
+        }
         DnsCheck::create(['domain_id' => $domain->id, 'records' => $records, 'ok' => $allOk, 'created_at' => now()]);
         $wasVerified = $domain->dns_status === 'verified';
         $domain->update(['dns_status' => $allOk ? 'verified' : 'pending', 'dns_checked_at' => now()]);
@@ -295,6 +380,11 @@ class DomainService
             'dns_provider' => $domain->dns_provider,
             'has_dns_token' => (bool) $domain->dns_secret_id,
             'dns_zone' => ($z = $domain->dns_secret_id ? null : \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id)) ? ['id' => $z->id, 'name' => $z->name, 'provider' => $z->provider?->type] : null,
+            'project_id' => $domain->project_id,
+            'is_primary' => (bool) $domain->is_primary,
+            'dns_method' => $domain->dns_method,
+            'ownership_required' => (bool) $domain->ownership_token,
+            'ownership_verified' => ! $domain->ownership_token || (bool) $domain->ownership_verified_at,
             'dns_status' => $domain->dns_status,
             'https_status' => $domain->https_status,
             'records' => $this->expectedRecords($domain),
