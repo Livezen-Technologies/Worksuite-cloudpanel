@@ -1,3 +1,4 @@
+import Select from '../components/Select'
 import { useEffect, useState } from 'react'
 import { useAction, useOne } from '../api/hooks'
 import { Card, Empty, Toggle } from './Card'
@@ -38,11 +39,11 @@ export function ProjectBackups({ projectId, base = '' }: { projectId: string; ba
         </div>
         <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
           <label className="text-sm"><span className="block text-muted text-xs mb-1">Frequency</span>
-            <select className="input" value={s.frequency ?? 'daily'} onChange={(e) => setS({ ...s, frequency: e.target.value })}><option value="hourly">Hourly</option><option value="daily">Daily (02:00 Sri Lanka)</option><option value="weekly">Weekly (Sunday 02:00)</option></select></label>
+            <Select className="input" value={s.frequency ?? 'daily'} onChange={(e) => setS({ ...s, frequency: e.target.value })}><option value="hourly">Hourly</option><option value="daily">Daily (02:00 Sri Lanka)</option><option value="weekly">Weekly (Sunday 02:00)</option></Select></label>
           <label className="text-sm"><span className="block text-muted text-xs mb-1">Keep for (days)</span>
             <input className="input" type="number" min={1} max={3650} value={s.retention_days ?? 14} onChange={(e) => setS({ ...s, retention_days: e.target.value })} /></label>
           <label className="text-sm"><span className="block text-muted text-xs mb-1">Destination</span>
-            <select className="input" value={s.destination ?? 'local'} onChange={(e) => setS({ ...s, destination: e.target.value })}>{Object.entries(DEST).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <Select className="input" value={s.destination ?? 'local'} onChange={(e) => setS({ ...s, destination: e.target.value })}>{Object.entries(DEST).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></label>
           <label className="text-sm"><span className="block text-muted text-xs mb-1">Storage limit (GB)</span>
             <input className="input" type="number" min={1} placeholder="no limit" value={s.capacity_gb ?? ''} onChange={(e) => setS({ ...s, capacity_gb: e.target.value })} /></label>
           <div className="flex items-end"><button type="button" className="btn" disabled={busy} onClick={() => saveSchedule({})}>Save settings</button></div>
