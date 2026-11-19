@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useOne } from '../api/hooks'
+import { useAction, useOne } from '../api/hooks'
 import { Card, Empty, Meter, StatTile } from './Card'
 import { Badge, StatusBadge } from './Badge'
 import { ProjectBackups } from './ProjectBackups'
@@ -10,12 +10,26 @@ import { num, type R } from '../lib/util'
 
 const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
 const HEALTH: Record<string, ['g' | 'y' | 'r' | 'n', string]> = { healthy: ['g', 'Healthy'], degraded: ['y', 'Degraded'], down: ['r', 'Down'], empty: ['n', 'No apps yet'] }
-type Tab = 'applications' | 'containers' | 'resources' | 'firewall' | 'backups'
+type Tab = 'applications' | 'databases' | 'containers' | 'resources' | 'firewall' | 'backups'
 
 /**
  * Project overview: health, counts and the Applications / Containers / Resources / Backups tabs.
  * `base` is '' for the admin API and '/app' for the customer portal; `appLink` builds an app's URL.
  */
+/** Start / stop / restart a container, and open its logs (admin only). */
+function ContainerControls({ id, state, onDone }: { id: string; state: string; onDone: () => void }) {
+  const { run, busy } = useAction()
+  const act = (action: string) => run({ path: `/containers/${id}/actions`, body: { action }, label: `${action} container`, success: `Container ${action} sent` }).then(onDone).catch(() => {})
+  return (
+    <span className="flex gap-1.5">
+      {state === 'running'
+        ? <><button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('restart')}>Restart</button><button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button></>
+        : <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act('start')}>Start</button>}
+      <Link className="btn btn-sm btn-ghost" to={`/admin/containers?id=${id}`}>Logs</Link>
+    </span>
+  )
+}
+
 export function ProjectDashboard({ projectId, base = '', appLink }: { projectId: string; base?: string; appLink: (id: string) => string }) {
   const d = useOne<R>(`${base}/projects/${projectId}/dashboard`, undefined, { refetchInterval: 20000 })
   const [tab, setTab] = useState<Tab>('applications')
@@ -25,6 +39,8 @@ export function ProjectDashboard({ projectId, base = '', appLink }: { projectId:
   const apps = (x.applications ?? []) as R[]
   const containers = (x.containers ?? []) as R[]
   const nodes = (x.nodes ?? []) as R[]
+  const dbs = (x.databases ?? []) as R[]
+  const stacks = (x.stacks ?? []) as R[]
   const [tone, label] = HEALTH[String(x.health ?? 'empty')] ?? HEALTH.empty
   const last = x.last_backup as R | null
 
@@ -35,11 +51,12 @@ export function ProjectDashboard({ projectId, base = '', appLink }: { projectId:
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
         <StatTile label="Applications" value={num(c.applications)} />
         <StatTile label="Containers" value={num(c.containers)} delta={num(c.containers) ? `${num(c.running)} running` : undefined} deltaTone={num(c.running) < num(c.containers) ? 'r' : undefined} />
+        <StatTile label="Databases" value={num(c.databases)} />
         <StatTile label="Nodes" value={num(c.nodes)} />
         <StatTile label="Backups" value={num(c.backups)} />
       </div>
       <div role="tablist" aria-label="Project overview" className="flex gap-1 border-b border-line">
-        {(['applications', 'containers', 'resources', 'firewall', 'backups'] as const).map((t) => <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
+        {(['applications', 'databases', 'containers', 'resources', 'firewall', 'backups'] as const).map((t) => <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
           className={`h-10 px-3.5 border-0 bg-transparent cursor-pointer text-sm capitalize ${tab === t ? 'font-semibold' : 'text-muted'}`}
           style={tab === t ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{t}</button>)}
       </div>
@@ -61,7 +78,19 @@ export function ProjectDashboard({ projectId, base = '', appLink }: { projectId:
             <span className="tabular-nums min-w-[140px] text-muted">{k.cpu_pct != null ? `${num(k.cpu_pct).toFixed(1)}% CPU` : '—'} · {k.mem_mb != null ? gb(num(k.mem_mb)) : '—'}</span>
             {k.health === 'unhealthy' ? <Badge tone="r">unhealthy</Badge> : null}
             <StatusBadge status={k.state} />
+            {!base && <ContainerControls id={String(k.id)} state={String(k.state)} onDone={() => d.refetch()} />}
           </li>))}</ul>}</Card>}
+
+      {tab === 'databases' && <Card pad={false}>{!dbs.length ? <div className="p-5"><Empty>No databases in this project. Use Add application → Database to create one.</Empty></div> :
+        <ul className="list-none m-0 p-0">{dbs.map((b) => (
+          <li key={b.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3 border-t border-line first:border-t-0 text-[13.5px]">
+            <span className="flex-[1_1_220px] min-w-0"><span className="block font-semibold truncate">{b.name}</span>
+              <span className="block text-xs text-muted truncate">{b.engine} {b.version} · host <span className="font-mono">{b.host}</span> · {b.server ?? '—'}{((b.used_by ?? []) as string[]).length ? ` · used by ${(b.used_by as string[]).join(', ')}` : ''}</span></span>
+            <StatusBadge status={b.state ?? b.status} />
+            {!base && b.container_id && <ContainerControls id={String(b.container_id)} state={String(b.state ?? '')} onDone={() => d.refetch()} />}
+          </li>))}</ul>}
+        {stacks.length > 0 && <div className="px-4 sm:px-5 py-3 border-t border-line text-xs text-muted">Stacks in this project: {stacks.map((x) => x.name).join(', ')}</div>}
+      </Card>}
 
       {tab === 'resources' && <div className="flex flex-col gap-3">
         <Card>

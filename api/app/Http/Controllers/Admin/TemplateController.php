@@ -69,6 +69,7 @@ class TemplateController extends Controller
             'name' => $data['name'].'-db', 'engine' => $data['create_database']['engine'], 'version' => $data['create_database']['version'] ?? null,
             'server_id' => $serverId, 'environment' => $data['environment'] ?? 'production', 'database' => $dbName,
             'memory_mb' => $data['create_database']['memory_mb'] ?? 512,
+            'project_id' => $data['project_id'] ?? null,
         ]);
         $data['database_id'] = $res['database']['id'];
         $data['server_id'] = $serverId;

@@ -271,7 +271,7 @@ class TemplateService
                 if (ComposeProject::where('name', $name)->exists()) {
                     throw ApiException::validation(['name' => ['A stack with this name already exists.']]);
                 }
-                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor']);
+                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor', 'project_id' => $data['project_id'] ?? null]);
                 $this->compose->addRevision($project, $r['compose']);
                 $this->compose->deploy($project);
                 $type = 'compose_project';

@@ -41,13 +41,17 @@ class ProjectDashboardService
         $problems = $rows->filter(fn ($r) => in_array($r['status'], ['failed', 'crashed', 'error'], true) || $r['unhealthy'] > 0
             || ($r['containers'] > 0 && $r['running'] < $r['containers']) || in_array($r['server']['status'] ?? null, ['offline'], true))->count();
         $lastBackup = $backups->first();
+        // Databases of the project: its own, and the managed ones its apps are wired to.
+        $linkedDbIds = $apps->map(fn ($a) => $a->source['database_id'] ?? null)->filter()->values();
+        $dbs = \App\Models\Database::allTenants()->where(fn ($q) => $q->where('project_id', $project->id)->when($linkedDbIds->isNotEmpty(), fn ($q) => $q->orWhereIn('id', $linkedDbIds)))->orderBy('name')->get();
+        $stacks = \App\Models\ComposeProject::allTenants()->where('project_id', $project->id)->orderBy('name')->get(['id', 'name', 'server_id', 'status']);
 
         return [
             'project' => ['id' => $project->id, 'name' => $project->name, 'description' => $project->description],
             'health' => $apps->isEmpty() ? 'empty' : ($problems === 0 ? 'healthy' : ($problems < $apps->count() ? 'degraded' : 'down')),
             'counts' => [
                 'applications' => $apps->count(), 'containers' => $containers->count(), 'running' => $containers->where('state', 'running')->count(),
-                'nodes' => $servers->count(), 'backups' => $backups->count(),
+                'nodes' => $servers->count(), 'backups' => $backups->count(), 'databases' => $dbs->count(),
             ],
             'services' => $containers->whereNull('application_id')->count(),
             'resources' => [
@@ -57,6 +61,12 @@ class ProjectDashboardService
             ],
             'last_backup' => $lastBackup ? ['id' => $lastBackup->id, 'status' => $lastBackup->status, 'type' => $lastBackup->trigger, 'created_at' => $lastBackup->created_at] : null,
             'applications' => $rows,
+            'databases' => $dbs->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'engine' => $d->engine, 'version' => $d->version, 'status' => $d->status,
+                'server' => $servers[$d->server_id]->name ?? \App\Models\Server::allTenants()->whereKey($d->server_id)->value('name'), 'container_id' => $d->container_id,
+                'state' => $d->container_id ? Container::allTenants()->whereKey($d->container_id)->value('state') : null,
+                'host' => 'db-'.\Illuminate\Support\Str::slug($d->name),
+                'used_by' => $apps->filter(fn ($a) => ($a->source['database_id'] ?? null) === $d->id)->pluck('name')->values()])->values(),
+            'stacks' => $stacks->map(fn ($s) => ['id' => $s->id, 'name' => $s->name, 'status' => $s->status])->values(),
             'containers' => $containers->map(fn (Container $c) => [
                 'id' => $c->id, 'name' => $c->name, 'image' => $c->image, 'state' => $c->state, 'health' => $c->health,
                 'cpu_pct' => $c->cpu_pct, 'mem_mb' => $c->mem_mb, 'application' => $apps->firstWhere('id', $c->application_id)?->name ?? (($c->labels ?? [])['com.docker.compose.project'] ?? 'project'),

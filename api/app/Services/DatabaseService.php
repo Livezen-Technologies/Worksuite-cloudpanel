@@ -30,6 +30,7 @@ class DatabaseService implements HandlesCommandResults
         $database = Database::create([
             'server_id' => $server->id, 'name' => $data['name'], 'engine' => $data['engine'], 'version' => $version,
             'environment' => $data['environment'] ?? 'production', 'secret_id' => $secret->id, 'status' => 'creating',
+            'project_id' => $data['project_id'] ?? null,
         ]);
         $secret->update(['owner_type' => 'Database', 'owner_id' => $database->id]);
 
