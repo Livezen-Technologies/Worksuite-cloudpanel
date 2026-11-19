@@ -199,6 +199,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
         Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
         Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+        Route::get('projects/{id}/networking', [\App\Http\Controllers\ProjectNetworkController::class, 'show'])->name('projects.networking');
+        Route::post('projects/{id}/networking/reconcile', [\App\Http\Controllers\ProjectNetworkController::class, 'reconcile'])->middleware('throttle:10,1')->name('projects.networking.reconcile');
         // PWS-E: the project firewall; the project role is checked in the controller.
         Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->name('projects.firewall');
         Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('throttle:30,1')->name('projects.firewall.ips.store');
@@ -763,6 +765,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
             Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
             Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+            Route::get('projects/{id}/networking', [\App\Http\Controllers\ProjectNetworkController::class, 'show'])->name('projects.networking');
+            Route::post('projects/{id}/networking/reconcile', [\App\Http\Controllers\ProjectNetworkController::class, 'reconcile'])->middleware('throttle:10,1')->name('projects.networking.reconcile');
             // PWS-E: the project firewall; the project role is checked in the controller.
             Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->name('projects.firewall');
             Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('throttle:30,1')->name('projects.firewall.ips.store');
