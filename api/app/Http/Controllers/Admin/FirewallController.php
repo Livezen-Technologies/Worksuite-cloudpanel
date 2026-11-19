@@ -172,8 +172,11 @@ class FirewallController extends Controller
             'note' => 'nullable|string|max:255',
             'expires_at' => 'nullable|date|after:now',
             'domain_id' => 'nullable|uuid|exists:domains,id',
+            'application_id' => 'nullable|uuid|exists:applications,id',
+            'project_id' => 'nullable|uuid|exists:projects,id',
             'confirm' => 'sometimes|boolean',
         ]);
+        \App\Support\FirewallScope::assertSingle($data);
         $cidr = FirewallIpList::normalise($data['cidr']);
         if (! $cidr) {
             throw ApiException::validation(['cidr' => ['Enter an IP address or a CIDR range, such as 203.0.113.0/24.']]);
@@ -194,6 +197,7 @@ class FirewallController extends Controller
         $entry = FirewallIpList::create([
             'list' => $data['list'], 'cidr' => $cidr, 'note' => $data['note'] ?? null,
             'expires_at' => $data['expires_at'] ?? null, 'domain_id' => $data['domain_id'] ?? null,
+            'application_id' => $data['application_id'] ?? null, 'project_id' => $data['project_id'] ?? null,
         ]);
         $this->traefik->push();
 
@@ -367,7 +371,8 @@ class FirewallController extends Controller
             'id' => $e->id, 'list' => $e->list, 'cidr' => $e->cidr, 'note' => $e->note,
             'expires_at' => $e->expires_at?->toIso8601String(),
             'expired' => $e->expires_at !== null && $e->expires_at->isPast(),
-            'domain_id' => $e->domain_id, 'scope' => $e->domain?->name ?? 'all domains',
+            'domain_id' => $e->domain_id, 'application_id' => $e->application_id, 'project_id' => $e->project_id,
+            'scope' => \App\Support\FirewallScope::label($e),
         ];
     }
 }

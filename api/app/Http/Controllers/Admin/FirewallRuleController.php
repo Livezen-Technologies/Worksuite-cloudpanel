@@ -26,6 +26,10 @@ class FirewallRuleController extends CrudController
         return [
             'name' => "{$req}|string|max:120",
             'domain_id' => 'nullable|uuid|exists:domains,id',
+            'application_id' => 'nullable|uuid|exists:applications,id',
+            'project_id' => 'nullable|uuid|exists:projects,id',
+            'burst' => 'nullable|integer|min:1|max:1000000',
+            'block_minutes' => 'nullable|integer|min:1|max:525600',
             'methods' => 'nullable|array', 'methods.*' => 'string|in:GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS',
             'paths' => "{$req}|array|min:1", 'paths.*' => 'string|max:255',
             'limit' => "{$req}|integer|min:1|max:1000000",
@@ -42,7 +46,7 @@ class FirewallRuleController extends CrudController
         /** @var FirewallRule $model */
         return $model->toArray() + [
             'rate' => $model->rate,
-            'scope' => $model->domain_id ? ($model->domain?->name ?? 'one domain') : 'all domains',
+            'scope' => \App\Support\FirewallScope::label($model),
             'enforced' => in_array($model->action, FirewallConfigService::NATIVE_ACTIONS, true),
         ];
     }
@@ -51,6 +55,13 @@ class FirewallRuleController extends CrudController
      * The proxy configuration is content-hashed, so without an explicit push a
      * rule change never reaches Traefik.
      */
+    protected function prepare(array $data, ?Model $model = null): array
+    {
+        \App\Support\FirewallScope::assertSingle($data + ($model ? $model->only(['domain_id', 'application_id', 'project_id']) : []));
+
+        return $data;
+    }
+
     protected function saved(Model $model, bool $created): void
     {
         $this->traefik->push();

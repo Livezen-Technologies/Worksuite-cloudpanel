@@ -94,7 +94,12 @@ class CrowdSecConfigService
 
         foreach ($hostsByOrg as $orgId => $orgHosts) {
             foreach (FirewallRule::allTenants()->where('organization_id', $orgId)->where('enabled', true)->whereIn('action', ['block', 'challenge', 'recaptcha', 'log'])->get() as $rule) {
-                $hosts = $rule->domain_id ? $this->hosts($domains->where('id', $rule->domain_id)) : $orgHosts;
+                $hosts = match (true) {
+                    (bool) $rule->domain_id => $this->hosts($domains->where('id', $rule->domain_id)),
+                    (bool) $rule->application_id => $this->hosts($domains->where('application_id', $rule->application_id)),
+                    (bool) $rule->project_id => $this->hosts($domains->whereIn('application_id', \App\Models\Application::allTenants()->where('project_id', $rule->project_id)->pluck('id'))),
+                    default => $orgHosts,
+                };
                 if (! $hosts) {
                     continue;
                 }
@@ -112,7 +117,7 @@ class CrowdSecConfigService
                     'labels' => ['service' => 'http', 'type' => 'dmp_firewall', 'remediation' => $rule->action !== 'log'],
                 ]);
                 match ($rule->action) {
-                    'block' => $bans[] = $name,
+                    'block' => $bans[$name] = (int) ($rule->block_minutes ?: config('platform.crowdsec.ban_minutes')),
                     'challenge', 'recaptcha' => $captchas[] = $name,
                     default => null,
                 };
@@ -163,9 +168,16 @@ class CrowdSecConfigService
 
             // FW-011. Expired entries are left out; firewall:expire-ips deletes them and re-renders.
             $lists = FirewallIpList::allTenants()->where('organization_id', $orgId)->active()->get();
-            foreach ($lists->groupBy(fn ($e) => $e->list.'|'.($e->domain_id ?? '*')) as $key => $entries) {
-                [$list, $domainId] = explode('|', $key);
-                $hosts = $domainId === '*' ? $orgHosts : $this->hosts($domains->where('id', $domainId));
+            $scopeKey = fn ($e) => $e->domain_id ? 'd'.$e->domain_id : ($e->application_id ? 'a'.$e->application_id : ($e->project_id ? 'p'.$e->project_id : '*'));
+            foreach ($lists->groupBy(fn ($e) => $e->list.'|'.$scopeKey($e)) as $key => $entries) {
+                [$list, $scope] = explode('|', $key);
+                $domainId = $scope === '*' ? '*' : substr($scope, 1);
+                $hosts = match ($scope[0]) {
+                    '*' => $orgHosts,
+                    'd' => $this->hosts($domains->where('id', $domainId)),
+                    'a' => $this->hosts($domains->where('application_id', $domainId)),
+                    'p' => $this->hosts($domains->whereIn('application_id', \App\Models\Application::allTenants()->where('project_id', $domainId)->pluck('id'))),
+                };
                 if (! $hosts) {
                     continue;
                 }
@@ -237,9 +249,15 @@ class CrowdSecConfigService
             $docs[] = ['name' => 'dmp_captcha', 'filters' => ['Alert.Remediation == true && Alert.GetScope() == "Ip" && Alert.GetScenario() in '.$this->list($captchas)],
                 'decisions' => [['type' => 'captcha', 'duration' => $ban]], 'on_success' => 'break'];
         }
-        if ($bans) {
-            $docs[] = ['name' => 'dmp_ban', 'filters' => ['Alert.Remediation == true && Alert.GetScope() == "Ip" && Alert.GetScenario() in '.$this->list($bans)],
-                'decisions' => [['type' => 'ban', 'duration' => $ban]], 'on_success' => 'break'];
+        // One ban profile per block duration; plain lists (older callers) use the platform default.
+        $byLength = [];
+        foreach ($bans as $k => $v) {
+            is_int($k) ? $byLength[(int) config('platform.crowdsec.ban_minutes')][] = $v : $byLength[(int) $v][] = $k;
+        }
+        ksort($byLength);
+        foreach ($byLength as $minutes => $names) {
+            $docs[] = ['name' => count($byLength) === 1 ? 'dmp_ban' : 'dmp_ban_'.$minutes.'m', 'filters' => ['Alert.Remediation == true && Alert.GetScope() == "Ip" && Alert.GetScenario() in '.$this->list($names)],
+                'decisions' => [['type' => 'ban', 'duration' => $minutes.'m']], 'on_success' => 'break'];
         }
         $docs[] = ['name' => 'default_ip_remediation', 'filters' => ['Alert.Remediation == true && Alert.GetScope() == "Ip"'],
             'decisions' => [['type' => 'ban', 'duration' => '4h']], 'on_success' => 'break'];

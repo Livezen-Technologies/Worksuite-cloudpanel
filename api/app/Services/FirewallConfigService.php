@@ -68,7 +68,7 @@ class FirewallConfigService
     {
         $entries = \App\Models\FirewallIpList::allTenants()->active()
             ->where('organization_id', $domain->organization_id)
-            ->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $domain->id))
+            ->tap(fn ($q) => \App\Support\FirewallScope::forDomain($q, $domain))
             ->get();
         $out = ['middlewares' => [], 'routers' => [], 'site' => []];
         $block = $entries->where('list', 'block')->pluck('cidr')->unique()->values();
@@ -109,7 +109,7 @@ class FirewallConfigService
         return FirewallRule::allTenants()
             ->where('organization_id', $domain->organization_id)
             ->where('enabled', true)
-            ->where(fn ($q) => $q->whereNull('domain_id')->orWhere('domain_id', $domain->id))
+            ->tap(fn ($q) => \App\Support\FirewallScope::forDomain($q, $domain))
             ->orderBy('priority')
             ->get();
     }
@@ -149,7 +149,7 @@ class FirewallConfigService
             $middlewares[$name] = ['rateLimit' => [
                 'average' => $fw->limit,
                 'period' => $fw->window_seconds.'s',
-                'burst' => max(1, (int) ceil($fw->limit / 10)),
+                'burst' => max(1, (int) ($fw->burst ?: ceil($fw->limit / 10))),
                 'sourceCriterion' => $this->sourceCriterion($fw),
             ]];
 
