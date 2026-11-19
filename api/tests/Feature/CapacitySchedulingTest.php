@@ -15,7 +15,7 @@ class CapacitySchedulingTest extends TestCase
 {
     private function app($org, array $attrs = []): Application
     {
-        return app(Tenant::class)->as($org->id, fn () => Application::create($attrs + ['name' => 'a'.uniqid(), 'size' => 'standard']));
+        return app(Tenant::class)->as($org->id, fn () => Application::create($attrs + ['name' => 'a'.uniqid(), 'size' => 'standard', 'source_type' => 'image', 'image' => 'nginx', 'port' => 80]));
     }
 
     private function sched(): Scheduler
