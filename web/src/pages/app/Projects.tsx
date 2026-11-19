@@ -10,6 +10,23 @@ import type { R } from '../../lib/util'
 import { ProjectCanvas } from '../../components/ProjectCanvas'
 import { ProjectDns } from '../../components/ProjectDns'
 import { ProjectEnvironments } from './ProjectEnvironments'
+import { ProjectDeployJobs } from '../../components/ProjectDeployJobs'
+import { ProjectResources } from '../../components/ProjectResources'
+import { ProjectNetworking } from '../../components/ProjectNetworking'
+import { ProjectFirewall } from '../../components/ProjectFirewall'
+import { ProjectQuotas } from '../../components/ProjectQuotas'
+import { Tabs } from '../../components/Tabs'
+
+/** PWS-H: the customer workspace sections. `role` ones need a project role (the workspace endpoint answers). */
+const VIEWS = [
+  { id: 'overview', label: 'Overview' }, { id: 'canvas', label: 'Canvas' }, { id: 'list', label: 'Apps' },
+  { id: 'deployments', label: 'Deployments', role: true }, { id: 'environments', label: 'Environments' },
+  { id: 'databases', label: 'Databases', role: true }, { id: 'storage', label: 'Storage & volumes', role: true },
+  { id: 'networks', label: 'Networks', role: true }, { id: 'dns', label: 'DNS & Domains' },
+  { id: 'firewall', label: 'Firewall & security', role: true }, { id: 'backups', label: 'Backups' },
+  { id: 'limits', label: 'Limits & quotas', role: true },
+] as const
+type View = (typeof VIEWS)[number]['id']
 
 const GRADIENT: Record<string, string> = {
   blue: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', violet: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', green: 'linear-gradient(135deg,#22c55e,#15803d)',
@@ -156,7 +173,11 @@ export default function UserProjects() {
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [pick, setPick] = useState('')
-  const [view, setView] = useState<'overview' | 'list' | 'canvas' | 'environments' | 'dns' | 'backups'>('canvas')
+  const [view, setView] = useState<View>('canvas')
+  // The caller's project role; a 403 (no role) leaves only the organisation-level views.
+  const wsRaw = useOne<{ role?: string; abilities?: string[] }>(openId ? `/app/projects/${openId}/workspace` : null, undefined, { retry: false }).item
+  const ws = wsRaw?.role && Array.isArray(wsRaw.abilities) ? { role: wsRaw.role, abilities: wsRaw.abilities } : undefined
+  const can = (a: string) => !ws || ws.abilities.includes(a)
   const w = page.item ?? {}
   const projects = (w.projects as R[]) ?? []
   const unassigned = (w.unassigned as R[]) ?? []
@@ -180,21 +201,24 @@ export default function UserProjects() {
         <PageHeader title={String(cur.name)} subtitle={`${apps.length} app${apps.length === 1 ? '' : 's'}`}
           actions={<span className="flex gap-2">
             <button type="button" className="btn" onClick={() => setOpenId(null)}>All projects</button>
-            <button type="button" className="btn" onClick={() => setForm(cur)}>Edit</button>
-            <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${cur.name}? Its apps stay, without a project.`)) run({ path: `/app/projects/${cur.id}`, method: 'DELETE', label: 'Delete project', success: 'Project deleted' }).then(() => { setOpenId(null); refetch() }).catch(() => {}) }}>Delete</button>
+            {ws && <Badge tone="n">{ws.role.replace('_', ' ')}</Badge>}
+            {can('manage') && <button type="button" className="btn" onClick={() => setForm(cur)}>Edit</button>}
+            {can('delete') && <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (window.confirm(`Delete ${cur.name}? Its apps stay, without a project.`)) run({ path: `/app/projects/${cur.id}`, method: 'DELETE', label: 'Delete project', success: 'Project deleted' }).then(() => { setOpenId(null); refetch() }).catch(() => {}) }}>Delete</button>}
           </span>} />
-        <div role="tablist" aria-label="Project view" className="flex gap-1 border-b border-line">
-          {(['overview', 'canvas', 'list', 'environments', 'dns', 'backups'] as const).map((v) => <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
-            className={`h-10 px-3.5 border-0 bg-transparent cursor-pointer text-sm ${view === v ? 'font-semibold' : 'text-muted'}`}
-            style={view === v ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}>{v === 'overview' ? 'Overview' : v === 'canvas' ? 'Canvas' : v === 'list' ? 'Apps' : v === 'environments' ? 'Environments' : v === 'dns' ? 'DNS & Domains' : 'Backups'}</button>)}
-        </div>
+        <Tabs label="Project workspace" value={view} onChange={(v) => setView(v)} tabs={VIEWS.filter((v) => !('role' in v) || ws).map((v) => ({ id: v.id, label: v.label }))} />
         {view === 'overview' && <ProjectDashboard projectId={String(cur.id)} base="/app" appLink={(id) => `/app/apps/${id}`} />}
         {view === 'canvas' && <Card><ProjectCanvas projectId={String(cur.id)} /></Card>}
         {view === 'environments' && <ProjectEnvironments projectId={String(cur.id)} />}
         {view === 'dns' && <ProjectDns projectId={String(cur.id)} />}
         {view === 'backups' && <ProjectBackups projectId={String(cur.id)} base="/app" />}
+        {ws && view === 'deployments' && <ProjectDeployJobs projectId={String(cur.id)} base="/app" />}
+        {ws && view === 'databases' && <ProjectResources projectId={String(cur.id)} kind="databases" canManage={can('manage')} base="/app" />}
+        {ws && view === 'storage' && <ProjectResources projectId={String(cur.id)} kind="volumes" canManage={can('manage')} base="/app" />}
+        {ws && view === 'networks' && <ProjectNetworking projectId={String(cur.id)} base="/app" />}
+        {ws && view === 'firewall' && <ProjectFirewall projectId={String(cur.id)} base="/app" />}
+        {ws && view === 'limits' && <ProjectQuotas projectId={String(cur.id)} base="/app" />}
         {view === 'list' && <>
-        <Card title="Add an app">
+        {can('manage') && <Card title="Add an app">
           {unassigned.length === 0 ? <p className="m-0 text-sm text-muted">All your apps are already in a project. <Link to="/app/host">+ Host a new app</Link></p> : (
             <div className="flex flex-wrap gap-2">
               <select className="input flex-1 min-w-[180px]" aria-label="App to add" value={pick} onChange={(e) => setPick(e.target.value)}>
@@ -204,14 +228,14 @@ export default function UserProjects() {
               <button type="button" className="btn btn-primary" disabled={busy || !pick} onClick={() => run({ path: `/app/projects/${cur.id}/apps`, body: { app_id: pick }, label: 'Add app', success: 'App added' }).then(() => { setPick(''); refetch() }).catch(() => {})}>+ Add app</button>
             </div>
           )}
-        </Card>
+        </Card>}
         <Card title="Apps">
           {apps.length === 0 ? <p className="m-0 text-sm text-muted">This project is empty. Add your first app above.</p> : (
             <ul className="list-none m-0 p-0 flex flex-col">{apps.map((a) => (
               <li key={String(a.id)} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0 text-sm">
                 <Link className="flex-1 font-semibold" to={`/app/apps/${a.id}`}>{String(a.name)}</Link>
                 <Badge tone={a.status === 'running' ? 'g' : 'n'}>{String(a.status ?? '—')}</Badge>
-                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/projects/${cur.id}/apps/${a.id}`, method: 'DELETE', label: 'Remove from project', success: 'Removed from project' }).then(refetch).catch(() => {})}>Remove</button>
+                {can('manage') && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/app/projects/${cur.id}/apps/${a.id}`, method: 'DELETE', label: 'Remove from project', success: 'Removed from project' }).then(refetch).catch(() => {})}>Remove</button>}
               </li>
             ))}</ul>
           )}

@@ -9,6 +9,20 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.25.0] — 2026-11-19
+
+### Added
+
+- **Customer project workspace** (Project workspace slice H). The customer portal's project page
+  (`/app/projects`) now uses the shared Tabs and the same workspace components as the admin side,
+  against the `/app` endpoints: Deployments (progress, retry, rollback), Databases, Storage &
+  volumes, Networks & ingress, Firewall & security and Limits & quotas, next to the existing
+  Overview, Canvas, Apps, Environments, DNS & Domains and Backups.
+- The page reads the caller's project role from the workspace endpoint: the role is shown, and
+  Edit, Delete, Add/Remove app and every component's change controls follow its abilities. Without
+  a project role (organisation members with no row) only the organisation-level views show. The
+  server enforces all of it regardless (slices B–G).
+
 ## [1.24.0] — 2026-11-19
 
 ### Added
