@@ -9,6 +9,33 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.30.0] — 2026-11-20
+
+### Added
+
+- **Enterprise part E** for Cloud Admin's deployment screens: `GET /enterprise/versions` (worksuite-server tags on the
+  enterprise nodes, checked directly on the node when the inventory is stale), `GET /enterprise/nodes` (free CPU/RAM/disk),
+  `resize` (preset or custom limits, FPM children follow), `metrics` (CPU/RAM series, disk), domains add / verify /
+  primary / remove, `licence-refresh`, per-step `retry` and single-container restart. Deployments also report `limits`,
+  `login`, `domains`, `health` and `urls.panel`/`urls.login`; DNS/TLS states read ok/pending/failed; not-founds carry
+  `deployment_not_found` / `domain_not_found`.
+
+### Changed
+
+- Enterprise addresses default to `<slug>.worksuite.lk` (`ENTERPRISE_DOMAIN`). Slugs that already exist as records in that
+  managed zone are refused, and the domain step shows the zone publish result (created / present / conflict).
+
+### Fixed
+
+- Enterprise web and worker containers start: they get back the capabilities (CHOWN, DAC_OVERRIDE, FOWNER, SETGID,
+  SETUID) their entrypoint needs to prepare the writable volume under cap_drop ALL.
+- Redeploying a failed enterprise deployment puts it back to provisioning instead of leaving it failed.
+- Agent inventory on busy nodes: container stats are read one-shot (no second-sample wait in dockerd), the image,
+  network and volume lists are taken first, stats stop when their time budget is spent, volume sizes are cached
+  for 10 minutes, and a list Docker could not answer is sent as unknown instead of empty. Needs the agent rollout.
+- The panel no longer empties a node's image list when a heartbeat reports no images while containers run,
+  nor its networks on an empty network list (what older agents sent when the list call timed out).
+
 ## [1.29.0] — 2026-11-20
 
 ### Added

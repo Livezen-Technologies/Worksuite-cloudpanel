@@ -170,7 +170,7 @@ func (a *agent) cronRunnerLoop(ctx context.Context) {
 
 func (a *agent) beat(ctx context.Context) error {
 	req := protocol.HeartbeatRequest{AgentVersion: version, Stats: a.sampler.Sample()}
-	ictx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ictx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	inv, err := stats.CollectInventory(ictx, a.docker)
 	cancel()
 	if err != nil {

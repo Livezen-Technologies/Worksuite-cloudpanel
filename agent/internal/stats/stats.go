@@ -232,19 +232,115 @@ type Inventory struct {
 	Volumes    []protocol.Volume
 }
 
+// Budgets for one inventory. On a busy node (panel-01, ~70 containers) the
+// per-container stats calls used to eat the whole 20 s heartbeat context: a
+// `stream=false` stats read makes dockerd wait for a second CPU sample (about
+// a second, several on a loaded daemon) before it answers, so 70 containers
+// at 8 in parallel ran past the deadline, and the image, network and volume
+// lists that followed were called with an expired context. Their errors were
+// swallowed and they went out as empty lists, so the panel's image inventory
+// stopped tracking the node. Now the cheap lists run first, stats use
+// `one-shot=true` (no second sample: CPU is computed against this agent's
+// previous sample) and stop when their share of the budget is spent, and a
+// list that fails is reported as null ("unknown", the panel keeps the last
+// one) instead of empty.
+const (
+	statsConcurrency = 8
+	perContainer     = 5 * time.Second
+	// The share of the context's remaining time container details may use.
+	statsShare = 0.6
+	// Volume sizes are measured at most this often (du walks the data).
+	volumeSizeEvery = 10 * time.Minute
+)
+
+// prevCPU remembers each container's last cumulative CPU sample, so a
+// one-shot stats read (which carries no precpu_stats) still yields a
+// utilisation since the previous heartbeat.
+var (
+	prevMu  sync.Mutex
+	prevCPU = map[string][2]uint64{} // id -> {container total, system total}
+
+	volMu    sync.Mutex
+	volSizes = map[string]volSize{}
+)
+
+type volSize struct {
+	mb float64
+	at time.Time
+}
+
+// cpuSince returns the CPU percentage between this sample and the previous one
+// kept for the container (0 on the first sample) and stores this one.
+func cpuSince(id string, s *docker.StatsSample) float64 {
+	if s.PreCPUStats.SystemUsage > 0 { // a two-sample answer (older engines ignore one-shot)
+		return s.CPUPercent()
+	}
+	prevMu.Lock()
+	prev, ok := prevCPU[id]
+	prevCPU[id] = [2]uint64{s.CPUStats.CPUUsage.TotalUsage, s.CPUStats.SystemUsage}
+	prevMu.Unlock()
+	if !ok {
+		return 0
+	}
+	cp := *s
+	cp.PreCPUStats.CPUUsage.TotalUsage, cp.PreCPUStats.SystemUsage = prev[0], prev[1]
+	return cp.CPUPercent()
+}
+
+// forget drops remembered samples of containers that no longer exist.
+func forget(live map[string]bool) {
+	prevMu.Lock()
+	for id := range prevCPU {
+		if !live[id] {
+			delete(prevCPU, id)
+		}
+	}
+	prevMu.Unlock()
+}
+
 // CollectInventory lists containers (with health and one-shot stats), images,
-// networks and volumes. Per-container stats are fetched concurrently.
+// networks and volumes. A list that cannot be read is left nil.
 func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error) {
 	cs, err := dc.ListContainers(ctx)
 	if err != nil {
 		return nil, err
 	}
 	inv := &Inventory{Containers: make([]protocol.Container, len(cs))}
+
+	// The cheap lists first, so slow container stats can never starve them.
+	if ims, err := dc.ListImages(ctx); err == nil {
+		inv.Images = []protocol.Image{}
+		for _, im := range ims {
+			tags := im.RepoTags
+			if tags == nil {
+				tags = []string{}
+			}
+			inv.Images = append(inv.Images, protocol.Image{ID: im.ID, Tags: tags, SizeMB: round(float64(im.Size) / (1 << 20)), Created: time.Unix(im.Created, 0).UTC().Format(time.RFC3339)})
+		}
+	}
+	if ns, err := dc.ListNetworks(ctx); err == nil {
+		inv.Networks = []protocol.Network{}
+		for _, n := range ns {
+			subnet, gateway := n.FirstSubnet()
+			inv.Networks = append(inv.Networks, protocol.Network{ID: n.ID, Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal, Subnet: subnet, Gateway: gateway})
+		}
+	}
+	vs, verr := dc.ListVolumes(ctx)
+
+	// Container details within a share of what is left of the context.
+	dctx := ctx
+	if dl, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		dctx, cancel = context.WithTimeout(ctx, time.Duration(float64(time.Until(dl))*statsShare))
+		defer cancel()
+	}
 	// Which named volumes each container mounts, so volumes can report a use count.
 	mounted := make([][]string, len(cs))
-	sem := make(chan struct{}, 8)
+	live := map[string]bool{}
+	sem := make(chan struct{}, statsConcurrency)
 	var wg sync.WaitGroup
 	for i, c := range cs {
+		live[c.ID] = true
 		pc := protocol.Container{
 			DockerID: c.ID,
 			Image:    c.Image,
@@ -268,9 +364,13 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 		wg.Add(1)
 		go func(i int, id, state string) {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-dctx.Done():
+				return // out of budget: this container goes without details this beat
+			}
 			defer func() { <-sem }()
-			cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			cctx, cancel := context.WithTimeout(dctx, perContainer)
 			defer cancel()
 			if in, err := dc.InspectContainer(cctx, id); err == nil {
 				if in.State.Health != nil {
@@ -295,29 +395,15 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 				return
 			}
 			if s, err := dc.ContainerStats(cctx, id); err == nil {
-				inv.Containers[i].CPUPct = round(s.CPUPercent())
+				inv.Containers[i].CPUPct = round(cpuSince(id, s))
 				inv.Containers[i].MemMB = round(s.MemMB())
 			}
 		}(i, c.ID, c.State)
 	}
 	wg.Wait()
+	forget(live)
 
-	if ims, err := dc.ListImages(ctx); err == nil {
-		for _, im := range ims {
-			tags := im.RepoTags
-			if tags == nil {
-				tags = []string{}
-			}
-			inv.Images = append(inv.Images, protocol.Image{ID: im.ID, Tags: tags, SizeMB: round(float64(im.Size) / (1 << 20)), Created: time.Unix(im.Created, 0).UTC().Format(time.RFC3339)})
-		}
-	}
-	if ns, err := dc.ListNetworks(ctx); err == nil {
-		for _, n := range ns {
-			subnet, gateway := n.FirstSubnet()
-			inv.Networks = append(inv.Networks, protocol.Network{ID: n.ID, Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal, Subnet: subnet, Gateway: gateway})
-		}
-	}
-	if vs, err := dc.ListVolumes(ctx); err == nil {
+	if verr == nil {
 		usedBy := map[string]int{}
 		for _, names := range mounted {
 			for _, n := range names {
@@ -327,32 +413,40 @@ func CollectInventory(ctx context.Context, dc *docker.Client) (*Inventory, error
 		vols := make([]protocol.Volume, len(vs))
 		var vwg sync.WaitGroup
 		vsem := make(chan struct{}, 4)
+		now := time.Now()
 		for i, v := range vs {
 			vols[i] = protocol.Volume{Name: v.Name, Driver: v.Driver, Mountpoint: v.Mountpoint, UsedBy: usedBy[v.Name]}
 			if v.Mountpoint == "" {
 				continue
 			}
+			volMu.Lock()
+			cached, ok := volSizes[v.Name]
+			volMu.Unlock()
+			if ok {
+				vols[i].SizeMB = cached.mb
+				if now.Sub(cached.at) < volumeSizeEvery {
+					continue
+				}
+			}
 			vwg.Add(1)
-			go func(i int, path string) {
+			go func(i int, name, path string) {
 				defer vwg.Done()
-				vsem <- struct{}{}
+				select {
+				case vsem <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
 				defer func() { <-vsem }()
 				if mb, err := dirSizeMB(ctx, path); err == nil {
 					vols[i].SizeMB = mb
+					volMu.Lock()
+					volSizes[name] = volSize{mb: mb, at: time.Now()}
+					volMu.Unlock()
 				}
-			}(i, v.Mountpoint)
+			}(i, v.Name, v.Mountpoint)
 		}
 		vwg.Wait()
-		inv.Volumes = append(inv.Volumes, vols...)
-	}
-	if inv.Images == nil {
-		inv.Images = []protocol.Image{}
-	}
-	if inv.Networks == nil {
-		inv.Networks = []protocol.Network{}
-	}
-	if inv.Volumes == nil {
-		inv.Volumes = []protocol.Volume{}
+		inv.Volumes = append([]protocol.Volume{}, vols...)
 	}
 	return inv, nil
 }
