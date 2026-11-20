@@ -15,6 +15,8 @@ use Illuminate\Validation\Rule;
  */
 class DeploymentController extends Controller
 {
+    use FindsDeployment;
+
     private const SLUG = 'regex:/^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$/';
 
     private const DOMAIN = 'regex:/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/';
@@ -22,15 +24,6 @@ class DeploymentController extends Controller
     private const VERSION = 'regex:/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/';
 
     public function __construct(private EnterpriseProvisioningService $svc) {}
-
-    private function find(string $id): EnterpriseDeployment
-    {
-        $q = EnterpriseDeployment::where('organization_id', app(\App\Support\Tenant::class)->id());
-
-        return (clone $q)->whereKey(\Illuminate\Support\Str::isUuid($id) ? $id : null)->first()
-            ?? $q->where('external_id', $id)->first()
-            ?? throw new \App\Exceptions\ApiException('deployment_not_found', 'No such enterprise deployment.', 404);
-    }
 
     public function index(Request $request)
     {

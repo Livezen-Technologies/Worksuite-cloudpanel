@@ -76,6 +76,11 @@ return [
         'deployment_id' => 'WORKSUITE_ENTERPRISE_ID',
     ],
 
+    // Part F settings tab: the variable the image reads its timezone from (editable), and keys that
+    // stay read-only on top of the ones above (the panel provides them).
+    'timezone_env' => env('ENTERPRISE_TIMEZONE_ENV', 'TZ'),
+    'reserved_env' => ['APP_KEY', 'ENCRYPTION_KEY', 'CI_ENVIRONMENT', 'LICENSE_KEY'],
+
     // Public address: <slug>.<domain>.
     'domain' => env('ENTERPRISE_DOMAIN', 'worksuite.lk'),
     // Slugs never handed out (they are our own hosts).

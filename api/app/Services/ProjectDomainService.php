@@ -34,7 +34,7 @@ class ProjectDomainService
     public function permissionsFor(User $user, Project $project): array
     {
         $role = $user->membership($project->organization_id)?->role;
-        if ($role === 'owner') {
+        if ($role === 'owner' || in_array(app(\App\Support\ProjectGrant::class)->role($project->id), ['platform_admin', 'owner'], true)) {
             return array_keys(self::PERMISSIONS);
         }
         $granted = (array) (ProjectDomainGrant::where('project_id', $project->id)->where('user_id', $user->id)->value('permissions') ?? []);
@@ -53,7 +53,8 @@ class ProjectDomainService
 
     public function isOwner(User $user, Project $project): bool
     {
-        return $user->membership($project->organization_id)?->role === 'owner';
+        return $user->membership($project->organization_id)?->role === 'owner'
+            || in_array(app(\App\Support\ProjectGrant::class)->role($project->id), ['platform_admin', 'owner'], true);
     }
 
     /** The project's apps (customer kind only). */
