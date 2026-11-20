@@ -77,7 +77,49 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             return false;
         }
 
-        return ! Domain::allTenants()->where('name', self::hostFor($slug))->exists();
+        if (Domain::allTenants()->where('name', self::hostFor($slug))->exists()) {
+            return false;
+        }
+
+        return ! $this->zoneHasName(self::hostFor($slug));
+    }
+
+    /** The enterprise domain's managed DNS zone (any organisation; worksuite.lk lives in the staff org). */
+    public function enterpriseZone(): ?\App\Models\DnsZone
+    {
+        return \App\Models\DnsZone::allTenants()->where('name', (string) config('enterprise.domain'))->first();
+    }
+
+    /** True when the zone already carries a record at that name or below it (app, demo, desk…). */
+    public function zoneHasName(string $host): bool
+    {
+        $zone = $this->enterpriseZone();
+
+        return $zone && $zone->records()->withoutGlobalScope('organization')
+            ->where(fn ($q) => $q->where('name', $host)->orWhere('name', 'like', '%.'.addcslashes($host, '%_\\')))->exists();
+    }
+
+    /** Publish results summarised for a step message: "DNS: A acme.worksuite.lk created; …". */
+    public static function zoneSummary(array $published): ?string
+    {
+        if (! $published) {
+            return null;
+        }
+
+        return 'DNS: '.collect($published)->map(fn ($r) => $r['type'].' '.$r['name'].' '.$r['status'].(in_array($r['status'], ['conflict', 'failed'], true) && ! empty($r['message']) ? ' ('.$r['message'].')' : ''))->implode('; ');
+    }
+
+    /** Keep the zone publish result on the step, so later checks still show it. */
+    private function stepDns(EnterpriseDeployment $dep, string $name, array $published): void
+    {
+        $steps = $dep->steps ?? [];
+        foreach ($steps as &$st) {
+            if ($st['name'] === $name) {
+                $st['dns'] = $published;
+            }
+        }
+        unset($st);
+        $dep->update(['steps' => $steps]);
     }
 
     /** Validate, record and start a deployment. Repeating the same external_id returns the existing one. */
@@ -128,9 +170,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     {
         $ram = (int) ($size['app_ram_mb'] + $size['worker_ram_mb'] + $size['db_ram_mb'] + $size['redis_ram_mb']);
         $cpu = (float) ($size['app_cpus'] + $size['worker_cpus']);
-        $candidates = Server::allTenants()
-            ->where(fn ($q) => $q->where('organization_id', $orgId)->orWhere('shared_pool', true))
-            ->get()->filter(fn (Server $s) => $s->hasRole('app'));
+        $candidates = $this->candidateNodes($orgId);
         if ($nodeId) {
             $candidates = $candidates->where('id', $nodeId);
             if ($candidates->isEmpty()) {
@@ -140,10 +180,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         if ($region) {
             $candidates = $candidates->where('region', $region);
         }
-        $tag = (string) config('enterprise.node_tag');
-        $tagged = $candidates->filter(fn (Server $s) => in_array($tag, (array) ($s->tags ?? []), true));
-        if (! $nodeId && $tagged->isNotEmpty()) {
-            $candidates = $tagged;
+        if (! $nodeId) {
+            $candidates = $this->preferTagged($candidates);
         }
         $scored = [];
         $rejected = [];
@@ -163,6 +201,29 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         return collect($scored)->sortByDesc('score')->first()['s'];
     }
 
+    /** App nodes the organisation may place on (its own and the shared pool). */
+    public function candidateNodes(string $orgId)
+    {
+        return Server::allTenants()
+            ->where(fn ($q) => $q->where('organization_id', $orgId)->orWhere('shared_pool', true))
+            ->get()->filter(fn (Server $s) => $s->hasRole('app'))->values();
+    }
+
+    /** Nodes tagged config enterprise.node_tag when there are any, else all of them. */
+    public function preferTagged($candidates)
+    {
+        $tag = (string) config('enterprise.node_tag');
+        $tagged = $candidates->filter(fn (Server $s) => in_array($tag, (array) ($s->tags ?? []), true))->values();
+
+        return $tagged->isNotEmpty() ? $tagged : $candidates;
+    }
+
+    /** The deployment's effective size: custom limits after a resize, else its preset. */
+    public function sizeOf(EnterpriseDeployment $dep): array
+    {
+        return $dep->limits ?: (config('enterprise.sizes')[$dep->size] ?? config('enterprise.sizes.small'));
+    }
+
     /** One step of the machine: start what is due, record what finished. Safe to call repeatedly. */
     public function advance(EnterpriseDeployment $dep): void
     {
@@ -170,7 +231,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             return;
         }
         $this->tenant->as($dep->organization_id, function () use ($dep) {
-            $size = config('enterprise.sizes')[$dep->size];
+            $size = $this->sizeOf($dep);
             $base = 'ent-'.$dep->slug;
             if ($dep->status === 'provisioning') {
                 if (! $dep->database_id) {
@@ -263,7 +324,13 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $repo = (string) config('enterprise.image');
         $present = \App\Models\Image::allTenants()->where('server_id', $dep->server_id)->get(['repository', 'tags'])
             ->contains(fn ($i) => in_array($ref, (array) ($i->tags ?? []), true) || ($i->repository === $repo && in_array($dep->version, (array) ($i->tags ?? []), true)));
-        $node = Server::allTenants()->find($dep->server_id)?->name ?? 'the node';
+        $server = Server::allTenants()->find($dep->server_id);
+        if (! $present && $server) {
+            // The heartbeat inventory can lag on a busy node: ask the node directly too.
+            $present = in_array($ref, $this->scannedTags($server), true);
+            $present || $this->scanImages($server, 120);
+        }
+        $node = $server?->name ?? 'the node';
         $this->step($dep, 'image', $present ? 'succeeded' : 'running', $present ? "{$ref} is on {$node}" : "Waiting for {$ref} on {$node}: load it with docker load (build.sh --save)");
 
         return $present;
@@ -305,6 +372,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'source' => array_filter([
                     'image' => self::image($dep->version), 'database_id' => $db->id, 'enterprise_deployment_id' => $dep->id,
                     'cmd' => config('enterprise.'.$role.'_cmd'), 'mounts' => $mounts, 'pull' => config('enterprise.pull'),
+                    // The entrypoint starts as root to prepare the uid-33 volumes: it needs these back from cap_drop ALL.
+                    'cap_add' => array_values((array) config('enterprise.cap_add')),
                 ]),
             ]);
             foreach ($vars as [$k, $v, $secret]) {
@@ -312,7 +381,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             }
             if ($public) {
                 $platform = config('enterprise.domain') === config('platform.domain');
-                $this->domains->create(['name' => $dep->hostname, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platform, 'is_primary' => true], $platform);
+                $domain = $this->domains->create(['name' => $dep->hostname, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platform, 'is_primary' => true], $platform);
+                $published = (array) ($domain->publishedRecords ?? []);
                 $dep->update(['app_application_id' => $app->id]);
             } else {
                 $dep->update(['worker_application_id' => $app->id]);
@@ -320,7 +390,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $this->deployments->start($app, $service, 'manual');
             $this->step($dep, $role, 'running', 'Deploying '.self::image($dep->version));
         }
-        $this->step($dep, 'domain', 'running', $dep->hostname);
+        $published ??= [];
+        $this->step($dep, 'domain', collect($published)->contains(fn ($r) => in_array($r['status'], ['conflict', 'failed'], true)) ? 'failed' : 'running',
+            trim($dep->hostname.' '.(self::zoneSummary($published) ?? '')));
+        $this->stepDns($dep, 'domain', $published);
     }
 
     /** DNS → certificate for one of the deployment's domains; the step follows it. */
@@ -335,7 +408,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $domain->refresh();
         }
         $done = $domain->dns_status === 'verified' && $domain->https_status === 'active';
-        $this->step($dep, $step, $done ? 'succeeded' : 'running', $done ? "https://{$domain->name} is live" : "DNS {$domain->dns_status}, TLS ".($domain->https_status ?? 'pending'));
+        $published = (array) (collect($dep->steps ?? [])->firstWhere('name', $step)['dns'] ?? []);
+        $conflict = collect($published)->contains(fn ($r) => in_array($r['status'], ['conflict', 'failed'], true));
+        $zone = self::zoneSummary($published);
+        $this->step($dep, $step, $done ? 'succeeded' : ($conflict ? 'failed' : 'running'), $done ? "https://{$domain->name} is live" : "DNS {$domain->dns_status}, TLS ".($domain->https_status ?? 'pending').($zone ? '. '.$zone : ''));
     }
 
     /** Runs the wizard's bootstrap inside the app container; attaches the customer's own domain when given. */
@@ -348,7 +424,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             if ($customDomain && $customDomain !== $dep->custom_domain) {
                 $app = Application::findOrFail($dep->app_application_id);
                 try {
-                    $this->domains->create(['name' => $customDomain, 'application_id' => $app->id, 'target_port' => $app->port]);
+                    $published = (array) ($this->domains->create(['name' => $customDomain, 'application_id' => $app->id, 'target_port' => $app->port])->publishedRecords ?? []);
                 } catch (ApiException $e) {
                     throw ApiException::validation(['custom_domain' => [$e->getMessage()]]);
                 }
@@ -356,7 +432,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 // The image takes its address from APP_URL: point it at the customer's domain and redeploy web.
                 EnvVar::where('application_id', $app->id)->where('key', config('enterprise.env.base_url'))->get()->each->update(['value' => 'https://'.$customDomain]);
                 $this->pendingRedeploy = $app;
-                $this->step($dep, 'custom_domain', 'running', 'Waiting for DNS: '.$customDomain, 'Your own domain');
+                $this->step($dep, 'custom_domain', 'running', trim('Waiting for DNS: '.$customDomain.' '.(self::zoneSummary($published) ?? '')), 'Your own domain');
+                $this->stepDns($dep, 'custom_domain', $published);
             }
             $json = json_encode((object) $bootstrap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && printf %s '.base64_encode($json).' | base64 -d | '.config('enterprise.bootstrap_command');
@@ -389,7 +466,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             'mode' => 'container', 'container' => $container?->name ?? $app->containerName(), 'user' => (string) config('enterprise.exec_user'),
             'command' => $command, 'timeout' => (int) config('enterprise.exec_timeout'),
         ], $job);
-        $dep->update([$kind === 'bootstrap' ? 'bootstrap_job_id' : 'status_job_id' => $job->id] + ($kind === 'status' ? ['status_checked_at' => now()] : []));
+        $kind === 'licence' || $dep->update([$kind === 'bootstrap' ? 'bootstrap_job_id' : 'status_job_id' => $job->id] + ($kind === 'status' ? ['status_checked_at' => now()] : []));
 
         return $job;
     }
@@ -404,8 +481,13 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $row->saveQuietly();
         }
 
-        $dep = EnterpriseDeployment::find($job->payload['deployment_id'] ?? null);
         $out = (array) ($command->output ?? []);
+        if (($job->payload['kind'] ?? null) === 'images') {
+            $this->imagesScanned($command, $job, $out);
+
+            return;
+        }
+        $dep = EnterpriseDeployment::find($job->payload['deployment_id'] ?? null);
         $text = (string) ($out['output'] ?? '');
         $result = self::lastJson($text);
         $exit = $out['exit_code'] ?? ($command->status === 'succeeded' ? 0 : null);
@@ -419,6 +501,15 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         }
         if (($job->payload['kind'] ?? null) === 'status') {
             $result !== null && $dep->update(['app_status' => $result]);
+
+            return;
+        }
+        if (($job->payload['kind'] ?? null) === 'licence') {
+            $this->step($dep, 'licence_refresh', $ok ? 'succeeded' : 'failed', $ok ? 'Licence refreshed' : Str::limit($this->redact($dep, (string) ($result['error'] ?? $command->message ?? 'license:refresh failed (exit '.$exit.')')), 250), 'Licence refresh');
+            if ($ok && $this->stepStatus($dep, 'licence') === 'failed') {
+                $this->step($dep, 'licence', 'succeeded', 'Licence active', 'Licence');
+            }
+            $ok && $this->exec($dep->fresh(), 'status', (string) config('enterprise.status_command'));
 
             return;
         }
@@ -475,8 +566,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                     $jobs[] = $this->deployments->start($app->fresh(), User::find(auth()->id()), 'redeploy')->job_id;
                 }
                 $this->step($dep, 'redeploy', 'running', 'Redeploying '.self::image($dep->version), 'Redeploy');
+                $this->reviveAfterRedeploy($dep);
             } else {
-                $roles = $action === 'restart' ? ['app', 'worker'] : ['database', 'redis', 'app', 'worker'];
+                $roles = $action === 'restart' ? (! empty($params['container']) ? [$params['container']] : ['app', 'worker']) : ['database', 'redis', 'app', 'worker'];
                 $containers = $this->containersOf($dep);
                 if ($action === 'stop') {
                     $containers = array_reverse($containers, true);
@@ -605,15 +697,16 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             'role' => $role, 'name' => $c->name, 'state' => $c->state, 'health' => $c->health,
             'cpu_pct' => $c->cpu_pct, 'mem_mb' => $c->mem_mb, 'started_at' => $c->started_at?->toIso8601ZuluString(),
         ] : ['role' => $role, 'name' => null, 'state' => 'absent', 'health' => null, 'cpu_pct' => null, 'mem_mb' => null, 'started_at' => null])->values();
-        $size = config('enterprise.sizes')[$dep->size] ?? [];
+        $size = $this->sizeOf($dep);
         $domainView = function (?string $name) {
             $d = $name ? Domain::allTenants()->where('name', $name)->first() : null;
 
-            return $d ? ['name' => $d->name, 'dns_status' => $d->dns_status, 'https_status' => $d->https_status ?? 'pending',
+            return $d ? ['name' => $d->name, 'dns_status' => self::dnsState($d->dns_status), 'https_status' => self::tlsState($d->https_status),
+                'dns_raw' => $d->dns_status, 'https_raw' => $d->https_status ?? 'pending',
                 'records' => $d->platform_subdomain ? [] : rescue(fn () => $this->domains->expectedRecords($d), [], false)] : null;
         };
         $custom = $domainView($dep->custom_domain);
-        $customLive = $custom && $custom['dns_status'] === 'verified' && $custom['https_status'] === 'active';
+        $customLive = $custom && $custom['dns_status'] === 'ok' && $custom['https_status'] === 'ok';
 
         return [
             'id' => $dep->id,
@@ -631,7 +724,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'app' => 'https://'.($customLive ? $dep->custom_domain : $dep->hostname),
                 'platform' => 'https://'.$dep->hostname,
                 'custom' => $dep->custom_domain ? 'https://'.$dep->custom_domain : null,
+                'login' => 'https://'.($customLive ? $dep->custom_domain : $dep->hostname).'/login',
+                'panel' => rtrim((string) config('platform.panel_url'), '/').'/admin/projects/'.$dep->project_id,
             ],
+            'health' => $this->health($containers->all()),
             'domain' => $domainView($dep->hostname),
             'custom_domain' => $custom,
             'steps' => $dep->steps ?? [],
@@ -645,6 +741,17 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'disk_gb' => $size['disk_gb'] ?? null,
                 'node_disk_pct' => $server?->disk_pct,
             ],
+            'limits' => [
+                'size' => $dep->limits ? 'custom' : $dep->size,
+                'cpus' => (float) ($size['app_cpus'] ?? 0), 'ram_mb' => (int) ($size['app_ram_mb'] ?? 0),
+                'worker_cpus' => (float) ($size['worker_cpus'] ?? 0), 'worker_ram_mb' => (int) ($size['worker_ram_mb'] ?? 0),
+                'disk_gb' => $size['disk_gb'] ?? null, 'fpm_max_children' => (int) ($size['fpm_max_children'] ?? 0),
+            ],
+            'login' => [
+                'url' => 'https://'.($customLive ? $dep->custom_domain : $dep->hostname).'/login',
+                'admin_email' => $dep->bootstrap_result['admin_email'] ?? $dep->bootstrap_result['administrator']['email'] ?? null,
+            ],
+            'domains' => $this->domainList($dep),
             'app_status' => $dep->app_status,
             'bootstrap' => $dep->bootstrap_result,
             'created_at' => $dep->created_at?->toIso8601ZuluString(),
@@ -653,6 +760,21 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             'deleted_at' => $dep->deleted_at?->toIso8601ZuluString(),
             'purged_at' => $dep->purged_at?->toIso8601ZuluString(),
         ];
+    }
+
+    /**
+     * ok: every container running and none unhealthy; down: the web container is not running;
+     * degraded: anything in between.
+     */
+    public function health(array $containers): string
+    {
+        $by = collect($containers)->keyBy('role');
+        if (($by['app']['state'] ?? null) !== 'running') {
+            return 'down';
+        }
+        $ok = collect(['app', 'worker', 'database', 'redis'])->every(fn ($r) => ($by[$r]['state'] ?? null) === 'running' && ! in_array($by[$r]['health'] ?? null, ['unhealthy', 'starting'], true));
+
+        return $ok ? 'ok' : 'degraded';
     }
 
     /** Periodic (`enterprise:sync`): advance every deployment that is still moving. */
@@ -671,6 +793,425 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         });
 
         return $n;
+    }
+
+    // --- part E: versions, nodes, resize, metrics, domains, licence refresh, retry -----------
+
+    /** Tags of the enterprise image the node reported through a direct `docker images` (cached). */
+    public function scannedTags(Server $server): array
+    {
+        return (array) (\Illuminate\Support\Facades\Cache::get('enterprise.images.'.$server->id)['tags'] ?? []);
+    }
+
+    /**
+     * Ask the node for its images through the agent (host-mode cron.exec), at most once per
+     * $every seconds. Independent of the heartbeat inventory, which can lag on a busy node.
+     */
+    public function scanImages(Server $server, int $every = 0): ?Job
+    {
+        $lock = 'enterprise.images.scan.'.$server->id;
+        if ($every > 0 && ! \Illuminate\Support\Facades\Cache::add($lock, 1, $every)) {
+            return null;
+        }
+        $job = $this->jobs->create('enterprise.exec', ['execute'], $server, ['kind' => 'images', 'server_id' => $server->id], null, $server->organization_id);
+        $this->bus->dispatch($server, 'cron.exec', [
+            'mode' => 'host', 'command' => (string) config('enterprise.images_command').' '.escapeshellarg((string) config('enterprise.image')), 'timeout' => 60,
+        ], $job);
+
+        return $job;
+    }
+
+    private function imagesScanned(AgentCommand $command, Job $job, array $out): void
+    {
+        $exit = $out['exit_code'] ?? ($command->status === 'succeeded' ? 0 : null);
+        if ($exit === null || (int) $exit !== 0) {
+            $this->jobs->fail($job, Str::limit((string) ($command->message ?: ($out['output'] ?? 'docker images failed')), 250));
+
+            return;
+        }
+        $repo = (string) config('enterprise.image');
+        $tags = collect(preg_split('/\R/', (string) ($out['output'] ?? '')))->map(fn ($l) => trim($l))
+            ->filter(fn ($l) => str_starts_with($l, $repo.':') && ! str_ends_with($l, ':<none>'))->unique()->values()->all();
+        \Illuminate\Support\Facades\Cache::put('enterprise.images.'.$job->payload['server_id'], ['tags' => $tags, 'checked_at' => now()->toIso8601ZuluString()], now()->addDay());
+        $this->jobs->succeed($job, ['tags' => count($tags)]);
+    }
+
+    /** Enterprise nodes for the organisation (tagged first, as placement does). */
+    public function enterpriseNodes(string $orgId)
+    {
+        return $this->preferTagged($this->candidateNodes($orgId));
+    }
+
+    /**
+     * GET versions: worksuite-server tags on the enterprise nodes, from the heartbeat inventory
+     * merged with the direct scan. A node whose heartbeat is older than images_stale_after is
+     * scanned again (the answer then arrives on a later call).
+     */
+    public function versions(string $orgId): array
+    {
+        $repo = (string) config('enterprise.image');
+        $stale = (int) config('enterprise.images_stale_after', 300);
+        $byTag = [];
+        $nodes = [];
+        foreach ($this->enterpriseNodes($orgId) as $server) {
+            $inventory = \App\Models\Image::allTenants()->where('server_id', $server->id)->get(['repository', 'tags', 'size_mb', 'docker_created_at'])
+                ->flatMap(fn ($i) => collect((array) ($i->tags ?? []))->map(fn ($t) => ['tag' => $t, 'size_mb' => $i->size_mb, 'created' => $i->docker_created_at?->toIso8601ZuluString()]))
+                ->filter(fn ($t) => str_starts_with($t['tag'], $repo.':'));
+            $scan = \Illuminate\Support\Facades\Cache::get('enterprise.images.'.$server->id);
+            $inventoryStale = ! $server->last_heartbeat_at || $server->last_heartbeat_at->lt(now()->subSeconds($stale)) || $server->docker_error;
+            $scanStale = ! $scan || \Illuminate\Support\Carbon::parse($scan['checked_at'])->lt(now()->subSeconds($stale));
+            if ($scanStale) {
+                rescue(fn () => $this->scanImages($server, 60), report: true);
+            }
+            $tags = $inventory->keyBy('tag');
+            foreach ((array) ($scan['tags'] ?? []) as $t) {
+                $tags[$t] ??= ['tag' => $t, 'size_mb' => null, 'created' => null];
+            }
+            foreach ($tags as $t) {
+                $version = substr($t['tag'], strlen($repo) + 1);
+                $byTag[$version] ??= ['version' => $version, 'published_at' => $t['created'], 'image' => $t['tag'], 'created' => $t['created'], 'size_mb' => $t['size_mb'], 'nodes' => []];
+                $byTag[$version]['nodes'][] = $server->name;
+                $byTag[$version]['created'] ??= $t['created'];
+                $byTag[$version]['published_at'] ??= $t['created'];
+            }
+            $nodes[] = ['id' => $server->id, 'name' => $server->name, 'inventory_at' => $server->last_heartbeat_at?->toIso8601ZuluString(),
+                'inventory_stale' => (bool) $inventoryStale, 'scanned_at' => $scan['checked_at'] ?? null];
+        }
+        $versions = collect($byTag)->sortByDesc(fn ($v) => [$v['version'] === 'latest' ? 0 : 1, $v['created'] ?? '', $v['version']])->values()->all();
+
+        return ['image' => $repo, 'versions' => $versions, 'nodes' => $nodes];
+    }
+
+    /** GET nodes: eligible enterprise nodes with free CPU / RAM / disk. */
+    public function nodes(string $orgId): array
+    {
+        return $this->enterpriseNodes($orgId)->map(function (Server $s) {
+            $c = $this->scheduler->capacity($s);
+            $why = $this->scheduler->ineligible($s, $c, 0, 0.0, false);
+
+            return ['id' => $s->id, 'name' => $s->name, 'region' => $s->region, 'tags' => array_values((array) ($s->tags ?? [])),
+                'status' => $s->status, 'eligible' => ! $why, 'reason' => $why ?: null,
+                'cpu' => ['allocatable' => $c['allocatable_cpu'], 'free' => $c['free_cpu'], 'used_pct' => $s->cpu_pct],
+                'ram_mb' => ['allocatable' => $c['allocatable_ram_mb'], 'free' => $c['free_ram_mb'], 'used_pct' => $s->ram_pct],
+                'disk_gb' => ['total' => $s->disk_gb, 'free' => $c['free_disk_gb'], 'used_pct' => $s->disk_pct],
+                'free' => ['cpus' => (float) $c['free_cpu'], 'ram_mb' => (int) $c['free_ram_mb'], 'disk_gb' => $c['free_disk_gb']],
+                'containers' => $c['containers'], 'enterprise_deployments' => EnterpriseDeployment::where('server_id', $s->id)->whereNotIn('status', ['deleted', 'purged'])->count()];
+        })->values()->all();
+    }
+
+    /** POST resize: a preset size, or custom web limits. Updates limits + FPM_MAX_CHILDREN and redeploys web + worker. */
+    public function resize(EnterpriseDeployment $dep, array $in): EnterpriseDeployment
+    {
+        if (in_array($dep->status, ['deleted', 'purged', 'queued', 'stopped'], true) || ! $dep->app_application_id) {
+            throw ApiException::conflict("The deployment is {$dep->status}; it cannot be resized now.");
+        }
+        $from = $this->sizeOf($dep);
+        if (! empty($in['size'])) {
+            $size = config('enterprise.sizes')[$in['size']];
+            $changes = ['size' => $in['size'], 'limits' => null];
+        } else {
+            $size = $from;
+            $b = (array) config('enterprise.custom_limits');
+            isset($in['cpus']) && $size['app_cpus'] = (float) $in['cpus'];
+            if (isset($in['ram_mb'])) {
+                $size['app_ram_mb'] = (int) $in['ram_mb'];
+                $size['fpm_max_children'] = max(4, intdiv((int) $in['ram_mb'], (int) ($b['mb_per_fpm_child'] ?? 80)));
+            }
+            isset($in['disk_gb']) && $size['disk_gb'] = (int) $in['disk_gb'];
+            $size['label'] = 'Custom';
+            $changes = ['limits' => $size];
+        }
+        $extraRam = ($size['app_ram_mb'] + $size['worker_ram_mb']) - ($from['app_ram_mb'] + $from['worker_ram_mb']);
+        $extraCpu = ($size['app_cpus'] + $size['worker_cpus']) - ($from['app_cpus'] + $from['worker_cpus']);
+        $server = Server::allTenants()->findOrFail($dep->server_id);
+        if ($extraRam > 0 || $extraCpu > 0) {
+            $c = $this->scheduler->capacity($server);
+            if ($c['free_ram_mb'] < $extraRam || $c['free_cpu'] < $extraCpu) {
+                throw ApiException::conflict("{$server->name} has {$c['free_ram_mb']} MB RAM and {$c['free_cpu']} CPU free; this resize needs {$extraRam} MB and {$extraCpu} CPU more.", ['reason' => 'no_capacity']);
+            }
+        }
+        $dep->update($changes);
+        $this->tenant->as($dep->organization_id, function () use ($dep, $size) {
+            foreach (['app' => $dep->app_application_id, 'worker' => $dep->worker_application_id] as $role => $id) {
+                if (! $id || ! ($app = Application::find($id))) {
+                    continue;
+                }
+                $app->update(['memory_limit_mb' => $size[$role.'_ram_mb'], 'cpu_limit' => $size[$role.'_cpus']]);
+                EnvVar::where('application_id', $app->id)->where('key', config('enterprise.env.fpm_max_children'))->get()->each->update(['value' => (string) ($size['fpm_max_children'] ?? 10)]);
+                $this->deployments->start($app->fresh(), User::find(auth()->id()), 'redeploy');
+            }
+        });
+        $label = ($size['label'] ?? 'Custom').": web {$size['app_cpus']} CPU / {$size['app_ram_mb']} MB, worker {$size['worker_cpus']} CPU / {$size['worker_ram_mb']} MB, {$size['disk_gb']} GB disk";
+        $this->step($dep, 'resize', 'running', 'Resizing to '.$label, 'Resize');
+        $this->step($dep, 'redeploy', 'running', 'Redeploying with the new limits', 'Redeploy');
+        $this->reviveAfterRedeploy($dep);
+        $this->log('enterprise.deployment.resize', $dep, ['size' => $dep->size, 'limits' => $dep->limits]);
+
+        return $dep->fresh();
+    }
+
+    /** A redeploy of a failed deployment puts it back on the step machine. */
+    private function reviveAfterRedeploy(EnterpriseDeployment $dep): void
+    {
+        $dep->refresh();
+        if ($dep->status !== 'failed') {
+            return;
+        }
+        if ($dep->activated_at) {
+            $this->setStatus($dep, 'active');
+
+            return;
+        }
+        Application::allTenants()->whereIn('id', array_filter([$dep->app_application_id, $dep->worker_application_id]))->where('status', 'failed')->update(['status' => 'deploying']);
+        foreach (['app', 'worker'] as $step) {
+            $this->step($dep, $step, 'running', 'Redeploying '.self::image($dep->version));
+        }
+        $this->setStatus($dep, 'provisioning');
+    }
+
+    /** GET metrics: CPU / RAM series of the deployment's containers and its volumes' disk use. */
+    public function metrics(EnterpriseDeployment $dep, string $range): array
+    {
+        $range = isset(MetricsService::RANGES[$range]) ? $range : '1h';
+        $since = MetricsService::since($range);
+        $series = [];
+        foreach ($this->containersOf($dep) as $role => $c) {
+            $points = $c ? \App\Models\Metric::where('container_id', $c->id)->where('recorded_at', '>=', $since)->orderBy('recorded_at')->get(['cpu_pct', 'mem_mb', 'recorded_at']) : collect();
+            $series[] = ['role' => $role, 'name' => $c?->name,
+                'cpu' => $points->map(fn ($p) => ['t' => $p->recorded_at->toIso8601ZuluString(), 'v' => $p->cpu_pct])->values(),
+                'ram' => $points->map(fn ($p) => ['t' => $p->recorded_at->toIso8601ZuluString(), 'v' => $p->mem_mb])->values()];
+        }
+        $names = collect(config('enterprise.volumes'))->keys()->map(fn ($s) => 'ent-'.$dep->slug.'-'.$s)
+            ->merge(Database::allTenants()->whereIn('id', array_filter([$dep->database_id, $dep->redis_id]))->get()->map(fn ($d) => 'db-'.Str::slug($d->name).'-data'));
+        $volumes = \App\Models\Volume::allTenants()->where('server_id', $dep->server_id)->whereIn('name', $names->all())->get(['name', 'size_mb']);
+        $size = $this->sizeOf($dep);
+
+        // Cloud Admin's combined series: one point per heartbeat, summed over the containers.
+        $disk = round((float) $volumes->sum('size_mb') / 1024, 2);
+        $combined = [];
+        foreach ($series as $c) {
+            foreach ($c['cpu'] as $i => $pt) {
+                $at = $pt['t'];
+                $combined[$at] ??= ['at' => $at, 'cpu_percent' => 0.0, 'memory_mb' => 0.0, 'disk_gb' => $disk];
+                $combined[$at]['cpu_percent'] = round($combined[$at]['cpu_percent'] + (float) $pt['v'], 1);
+                $combined[$at]['memory_mb'] = round($combined[$at]['memory_mb'] + (float) ($c['ram'][$i]['v'] ?? 0), 1);
+            }
+        }
+        ksort($combined);
+
+        return [
+            'range' => $range,
+            'series' => array_values($combined),
+            'containers' => $series,
+            'disk' => ['used_mb' => round((float) $volumes->sum('size_mb'), 1), 'limit_gb' => $size['disk_gb'] ?? null,
+                'volumes' => $volumes->map(fn ($v) => ['name' => $v->name, 'size_mb' => $v->size_mb])->values()],
+        ];
+    }
+
+    /** Every domain of the web app: the platform address first. */
+    public function domainList(EnterpriseDeployment $dep): array
+    {
+        if (! $dep->app_application_id) {
+            return [];
+        }
+        $primary = $dep->custom_domain ?: $dep->hostname;
+
+        return Domain::allTenants()->where('application_id', $dep->app_application_id)->orderBy('created_at')->get()
+            ->sortBy(fn ($d) => $d->name === $dep->hostname ? 0 : 1)->map(fn (Domain $d) => $this->domainShape($dep, $d, $primary))->values()->all();
+    }
+
+    public static function dnsState(?string $s): string
+    {
+        return $s === 'verified' ? 'ok' : (in_array($s, ['failed', 'error', 'conflict'], true) ? 'failed' : 'pending');
+    }
+
+    public static function tlsState(?string $s): string
+    {
+        return $s === 'active' ? 'ok' : (in_array($s, ['failed', 'error'], true) ? 'failed' : 'pending');
+    }
+
+    /** Cloud Admin's domain shape: {domain, status, primary, tls_status, kind, records[{type,name,value,ttl}], checked_at, error}. */
+    private function domainShape(EnterpriseDeployment $dep, Domain $d, string $primary): array
+    {
+        $kind = $d->name === $dep->hostname ? 'platform' : 'custom';
+        $published = (array) (collect($dep->steps ?? [])->firstWhere('name', $kind === 'platform' ? 'domain' : 'custom_domain')['dns'] ?? []);
+        $bad = collect($published)->first(fn ($r) => in_array($r['status'] ?? '', ['conflict', 'failed'], true) && ($r['name'] ?? '') === $d->name);
+        $records = $d->platform_subdomain ? [] : rescue(fn () => $this->domains->expectedRecords($d), [], false);
+
+        return [
+            'domain' => $d->name, 'name' => $d->name, 'kind' => $kind, 'primary' => $d->name === $primary,
+            'status' => $bad ? 'failed' : self::dnsState($d->dns_status), 'tls_status' => self::tlsState($d->https_status),
+            'dns_raw' => $d->dns_status, 'https_raw' => $d->https_status ?? 'pending',
+            'records' => collect($records)->map(fn ($r) => ['type' => $r['type'], 'name' => $r['name'], 'value' => $r['value'], 'ttl' => $r['ttl'] ?? 300])->values()->all(),
+            'checked_at' => $d->updated_at?->toIso8601ZuluString(),
+            'error' => $bad['message'] ?? null,
+        ];
+    }
+
+    private function appDomain(EnterpriseDeployment $dep, string $name): Domain
+    {
+        $d = $dep->app_application_id ? Domain::allTenants()->where('application_id', $dep->app_application_id)->where('name', $name)->first() : null;
+        if (! $d) {
+            throw new ApiException('domain_not_found', "No domain {$name} on this deployment.", 404);
+        }
+
+        return $d;
+    }
+
+    public function addDomain(EnterpriseDeployment $dep, string $name): array
+    {
+        if (! $dep->app_application_id || in_array($dep->status, ['deleted', 'purged'], true)) {
+            throw ApiException::conflict("The deployment is {$dep->status}; domains can be added once the server is up.");
+        }
+        $published = $this->tenant->as($dep->organization_id, function () use ($dep, $name) {
+            $app = Application::findOrFail($dep->app_application_id);
+            try {
+                $d = $this->domains->create(['name' => $name, 'application_id' => $app->id, 'target_port' => $app->port]);
+            } catch (ApiException $e) {
+                throw ApiException::validation(['domain' => [$e->getMessage()]]);
+            }
+
+            return (array) ($d->publishedRecords ?? []);
+        });
+        $this->step($dep, 'custom_domain', 'running', trim('Waiting for DNS: '.$name.' '.(self::zoneSummary($published) ?? '')), 'Your own domain');
+        $this->stepDns($dep, 'custom_domain', $published);
+        $this->log('enterprise.domain.add', $dep, ['domain' => $name]);
+
+        return $this->domainView($dep, $name);
+    }
+
+    public function verifyDomain(EnterpriseDeployment $dep, string $name): array
+    {
+        $d = $this->appDomain($dep, $name);
+        $this->tenant->as($dep->organization_id, fn () => rescue(fn () => $this->domains->verify($d), report: false));
+        $d->refresh();
+        if ($name !== $dep->hostname) {
+            $live = $d->dns_status === 'verified' && $d->https_status === 'active';
+            $this->step($dep, 'custom_domain', $live ? 'succeeded' : 'running', $live ? "https://{$name} is live" : "DNS {$d->dns_status}, TLS ".($d->https_status ?? 'pending'), 'Your own domain');
+        }
+
+        return $this->domainView($dep, $name);
+    }
+
+    public function removeDomain(EnterpriseDeployment $dep, string $name): EnterpriseDeployment
+    {
+        if ($name === $dep->hostname) {
+            throw ApiException::conflict('The platform address cannot be removed.');
+        }
+        $d = $this->appDomain($dep, $name);
+        if ($dep->custom_domain === $name) {
+            $this->switchPrimary($dep, null);
+        }
+        $d->delete();
+        $this->log('enterprise.domain.remove', $dep, ['domain' => $name]);
+
+        return $dep->fresh();
+    }
+
+    /** Make a domain the address: APP_URL follows and web is redeployed. */
+    public function primaryDomain(EnterpriseDeployment $dep, string $name): EnterpriseDeployment
+    {
+        $d = $this->appDomain($dep, $name);
+        if ($name !== $dep->hostname && ($d->dns_status !== 'verified' || $d->https_status !== 'active')) {
+            throw ApiException::conflict("{$name} is not live yet (DNS {$d->dns_status}, TLS ".($d->https_status ?? 'pending').'); verify it first.');
+        }
+        $this->switchPrimary($dep, $name === $dep->hostname ? null : $name);
+        $this->log('enterprise.domain.primary', $dep, ['domain' => $name]);
+
+        return $dep->fresh();
+    }
+
+    private function switchPrimary(EnterpriseDeployment $dep, ?string $custom): void
+    {
+        $dep->update(['custom_domain' => $custom]);
+        $this->tenant->as($dep->organization_id, function () use ($dep, $custom) {
+            Domain::where('application_id', $dep->app_application_id)->get()->each(fn ($x) => $x->update(['is_primary' => $x->name === ($custom ?: $dep->hostname)]));
+            $app = Application::findOrFail($dep->app_application_id);
+            EnvVar::where('application_id', $app->id)->where('key', config('enterprise.env.base_url'))->get()->each->update(['value' => 'https://'.($custom ?: $dep->hostname)]);
+            $this->deployments->start($app->fresh(), User::find(auth()->id()), 'redeploy');
+        });
+        $this->step($dep, 'redeploy', 'running', 'Redeploying for https://'.($custom ?: $dep->hostname), 'Redeploy');
+    }
+
+    private function domainView(EnterpriseDeployment $dep, string $name): array
+    {
+        return collect($this->domainList($dep))->firstWhere('domain', $name) ?? ['domain' => $name];
+    }
+
+    /** POST licence-refresh: re-read the licence inside the web container. */
+    public function refreshLicence(EnterpriseDeployment $dep): array
+    {
+        if (! in_array($dep->status, ['active', 'configuring'], true) || ! $dep->app_application_id) {
+            throw ApiException::conflict("The deployment is {$dep->status}; the licence can be refreshed once it is active.");
+        }
+        $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && '.config('enterprise.licence_refresh_command');
+        $job = $this->tenant->as($dep->organization_id, fn () => $this->exec($dep, 'licence', $command));
+        $this->step($dep, 'licence_refresh', 'running', 'Refreshing the licence', 'Licence refresh');
+        $this->log('enterprise.deployment.licence_refresh', $dep, []);
+
+        return ['job_id' => $job->id, 'status' => $dep->fresh()->status];
+    }
+
+    public const RETRYABLE = ['image', 'database', 'redis', 'app', 'worker', 'domain', 'custom_domain', 'bootstrap', 'licence', 'licence_refresh', 'redeploy', 'resize'];
+
+    /** POST steps/{step}/retry: re-run one failed step. */
+    public function retryStep(EnterpriseDeployment $dep, string $step): EnterpriseDeployment
+    {
+        if (! in_array($step, self::RETRYABLE, true)) {
+            throw ApiException::validation(['step' => ["{$step} cannot be retried."]]);
+        }
+        if ($this->stepStatus($dep, $step) !== 'failed') {
+            throw ApiException::conflict("The {$step} step has not failed.");
+        }
+        if (in_array($dep->status, ['deleted', 'purged', 'stopped'], true)) {
+            throw ApiException::conflict("The deployment is {$dep->status}.");
+        }
+        $this->tenant->as($dep->organization_id, function () use ($dep, $step) {
+            switch ($step) {
+                case 'database':
+                case 'redis':
+                    // Drop the failed container record; advance creates it again on the same data volume.
+                    $col = $step === 'database' ? 'database_id' : 'redis_id';
+                    if ($db = Database::find($dep->{$col})) {
+                        Container::whereKey($db->container_id)->delete();
+                        Secret::whereKey($db->secret_id)->delete();
+                        $db->delete();
+                    }
+                    $dep->update([$col => null]);
+                    $this->step($dep, $step, 'running', 'Retrying');
+                    break;
+                case 'app':
+                case 'worker':
+                case 'redeploy':
+                case 'resize':
+                    foreach (array_filter([$dep->app_application_id, $dep->worker_application_id]) as $id) {
+                        if (in_array($step, ['redeploy', 'resize'], true) || $id === ($step === 'app' ? $dep->app_application_id : $dep->worker_application_id)) {
+                            Application::whereKey($id)->where('status', 'failed')->update(['status' => 'deploying']);
+                            $this->deployments->start(Application::findOrFail($id), User::find(auth()->id()), 'redeploy');
+                        }
+                    }
+                    $this->step($dep, $step, 'running', 'Retrying: redeploying '.self::image($dep->version));
+                    break;
+                case 'bootstrap':
+                    throw ApiException::conflict('A failed bootstrap is retried by posting configure again with the wizard settings.');
+                case 'licence':
+                case 'licence_refresh':
+                    $this->exec($dep, 'licence', 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && '.config('enterprise.licence_refresh_command'));
+                    $this->step($dep, 'licence_refresh', 'running', 'Refreshing the licence', 'Licence refresh');
+                    $step === 'licence' && $this->step($dep, 'licence', 'running', 'Retrying the licence', 'Licence');
+                    break;
+                default: // image, domain, custom_domain: the machine re-checks them
+                    $this->step($dep, $step, 'running', 'Retrying');
+            }
+        });
+        $dep->refresh();
+        if ($dep->status === 'failed') {
+            $this->setStatus($dep, $dep->activated_at ? 'active' : 'provisioning');
+        }
+        $this->log('enterprise.deployment.retry', $dep, ['step' => $step]);
+        rescue(fn () => $this->advance($dep->fresh()), report: true);
+
+        return $dep->fresh();
     }
 
     // --- steps, status, webhooks -------------------------------------------------------------

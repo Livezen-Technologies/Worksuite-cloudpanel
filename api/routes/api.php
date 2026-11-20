@@ -67,6 +67,17 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('deployments/{ref}/configure', [$ctl, 'configure'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.configure');
         Route::post('deployments/{ref}/actions/{action}', [$ctl, 'action'])->where(['ref' => '[A-Za-z0-9_-]{1,64}', 'action' => 'restart|stop|start|redeploy'])->name('deployments.action');
         Route::post('deployments/{ref}/purge', [$ctl, 'purge'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.purge');
+        Route::get('versions', [$ctl, 'versions'])->name('versions');
+        Route::get('nodes', [$ctl, 'nodes'])->name('nodes');
+        $r = ['ref' => '[A-Za-z0-9_-]{1,64}', 'domain' => '[A-Za-z0-9.-]{1,253}', 'step' => '[a-z_]{1,40}'];
+        Route::post('deployments/{ref}/resize', [$ctl, 'resize'])->where($r)->name('deployments.resize');
+        Route::get('deployments/{ref}/metrics', [$ctl, 'metrics'])->where($r)->name('deployments.metrics');
+        Route::post('deployments/{ref}/domains', [$ctl, 'addDomain'])->where($r)->name('deployments.domains.store');
+        Route::post('deployments/{ref}/domains/{domain}/verify', [$ctl, 'verifyDomain'])->where($r)->name('deployments.domains.verify');
+        Route::post('deployments/{ref}/domains/{domain}/primary', [$ctl, 'primaryDomain'])->where($r)->name('deployments.domains.primary');
+        Route::delete('deployments/{ref}/domains/{domain}', [$ctl, 'removeDomain'])->where($r)->name('deployments.domains.destroy');
+        Route::post('deployments/{ref}/licence-refresh', [$ctl, 'licenceRefresh'])->where($r)->name('deployments.licence-refresh');
+        Route::post('deployments/{ref}/steps/{step}/retry', [$ctl, 'retry'])->where($r)->name('deployments.steps.retry');
         Route::delete('deployments/{ref}', [$ctl, 'destroy'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.destroy');
     });
     Route::get('me', [AuthController::class, 'me'])->name('me.show');

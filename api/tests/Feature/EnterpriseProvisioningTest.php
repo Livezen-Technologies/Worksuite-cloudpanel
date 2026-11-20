@@ -74,7 +74,7 @@ class EnterpriseProvisioningTest extends TestCase
 
         $res = $this->api($token)->withHeader('Idempotency-Key', 'c1')->postJson('/api/v1/enterprise/deployments', $this->body())->assertStatus(202);
         $res->assertJsonPath('data.status', 'provisioning')->assertJsonPath('data.node.id', $server->id)
-            ->assertJsonPath('data.urls.platform', 'https://acme.worksuitecloud.com');
+            ->assertJsonPath('data.urls.platform', 'https://acme.worksuite.lk');
         $secret = $res->json('data.callback_secret');
         $this->assertGreaterThanOrEqual(32, strlen((string) $secret));
         $id = $res->json('data.deployment_id');
@@ -110,7 +110,7 @@ class EnterpriseProvisioningTest extends TestCase
         $this->assertNotNull($web);
         $this->assertNotNull($cron);
         $env = (array) $web['payload']['env'];
-        $this->assertSame('https://acme.worksuitecloud.com', $env['APP_URL']);
+        $this->assertSame('https://acme.worksuite.lk', $env['APP_URL']);
         $this->assertSame('db-ent-acme-db', $env['DB_HOST']);
         $this->assertSame('10', $env['FPM_MAX_CHILDREN']);
         $this->assertNotEmpty($env['DB_PASSWORD']);

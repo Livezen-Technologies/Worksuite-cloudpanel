@@ -136,3 +136,50 @@ func TestUnescapeMount(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A one-shot stats answer has no precpu_stats: CPU comes from the previous
+// sample this agent kept, and the first sample reads 0.
+func TestCPUSinceUsesThePreviousSample(t *testing.T) {
+	s := &docker.StatsSample{}
+	s.CPUStats.CPUUsage.TotalUsage, s.CPUStats.SystemUsage, s.CPUStats.OnlineCPUs = 100, 1000, 1
+	if got := cpuSince("x1", s); got != 0 {
+		t.Fatalf("first sample %v", got)
+	}
+	s.CPUStats.CPUUsage.TotalUsage, s.CPUStats.SystemUsage = 300, 2000
+	if got := round(cpuSince("x1", s)); got != 20 {
+		t.Fatalf("second sample %v", got)
+	}
+}
+
+// Stats are asked for one-shot, and a list Docker cannot answer goes out as
+// null (the panel keeps the last one), never as an empty list.
+func TestInventoryOneShotAndUnknownLists(t *testing.T) {
+	mux := http.NewServeMux()
+	oneShot := ""
+	mux.HandleFunc("GET /containers/json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{{"Id": "c9", "Names": []string{"/web"}, "Image": "nginx", "State": "running", "Created": 1700000000}})
+	})
+	mux.HandleFunc("GET /containers/c9/json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"Id": "c9", "State": map[string]any{}})
+	})
+	mux.HandleFunc("GET /containers/c9/stats", func(w http.ResponseWriter, r *http.Request) {
+		oneShot = r.URL.Query().Get("one-shot")
+		json.NewEncoder(w).Encode(map[string]any{"memory_stats": map[string]any{"usage": 1 << 20}})
+	})
+	mux.HandleFunc("GET /images/json", func(w http.ResponseWriter, r *http.Request) { http.Error(w, "busy", 500) })
+	mux.HandleFunc("GET /networks", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode([]map[string]any{}) })
+	mux.HandleFunc("GET /volumes", func(w http.ResponseWriter, r *http.Request) { http.Error(w, "busy", 500) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	dc := &docker.Client{HTTP: srv.Client(), Base: srv.URL}
+	inv, err := CollectInventory(context.Background(), dc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oneShot != "true" {
+		t.Fatalf("one-shot=%q", oneShot)
+	}
+	if inv.Images != nil || inv.Volumes != nil || inv.Networks == nil {
+		t.Fatalf("images %v volumes %v networks %v", inv.Images, inv.Volumes, inv.Networks)
+	}
+}

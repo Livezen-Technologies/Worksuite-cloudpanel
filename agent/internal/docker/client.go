@@ -239,10 +239,12 @@ type cpuStats struct {
 	OnlineCPUs  int    `json:"online_cpus"`
 }
 
-// ContainerStats does a single non-streaming stats read.
+// ContainerStats does a single non-streaming, one-shot stats read: dockerd
+// answers at once instead of waiting for a second CPU sample, so precpu_stats
+// is empty (engines before API 1.41 ignore one-shot and still fill it).
 func (c *Client) ContainerStats(ctx context.Context, id string) (*StatsSample, error) {
 	var s StatsSample
-	return &s, c.call(ctx, "GET", "/containers/"+url.PathEscape(id)+"/stats", url.Values{"stream": {"false"}}, nil, &s)
+	return &s, c.call(ctx, "GET", "/containers/"+url.PathEscape(id)+"/stats", url.Values{"stream": {"false"}, "one-shot": {"true"}}, nil, &s)
 }
 
 // CPUPercent computes the docker-cli style CPU percentage.

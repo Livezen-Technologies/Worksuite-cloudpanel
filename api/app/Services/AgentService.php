@@ -105,10 +105,14 @@ class AgentService
             if (is_array($data['containers'] ?? null)) {
                 $this->reconcileContainers($server, $data['containers'], $now);
             }
-            if (is_array($data['images'] ?? null)) {
+            // Agents built before CloudPanel 1.30.0 sent an empty list when the list call timed out on a busy node
+            // (the stats phase spent the inventory budget). A node running containers always has
+            // images, and Docker always has its default networks: an empty list there is "unknown".
+            $running = collect((array) ($data['containers'] ?? []))->contains(fn ($c) => ($c['state'] ?? null) === 'running');
+            if (is_array($data['images'] ?? null) && ($data['images'] !== [] || ! $running)) {
                 $this->reconcileImages($server, $data['images']);
             }
-            if (is_array($data['networks'] ?? null)) {
+            if (is_array($data['networks'] ?? null) && $data['networks'] !== []) {
                 $this->reconcileNetworks($server, $data['networks']);
             }
             if (is_array($data['volumes'] ?? null)) {

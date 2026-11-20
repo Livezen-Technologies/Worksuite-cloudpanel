@@ -33,6 +33,15 @@ return [
     // bootstrapped, 4 failed, 5 set up but the licence failed (retry `license:activate`).
     'bootstrap_command' => 'worksuite-entrypoint spark enterprise:bootstrap --json -',
     'status_command' => 'worksuite-entrypoint spark enterprise:status --json',
+    // Re-reads the licence from the licensing server (Cloud Admin calls it after an issue/extend/suspend).
+    'licence_refresh_command' => env('ENTERPRISE_LICENCE_REFRESH_COMMAND', 'worksuite-entrypoint spark license:refresh'),
+    // Capabilities the image's root entrypoint needs back from the agent's cap_drop ALL: it creates and
+    // chowns directories in the uid-33 writable volume, then drops to www-data (same set as DatabaseService).
+    'cap_add' => ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'],
+    // GET /enterprise/versions: when the node inventory is older than this (s), the node's images
+    // are listed directly through the agent (`docker images`, host-mode cron.exec) and cached.
+    'images_stale_after' => 300,
+    'images_command' => "docker images --format '{{.Repository}}:{{.Tag}}'",
     'bootstrap_exit_codes' => ['ok' => [0, 3], 'licence_failed' => [5]],
     // Numeric, non-root user the commands run as inside the container (the agent refuses root).
     'exec_user' => env('ENTERPRISE_EXEC_USER', '33:33'),
@@ -68,7 +77,7 @@ return [
     ],
 
     // Public address: <slug>.<domain>.
-    'domain' => env('ENTERPRISE_DOMAIN', 'worksuitecloud.com'),
+    'domain' => env('ENTERPRISE_DOMAIN', 'worksuite.lk'),
     // Slugs never handed out (they are our own hosts).
     'reserved_slugs' => ['www', 'account', 'admin', 'api', 'app', 'panel', 'mail', 'download', 'developer', 'docs', 'status', 'cms', 'desk', 'demo', 'staging'],
 
@@ -81,6 +90,9 @@ return [
         'medium' => ['label' => 'Medium', 'app_ram_mb' => 2048, 'app_cpus' => 2.0, 'worker_ram_mb' => 1024, 'worker_cpus' => 1.0, 'db_ram_mb' => 2048, 'redis_ram_mb' => 512, 'fpm_max_children' => 24, 'disk_gb' => 50],
         'large' => ['label' => 'Large', 'app_ram_mb' => 4096, 'app_cpus' => 4.0, 'worker_ram_mb' => 2048, 'worker_cpus' => 2.0, 'db_ram_mb' => 4096, 'redis_ram_mb' => 1024, 'fpm_max_children' => 48, 'disk_gb' => 100],
     ],
+
+    // Custom limits (resize): bounds for the web container.
+    'custom_limits' => ['cpus' => [0.5, 16], 'ram_mb' => [512, 65536], 'disk_gb' => [10, 2000], 'mb_per_fpm_child' => 80],
 
     // The staff organisation the service account belongs to (Livezen Technologies).
     'organization_id' => env('ENTERPRISE_ORGANIZATION_ID', '01a1810a-f02c-737b-a05e-381aa9e9f667'),

@@ -28,7 +28,8 @@ class DeploymentController extends Controller
         $q = EnterpriseDeployment::where('organization_id', app(\App\Support\Tenant::class)->id());
 
         return (clone $q)->whereKey(\Illuminate\Support\Str::isUuid($id) ? $id : null)->first()
-            ?? $q->where('external_id', $id)->firstOrFail();
+            ?? $q->where('external_id', $id)->first()
+            ?? throw new \App\Exceptions\ApiException('deployment_not_found', 'No such enterprise deployment.', 404);
     }
 
     public function index(Request $request)
@@ -106,9 +107,80 @@ class DeploymentController extends Controller
     public function action(Request $request, string $id, string $action)
     {
         abort_unless(in_array($action, EnterpriseProvisioningService::ACTIONS, true), 404);
-        $data = $request->validate(['version' => ['nullable', 'string', self::VERSION]]);
+        $data = $request->validate(['version' => ['nullable', 'string', self::VERSION], 'container' => 'nullable|in:app,worker,database,redis']);
+        if (! empty($data['container']) && $action !== 'restart') {
+            throw \App\Exceptions\ApiException::validation(['container' => ['Only restart takes a single container.']]);
+        }
 
         return response()->json(['data' => $this->svc->act($this->find($id), $action, array_filter($data))], 202);
+    }
+
+    /** worksuite-server tags on the enterprise nodes (inventory + a direct scan when it is stale). */
+    public function versions()
+    {
+        return $this->data($this->svc->versions(app(\App\Support\Tenant::class)->id()));
+    }
+
+    /** Eligible enterprise nodes with free CPU / RAM / disk. */
+    public function nodes()
+    {
+        return $this->data(['nodes' => $this->svc->nodes(app(\App\Support\Tenant::class)->id())]);
+    }
+
+    public function resize(Request $request, string $id)
+    {
+        $b = (array) config('enterprise.custom_limits');
+        $data = $request->validate([
+            'size' => ['nullable', Rule::in(array_keys(config('enterprise.sizes')))],
+            'cpus' => ['nullable', 'numeric', 'min:'.$b['cpus'][0], 'max:'.$b['cpus'][1]],
+            'ram_mb' => ['nullable', 'integer', 'min:'.$b['ram_mb'][0], 'max:'.$b['ram_mb'][1]],
+            'disk_gb' => ['nullable', 'integer', 'min:'.$b['disk_gb'][0], 'max:'.$b['disk_gb'][1]],
+        ]);
+        if (empty($data['size']) && ! isset($data['cpus']) && ! isset($data['ram_mb']) && ! isset($data['disk_gb'])) {
+            throw \App\Exceptions\ApiException::validation(['size' => ['Give a size, or cpus / ram_mb / disk_gb.']]);
+        }
+
+        return response()->json(['data' => $this->svc->present($this->svc->resize($this->find($id), array_filter($data, fn ($v) => $v !== null)))], 202);
+    }
+
+    public function metrics(Request $request, string $id)
+    {
+        $data = $request->validate(['range' => 'nullable|in:1h,6h,24h,7d']);
+
+        return $this->data($this->svc->metrics($this->find($id), $data['range'] ?? '1h'));
+    }
+
+    public function addDomain(Request $request, string $id)
+    {
+        $request->merge(['domain' => strtolower(trim((string) $request->input('domain'), '. '))]);
+        $data = $request->validate(['domain' => ['required', 'string', 'max:253', self::DOMAIN]]);
+
+        return response()->json(['data' => $this->svc->addDomain($this->find($id), strtolower($data['domain']))], 201);
+    }
+
+    public function verifyDomain(string $id, string $domain)
+    {
+        return $this->data($this->svc->verifyDomain($this->find($id), strtolower($domain)));
+    }
+
+    public function removeDomain(string $id, string $domain)
+    {
+        return $this->data($this->svc->present($this->svc->removeDomain($this->find($id), strtolower($domain))));
+    }
+
+    public function primaryDomain(string $id, string $domain)
+    {
+        return response()->json(['data' => $this->svc->present($this->svc->primaryDomain($this->find($id), strtolower($domain)))], 202);
+    }
+
+    public function licenceRefresh(string $id)
+    {
+        return response()->json(['data' => $this->svc->refreshLicence($this->find($id))], 202);
+    }
+
+    public function retry(string $id, string $step)
+    {
+        return response()->json(['data' => $this->svc->present($this->svc->retryStep($this->find($id), $step))], 202);
     }
 
     public function destroy(string $id)
