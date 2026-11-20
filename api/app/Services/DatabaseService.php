@@ -46,6 +46,9 @@ class DatabaseService implements HandlesCommandResults
             'image' => $template['image'].':'.$version,
             'env' => $env,
             'read_only_rootfs' => false,
+            // The official images start as root and switch to their own user (gosu): with every
+            // capability dropped (secure container defaults) that switch fails and they never start.
+            'cap_add' => ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'],
             'mounts' => [['type' => 'volume', 'source' => $containerName.'-data', 'target' => $template['data']]],
             'networks' => [['name' => $data['network'] ?? 'internal']],
             'memory_mb' => $data['memory_mb'] ?? 512,
