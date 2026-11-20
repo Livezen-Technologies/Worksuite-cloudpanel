@@ -205,7 +205,7 @@ class DeploymentService implements HandlesCommandResults
         $image = $pushed ? $out['repo_digest'] : $command->payload['image_tag'];
         $commit = isset($out['commit']) ? substr((string) $out['commit'], 0, 12) : null;
         $deployment->update(['image' => $image, 'image_digest' => $out['digest'] ?? null]);
-        $app->update(['image' => $image]);
+        $app->update(['image' => $image] + (! empty($out['commit']) ? ['source' => array_merge((array) $app->source, ['built_commit' => (string) $out['commit']])] : []));
         $this->phase($job, 'built', ['pushed' => $pushed, 'commit' => $out['commit'] ?? null]);
         if ($customer) {
             $this->jobs->stage($job, 'build', 'succeeded', 'Built '.$command->payload['image_tag'].($commit ? " from {$commit}" : '').$this->cacheNote($deployment));

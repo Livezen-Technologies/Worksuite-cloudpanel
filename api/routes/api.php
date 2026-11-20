@@ -230,6 +230,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('applications/{id}/git/key', [Admin\AppGitController::class, 'generateKey'])->middleware('throttle:10,1')->name('applications.git.key');
         Route::post('applications/{id}/git/test', [Admin\AppGitController::class, 'test'])->middleware('throttle:20,1')->name('applications.git.test');
         Route::post('applications/{id}/git/webhook-secret', [Admin\AppGitController::class, 'rotateSecret'])->name('applications.git.secret');
+        Route::post('applications/{id}/git/check-update', [Admin\AppGitController::class, 'checkUpdate'])->middleware('throttle:20,1')->name('applications.git.check-update');
+        Route::patch('applications/{id}/git/auto-update', [Admin\AppGitController::class, 'autoUpdate'])->name('applications.git.auto-update');
         Route::post('applications/{id}/rollback', [Admin\ApplicationController::class, 'rollback'])->name('applications.rollback');
         Route::patch('applications/{id}/scaling', [Admin\ScalingController::class, 'update'])->name('applications.scaling.update');
         Route::post('applications/{id}/canary', [Admin\ScalingController::class, 'canary'])->name('applications.canary');
