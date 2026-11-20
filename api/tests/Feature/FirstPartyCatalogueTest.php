@@ -24,6 +24,7 @@ class FirstPartyCatalogueTest extends TestCase
         $this->assertSame('https://github.com/Livezen-Technologies/worksuite.git', $app->source['repo']);
         $this->assertTrue($app->source['template_git']);
         $this->assertTrue(app(BuildService::class)->needsBuild($app));
+        $this->assertSame(['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID', 'NET_BIND_SERVICE'], $app->source['cap_add']);
         $db = Database::allTenants()->sole();
         $this->assertSame('worksuite', $db->database ?? 'worksuite');
         $env = EnvVar::allTenants()->where('application_id', $app->id)->get()->keyBy('key');

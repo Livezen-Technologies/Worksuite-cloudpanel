@@ -360,6 +360,10 @@ class DeploymentService implements HandlesCommandResults
         if (! empty($config['registry_auth'])) {
             $input['registry_auth'] = $config['registry_auth'];
         }
+        // Capabilities a catalogue app needs back from the secure defaults (only ContainerSpec::SAFE_CAPS).
+        if (! empty($app->source['cap_add'])) {
+            $input['cap_add'] = array_values((array) $app->source['cap_add']);
+        }
         $spec = ContainerSpec::build($input, $app->organization, TraefikLabels::for($app, $config['port'] ?? null));
 
         if (! $blueGreen) {

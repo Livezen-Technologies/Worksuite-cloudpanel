@@ -289,7 +289,7 @@ class TemplateService
                 $app = Application::create(array_filter([
                     'name' => $name, 'kind' => 'admin', 'source_type' => empty($m['git']) ? 'image' : 'git', 'image' => $m['image'] ?? null, 'port' => $data['port'] ?? $m['port'] ?? null,
                     'health_path' => $data['health_path'] ?? $m['health'] ?? null, 'volume_path' => $data['volume_path'] ?? $m['volume'] ?? null, 'server_id' => $data['server_id'] ?? null,
-                    'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id] + $this->gitSource($m)),
+                    'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id, 'cap_add' => array_values(array_intersect(array_map('strtoupper', (array) ($m['cap_add'] ?? [])), ContainerSpec::SAFE_CAPS)) ?: null] + $this->gitSource($m)),
                     'size' => $data['size'] ?? null,
                     'project_id' => ! empty($data['project_id']) ? \App\Models\Project::findOrFail($data['project_id'])->id : null,
                 ], fn ($v) => $v !== null) + (array_key_exists('auto_restart', $data) ? ['auto_restart' => (bool) $data['auto_restart']] : []));
