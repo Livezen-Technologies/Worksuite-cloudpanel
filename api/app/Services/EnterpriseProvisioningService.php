@@ -983,7 +983,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         }
         $names = collect(config('enterprise.volumes'))->keys()->map(fn ($s) => 'ent-'.$dep->slug.'-'.$s)
             ->merge(Database::allTenants()->whereIn('id', array_filter([$dep->database_id, $dep->redis_id]))->get()->map(fn ($d) => 'db-'.Str::slug($d->name).'-data'));
-        $volumes = \App\Models\Volume::allTenants()->where('server_id', $dep->server_id)->whereIn('name', $names->all())->get(['name', 'size_mb']);
+        $volumes = \App\Models\Volume::allTenants()->where('server_id', $dep->server_id)->whereIn('name', $names->all())->get(['name', 'size_gb'])
+            // volumes.size_gb is what the agent reports; Cloud Admin wants megabytes.
+            ->map(fn ($v) => (object) ['name' => $v->name, 'size_mb' => round((float) $v->size_gb * 1024, 1)]);
         $size = $this->sizeOf($dep);
 
         // Cloud Admin's combined series: one point per heartbeat, summed over the containers.
