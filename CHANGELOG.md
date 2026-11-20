@@ -9,6 +9,18 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.26.0] — 2026-11-20
+
+### Added
+
+- **Customer team management.** Account → Team in the customer portal now lets an owner change a
+  member's role (owner, developer, billing) and remove a member, through
+  `PATCH /api/v1/app/account/team/{userId}` and `DELETE /api/v1/app/account/team/{userId}`
+  (`app.team`). The organisation always keeps one active owner, owners cannot remove themselves,
+  and removing someone also drops their project roles and API tokens in that organisation. Both
+  actions are audited (`team.member_role_changed`, `team.member_removed`). Before, customers
+  could only invite; changing or removing a member needed staff.
+
 ## [1.25.0] — 2026-11-19
 
 ### Added

@@ -310,7 +310,7 @@ export function Billing() {
 }
 
 export function Account() {
-  const { item: acct, isLoading } = useOne<R>('/app/account')
+  const { item: acct, isLoading, refetch } = useOne<R>('/app/account')
   const { me, refresh } = useAuth()
   const { run, busy } = useAction()
   const toast = useToast()
@@ -319,6 +319,7 @@ export function Account() {
   const [codes, setCodes] = useState<string[] | null>(null)
   const [invite, setInvite] = useState(false)
   const [inv, setInv] = useState({ email: '', role: 'developer' })
+  const [removing, setRemoving] = useState<R | null>(null)
   useEffect(() => { if (acct) setP({ name: acct.name ?? acct.user?.name, email: acct.email ?? acct.user?.email, organization: acct.organization?.name ?? acct.organization ?? '', photo_url: acct.photo_url }) }, [acct])
   if (isLoading) return <Loading label="Loading…" />
   const mfaOn = !!(acct?.mfa_enabled ?? acct?.user?.mfa_enabled ?? me?.user?.mfa_enabled)
@@ -360,7 +361,14 @@ export function Account() {
             {team.length === 0 ? <div className="text-sm text-muted">Only you so far.</div> : team.map((m, i) => (
               <div key={m.id ?? i} className="flex items-center gap-3 py-2 border-t border-line first:border-t-0">
                 <span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center">{String(m.name ?? m.email ?? '?').slice(0, 2).toUpperCase()}</span>
-                <span className="flex-1 text-sm font-semibold truncate">{m.name ?? m.email}</span><Badge tone="n">{m.role}</Badge>
+                <span className="flex-1 min-w-0 text-sm font-semibold truncate">{m.name ?? m.email}{m.status === 'invited' || m.invited ? <span className="ml-2 text-xs font-normal text-muted">invited</span> : null}</span>
+                {acct?.role === 'owner' && m.id !== acct?.user?.id ? <>
+                  <Select aria-label={`Role for ${m.name ?? m.email}`} className="input !w-auto" value={m.role} disabled={busy}
+                    onChange={(e) => run({ method: 'PATCH', path: `/app/account/team/${m.id}`, body: { role: e.target.value }, label: 'Change role', success: `${m.name ?? m.email} is now ${e.target.value}` }).then(() => refetch()).catch(() => {})}>
+                    {['owner', 'developer', 'billing'].map((r) => <option key={r} value={r}>{r}</option>)}
+                  </Select>
+                  <button type="button" className="btn" disabled={busy} onClick={() => setRemoving(m)}>Remove</button>
+                </> : <Badge tone="n">{m.role}</Badge>}
               </div>
             ))}
           </Card>
@@ -368,6 +376,11 @@ export function Account() {
         </div>
       </div>
       <SignInApps />
+      <ConfirmDialog open={!!removing} title="Remove team member" danger confirmLabel="Remove" busy={busy}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => run({ method: 'DELETE', path: `/app/account/team/${removing?.id}`, label: 'Remove member', success: 'Member removed' }).then(() => { setRemoving(null); refetch() }).catch(() => {})}>
+        {removing?.name ?? removing?.email} loses access to this organisation, its projects and its API tokens.
+      </ConfirmDialog>
       <TwoFactorSetupModal setup={mfa} onClose={() => setMfa(null)} onConfirm={confirmMfa} />
       <RecoveryCodesDialog codes={codes} onClose={() => setCodes(null)} />
       <Modal open={invite} onClose={() => setInvite(false)} title="Invite a team member"
