@@ -6,6 +6,7 @@ import { endImpersonation } from '../lib/impersonation'
 import { Drawer, Modal } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
 import { useTheme, type ThemePref } from '../lib/theme'
+import { AppLauncher } from './AppLauncher'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 import { api, errorMessage } from '../api/client'
@@ -209,6 +210,7 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
             </Link>
             )}
             {headerExtra}
+            {!portal && <AppLauncher />}
             {/* In the portal the theme is a choice of three in the account
                 menu, so a two-state button beside it would contradict it. */}
             {!portal && (
