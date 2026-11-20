@@ -69,6 +69,6 @@ class RbacTest extends TestCase
         $this->assertTrue($matrix['terminal']['granted']);
         $this->assertTrue($matrix['terminal']['requires_approval']);
         $this->assertFalse($matrix['billing.manage']['granted']);
-        $this->assertCount(8, $this->api($token)->getJson('/api/v1/roles')->json('data'));
+        $this->assertCount(9, $this->api($token)->getJson('/api/v1/roles')->json('data'));
     }
 }

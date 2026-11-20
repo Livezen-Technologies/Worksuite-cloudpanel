@@ -9,6 +9,21 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.29.0] — 2026-11-20
+
+### Added
+
+- **Enterprise provisioning API** for Cloud Admin (`/api/v1/enterprise`, token ability `enterprise.deploy`):
+  create a dedicated WorkSuite Server deployment (project "Enterprise · <customer>" with managed MariaDB 10.11,
+  Redis, the `web` and `cron` containers of the `worksuite-server:<version>` image on the least-loaded
+  enterprise node, `<slug>.worksuitecloud.com` with automatic TLS), follow its steps, read redacted logs,
+  run the setup wizard's `enterprise:bootstrap` inside the server (with an optional own domain),
+  restart / stop / start / redeploy, delete (keeps data) and an explicit purge. Signed status webhooks
+  (`X-Enterprise-Signature`, HMAC-SHA256, per-deployment secret) go to Cloud Admin on every status change.
+  `php artisan enterprise:service-account` creates the service account and its token. (#222)
+- Projects carry tags; enterprise deployments show an **Enterprise** badge in Projects.
+- Apps can run a command other than the image default and share named volumes (used by the enterprise web and cron containers).
+
 ## [1.28.0] — 2026-11-20
 
 ### Added

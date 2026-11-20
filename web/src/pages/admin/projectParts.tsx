@@ -11,7 +11,7 @@ import { type R } from '../../lib/util'
 /** Shared pieces of the admin Projects list and the project details page. */
 export type App = { id: string; name: string; service: string; status: string; asleep: boolean; image: string | null; last_deployed_at: string | null; url: string | null }
 export type Env = { id: string; name: string; slug: string; kind: string; branch: string | null; requires_approval: boolean; sleep_after_minutes: number | null; variables: string[]; apps: App[] }
-export type Project = { id: string; name: string; description: string | null; webhook_url: string; preview_environment_id: string | null; preview_comments: boolean; organization?: { id: string; name: string } | null; environments: Env[] }
+export type Project = { id: string; name: string; description: string | null; tags?: string[]; webhook_url: string; preview_environment_id: string | null; preview_comments: boolean; organization?: { id: string; name: string } | null; environments: Env[] }
 
 export const KIND_TONE: Record<string, 'g' | 'b' | 'y' | 'n'> = { production: 'g', staging: 'b', development: 'n', preview: 'y' }
 

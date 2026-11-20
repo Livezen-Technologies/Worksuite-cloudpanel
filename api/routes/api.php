@@ -55,6 +55,20 @@ Route::post('webhooks/paypal', [\App\Http\Controllers\PayPalWebhookController::c
 
 Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'idempotent', 'audit', 'project.role'])->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
+    // Enterprise provisioning (docs/ENTERPRISE_API.md): Cloud Admin's service API, token ability enterprise.deploy.
+    Route::prefix('enterprise')->middleware('perm:enterprise.deploy')->name('enterprise.')->group(function () {
+        $ctl = \App\Http\Controllers\Enterprise\DeploymentController::class;
+        Route::get('options', [$ctl, 'options'])->name('options');
+        Route::get('slug-availability', [$ctl, 'slug'])->name('slug');
+        Route::get('deployments', [$ctl, 'index'])->name('deployments.index');
+        Route::post('deployments', [$ctl, 'store'])->name('deployments.store');
+        Route::get('deployments/{ref}', [$ctl, 'show'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.show');
+        Route::get('deployments/{ref}/logs', [$ctl, 'logs'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.logs');
+        Route::post('deployments/{ref}/configure', [$ctl, 'configure'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.configure');
+        Route::post('deployments/{ref}/actions/{action}', [$ctl, 'action'])->where(['ref' => '[A-Za-z0-9_-]{1,64}', 'action' => 'restart|stop|start|redeploy'])->name('deployments.action');
+        Route::post('deployments/{ref}/purge', [$ctl, 'purge'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.purge');
+        Route::delete('deployments/{ref}', [$ctl, 'destroy'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.destroy');
+    });
     Route::get('me', [AuthController::class, 'me'])->name('me.show');
     Route::patch('me/profile', [\App\Http\Controllers\MeController::class, 'profile'])->name('me.profile');
     Route::post('me/password', [\App\Http\Controllers\MeController::class, 'password'])->middleware('throttle:5,10')->name('me.password');
