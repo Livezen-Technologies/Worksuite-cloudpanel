@@ -148,6 +148,8 @@ export default function InstallWizard({ t, onBack, projectId: projectProp }: { t
   const { run, busy } = useAction()
   const { rows: servers } = useList<Server>('/servers')
   const { rows: databases } = useList<Db>('/databases')
+  // Connected DNS zones (e.g. worksuite.lk on Cloudflare): a subdomain of one gets its record automatically.
+  const { rows: zones } = useList<{ id: string; name: string }>('/dns/zones', { per_page: 200 })
   // PWS-G: opened from a project workspace (?project=<id>), the install goes straight into that project.
   const [search] = useSearchParams()
   const projectId = projectProp || search.get('project') || undefined
@@ -319,6 +321,21 @@ export default function InstallWizard({ t, onBack, projectId: projectProp }: { t
             <span className="flex items-center gap-2">
               <input className="input grow" value={d.subdomain} onChange={(e) => set('subdomain', e.target.value.toLowerCase())} />
               <span className="text-sm text-muted whitespace-nowrap">.{platform}</span>
+            </span>
+          </Field>
+        )}
+        {d.domain_mode === 'custom' && zones.length > 0 && (
+          <Field label="Subdomain of a connected zone" hint="The DNS record is created in the zone and HTTPS is issued once it resolves.">
+            <span className="flex items-center gap-2">
+              <input className="input grow" aria-label="Subdomain" placeholder={d.name || 'app'}
+                value={zones.some((z) => d.domain.endsWith(`.${z.name}`)) ? d.domain.slice(0, d.domain.length - (zones.find((z) => d.domain.endsWith(`.${z.name}`))?.name.length ?? 0) - 1) : ''}
+                onChange={(e) => { const z = zones.find((x) => d.domain.endsWith(`.${x.name}`)) ?? zones[0]; set('domain', `${e.target.value.toLowerCase().replace(/[^a-z0-9.-]/g, '')}.${z.name}`) }} />
+              <span className="text-sm text-muted">.</span>
+              <Select className="input !w-auto" aria-label="Zone" value={zones.find((z) => d.domain.endsWith(`.${z.name}`))?.name ?? ''}
+                onChange={(e) => { const cur = zones.find((x) => d.domain.endsWith(`.${x.name}`)); const label = cur ? d.domain.slice(0, d.domain.length - cur.name.length - 1) : (d.name || 'app'); set('domain', `${label}.${e.target.value}`) }}>
+                <option value="" disabled>Choose a zone…</option>
+                {zones.map((z) => <option key={z.id} value={z.name}>{z.name}</option>)}
+              </Select>
             </span>
           </Field>
         )}
