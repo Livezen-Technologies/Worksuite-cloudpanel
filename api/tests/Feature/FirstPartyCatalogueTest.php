@@ -59,4 +59,16 @@ class FirstPartyCatalogueTest extends TestCase
         config(['platform.templates.git_token' => null]);
         $this->assertNull($b->catalogueAuth('https://github.com/Livezen-Technologies/worksuite.git'));
     }
+
+    public function test_preflight_passes_with_a_new_database_and_a_git_source(): void
+    {
+        [, $org, $token] = $this->org();
+        $this->server($org);
+        $this->api($token)->getJson('/api/v1/templates')->assertOk();
+        $checks = collect($this->api($token)->postJson('/api/v1/templates/worksuite-server/preflight', ['name' => 'ws', 'create_database' => ['engine' => 'mysql']])->assertOk()->json('data.checks'))->keyBy('key');
+        $this->assertSame('pass', $checks['image']['status'], $checks['image']['message']);
+        $this->assertSame('pass', $checks['variables']['status'], $checks['variables']['message']);
+        $none = collect($this->api($token)->postJson('/api/v1/templates/worksuite-server/preflight', ['name' => 'ws'])->json('data.checks'))->keyBy('key');
+        $this->assertSame('fail', $none['variables']['status']);
+    }
 }
