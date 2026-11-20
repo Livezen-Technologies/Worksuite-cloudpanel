@@ -13,7 +13,7 @@ Dates are the dates the work landed on `main`.
 
 ### Added
 
-- **Sign in with WorkSuite Cloud (staff SSO).** Platform staff (super admin, infra admin, DevOps) can sign in
+- **Sign in with WorkSuite Cloud (staff SSO)** (#218). Platform staff (super admin, infra admin, DevOps) can sign in
   through OneAuth at account.worksuitecloud.com. The panel only matches an existing staff account by verified
   email (case-insensitive) and never creates one; anyone else sees "No CloudPanel admin account for <email>".
   State, nonce and PKCE are checked and the id_token is verified against the issuer's JWKS (signature, iss,
@@ -23,7 +23,7 @@ Dates are the dates the work landed on `main`.
 
 ### Changed
 
-- **The 9-dot app launcher** now reads the shared WorkSuite Cloud app list (with a built-in fallback), highlights
+- **The 9-dot app launcher** (#218) now reads the shared WorkSuite Cloud app list (with a built-in fallback), highlights
   CloudPanel, opens apps in the same tab, returns focus on Esc, sits beside the user menu, and is shown to
   platform staff only.
 
