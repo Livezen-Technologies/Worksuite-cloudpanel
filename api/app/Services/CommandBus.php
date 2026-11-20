@@ -66,6 +66,7 @@ class CommandBus
         'cleanup' => CleanupService::class,
         'mesh' => MeshService::class,
         'system.services' => SystemServiceService::class,
+        'enterprise.exec' => EnterpriseProvisioningService::class,
     ];
 
     public function __construct(private JobService $jobs) {}

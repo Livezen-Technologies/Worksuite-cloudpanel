@@ -32,6 +32,7 @@ return [
         'app.manage' => ['Customer panel: host and manage apps, domains, backups', 'Customer panel'],
         'app.billing' => ['Customer panel: billing', 'Customer panel'],
         'app.team' => ['Customer panel: team & tokens', 'Customer panel'],
+        'enterprise.deploy' => ['Enterprise: provision and operate WorkSuite Server deployments (Cloud Admin service API)', 'Enterprise'],
     ],
 
     'roles' => [
@@ -70,6 +71,10 @@ return [
         ]],
         'billing' => ['label' => 'Billing Manager', 'scope' => 'both', 'grants' => [
             'billing.manage' => 'all', 'logs.view' => 'read', 'audit.view' => 'read', 'app.billing' => 'own_org',
+        ]],
+        // The Cloud Admin service account (php artisan enterprise:service-account): the enterprise API only.
+        'enterprise_service' => ['label' => 'Enterprise service (Cloud Admin)', 'scope' => 'platform', 'grants' => [
+            'enterprise.deploy' => 'all',
         ]],
         'viewer' => ['label' => 'Viewer / Auditor', 'scope' => 'platform', 'grants' => [
             'resources.view' => 'read', 'servers.view' => 'read', 'logs.view' => 'read', 'audit.view' => 'read',

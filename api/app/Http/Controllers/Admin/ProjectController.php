@@ -18,7 +18,7 @@ class ProjectController extends Controller
     private function present(Project $p): array
     {
         return [
-            'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
+            'id' => $p->id, 'name' => $p->name, 'description' => $p->description, 'tags' => array_values((array) ($p->tags ?? [])),
             'webhook_url' => url("/api/v1/hooks/git/{$p->id}"), 'preview_environment_id' => $p->preview_environment_id, 'preview_comments' => (bool) $p->preview_comment_secret_id,
             // Who owns it, so the list can show projects handed over to a customer.
             'organization' => ($o = \App\Models\Organization::query()->withoutGlobalScopes()->find($p->organization_id)) ? ['id' => $o->id, 'name' => $o->name] : null,

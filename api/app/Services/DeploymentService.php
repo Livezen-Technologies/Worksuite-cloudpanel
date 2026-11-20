@@ -353,12 +353,23 @@ class DeploymentService implements HandlesCommandResults
             'memory_mb' => $config['memory_mb'] ?? null,
             'cpus' => $config['cpus'] ?? null,
             'networks' => $this->networks($app),
-            'mounts' => ! empty($config['volume_path']) ? [['type' => 'volume', 'source' => 'app-'.$app->name.'-data', 'target' => $config['volume_path']]] : [],
+            'mounts' => array_merge(
+                ! empty($config['volume_path']) ? [['type' => 'volume', 'source' => 'app-'.$app->name.'-data', 'target' => $config['volume_path']]] : [],
+                // Extra named volumes, which apps may share (an enterprise app and its worker).
+                array_map(fn ($m) => ['type' => 'volume', 'source' => (string) $m['source'], 'target' => (string) $m['target']], (array) ($app->source['mounts'] ?? [])),
+            ),
             'labels' => ['io.dockermgr.app' => $app->id, 'io.dockermgr.deployment' => $deployment->id],
             'pull' => $config['pull'] ?? 'always',
         ];
         if (! empty($config['registry_auth'])) {
             $input['registry_auth'] = $config['registry_auth'];
+        }
+        // A command other than the image default (one image, several roles: app, worker).
+        if (! empty($app->source['cmd'])) {
+            $input['cmd'] = array_values((array) $app->source['cmd']);
+        }
+        if (! empty($app->source['pull'])) {
+            $input['pull'] = (string) $app->source['pull'];
         }
         // Capabilities a catalogue app needs back from the secure defaults (only ContainerSpec::SAFE_CAPS).
         if (! empty($app->source['cap_add'])) {

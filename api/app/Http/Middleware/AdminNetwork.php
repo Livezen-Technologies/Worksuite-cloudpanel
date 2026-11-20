@@ -13,7 +13,8 @@ use Symfony\Component\HttpFoundation\IpUtils;
  */
 class AdminNetwork
 {
-    private const OPEN = ['app.', 'me.', 'auth.', 'jobs.'];
+    // enterprise.*: Cloud Admin's service-to-service API, held to its scoped token instead.
+    private const OPEN = ['app.', 'me.', 'auth.', 'jobs.', 'enterprise.'];
 
     public function handle(Request $request, Closure $next)
     {

@@ -21,7 +21,7 @@ export default function Projects() {
   const create = () => run<R>({ path: '/projects', body: { name }, label: `Create ${name}`, success: 'Project created' })
     .then((r) => { setOpen(false); setName(''); setSecret((r as R)?.data?.webhook_secret ?? null) }).catch(() => {})
   const columns: Column<Project>[] = [
-    { key: 'name', header: 'Project', value: (p) => p.name, sortable: true, render: (p) => <span><span className="font-semibold">{p.name}</span>{p.description && <span className="block text-xs text-muted">{p.description}</span>}</span> },
+    { key: 'name', header: 'Project', value: (p) => p.name, sortable: true, render: (p) => <span><span className="font-semibold">{p.name}</span>{p.tags?.includes('enterprise') && <span className="ml-2 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-800 dark:bg-purple-900/40 dark:text-purple-200">Enterprise</span>}{p.description && <span className="block text-xs text-muted">{p.description}</span>}</span> },
     { key: 'status', header: 'Status', value: (p) => summarise(p).health, options: ['running', 'degraded', 'stopped', 'empty'], render: (p) => { const s = summarise(p); return s.apps === 0 ? <span className="text-xs text-muted">no apps</span> : <span className="flex items-center gap-2"><StatusBadge status={s.health} /><span className="text-xs text-muted tabular-nums">{s.running}/{s.apps} running{s.asleep ? ` · ${s.asleep} asleep` : ''}</span></span> } },
     { key: 'envs', header: 'Environments', value: (p) => p.environments.length, kind: 'number', sortable: true, align: 'right' },
     { key: 'apps', header: 'Apps', value: (p) => summarise(p).apps, kind: 'number', sortable: true, align: 'right' },
@@ -36,7 +36,7 @@ export default function Projects() {
       <Card pad={false}>
         <DataTable label="Projects" tableId="admin-projects" rows={rows} columns={columns} rowKey={(p) => p.id} loading={isLoading}
           error={error ? 'Projects could not be loaded.' : null} onRetry={() => { void refetch() }}
-          searchKeys={(p) => [p.name, p.description ?? '', p.organization?.name ?? '', ...p.environments.flatMap((e) => [e.name, ...e.apps.map((a) => a.service)])].join(' ')}
+          searchKeys={(p) => [p.name, p.description ?? '', ...(p.tags ?? []), p.organization?.name ?? '', ...p.environments.flatMap((e) => [e.name, ...e.apps.map((a) => a.service)])].join(' ')}
           searchPlaceholder="Search projects, environments or apps"
           filters={[
             { id: 'running', label: 'All running', test: (p) => summarise(p).health === 'running' },

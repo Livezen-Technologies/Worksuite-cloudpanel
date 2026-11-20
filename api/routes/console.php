@@ -557,3 +557,32 @@ Artisan::command('partner:webhooks', function (\App\Services\PartnerWebhookServi
 
 Schedule::command('partner:sync')->everyMinute()->withoutOverlapping();
 Schedule::command('partner:webhooks')->everyMinute()->withoutOverlapping();
+
+// Enterprise provisioning (docs/ENTERPRISE_API.md).
+Artisan::command('enterprise:sync', function (\App\Services\EnterpriseProvisioningService $svc) {
+    $this->info('Advanced '.$svc->sync().' enterprise deployment(s).');
+})->purpose('Advance enterprise deployments (provisioning steps, domains, status)');
+Artisan::command('enterprise:webhooks', function (\App\Services\EnterpriseWebhookService $hooks) {
+    $this->info(json_encode($hooks->deliverDue()));
+})->purpose('Deliver signed enterprise status webhooks to Cloud Admin');
+Artisan::command('enterprise:service-account {--email=cloud-admin-enterprise@service.invalid} {--org= : staff organisation id (default config enterprise.organization_id)} {--days=365}', function () {
+    $orgId = $this->option('org') ?: config('enterprise.organization_id');
+    $org = \App\Models\Organization::query()->withoutGlobalScopes()->find($orgId);
+    if (! $org) {
+        $this->error("Organisation {$orgId} not found.");
+
+        return 1;
+    }
+    $user = \App\Models\User::firstOrCreate(['email' => $this->option('email')], ['name' => 'Cloud Admin (enterprise)', 'password' => \Illuminate\Support\Str::random(64)]);
+    $user->forceFill(['current_organization_id' => $org->id])->save();
+    \App\Models\Membership::allTenants()->updateOrCreate(['organization_id' => $org->id, 'user_id' => $user->id], ['role' => 'enterprise_service']);
+    $token = $user->createToken('cloud-admin-enterprise', ['enterprise.deploy'], now()->addDays((int) $this->option('days')));
+    $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+    $this->line('Service account '.$user->email.' in '.$org->name.' (role enterprise_service).');
+    $this->line('PANEL_API_TOKEN (shown once):');
+    $this->line($token->plainTextToken);
+
+    return 0;
+})->purpose('Create the Cloud Admin service account and issue its enterprise.deploy API token');
+Schedule::command('enterprise:sync')->everyMinute()->withoutOverlapping();
+Schedule::command('enterprise:webhooks')->everyMinute()->withoutOverlapping();
