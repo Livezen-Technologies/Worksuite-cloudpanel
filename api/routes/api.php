@@ -201,6 +201,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::delete('projects/{id}/databases/{dbId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachDatabase'])->whereUuid(['dbId'])->name('projects.databases.detach');
         Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
         Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
+        Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+        Route::match(['put', 'patch'], 'projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'setQuotas'])->name('projects.quotas.set');
         Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
         Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
         Route::delete('projects/{id}/volumes/{volumeId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.detach');
@@ -761,6 +763,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::delete('projects/{id}/databases/{dbId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachDatabase'])->whereUuid(['dbId'])->name('projects.databases.detach');
             Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
             Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
+            Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+            Route::match(['put', 'patch'], 'projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'setQuotas'])->name('projects.quotas.set');
             Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
             Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
             Route::delete('projects/{id}/volumes/{volumeId}', [\App\Http\Controllers\ProjectResourceController::class, 'detachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.detach');

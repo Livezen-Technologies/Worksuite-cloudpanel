@@ -27,7 +27,9 @@ class ProjectResourceController extends Controller
 
     private function project(Request $request, string $id, string $ability): array
     {
-        $project = Project::findOrFail($id);
+        // Platform staff reach any organisation's project; everyone else only their own (404 otherwise).
+        $project = Project::find($id) ?? (($p = Project::allTenants()->find($id)) && $this->access->role($p, $request->user()) === 'platform_admin' ? $p : null);
+        abort_unless($project, 404);
 
         return [$project, $this->access->authorize($project, $request->user(), $ability)];
     }
@@ -74,6 +76,7 @@ class ProjectResourceController extends Controller
             'version' => 'nullable|string|max:20', 'server_id' => 'required|uuid', 'environment' => 'sometimes|in:production,staging,development',
         ]);
         abort_unless($this->nodes($project, $role)->contains('id', $data['server_id']), 422, 'Choose a node this project already runs on.');
+        app(\App\Services\ProjectQuotaService::class)->assert($project, null, ['containers' => 1]);
         $result = app(Tenant::class)->as($project->organization_id, fn () => $this->databases->create($data + ['project_id' => $project->id, 'any_tenant_server' => true]));
         $this->audit->log('project.database.create', 'project', $project->id, ['database_id' => $result['database']['id'], 'engine' => $data['engine']], $project->organization_id);
 
@@ -112,6 +115,28 @@ class ProjectResourceController extends Controller
         return $this->data(array_merge($conn, ['password' => $password, 'url' => $password ? str_replace('••••••••', rawurlencode($password), $conn['url']) : $conn['url']]));
     }
 
+    /** PWS-D: usage against quota; only platform staff change the limits (owners work within them). */
+    public function quotas(Request $request, string $id)
+    {
+        [$project, $role] = $this->project($request, $id, 'view');
+
+        return $this->data(['quotas' => app(\App\Services\ProjectQuotaService::class)->report($project), 'can_edit' => $role === 'platform_admin']);
+    }
+
+    public function setQuotas(Request $request, string $id)
+    {
+        [$project, $role] = $this->project($request, $id, 'view');
+        abort_unless($role === 'platform_admin', 403, 'Only platform administrators set project quotas.');
+        $keys = array_merge(\App\Services\ProjectQuotaService::PROJECT_KEYS, \App\Services\ProjectQuotaService::CONTAINER_KEYS);
+        $data = $request->validate(collect($keys)->mapWithKeys(fn ($k) => [$k => 'nullable|numeric|min:0|max:1000000'])->all());
+        $quotas = collect($keys)->mapWithKeys(fn ($k) => [$k => isset($data[$k]) ? (float) $data[$k] : null])->filter(fn ($v) => $v !== null)->all();
+        $before = $project->quotas;
+        $project->forceFill(['quotas' => $quotas ?: null])->save();
+        $this->audit->log('project.quotas.set', 'project', $project->id, ['before' => $before, 'after' => $quotas], $project->organization_id);
+
+        return $this->quotas($request, $id);
+    }
+
     public function volumes(Request $request, string $id)
     {
         [$project, $role] = $this->project($request, $id, 'view');
@@ -132,6 +157,7 @@ class ProjectResourceController extends Controller
         [$project, $role] = $this->project($request, $id, 'manage');
         $data = $request->validate(['server_id' => 'required|uuid', 'name' => ['required', 'string', 'max:120', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/'], 'quota_gb' => 'nullable|integer|min:1|max:10000']);
         abort_unless($this->nodes($project, $role)->contains('id', $data['server_id']), 422, 'Choose a node this project already runs on.');
+        app(\App\Services\ProjectQuotaService::class)->assert($project, null, ['storage_gb' => (float) ($data['quota_gb'] ?? 0)]);
         $server = Server::allTenants()->findOrFail($data['server_id']);
         abort_if(Volume::allTenants()->where('server_id', $server->id)->where('name', $data['name'])->exists(), 422, 'A volume with that name already exists on this node.');
         [$volume, $job] = app(Tenant::class)->as($project->organization_id, function () use ($data, $server, $project, $bus, $jobs) {

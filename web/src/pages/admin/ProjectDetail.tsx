@@ -14,6 +14,7 @@ import { ProjectCanvas } from '../../components/ProjectCanvas'
 import { ProjectDashboard } from '../../components/ProjectDashboard'
 import { ProjectDns } from '../../components/ProjectDns'
 import { ProjectResources } from '../../components/ProjectResources'
+import { ProjectQuotas } from '../../components/ProjectQuotas'
 import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
@@ -100,6 +101,7 @@ export default function ProjectDetail() {
           <StatTile label="Owner" value={p.organization?.name ?? '—'} />
         </div>
         <ProjectDashboard projectId={p.id} appLink={appLink} />
+        <ProjectQuotas projectId={p.id} />
       </div>}
 
       {section === 'applications' && sub === 'installed' && table({ label: 'Applications', rows: dash.applications ?? [],
@@ -254,7 +256,7 @@ function Settings({ p, ws, canManage, onHandOver }: { p: Project; ws?: Ws; canMa
           </div>
         </div>
       </Card>
-      <Card title="Limits & quotas"><Empty compact>Not yet available. CPU, memory and replicas are set on each application; project-wide quotas are a later slice.</Empty></Card>
+      <ProjectQuotas projectId={p.id} />
       <Card title="Ownership" subtitle={`Owned by ${p.organization?.name ?? 'this organisation'}`}
         actions={canManage ? <button type="button" className="btn btn-sm" onClick={onHandOver}>Hand over to customer</button> : undefined} />
       {canManage && <Card title="Delete project" subtitle={blockers.length ? `Blocked: move or delete the project's ${blockers.join(' and ')} first.` : 'Removes the project and its environments.'}

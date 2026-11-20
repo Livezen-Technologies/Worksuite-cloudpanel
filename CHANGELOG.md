@@ -9,6 +9,21 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-11-19
+
+### Added
+
+- **Project quotas** (Project workspace slice D). `projects.quotas` (JSON; null = no limit, so
+  existing projects are unchanged): project-wide `cpu`, `ram_mb`, `storage_gb`, `apps`,
+  `containers`, `replicas`, and per-container `container_cpu`, `container_ram_mb`.
+- `ProjectQuotaService` checks them when an app is created in or assigned to a project, on every
+  deploy, on scale-up, and on project database / volume create; a refusal is `402 quota_exceeded`
+  naming the limit, the requested value and the maximum. Only growth is refused, so lowering a
+  quota below current usage never blocks a redeploy of what already runs.
+- `GET/PUT projects/{id}/quotas` (admin and `/app`): usage vs limit for everyone with a project
+  role; only platform administrators change limits (owners work within them); changes audited.
+- Workspace dashboard and Settings show usage vs quota (shared `ProjectQuotas` component).
+
 ## [1.20.0] — 2026-11-19
 
 ### Added

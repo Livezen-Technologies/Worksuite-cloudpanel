@@ -43,6 +43,9 @@ class DeploymentService implements HandlesCommandResults
         if ($app->server_id && $app->server?->maintenance) {
             throw ApiException::conflict("Server {$app->server->name} is in maintenance mode; deployments are blocked.");
         }
+        if ($app->project_id && ($project = \App\Models\Project::allTenants()->find($app->project_id))) {
+            app(ProjectQuotaService::class)->assert($project, $app);
+        }
         $customer = $app->kind === 'customer';
         if (! $release && $this->builds->needsBuild($app)) {
             $this->builds->assertWithinMinutes($app);
