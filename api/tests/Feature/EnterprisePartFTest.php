@@ -120,8 +120,9 @@ class EnterprisePartFTest extends TestCase
         $this->api($token)->patchJson("{$base}/settings", ['env' => [['key' => 'APP_URL', 'value' => 'https://x.test']]])->assertStatus(422);
         $this->api($token)->patchJson("{$base}/settings", ['env' => [['key' => 'DB_PASSWORD', 'value' => 'x']]])->assertStatus(422);
 
-        $res = $this->api($token)->patchJson("{$base}/settings", ['env' => [['key' => 'MAIL_FROM', 'value' => 'it@acme.test']], 'timezone' => 'Asia/Colombo', 'maintenance' => true, 'maintenance_reason' => 'upgrade'])
-            ->assertOk()->assertJsonPath('data.timezone', 'Asia/Colombo')->assertJsonPath('data.maintenance.enabled', true)->assertJsonPath('data.needs_redeploy', true);
+        $res = $this->api($token)->patchJson("{$base}/settings", ['env' => [['key' => 'MAIL_FROM', 'value' => 'it@acme.test']], 'timezone' => 'Asia/Colombo', 'maintenance' => true, 'maintenance_reason' => 'upgrade', 'maintenance_until' => now()->addHour()->toIso8601String()])
+            ->assertOk()->assertJsonPath('data.timezone', 'Asia/Colombo')->assertJsonPath('data.maintenance.enabled', true)->assertJsonPath('data.maintenance.reason', 'upgrade')->assertJsonPath('data.needs_redeploy', true);
+        $this->assertNotNull($res->json('data.maintenance.until'));
         $this->assertCount(4, $res->json('data.changed')); // two keys on web + worker
         $this->assertSame('it@acme.test', EnvVar::where('application_id', $dep->worker_application_id)->where('key', 'MAIL_FROM')->value('value'));
         $this->api($token)->patchJson("{$base}/settings", ['env' => [['key' => 'MAIL_FROM', 'delete' => true, 'application' => 'worker']], 'maintenance' => false])->assertOk()
