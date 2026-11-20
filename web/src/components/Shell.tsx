@@ -6,7 +6,7 @@ import { endImpersonation } from '../lib/impersonation'
 import { Drawer, Modal } from './Overlay'
 import { CommandPalette, type PageLink } from './CommandPalette'
 import { useTheme, type ThemePref } from '../lib/theme'
-import { AppLauncher } from './AppLauncher'
+import { AppLauncher, isStaff } from './AppLauncher'
 import { useAuth } from '../lib/auth'
 import { useEffect } from 'react'
 import { api, errorMessage } from '../api/client'
@@ -210,7 +210,6 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
             </Link>
             )}
             {headerExtra}
-            {!portal && <AppLauncher />}
             {/* In the portal the theme is a choice of three in the account
                 menu, so a two-state button beside it would contradict it. */}
             {!portal && (
@@ -219,6 +218,8 @@ export function Shell({ nav, rail, status, sectionDesc, sidebarFooter, headerExt
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
             </button>
             )}
+            {/* Staff SSO: the WorkSuite Cloud app launcher sits beside the user menu, for platform staff only. */}
+            {!portal && isStaff(me) && <AppLauncher />}
             <div className="mx-1 hidden h-6 w-px bg-white/15 sm:block" aria-hidden="true" />
             <div className="relative">
               <button type="button" onClick={() => setAcct((v) => !v)}

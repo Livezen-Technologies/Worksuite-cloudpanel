@@ -98,6 +98,7 @@ export function AppRoutes() {
       <Route path="/status" element={<Status />} />
       <Route path="/invite/:token" element={<InviteAccept />} />
       <Route path="/auth/sso/callback" element={<SsoCallback />} />
+      <Route path="/auth/wsc/callback" element={<SsoCallback />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />

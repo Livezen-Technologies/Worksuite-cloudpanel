@@ -28,6 +28,10 @@ class SsoService
                 $out[] = ['key' => $key, 'label' => $label];
             }
         }
+        // Staff SSO: WorkSuite Cloud (env-configured) for panel staff.
+        if (app(WscStaffSso::class)->configured()) {
+            $out[] = ['key' => WscStaffSso::KEY, 'label' => WscStaffSso::LABEL];
+        }
 
         return $out;
     }
@@ -67,8 +71,11 @@ class SsoService
     }
 
     /** Where to send the browser; the state is single-use and expires after 10 minutes. */
-    public function start(string $key): string
+    public function start(string $key, bool $silent = false): string
     {
+        if ($key === WscStaffSso::KEY) {
+            return app(WscStaffSso::class)->start($silent);
+        }
         $s = $this->settings($key);
         [$auth, , , $scope] = $this->endpoints($key, $s['config']);
         $state = Str::random(40);
@@ -90,6 +97,11 @@ class SsoService
             throw ApiException::validation(['state' => ['This sign-in link has expired. Start again.']]);
         }
         $key = $st['key'];
+        if ($key === WscStaffSso::KEY) {
+            $user = app(WscStaffSso::class)->finish($st, $code);
+
+            return $this->recordUse($user, $key, strtolower($user->email));
+        }
         $s = $this->settings($key);
         [, $tokenUrl, $infoUrl] = $this->endpoints($key, $s['config']);
         $tok = Http::asForm()->acceptJson()->timeout(10)->post($tokenUrl, [
@@ -112,10 +124,15 @@ class SsoService
         if (! $user) {
             throw new ApiException('unauthenticated', "There is no account for {$email}. Sign in with your password or ask for an invitation.", 401);
         }
-        // SSO-ID: the person can turn a sign-in app off for their account; record every use otherwise.
+        return $this->recordUse($user, $key, $email);
+    }
+
+    /** SSO-ID: the person can turn a sign-in app off for their account; record every use otherwise. */
+    private function recordUse(User $user, string $key, string $email): User
+    {
         $identity = \App\Models\SsoIdentity::firstOrNew(['user_id' => $user->id, 'provider' => $key]);
         if ($identity->blocked_at) {
-            throw new ApiException('forbidden', 'Signing in with '.self::PROVIDERS[$key].' is turned off for this account. Sign in with your password and turn it back on under Account > Security.', 403);
+            throw new ApiException('forbidden', 'Signing in with '.(self::PROVIDERS[$key] ?? WscStaffSso::LABEL).' is turned off for this account. Sign in with your password and turn it back on under Account > Security.', 403);
         }
         $identity->fill(['email' => $email, 'last_used_at' => now()])->save();
 
@@ -136,7 +153,7 @@ class SsoService
 
     public function setBlocked(User $user, string $key, bool $blocked): void
     {
-        if (! array_key_exists($key, self::PROVIDERS)) {
+        if (! array_key_exists($key, self::PROVIDERS) && $key !== WscStaffSso::KEY) {
             throw new ApiException('not_found', 'No such sign-in app.', 404);
         }
         \App\Models\SsoIdentity::updateOrCreate(['user_id' => $user->id, 'provider' => $key], ['blocked_at' => $blocked ? now() : null]);
