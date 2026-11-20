@@ -62,7 +62,8 @@ export function Users() {
             : [{ label: `Manage ${r.name}`, icon: 'adjust', onClick: () => setManage(r) }]}
             columns={[
               { key: 'name', header: 'Member', render: (r) => <div className="flex items-center gap-2.5"><span aria-hidden="true" className="w-8 h-8 rounded-full bg-sel text-accent-fg text-xs font-bold flex items-center justify-center flex-none">{String(r.name ?? '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}</span><div className="min-w-0"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div></div> },
-              { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{roleLabel(String(r.role))}</Badge> : (
+              { key: 'role', header: 'Role', render: (r) => r.id === me?.user?.id ? <Badge tone="n">{roleLabel(String(r.role))}</Badge> : r.managed_by_wsc ? (
+                <span className="flex flex-col gap-0.5"><Badge tone="n">{roleLabel(String(r.role))}</Badge><span className="text-[11px] text-muted">Managed in WorkSuite Cloud</span></span>) : (
                 <Select className="input !w-auto !min-h-8 text-xs" aria-label={`Role for ${r.name}`} value={r.role} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => run({ method: 'PATCH', path: `/users/${r.id}`, body: { role: e.target.value }, label: 'Change role', success: `${r.name} is now ${pretty(e.target.value)}` }).catch(() => {})}>
                   {[...new Set([r.role, ...roleNames])].map((x) => <option key={x} value={x}>{roleLabel(String(x))}</option>)}

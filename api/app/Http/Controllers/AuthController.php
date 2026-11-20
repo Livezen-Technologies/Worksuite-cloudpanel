@@ -105,6 +105,24 @@ class AuthController extends Controller
     }
 
     /**
+     * Staff SSO part 2: a signed provisioning event from WorkSuite Cloud (compact JWS, application/jwt).
+     * `upsert` links or creates the staff user with their role; `disable` suspends them and ends their sessions.
+     */
+    public function wscProvision(Request $request)
+    {
+        if (strtolower(trim(explode(';', (string) $request->header('Content-Type'))[0])) !== 'application/jwt') {
+            throw new ApiException('bad_request', 'Send the event as application/jwt.', 415);
+        }
+        $jwt = trim((string) $request->getContent());
+        if ($jwt === '' || strlen($jwt) > 16384 || substr_count($jwt, '.') !== 2) {
+            throw new ApiException('bad_request', 'That provisioning event is not a compact JWS.', 400);
+        }
+        app(\App\Services\Auth\WscStaffSso::class)->provision($jwt);
+
+        return response()->noContent();
+    }
+
+    /**
      * SVC-7: finishes a provider sign-in. Accounts with two-factor still need their code:
      * the first call returns mfa_required with a one-time ticket, the second sends ticket + otp.
      */

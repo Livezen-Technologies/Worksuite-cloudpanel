@@ -9,6 +9,31 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.28.0] — 2026-11-20
+
+### Added
+
+- **Admin account sync with WorkSuite Cloud (staff SSO part 2).** Panel access for staff is now granted per app in
+  Cloud Admin. Sign-in with WorkSuite Cloud requires the `wsc_app_role` claim (`super_admin`, `infra_admin` or
+  `devops`), finds the user by `wsc_sub`, else links an existing user by email (case-insensitive), else creates
+  one with no usable password, and sets their role in the staff organisation. A suspended membership still cannot
+  sign in. Staff accounts are created in `WSC_STAFF_ORGANIZATION_ID` (default: the oldest super admin's organisation).
+- **Provisioning endpoint** `POST /api/v1/auth/wsc/provision` for Cloud Admin's signed events (compact RS256 JWS,
+  `application/jwt`): verified against the issuer's JWKS, `iss`, `aud` = `WSC_OIDC_CLIENT_ID`, `exp`, and a single-use
+  `jti`. `upsert` links or creates the user and sets name and role (re-enabling only users WorkSuite Cloud
+  disabled); `disable` suspends them in the staff organisation and ends their sessions, keeping their data.
+  Users that are neither linked nor matched are never touched. Returns 204; 400/401/415 on bad input.
+- **Auto sign-in.** With WorkSuite Cloud set up, the sign-in page tries the silent flow (`prompt=none`) on load,
+  once per browser tab; never after an explicit sign-out (until the next sign-in) or with `?local=1`. The page
+  the visitor was going to survives the round trip (same-origin paths only). `access_denied` returns to the
+  sign-in page with a short message. Two-factor stays where it was.
+
+### Changed
+
+- Users & Teams shows a WorkSuite Cloud-managed member's role read-only ("Managed in WorkSuite Cloud"); the API
+  refuses a local role change for them (409). A super admin can still suspend them locally.
+- Migration `2026_11_23_090000_users_wsc_link` adds `users.wsc_sub` (unique), `managed_by_wsc` and `wsc_disabled_at`.
+
 ## [1.27.0] — 2026-11-20
 
 ### Added

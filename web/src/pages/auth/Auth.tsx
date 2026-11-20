@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import { api, isApiError } from '../../api/client'
 import { homeFor, useAuth } from '../../lib/auth'
 import { passkeyError } from '../../lib/passkeys'
+import { claimSilentAttempt, rememberNext, safeNext, takeNext } from '../../lib/wscAuto'
 import { Field } from '../../components/Card'
 import { SecondFactorInput, secondFactorReady } from '../../components/TwoFactorSetup'
 import { Captcha, type CaptchaConfig, type CaptchaHandle } from '../../components/Captcha'
@@ -73,20 +74,22 @@ const SSO_LABEL: Record<string, string> = { wsc: 'Sign in with WorkSuite Cloud' 
 const SSO_LOGO: Record<string, [string, string]> = { google_login: ['google', '4285F4'], github_login: ['github', '181717'], microsoft_login: ['', ''], oidc: ['openid', 'F78C40'] }
 
 /** SVC-7: "Continue with …" buttons for the sign-in apps staff set up. */
-function SsoButtons({ sso, busy }: { sso: AuthConfig['sso']; busy: boolean }) {
-  const [err, setErr] = useState<string | null>(null)
+function SsoButtons({ sso, busy, next }: { sso: AuthConfig['sso']; busy: boolean; next?: string | null }) {
   const [params] = useSearchParams()
+  const [err, setErr] = useState<string | null>(params.get('wsc') === 'denied' ? "You don't have access to CloudPanel in WorkSuite Cloud. Ask a WorkSuite Cloud administrator." : null)
   const go = async (key: string, silent = false) => {
     setErr(null)
+    if (key === 'wsc') rememberNext(next ?? null)
     try { const r = await api.get<{ data: { url: string } }>(`/auth/sso/${key}${silent ? '?prompt=none' : ''}`); window.location.assign(r.data.url) } catch (e) { setErr(isApiError(e) ? e.message : 'That sign-in option is not available.') }
   }
-  // Staff SSO: arriving from the launcher with ?sso=1 tries a silent WorkSuite Cloud sign-in once.
+  // Staff SSO auto sign-in: with WorkSuite Cloud set up, the page tries a silent sign-in once per tab
+  // (the launcher's ?sso=1 included), never after an explicit sign-out or with ?local=1.
   const tried = useRef(false)
   const wsc = sso.some((s) => s.key === 'wsc')
   useEffect(() => {
-    if (tried.current || !wsc || params.get('sso') !== '1') return
+    if (tried.current || !wsc || params.get('wsc') === 'denied') return
     tried.current = true
-    go('wsc', true)
+    if (claimSilentAttempt(params)) go('wsc', true)
   }, [wsc]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!sso.length) return null
   return (
@@ -120,7 +123,7 @@ export function SsoCallback() {
   const once = useRef(false)
   const finish = async (body: Record<string, string>) => {
     setErr(null)
-    try { const m = await acceptToken(await api.post('/auth/sso/callback', body, { retries: 0 })); nav(homeFor(m), { replace: true }) }
+    try { const m = await acceptToken(await api.post('/auth/sso/callback', body, { retries: 0 })); nav(takeNext() ?? homeFor(m), { replace: true }) }
     catch (e) {
       if (isApiError(e) && e.extra.ticket) { setTicket(String(e.extra.ticket)); if (body.otp) setErr(e.message) }
       else setErr(isApiError(e) ? e.message : 'The sign-in did not complete.')
@@ -132,6 +135,8 @@ export function SsoCallback() {
     const code = params.get('code'), state = params.get('state'), denied = params.get('error')
     // Staff SSO: a silent WorkSuite Cloud attempt with no session falls back to the sign-in page.
     if (denied === 'login_required' || denied === 'interaction_required' || denied === 'consent_required') { nav('/login', { replace: true }); return }
+    // No grant for CloudPanel in Cloud Admin: back to the normal sign-in page with a short message.
+    if (denied === 'access_denied') { nav('/login?wsc=denied', { replace: true }); return }
     if (denied || !code || !state) { setErr(denied === 'access_denied' ? 'Sign-in was cancelled.' : 'The sign-in link is incomplete.'); return }
     finish({ code, state })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -162,12 +167,14 @@ export function Login() {
   const [busy, setBusy] = useState(false)
   const cfg = useAuthConfig()
   const captcha = useRef<CaptchaHandle>(null)
-  if (me) return <Navigate to={loc.state?.from ?? homeFor(me)} replace />
+  const [query] = useSearchParams()
+  const next = safeNext(loc.state?.from) ?? safeNext(query.get('next'))
+  if (me) return <Navigate to={next ?? homeFor(me)} replace />
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null); setFields({})
     try {
       const m = await login(email, password, otp || undefined, otp ? null : await captcha.current?.token())
-      nav(loc.state?.from ?? homeFor(m), { replace: true })
+      nav(next ?? homeFor(m), { replace: true })
     } catch (ex) {
       if (isApiError(ex)) {
         if (ex.fields.otp || /otp|two-factor|mfa/i.test(ex.message)) setNeedOtp(true)
@@ -181,7 +188,7 @@ export function Login() {
     setBusy(true); setErr(null)
     try {
       const m = secondFactor ? await loginPasskey(email, password) : await loginPasskey()
-      nav(loc.state?.from ?? homeFor(m), { replace: true })
+      nav(next ?? homeFor(m), { replace: true })
     } catch (ex) {
       setErr(isApiError(ex) ? ex.message : passkeyError(ex))
     } finally { setBusy(false) }
@@ -210,7 +217,7 @@ export function Login() {
         {needOtp && <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(true)}>Use a passkey instead of a code</button>}
       </form>
       <div className="flex items-center gap-3 text-xs text-muted" aria-hidden="true"><span className="flex-1 border-t border-line" />or<span className="flex-1 border-t border-line" /></div>
-      <SsoButtons sso={cfg.sso} busy={busy} />
+      <SsoButtons sso={cfg.sso} busy={busy} next={next} />
       <button type="button" className="btn min-h-11" disabled={busy} onClick={() => withPasskey(false)}>Sign in with a passkey</button>
       <p className="m-0 text-xs text-muted text-center">Protected by rate limiting. Sign-ins are logged.</p>
     </AuthCard>

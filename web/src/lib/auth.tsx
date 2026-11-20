@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { markSignedIn, markSignedOut } from './wscAuto'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, onUnauthenticated, tokenStore } from '../api/client'
 import type { Me, User } from '../api/types'
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accept = useCallback(async (res: unknown) => {
     const r = unwrap<{ token: string; user: User }>(res)
     tokenStore.set(r.token)
+    markSignedIn()
     return refresh()
   }, [refresh])
 
@@ -72,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout') } catch { /* already gone */ }
     tokenStore.clear(); setMe(null); qc.clear()
+    markSignedOut()
   }, [qc])
 
   return <Ctx.Provider value={{ me, loading, login, loginPasskey, register, logout, refresh, acceptToken: accept, createOrg, switchOrg }}>{children}</Ctx.Provider>

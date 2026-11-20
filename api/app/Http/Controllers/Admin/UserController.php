@@ -24,6 +24,7 @@ class UserController extends Controller
             'sign_in_method' => $m->user?->mfa_enabled ? $m->user->sign_in_method.'+mfa' : $m->user?->sign_in_method, 'mfa_enabled' => (bool) $m->user?->mfa_enabled,
             'last_login_at' => $m->user?->last_login_at?->toIso8601ZuluString(), 'last_activity_at' => $m->user?->last_activity_at?->toIso8601ZuluString(),
             'created_at' => $m->created_at?->toIso8601ZuluString(), 'invited' => (bool) $m->invite_token_hash,
+            'managed_by_wsc' => (bool) $m->user?->managed_by_wsc,
         ];
     }
 
@@ -71,7 +72,10 @@ class UserController extends Controller
         if ($id === $request->user()->id) {
             throw ApiException::conflict('You cannot change your own role; ask another owner.');
         }
-        $membership = Membership::where('user_id', $id)->firstOrFail();
+        $membership = Membership::with('user')->where('user_id', $id)->firstOrFail();
+        if ($membership->user?->managed_by_wsc) {
+            throw ApiException::conflict('This role is managed in WorkSuite Cloud. Change it there under the admin\'s App access.');
+        }
         if ($data['role'] === 'super_admin' && $request->user()->roleName() !== 'super_admin') {
             throw ApiException::forbidden('Only a Super Admin can grant Super Admin.');
         }
