@@ -1,3 +1,5 @@
+import { useQueryClient } from '@tanstack/react-query'
+import { AddApplicationModal } from '../../components/AddApplicationModal'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useAction, useList, useOne } from '../../api/hooks'
@@ -67,6 +69,8 @@ export default function ProjectDetail() {
   const wsq = useOne<Ws>(id ? `/projects/${id}/workspace` : null)
   const ws = wsq.item
   const [hand, setHand] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const qc = useQueryClient()
   const back = <nav aria-label="Breadcrumb" className="text-sm"><Link to="/admin/projects" className="link-action">Projects</Link> <span className="text-muted">/ {p?.name ?? '…'}</span></nav>
   if (isLoading) return <><PageHeader title="Project" back={back} /><Loading label="Loading project…" /></>
   if (!p) return <><PageHeader title="Project" back={back} /><Card><Empty icon="grid">Project not found. It may have been deleted or handed over.</Empty></Card></>
@@ -81,11 +85,12 @@ export default function ProjectDetail() {
       <PageHeader title={p.name} back={back} subtitle={p.description ?? undefined}
         badge={<span className="flex items-center gap-2">{dash.health ? <StatusBadge status={dash.health} /> : s.apps ? <StatusBadge status={s.health} /> : null}{ws && <Badge tone="n">{ws.role.replace('_', ' ')}</Badge>}</span>}
         actions={<>
-          {can('deploy') && <Link to={`/admin/catalog?project=${p.id}`} className="btn btn-primary">Add application</Link>}
+          {can('deploy') && <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>Add application</button>}
           <button type="button" className="btn" onClick={() => go('settings')}>Project settings</button>
           <button type="button" className="btn" onClick={() => go('canvas')}>Show canvas</button>
           {can('manage') && <button type="button" className="btn btn-ghost gap-1.5" onClick={() => setHand(true)}><Icon name="users" size={15} />Hand over to customer</button>}
         </>} />
+      <AddApplicationModal projectId={String(p.id)} projectName={String(p.name)} open={adding} onClose={() => setAdding(false)} onAdded={() => qc.invalidateQueries()} />
       <Tabs label="Project workspace" value={section} onChange={(v) => go(v)} tabs={SECTIONS.map((x) => ({ id: x.id, label: x.id === 'environments' ? `Environments (${s.envs})` : x.label }))} />
       {subs && sub && <Tabs label={`${def.label} pages`} value={sub} onChange={(v) => go(section, v)} tabs={subs.map(([k, l]) => ({ id: k, label: l }))} />}
 

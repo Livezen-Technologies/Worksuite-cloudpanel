@@ -27,6 +27,7 @@ class DatabaseController extends Controller
             'name' => ['required', 'string', 'max:63', 'regex:/^[a-z0-9][a-z0-9_-]*$/'], 'engine' => 'required|in:postgres,mysql,mariadb,redis,mongodb',
             'version' => 'nullable|string|max:20', 'server_id' => 'required|uuid', 'environment' => 'sometimes|in:production,staging,development',
             'network' => 'nullable|string', 'memory_mb' => 'nullable|integer|min:64',
+            'project_id' => 'nullable|uuid|exists:projects,id',
         ]);
         $result = $this->databases->create($data);
 

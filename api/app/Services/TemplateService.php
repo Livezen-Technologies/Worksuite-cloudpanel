@@ -271,7 +271,7 @@ class TemplateService
                 if (ComposeProject::where('name', $name)->exists()) {
                     throw ApiException::validation(['name' => ['A stack with this name already exists.']]);
                 }
-                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor']);
+                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor', 'project_id' => $data['project_id'] ?? null]);
                 $this->compose->addRevision($project, $r['compose']);
                 $this->compose->deploy($project);
                 $type = 'compose_project';
@@ -300,6 +300,11 @@ class TemplateService
                 }
                 if ($host) {
                     app(DomainService::class)->create(['name' => $host, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platformHost], $platformHost);
+                }
+                if (! empty($data['project_id'])) {
+                    // Into a project: the app joins the project's environment of the same kind.
+                    $env = app(EnvironmentService::class)->environmentFor($data['project_id'], $app->environment ?: 'production');
+                    $app->update(['project_id' => $data['project_id'], 'environment_id' => $env->id, 'environment' => $env->kind]);
                 }
                 $type = 'application';
                 $id = $app->id;

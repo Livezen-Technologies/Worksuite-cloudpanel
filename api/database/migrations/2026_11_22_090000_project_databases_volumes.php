@@ -14,7 +14,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('databases', fn (Blueprint $t) => $t->uuid('project_id')->nullable()->index());
+        // 2026_11_20_180000_project_databases_stacks may already have added databases.project_id.
+        if (! Schema::hasColumn('databases', 'project_id')) {
+            Schema::table('databases', fn (Blueprint $t) => $t->uuid('project_id')->nullable()->index());
+        }
         Schema::table('volumes', fn (Blueprint $t) => $t->uuid('project_id')->nullable()->index());
 
         $containerProject = function (?string $containerId): ?string {
@@ -45,7 +48,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('databases', fn (Blueprint $t) => $t->dropColumn('project_id'));
+        // databases.project_id is left to 2026_11_20_180000_project_databases_stacks, which also adds it.
         Schema::table('volumes', fn (Blueprint $t) => $t->dropColumn('project_id'));
     }
 };
