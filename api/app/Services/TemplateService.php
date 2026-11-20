@@ -428,7 +428,11 @@ class TemplateService
             $add('name', 'details', 'pass', 'Name', "“{$name}” is available.");
         }
         if (! $compose) {
-            $add('image', 'details', empty($m['image']) ? 'fail' : 'pass', 'Docker image', empty($m['image']) ? 'The template has no image.' : (string) $m['image']);
+            if (! empty($m['git']['repo'])) {
+                $add('image', 'details', 'pass', 'Source', 'Built on the server from '.$m['git']['repo'].' ('.($m['git']['ref'] ?? 'main').').');
+            } else {
+                $add('image', 'details', empty($m['image']) ? 'fail' : 'pass', 'Docker image', empty($m['image']) ? 'The template has no image.' : (string) $m['image']);
+            }
         }
 
         // Server
@@ -502,7 +506,12 @@ class TemplateService
         if ($db) {
             $vars = $this->databaseVariables($m, $db, $vars);
         }
-        $missing = collect((array) ($m['variables'] ?? []))->filter(fn ($v) => ! empty($v['required']) && trim((string) ($vars[$v['key']] ?? $v['default'] ?? '')) === '')->pluck('label')->all();
+        // A database created with the app fills its connection settings at install time.
+        $byNewDb = [];
+        if (! $db && ! $compose && ! empty($data['create_database']['engine'])) {
+            $byNewDb = array_keys($this->databaseVariables($m, new \App\Models\Database(['engine' => $data['create_database']['engine'], 'name' => ($data['name'] ?? 'app').'-db']), []));
+        }
+        $missing = collect((array) ($m['variables'] ?? []))->filter(fn ($v) => ! empty($v['required']) && ! in_array($v['key'], $byNewDb, true) && trim((string) ($vars[$v['key']] ?? $v['default'] ?? '')) === '')->pluck('label')->all();
         $add('variables', 'database', $missing ? 'fail' : 'pass', 'Configuration', $missing ? 'Fill in: '.implode(', ', $missing) : 'All required settings are filled in.');
 
         // Advanced
