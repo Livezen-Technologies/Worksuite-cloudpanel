@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\Route;
 $uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 Route::pattern('id', $uuid);
 
+// Staff SSO part 2: WorkSuite Cloud's signed provisioning events (server to server, verified by JWKS).
+Route::post('auth/wsc/provision', [AuthController::class, 'wscProvision'])->middleware('throttle:120,1')->name('auth.wsc.provision');
+
 Route::middleware('throttle:auth')->group(function () {
     Route::post('auth/register', [AuthController::class, 'register'])->name('auth.register');
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');

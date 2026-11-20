@@ -28,6 +28,8 @@ class User extends Authenticatable
             'mfa_secret' => 'encrypted',
             'mfa_enabled' => 'boolean',
             'mfa_recovery_codes' => 'array',
+            'managed_by_wsc' => 'boolean',
+            'wsc_disabled_at' => 'datetime',
         ];
     }
 

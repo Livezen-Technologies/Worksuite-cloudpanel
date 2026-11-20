@@ -41,6 +41,8 @@ return [
         'client_id' => env('WSC_OIDC_CLIENT_ID'),
         'client_secret' => env('WSC_OIDC_CLIENT_SECRET'),
         'redirect_uri' => env('WSC_OIDC_REDIRECT_URI'),
+        // Part 2: the organisation staff accounts are created in (defaults to the oldest super admin's).
+        'staff_organization_id' => env('WSC_STAFF_ORGANIZATION_ID'),
     ],
 
 ];
