@@ -58,7 +58,7 @@ class TemplateController extends Controller
         }
         // The app's own database name: the template's DB-name variable when it has one, else the app name.
         $vars = (array) ($data['variables'] ?? []);
-        $nameKey = collect(array_column((array) ($tpl->manifest['variables'] ?? []), null, 'key'))
+        $nameKey = ($tpl->manifest['database_vars']['name'] ?? null) ?: collect(array_column((array) ($tpl->manifest['variables'] ?? []), null, 'key'))
             ->keys()->first(fn ($k) => preg_match('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG)_?(NAME|DATABASE|DB)$/', $k) && ! preg_match('/HOST|PORT|USER|PASS/', $k));
         $default = $nameKey ? (collect($tpl->manifest['variables'])->firstWhere('key', $nameKey)['default'] ?? null) : null;
         $dbName = preg_replace('/[^a-z0-9_]/', '_', strtolower((string) ($nameKey && ! empty($vars[$nameKey]) ? $vars[$nameKey] : ($default ?: $data['name']))));

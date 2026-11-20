@@ -135,3 +135,16 @@
 - { id: cassandra, name: Apache Cassandra, category: Database, version: 1, image: "cassandra:5", port: 9042, volume: /var/lib/cassandra, accent: "#1287B1", description: "Wide-column database." }
 - { id: mautic, name: Mautic, category: Business, version: 1, image: "mautic/mautic:5-apache", port: 80, health: /, volume: /var/www/html/var, accent: "#4E5E9E", description: "Marketing automation; needs MySQL/MariaDB.",
     variables: [{ key: MAUTIC_DB_HOST, required: true }, { key: MAUTIC_DB_USER, default: mautic }, { key: MAUTIC_DB_PASSWORD, required: true, secret: true }, { key: MAUTIC_DB_DATABASE, default: mautic }] }
+# First-party apps, built on the server from their own repositories (Dockerfile) with the platform's
+# read-only catalogue token (TEMPLATES_GIT_TOKEN). Install them with a new MariaDB database.
+- { id: worksuite-server, name: WorkSuite Server, category: Business, version: 1, port: 80, health: /api/health, volume: /var/www/html/writable, accent: "#2563EB",
+    git: { repo: "https://github.com/Livezen-Technologies/worksuite.git", ref: main, dockerfile: Dockerfile },
+    description: "WorkSuite business suite (CRM, billing, HR, projects and more). Needs a MariaDB/MySQL database: install it with a new one. The setup link is in the app's log after the first start.",
+    env: { APP_URL: "${SERVICE_URL}/" },
+    variables: [{ key: DB_HOST, label: Database host, required: true }, { key: DB_PORT, label: Database port, default: "3306" }, { key: DB_NAME, label: Database name, default: worksuite }, { key: DB_USER, label: Database user, required: true }, { key: DB_PASSWORD, label: Database password, required: true, secret: true }] }
+- { id: worksuite-cms, name: WorkSuite CMS, category: CMS, version: 1, port: 80, health: /, volume: /var/www/html/writable, accent: "#0EA5E9",
+    git: { repo: "https://github.com/Livezen-Technologies/worksuite-cms.git", ref: main, dockerfile: Dockerfile },
+    description: "WorkSuite CMS website builder. Needs a MariaDB/MySQL database: install it with a new one. The one-time setup code is in the app's log after the first start.",
+    database_vars: { host: database_default_hostname, port: database_default_port, user: database_default_username, password: database_default_password, name: database_default_database },
+    env: { database_default_DBDriver: MySQLi, app_baseURL: "${SERVICE_URL}/", CI_ENVIRONMENT: production },
+    variables: [{ key: database_default_hostname, label: Database host, required: true }, { key: database_default_port, label: Database port, default: "3306" }, { key: database_default_database, label: Database name, default: wscms }, { key: database_default_username, label: Database user, required: true }, { key: database_default_password, label: Database password, required: true, secret: true }] }
