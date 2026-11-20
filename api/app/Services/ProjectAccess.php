@@ -31,6 +31,9 @@ class ProjectAccess
         if (! $user) {
             return null;
         }
+        if ($granted = app(\App\Support\ProjectGrant::class)->role($project->id)) {
+            return $granted;
+        }
         $orgRoles = Membership::allTenants()->where('user_id', $user->id)->pluck('role', 'organization_id');
         if ($orgRoles->contains(fn ($r) => in_array($r, self::PLATFORM_ROLES, true))) {
             return 'platform_admin';

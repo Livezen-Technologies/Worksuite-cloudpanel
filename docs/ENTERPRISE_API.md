@@ -63,3 +63,115 @@ Not-founds answer 404 with their own codes: `deployment_not_found`, `domain_not_
 means the endpoint is not deployed). Slugs are refused when the enterprise zone (`ENTERPRISE_DOMAIN`,
 default `worksuite.lk`) already has a record at `<slug>.<domain>` or below it. The `domain` step
 message carries the zone publish result (`DNS: A acme.worksuite.lk created`), and a conflict fails it.
+
+## Part F — the deployment page's CloudPanel tabs
+
+Every enterprise deployment is a panel project (`project_id`). These endpoints, all under
+`/api/v1/enterprise/deployments/{ref}` with the `enterprise.deploy` token, resolve the deployment in
+the tenant (the staff organisation) and call the **existing project endpoints** for that project under
+a per-call grant (platform_admin on that one project, `App\Support\ProjectGrant`). Validation, audit
+entries (`project.firewall.*`, `project.member.*`, `project.quotas.set`, …) and JSON shapes are the
+project endpoints' own; the "same as" column names them. Mutations need an `Idempotency-Key`.
+
+Errors: `deployment_not_found` 404; `project_unavailable` 409 (no project yet, or purged);
+`backup_not_found` / `artifact_not_found` 404; **`PANEL_UNSUPPORTED` 501** for what the panel cannot
+do (Cloud Admin hides that control/tab). Validation 422 `{error:{code,message,fields}}`.
+
+### Domain & DNS — same as `/app/projects/{id}/dns…` (PDNS)
+
+| Method | Path | Body | Answer `data` |
+|---|---|---|---|
+| GET | `dns` | | `{counts{total,verified,pending,ssl_active}, domains[…PDNS domain], apps[{id,name,status}], ingress{hostname,ips}, platform_domain, permissions[], is_owner, permission_labels}` (ProjectDomainService::overview) |
+| POST | `dns/domains` | `{name, kind?=custom\|platform, app_id?=web app, method?=manual\|provider, www_redirect?}` | 201 PDNS domain + `published[]` |
+| GET | `dns/domains/{domainId}` | | PDNS domain |
+| PATCH | `dns/domains/{domainId}` | `{is_primary?: true, app_id?}` | PDNS domain |
+| DELETE | `dns/domains/{domainId}` | `{confirm?}` | 204 (409 for the platform address `<slug>.<domain>`) |
+| POST | `dns/domains/{domainId}/validate` | | DnsValidationService result |
+| POST | `dns/domains/{domainId}/publish` | | `{records[]}` |
+| POST | `dns/domains/{domainId}/certificate` | | renew result |
+| GET | `dns/domains/{domainId}/zone-records` | | zone records |
+| GET | `dns/history` | | change history |
+
+`{domainId}` is the domain's uuid (from `dns`). The part E `domains` endpoints (by name, Cloud Admin
+domain shape) stay; switching primary there also sets APP_URL and redeploys web.
+
+### Firewall — same as `projects/{id}/firewall…` (ProjectFirewallController)
+
+| Method | Path | Body | Answer `data` |
+|---|---|---|---|
+| GET | `firewall` | | `{can_manage, allow[{id,cidr,note,expires_at,active}], block[…], rate_limits[{id,name,paths,limit,window_seconds,action,enabled}], apps[{id,name,locked,lock_reason,locked_at}], inherited{ip_entries,rules}}` |
+| POST | `firewall/ips` | `{list: allow\|block, cidr, note?, expires_at?, confirm?}` | 201 `{id,cidr,note,expires_at,active}` |
+| DELETE | `firewall/ips/{entryId}` | | 204 |
+| POST | `firewall/rate-limits` | `{name, paths[], limit, window_seconds?, action?=block\|throttle\|log, block_minutes?}` | 201 `{id}` |
+| DELETE | `firewall/rate-limits/{ruleId}` | | 204 |
+| POST | `firewall/lock` · `firewall/unlock` | `{reason?}` | the `firewall` view (locks the **web** app: only allow-listed addresses get in) |
+
+### Security (composed)
+
+`GET security` →
+`{tls[{domain,kind,primary,tls_status (ok|pending|failed),https_raw}], access{public,locked,lock_reason,locked_at},
+blocked_ips[BlockedIpService rows: {key,ip,kind (manual|automatic|by hand),reason,scope,country,started_at,expires_at,blocked_requests,last_activity,…}] (CrowdSec/automatic blocks + this project's manual blocks),
+events[{id,occurred_at,action,ip,country,method,path,rule,domain}] (last 50 firewall events on the deployment's domains),
+members[{user_id,name,email,role}], member_roles[], audit[{id,actor,action,resource_type,resource_id,ip,created_at}] (last 50 on the project, its apps and the deployment)}`.
+
+| Method | Path | Body | Answer `data` |
+|---|---|---|---|
+| PUT/PATCH | `security/members/{userId}` | `{role: owner\|developer\|viewer}` | members[] (person must be in the staff organisation) |
+| DELETE | `security/members/{userId}` | | members[] |
+
+### Settings
+
+`GET settings` →
+`{env[{application: app|worker, key, value (null for secrets), secret, read_only}], reserved_keys[], app_url, timezone, timezone_key,
+maintenance{enabled,reason,since}, restart_policy{value: "unless-stopped", editable: false}, version, image, status,
+danger_zone{delete, purge}}`.
+
+Read-only keys: the panel-provided ones (`APP_URL`, `DB_*`, `REDIS_*`, `FPM_MAX_CHILDREN`,
+`WORKSUITE_ENTERPRISE_ID`) plus `enterprise.reserved_env` (`APP_KEY`, `ENCRYPTION_KEY`,
+`CI_ENVIRONMENT`, `LICENSE_KEY`) and every secret. APP_URL follows the primary domain.
+
+`PATCH settings` `{env?: [{key, value?, application?: app|worker|both (default both), delete?: bool}],
+timezone? (IANA, written to `ENTERPRISE_TIMEZONE_ENV`, default `TZ`), maintenance?: bool, maintenance_reason?,
+version?, redeploy?: bool}` → the settings view + `{changed[{application,key,deleted}], redeploy (action result)|null, needs_redeploy}`.
+A reserved or secret key → 422 per entry. Env changes take effect on the next redeploy (`redeploy: true`,
+or `version`, redeploys at once through the part E redeploy). Maintenance = firewall lock of the web app.
+Delete / purge stay the part E `DELETE {ref}` / `POST {ref}/purge`.
+
+### Backup — same as `projects/{id}/backups…` (ProjectBackupController)
+
+| Method | Path | Body | Answer `data` |
+|---|---|---|---|
+| GET | `backups` | | `{schedule{id?,enabled,frequency,retention_days,destination,capacity_gb,encrypted,last_run_at?,last_status?,next_run_at?}, backups[{id,type,status,error,created_at,finished_at,size_mb,applications[]}]}` |
+| POST | `backups` | `{application_ids?[]}` | 202 `{id,status}` |
+| PUT/PATCH | `backups/schedule` | `{enabled, frequency?=hourly\|daily\|weekly, retention_days?, destination?=local\|s3\|b2\|r2\|gdrive\|sftp, capacity_gb?}` | schedule |
+| GET | `backups/{backupId}` | | details `{id,project_id,type,status,…,size_mb,verified,log,applications[{id,name,status,error,artifacts[{id,size_mb,kind,verified,verify_message}]}],configuration,restores[]}` |
+| POST | `backups/{backupId}/restore` | `{confirm: true, scope?=project\|applications\|database\|volumes, application_ids?, mode?=replace\|separate}` | 202 restore result; a fresh recovery point is always taken first |
+| POST | `backups/{backupId}/artifacts/{artifactId}/download` | | 200 `{status: ready, url, expires_at, bytes, sha256}` or 202 `{status: exporting, job_id}` (call again) |
+
+### Monitor (composed)
+
+`GET monitor?range=1h|6h|24h|7d` →
+`{range, health, containers[present() containers], series[{at,cpu_percent,memory_mb,disk_gb}],
+metrics[{role,name,cpu[{t,v}],ram[{t,v}]}], network[{role,name,rx[{t,v}],tx[{t,v}]}] (cumulative bytes per heartbeat),
+disk{used_mb,limit_gb,volumes[]}, uptime[UptimeService report: {domain,domain_id,range,uptime_pct,checks,failed,avg_ms,p95_ms,incidents[]}] (24h for ≤24h ranges, else 7d),
+alerts[{id,title,severity,status,resource_type,value,created_at,resolved_at}]}`.
+
+### Resources (ProjectDashboard + ProjectResource)
+
+`GET resources` →
+`{health, counts{applications,containers,running,nodes,backups,databases}, applications[dashboard rows], containers[{id,name,image,state,health,cpu_pct,mem_mb,application,role,server}],
+databases[{id,name,engine,version,environment,status,size_mb,last_backup_at,connection (password masked)}],
+volumes[projects/{id}/volumes rows], deployment_volumes[{name,size_mb}], disk{used_mb,limit_gb}, nodes[]}`.
+
+### Scale up
+
+`GET scale` → `{limits (as the deployment), sizes[{code,label,cpus,ram_mb,worker_cpus,worker_ram_mb,disk_gb,fpm_max_children}],
+custom_limits{cpus[min,max],ram_mb[…],disk_gb[…],mb_per_fpm_child}, replicas{web{replicas,supported,max},
+worker{replicas: 1, supported: false, reason}}, quotas{quotas (ProjectQuotaService report), can_edit: true}}`.
+
+`POST scale` `{size? | cpus?, ram_mb?, disk_gb?, web_replicas?}` → 202 the scale view + `replicas_change{from,to,result}|null`.
+Limits go through the part E resize (records the `resize` step, FPM children follow, redeploys web);
+web copies through ScalingService (needs a first release, respects quotas, records a `scale` step).
+`worker_replicas` other than 1 → 501 `PANEL_UNSUPPORTED` (the worker runs the scheduler).
+
+`PUT/PATCH scale/quotas` `{cpu?, ram_mb?, storage_gb?, apps?, containers?, replicas?, container_cpu?, container_ram_mb?}` → `{quotas, can_edit}` (same as `projects/{id}/quotas`).

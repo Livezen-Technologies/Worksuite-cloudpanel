@@ -78,6 +78,44 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::delete('deployments/{ref}/domains/{domain}', [$ctl, 'removeDomain'])->where($r)->name('deployments.domains.destroy');
         Route::post('deployments/{ref}/licence-refresh', [$ctl, 'licenceRefresh'])->where($r)->name('deployments.licence-refresh');
         Route::post('deployments/{ref}/steps/{step}/retry', [$ctl, 'retry'])->where($r)->name('deployments.steps.retry');
+        // Part F: the deployment page's CloudPanel tabs, delegated to the project features of the deployment's project.
+        $pc = \App\Http\Controllers\Enterprise\DeploymentProjectController::class;
+        $f = ['ref' => '[A-Za-z0-9_-]{1,64}', 'domainId' => '[0-9a-fA-F-]{36}', 'entryId' => '[0-9a-fA-F-]{36}', 'ruleId' => '[0-9a-fA-F-]{36}',
+            'backupId' => '[0-9a-fA-F-]{36}', 'artifactId' => '[0-9a-fA-F-]{36}', 'userId' => '[0-9a-fA-F-]{36}', 'lock' => 'lock|unlock'];
+        Route::prefix('deployments/{ref}')->name('deployments.')->group(function () use ($pc, $f) {
+            Route::get('dns', [$pc, 'dns'])->where($f)->name('dns');
+            Route::post('dns/domains', [$pc, 'dnsStore'])->where($f)->middleware('throttle:30,1')->name('dns.store');
+            Route::get('dns/domains/{domainId}', [$pc, 'dnsShow'])->where($f)->name('dns.show');
+            Route::patch('dns/domains/{domainId}', [$pc, 'dnsUpdate'])->where($f)->name('dns.update');
+            Route::delete('dns/domains/{domainId}', [$pc, 'dnsDestroy'])->where($f)->name('dns.destroy');
+            Route::post('dns/domains/{domainId}/validate', [$pc, 'dnsValidate'])->where($f)->middleware('throttle:20,1')->name('dns.validate');
+            Route::post('dns/domains/{domainId}/publish', [$pc, 'dnsPublish'])->where($f)->middleware('throttle:20,1')->name('dns.publish');
+            Route::post('dns/domains/{domainId}/certificate', [$pc, 'dnsCertificate'])->where($f)->middleware('throttle:10,1')->name('dns.certificate');
+            Route::get('dns/domains/{domainId}/zone-records', [$pc, 'dnsZoneRecords'])->where($f)->name('dns.zone-records');
+            Route::get('dns/history', [$pc, 'dnsHistory'])->where($f)->name('dns.history');
+            Route::get('firewall', [$pc, 'firewall'])->where($f)->name('firewall');
+            Route::post('firewall/ips', [$pc, 'firewallIpStore'])->where($f)->middleware('throttle:30,1')->name('firewall.ips.store');
+            Route::delete('firewall/ips/{entryId}', [$pc, 'firewallIpDestroy'])->where($f)->name('firewall.ips.destroy');
+            Route::post('firewall/rate-limits', [$pc, 'firewallRuleStore'])->where($f)->middleware('throttle:30,1')->name('firewall.rules.store');
+            Route::delete('firewall/rate-limits/{ruleId}', [$pc, 'firewallRuleDestroy'])->where($f)->name('firewall.rules.destroy');
+            Route::post('firewall/{lock}', [$pc, 'firewallLock'])->where($f)->name('firewall.lock');
+            Route::get('security', [$pc, 'security'])->where($f)->name('security');
+            Route::match(['put', 'patch'], 'security/members/{userId}', [$pc, 'memberSet'])->where($f)->name('security.members.set');
+            Route::delete('security/members/{userId}', [$pc, 'memberRemove'])->where($f)->name('security.members.remove');
+            Route::get('settings', [$pc, 'settings'])->where($f)->name('settings');
+            Route::patch('settings', [$pc, 'updateSettings'])->where($f)->name('settings.update');
+            Route::get('backups', [$pc, 'backups'])->where($f)->name('backups');
+            Route::post('backups', [$pc, 'backupRun'])->where($f)->middleware('throttle:10,1')->name('backups.run');
+            Route::match(['put', 'patch'], 'backups/schedule', [$pc, 'backupSchedule'])->where($f)->name('backups.schedule');
+            Route::get('backups/{backupId}', [$pc, 'backupShow'])->where($f)->name('backups.show');
+            Route::post('backups/{backupId}/restore', [$pc, 'backupRestore'])->where($f)->middleware('throttle:5,1')->name('backups.restore');
+            Route::post('backups/{backupId}/artifacts/{artifactId}/download', [$pc, 'backupDownload'])->where($f)->middleware('throttle:20,1')->name('backups.download');
+            Route::get('monitor', [$pc, 'monitor'])->where($f)->name('monitor');
+            Route::get('resources', [$pc, 'resources'])->where($f)->name('resources');
+            Route::get('scale', [$pc, 'scale'])->where($f)->name('scale');
+            Route::post('scale', [$pc, 'updateScale'])->where($f)->name('scale.update');
+            Route::match(['put', 'patch'], 'scale/quotas', [$pc, 'scaleQuotas'])->where($f)->name('scale.quotas');
+        });
         Route::delete('deployments/{ref}', [$ctl, 'destroy'])->where('ref', '[A-Za-z0-9_-]{1,64}')->name('deployments.destroy');
     });
     Route::get('me', [AuthController::class, 'me'])->name('me.show');

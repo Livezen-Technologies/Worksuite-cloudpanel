@@ -9,6 +9,18 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.31.0] — 2026-11-20
+
+### Added
+
+- **Enterprise part F**: the deployment page's CloudPanel tabs for Cloud Admin, under
+  `/api/v1/enterprise/deployments/{ref}/…` — `dns` (project DNS & Domains), `firewall` (+ ips, rate-limits, lock/unlock),
+  `security` (TLS, access, CrowdSec/blocked IPs, firewall events, members, audit), `settings` (env with secrets masked
+  and panel keys read-only, timezone, maintenance, redeploy), `backups` (+ run, schedule, details, restore, download),
+  `monitor` (CPU/RAM/disk/network series, health, uptime, alerts), `resources` and `scale` (resize, web copies, quotas).
+  Each delegates to the existing project controller for the deployment's project through a per-call
+  `ProjectGrant`; what the panel cannot do answers 501 `PANEL_UNSUPPORTED`. See docs/ENTERPRISE_API.md.
+
 ## [1.30.0] — 2026-11-20
 
 ### Added

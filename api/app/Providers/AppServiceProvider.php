@@ -35,6 +35,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(Tenant::class);
+        $this->app->scoped(\App\Support\ProjectGrant::class);
         $this->app->scoped(Rbac::class);
         $this->app->singleton(ApprovalService::class);
 
