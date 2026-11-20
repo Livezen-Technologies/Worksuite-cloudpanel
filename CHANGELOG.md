@@ -20,7 +20,7 @@ Dates are the dates the work landed on `main`.
   run the setup wizard's `enterprise:bootstrap` inside the server (with an optional own domain),
   restart / stop / start / redeploy, delete (keeps data) and an explicit purge. Signed status webhooks
   (`X-Enterprise-Signature`, HMAC-SHA256, per-deployment secret) go to Cloud Admin on every status change.
-  `php artisan enterprise:service-account` creates the service account and its token. (#PR)
+  `php artisan enterprise:service-account` creates the service account and its token. (#222)
 - Projects carry tags; enterprise deployments show an **Enterprise** badge in Projects.
 - Apps can run a command other than the image default and share named volumes (used by the enterprise web and cron containers).
 
