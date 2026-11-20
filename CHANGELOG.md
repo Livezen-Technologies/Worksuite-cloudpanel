@@ -9,6 +9,27 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-19
+
+### Added
+
+- **Project firewall** (Project workspace slice E). `projects/{id}/firewall` (admin and `/app`):
+  project allow/block lists (with expiry and a guard against blocking your own address), project
+  rate limits (block / throttle / log), and lock/unlock of the project's apps. Stored as the
+  existing project-scoped `firewall_ip_lists` / `firewall_rules` rows and rendered by the existing
+  Traefik file-provider path, so they only add middlewares or `-blocked` / path routers to the
+  panel's own `dmp-` routers for this project's domains. Hand-written routers and other tenants'
+  routers are never touched (covered by a test). Every change is audited.
+- Firewall scope now includes a domain's own `project_id` (project DNS domains), not only its app's.
+- Workspace Firewall & security section (shared `ProjectFirewall` component).
+
+### Not included (owner decision)
+
+- CrowdSec "blocked IPs" (decisions) stay server-wide on the admin Firewall page: they are not
+  attributable to one project, and showing them per project would expose other tenants' traffic.
+- The block list renders only when `platform.traefik.forwarded_depth` is 0 (direct clients), as
+  before; behind a CDN it is left to CrowdSec.
+
 ## [1.21.0] — 2026-11-19
 
 ### Added

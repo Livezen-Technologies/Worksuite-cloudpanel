@@ -1,98 +1,79 @@
 import { useState } from 'react'
-import { isApiError } from '../api/client'
 import { useAction, useOne } from '../api/hooks'
-import { Card, Empty, StatTile } from './Card'
+import { Card, Field } from './Card'
 import { Badge } from './Badge'
-import { ConfirmDialog } from './Overlay'
-import { AppLockButton } from './AppLockButton'
+import { DataTable, type Column } from './DataTable'
 import Select from './Select'
 import { ago } from '../lib/format'
-import { num, type R } from '../lib/util'
+import { type R } from '../lib/util'
 
 /**
- * Project → Firewall: everything protecting this project's apps. App lock/unlock, IP allow and block
- * entries for the whole project or one app, and read-only lists of the rate-limit and ISP rules and
- * recent blocked requests. `base` is '' for admin and '/app' for the customer portal.
+ * PWS-E: a project's firewall — allow/block lists, rate limits and app lock. Rules apply to the
+ * project's own domains only. `base` is '' (admin) or '/app' (customer portal).
  */
 export function ProjectFirewall({ projectId, base = '' }: { projectId: string; base?: string }) {
-  const d = useOne<R>(`${base}/projects/${projectId}/firewall`, undefined, { refetchInterval: 20000 })
+  const path = `${base}/projects/${projectId}/firewall`
+  const q = useOne<R>(path)
   const { run, busy } = useAction()
-  const [f, setF] = useState({ list: 'block', cidr: '', note: '', scope: '', hours: '' })
-  const [self, setSelf] = useState<string | null>(null)
-  const x = d.item ?? {}
-  const apps = (x.apps ?? []) as R[]
-  const ips = (x.ips ?? []) as R[]
-  const rules = (x.rules ?? []) as R[]
-  const isps = (x.isps ?? []) as R[]
-  const events = (x.events ?? []) as R[]
-  const org = (x.org_wide ?? {}) as R
-  const add = (confirm = false) => run({ path: `${base}/projects/${projectId}/firewall/ips`, label: f.list === 'allow' ? 'Allow address' : 'Block address', success: `${f.cidr} ${f.list === 'allow' ? 'allowed' : 'blocked'}`,
-    body: { list: f.list, cidr: f.cidr.trim(), note: f.note || null, application_id: f.scope || null, expires_hours: f.hours ? Number(f.hours) : null, ...(confirm ? { confirm: true } : {}) } })
-    .then(() => { setF({ ...f, cidr: '', note: '' }); setSelf(null); d.refetch() })
-    .catch((e) => { if (isApiError(e) && e.status === 409 && /own address/.test(e.message)) setSelf(e.message) })
+  const d = q.item ?? {}
+  const can = Boolean(d.can_manage)
+  const [ip, setIp] = useState({ list: 'block', cidr: '', note: '' })
+  const [rl, setRl] = useState({ name: '', path: '/', limit: '60', window_seconds: '60', action: 'block' })
+  const refresh = () => q.refetch()
 
-  if (d.isLoading) return <p className="m-0 text-sm text-muted">Loading…</p>
+  const ipCols: Column<R>[] = [
+    { key: 'cidr', header: 'Address', value: (e) => String(e.cidr), render: (e) => <code className="font-mono">{String(e.cidr)}</code> },
+    { key: 'note', header: 'Note', value: (e) => String(e.note ?? '') },
+    { key: 'expires', header: 'Expires', value: (e) => String(e.expires_at ?? ''), render: (e) => e.expires_at ? (e.active ? ago(String(e.expires_at)) : <Badge tone="n">expired</Badge>) : 'never' },
+  ]
+  const ipActions = can ? (e: R) => [{ label: 'Remove', icon: 'trash', danger: true, onClick: () => { run({ method: 'DELETE', path: `${path}/ips/${String(e.id)}`, label: 'Remove address', success: 'Removed' }).then(refresh).catch(() => {}) } }] : undefined
+  const list = (label: string, rows: R[], empty: string) => <Card pad={false}><DataTable label={label} tableId={`project-fw-${label.toLowerCase().replace(/\W+/g, '-')}`} layouts={false} rows={rows} loading={q.isLoading} rowKey={(r) => String(r.id)} columns={ipCols} actions={ipActions} empty={empty} /></Card>
+  const inherited = (d.inherited ?? {}) as R
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-        <StatTile label="Blocked (24 h)" value={num(x.blocked_24h)} />
-        <StatTile label="Blocked IPs" value={ips.filter((i) => i.list === 'block').length} />
-        <StatTile label="Allowed IPs" value={ips.filter((i) => i.list === 'allow').length} />
-        <StatTile label="Locked apps" value={apps.filter((a) => !a.public_access).length} />
-      </div>
-
-      <Card title="Application access" pad={false}>
-        {!apps.length ? <div className="p-5"><Empty>No applications in this project.</Empty></div> :
-          <ul className="list-none m-0 p-0">{apps.map((a) => (
-            <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-2.5 border-t border-line first:border-t-0 text-[13.5px]">
-              <span className="flex-1 min-w-0 font-semibold truncate">{a.name}</span>
-              {a.public_access ? <Badge tone="g">public</Badge> : <Badge tone="r" >locked{a.lock_reason ? `: ${a.lock_reason}` : ''}</Badge>}
-              <AppLockButton app={a} base={base ? '/app/apps' : '/applications'} onChange={() => d.refetch()} />
-            </li>))}</ul>}
+    <div className="flex flex-col gap-4">
+      <Card title="App lock" subtitle="A locked app answers only addresses on the allow list. Use it during an incident or before launch.">
+        <DataTable label="Applications" tableId="project-fw-apps" layouts={false} rows={(d.apps ?? []) as R[]} rowKey={(a) => String(a.id)}
+          columns={[
+            { key: 'name', header: 'Application', value: (a) => String(a.name) },
+            { key: 'state', header: 'Access', value: (a) => a.locked ? 'locked' : 'public', render: (a) => a.locked ? <Badge tone="r">locked</Badge> : <Badge tone="g">public</Badge> },
+            { key: 'reason', header: 'Reason', value: (a) => String(a.lock_reason ?? '') },
+          ]}
+          actions={can ? (a) => [{ label: a.locked ? 'Unlock' : 'Lock', icon: a.locked ? 'play' : 'pause', onClick: () => { run({ path: `${path}/apps/${String(a.id)}/${a.locked ? 'unlock' : 'lock'}`, label: a.locked ? 'Unlock app' : 'Lock app', success: a.locked ? 'Unlocked' : 'Locked' }).then(refresh).catch(() => {}) } }] : undefined}
+          empty="No applications in this project." />
       </Card>
-
-      <Card title="IP allow and block lists" pad={false}>
-        <div className="flex flex-wrap items-end gap-2 px-4 sm:px-5 pb-3">
-          <label className="text-sm"><span className="block text-xs text-muted mb-1">List</span><Select className="input !w-auto" value={f.list} onChange={(e) => setF({ ...f, list: e.target.value })}><option value="block">Block</option><option value="allow">Allow</option></Select></label>
-          <label className="text-sm"><span className="block text-xs text-muted mb-1">Address or range</span><input className="input font-mono !w-48" placeholder="203.0.113.0/24" value={f.cidr} onChange={(e) => setF({ ...f, cidr: e.target.value })} /></label>
-          <label className="text-sm"><span className="block text-xs text-muted mb-1">Applies to</span><Select className="input !w-auto" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
-            <option value="">Whole project</option>{apps.map((a) => <option key={a.id} value={a.id}>App · {a.name}</option>)}</Select></label>
-          <label className="text-sm"><span className="block text-xs text-muted mb-1">Expires</span><Select className="input !w-auto" value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>
-            <option value="">Never</option><option value="1">1 hour</option><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></Select></label>
-          <label className="text-sm flex-1 min-w-[140px]"><span className="block text-xs text-muted mb-1">Note</span><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
-          <button type="button" className="btn btn-primary" disabled={busy || !f.cidr.trim()} onClick={() => add()}>Add</button>
+      {list('Block list', (d.block ?? []) as R[], 'No blocked addresses for this project.')}
+      {list('Allow list', (d.allow ?? []) as R[], 'No allowed addresses. A locked app with an empty allow list answers no one.')}
+      {can && <Card title="Add an address">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="List"><Select className="input" value={ip.list} onChange={(e) => setIp({ ...ip, list: e.target.value })}><option value="block">Block</option><option value="allow">Allow</option></Select></Field>
+          <Field label="IP or CIDR"><input className="input" value={ip.cidr} placeholder="203.0.113.0/24" onChange={(e) => setIp({ ...ip, cidr: e.target.value })} /></Field>
+          <Field label="Note"><input className="input" value={ip.note} onChange={(e) => setIp({ ...ip, note: e.target.value })} /></Field>
+          <button type="button" className="btn btn-primary" disabled={busy || !ip.cidr} onClick={() => run({ path: `${path}/ips`, body: { list: ip.list, cidr: ip.cidr, note: ip.note || null }, label: 'Add address', success: 'Added' }).then(() => { setIp({ ...ip, cidr: '', note: '' }); refresh() }).catch(() => {})}>Add</button>
         </div>
-        {!ips.length ? <div className="px-5 pb-5"><Empty>No addresses listed for this project.</Empty></div> :
-          <ul className="list-none m-0 p-0">{ips.map((i) => (
-            <li key={i.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-2.5 border-t border-line text-[13.5px]">
-              <span className="font-mono text-xs w-40">{i.cidr}</span>
-              <Badge tone={i.list === 'allow' ? 'g' : 'r'}>{i.list}</Badge>
-              <span className="flex-1 min-w-0 truncate text-muted text-xs">{i.scope}{i.note ? ` · ${i.note}` : ''}{i.expires_at ? ` · until ${new Date(String(i.expires_at)).toLocaleString()}` : ''}</span>
-              <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run({ method: 'DELETE', path: `${base}/projects/${projectId}/firewall/ips/${i.id}`, label: 'Remove address', success: `${i.cidr} removed` }).then(() => d.refetch()).catch(() => {})}>Remove</button>
-            </li>))}</ul>}
+      </Card>}
+      <Card pad={false}>
+        <DataTable label="Rate limits" tableId="project-fw-rate-limits" layouts={false} rows={(d.rate_limits ?? []) as R[]} rowKey={(r) => String(r.id)}
+          columns={[
+            { key: 'name', header: 'Rule', value: (r) => String(r.name) },
+            { key: 'paths', header: 'Paths', value: (r) => ((r.paths ?? []) as string[]).join(', ') },
+            { key: 'rate', header: 'Rate', value: (r) => `${String(r.limit)} / ${String(r.window_seconds)}s` },
+            { key: 'action', header: 'Action', value: (r) => String(r.action) },
+          ]}
+          actions={can ? (r) => [{ label: 'Delete', icon: 'trash', danger: true, onClick: () => { run({ method: 'DELETE', path: `${path}/rate-limits/${String(r.id)}`, label: 'Delete rule', success: 'Deleted' }).then(refresh).catch(() => {}) } }] : undefined}
+          empty="No project rate limits." />
       </Card>
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Card title="Rate limits">{!rules.length ? <p className="m-0 text-sm text-muted">No rules for this project.{num(org.rules) ? ` ${org.rules} organisation-wide rule(s) also apply.` : ''}</p> :
-          <ul className="list-none m-0 p-0 flex flex-col gap-1.5 text-[13px]">{rules.map((r) => <li key={r.id} className="flex gap-2"><span className="flex-1 truncate">{r.name} <span className="text-muted">· {r.scope}</span></span><span className="tabular-nums">{r.rate}</span><Badge tone={r.enabled ? 'b' : 'n'}>{r.action}</Badge></li>)}</ul>}</Card>
-        <Card title="ISP rules">{!isps.length ? <p className="m-0 text-sm text-muted">No ISP rules for this project.</p> :
-          <ul className="list-none m-0 p-0 flex flex-col gap-1.5 text-[13px]">{isps.map((i) => <li key={`${i.asn}${i.scope}`} className="flex gap-2"><span className="flex-1 truncate">AS{i.asn} {i.name ?? ''} <span className="text-muted">· {i.scope}</span></span><Badge tone={i.state === 'allow' ? 'g' : i.state === 'block' ? 'r' : 'y'}>{i.state}</Badge></li>)}</ul>}</Card>
-      </div>
-
-      <Card title="Recent security events (24 h)" pad={false}>
-        {!events.length ? <div className="px-5 pb-5"><Empty>Nothing blocked or challenged in the last 24 hours.</Empty></div> :
-          <ul className="list-none m-0 p-0">{events.map((e, n) => (
-            <li key={n} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-2 border-t border-line first:border-t-0 text-[13px]">
-              <span className="font-mono text-xs w-32">{e.ip}{e.country ? ` · ${e.country}` : ''}</span>
-              <span className="flex-1 min-w-0 truncate text-muted">{e.domain} {e.method} {e.path}{e.rule_name ? ` · ${e.rule_name}` : ''}</span>
-              <Badge tone={e.action === 'block' ? 'r' : 'y'}>{e.action}</Badge>
-              <span className="text-xs text-muted">{ago(e.occurred_at)}</span>
-            </li>))}</ul>}
-      </Card>
-
-      <ConfirmDialog open={!!self} onClose={() => setSelf(null)} danger title="Block your own address?" confirmLabel="Block anyway" busy={busy} onConfirm={() => add(true)}>
-        <p className="m-0">{self}</p>
-      </ConfirmDialog>
+      {can && <Card title="Add a rate limit">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Name"><input className="input" value={rl.name} onChange={(e) => setRl({ ...rl, name: e.target.value })} /></Field>
+          <Field label="Path"><input className="input" value={rl.path} onChange={(e) => setRl({ ...rl, path: e.target.value })} /></Field>
+          <Field label="Requests"><input className="input" type="number" min={1} value={rl.limit} onChange={(e) => setRl({ ...rl, limit: e.target.value })} /></Field>
+          <Field label="Per seconds"><input className="input" type="number" min={1} value={rl.window_seconds} onChange={(e) => setRl({ ...rl, window_seconds: e.target.value })} /></Field>
+          <Field label="Action"><Select className="input" value={rl.action} onChange={(e) => setRl({ ...rl, action: e.target.value })}><option value="block">Block</option><option value="throttle">Throttle</option><option value="log">Log only</option></Select></Field>
+          <button type="button" className="btn btn-primary" disabled={busy || !rl.name || !rl.path} onClick={() => run({ path: `${path}/rate-limits`, body: { name: rl.name, paths: [rl.path], limit: Number(rl.limit), window_seconds: Number(rl.window_seconds), action: rl.action }, label: 'Add rate limit', success: 'Added' }).then(() => { setRl({ ...rl, name: '' }); refresh() }).catch(() => {})}>Add</button>
+        </div>
+      </Card>}
+      {(Number(inherited.ip_entries) > 0 || Number(inherited.rules) > 0) && <p className="text-sm text-muted m-0">Also in force: {String(inherited.ip_entries)} organisation-wide address entries and {String(inherited.rules)} organisation-wide rules.</p>}
     </div>
   )
 }

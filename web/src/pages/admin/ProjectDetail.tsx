@@ -15,6 +15,7 @@ import { ProjectDashboard } from '../../components/ProjectDashboard'
 import { ProjectDns } from '../../components/ProjectDns'
 import { ProjectResources } from '../../components/ProjectResources'
 import { ProjectQuotas } from '../../components/ProjectQuotas'
+import { ProjectFirewall } from '../../components/ProjectFirewall'
 import Select from '../../components/Select'
 import { Tabs } from '../../components/Tabs'
 import { ago } from '../../lib/format'
@@ -166,7 +167,7 @@ export default function ProjectDetail() {
         <ProjectDns projectId={p.id} />
       </div>}
 
-      {section === 'firewall' && <NotYet link={<Link to="/admin/firewall" className="btn">Open firewall</Link>}>Firewall rules, IP allow/block lists and blocked IPs are per server today, and app lock/unlock is on each application's page. Per-project rules and rate limiting are a later slice.</NotYet>}
+      {section === 'firewall' && <ProjectFirewall projectId={p.id} />}
       {section === 'backups' && <ProjectBackups projectId={p.id} />}
 
       {section === 'variables' && <div className="flex flex-col gap-4">

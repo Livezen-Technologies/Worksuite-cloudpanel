@@ -18,8 +18,10 @@ final class FirewallScope
                 ->orWhere('domain_id', $domain->id);
             if ($app) {
                 $q->orWhere('application_id', $app->id);
-                $app->project_id && $q->orWhere('project_id', $app->project_id);
             }
+            // PWS-E: a domain's project is its own (project DNS) or its app's.
+            $projects = array_values(array_unique(array_filter([$domain->project_id ?? null, $app?->project_id])));
+            $projects && $q->orWhereIn('project_id', $projects);
         });
     }
 

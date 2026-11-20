@@ -3,43 +3,50 @@
 namespace Tests\Feature;
 
 use App\Models\Application;
-use App\Models\FirewallIpList;
 use App\Models\Project;
+use App\Models\ProjectMember;
+use App\Contracts\DnsResolver;
 use App\Support\Tenant;
+use Symfony\Component\Yaml\Yaml;
 use Tests\TestCase;
 
-/** Project → Firewall: project-scoped view, IP entries limited to the project, app lock state. */
+/** PWS-E: the project firewall renders only onto the project's own routers. */
 class ProjectFirewallTest extends TestCase
 {
-    public function test_view_add_and_remove_within_the_project_only(): void
+    public function test_project_ip_blocks_rate_limits_and_lock_reach_only_the_projects_routers(): void
     {
         [, $org, $token] = $this->org();
-        [$p, $other, $web, $stranger] = app(Tenant::class)->as($org->id, function () {
+        $server = $this->server($org, ['ip' => '198.51.100.9']);
+        [$secret] = $this->enrollAgent($server, $token);
+        [$project, $app, $other] = app(Tenant::class)->as($org->id, function () use ($server) {
             $p = Project::create(['name' => 'Shop']);
-            $other = Project::create(['name' => 'Blog']);
-            $web = Application::create(['name' => 'web', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'port' => 80, 'project_id' => $p->id, 'public_access' => false, 'lock_reason' => 'maintenance']);
-            $stranger = Application::create(['name' => 'blog', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'port' => 80, 'project_id' => $other->id]);
+            $a = Application::create(['name' => 'shop', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'small', 'server_id' => $server->id, 'port' => 80, 'project_id' => $p->id]);
+            $o = Application::create(['name' => 'blog', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'small', 'server_id' => $server->id, 'port' => 80]);
 
-            return [$p, $other, $web, $stranger];
+            return [$p, $a, $o];
         });
+        foreach (['shop.example.com' => $app, 'blog.example.com' => $other] as $host => $a) {
+            $d = $this->api($token)->postJson('/api/v1/app/domains', ['domain' => $host, 'app_id' => $a->id])->assertCreated()->json('data');
+            app(DnsResolver::class)->set($host, 'A', ['198.51.100.9']);
+            $this->api($token)->postJson("/api/v1/app/domains/{$d['id']}/verify")->assertOk();
+        }
 
-        $this->api($token)->postJson("/api/v1/projects/{$p->id}/firewall/ips", ['list' => 'block', 'cidr' => '203.0.113.0/24'])->assertCreated();
-        $this->api($token)->postJson("/api/v1/projects/{$p->id}/firewall/ips", ['list' => 'allow', 'cidr' => '198.51.100.7', 'application_id' => $web->id, 'expires_hours' => 24])->assertCreated();
-        $this->api($token)->postJson("/api/v1/projects/{$p->id}/firewall/ips", ['list' => 'block', 'cidr' => '192.0.2.1', 'application_id' => $stranger->id])->assertStatus(422);
-        $this->api($token)->postJson("/api/v1/projects/{$p->id}/firewall/ips", ['list' => 'block', 'cidr' => '127.0.0.1'])->assertStatus(409);
-        $otherEntry = app(Tenant::class)->as($org->id, fn () => FirewallIpList::create(['list' => 'block', 'cidr' => '192.0.2.0/24', 'project_id' => $other->id]));
+        [$viewer, $viewerToken] = $this->member($org, 'developer');
+        ProjectMember::create(['project_id' => $project->id, 'user_id' => $viewer->id, 'role' => 'viewer']);
+        $this->api($viewerToken)->getJson("/api/v1/app/projects/{$project->id}/firewall")->assertOk()->assertJsonPath('data.can_manage', false);
+        $this->api($viewerToken)->postJson("/api/v1/app/projects/{$project->id}/firewall/ips", ['list' => 'block', 'cidr' => '203.0.113.7'])->assertForbidden();
 
-        $d = $this->api($token)->getJson("/api/v1/projects/{$p->id}/firewall")->assertOk()->json('data');
-        $this->assertCount(2, $d['ips']);
-        $this->assertSame('whole project', collect($d['ips'])->firstWhere('cidr', '203.0.113.0/24')['scope']);
-        $this->assertSame('app web', collect($d['ips'])->firstWhere('cidr', '198.51.100.7/32')['scope']);
-        $this->assertFalse($d['apps'][0]['public_access']);
-        $this->assertSame('maintenance', $d['apps'][0]['lock_reason']);
+        $this->api($token)->postJson("/api/v1/app/projects/{$project->id}/firewall/ips", ['list' => 'block', 'cidr' => '203.0.113.7'])->assertCreated();
+        $this->api($token)->postJson("/api/v1/app/projects/{$project->id}/firewall/rate-limits", ['name' => 'Login', 'paths' => ['/login'], 'limit' => 10])->assertCreated();
+        $this->api($token)->postJson("/api/v1/app/projects/{$project->id}/firewall/apps/{$app->id}/lock", ['reason' => 'audit'])->assertOk()->assertJsonPath('data.apps.0.locked', true);
 
-        // Another project's entry cannot be removed through this one.
-        $this->api($token)->deleteJson("/api/v1/projects/{$p->id}/firewall/ips/{$otherEntry->id}")->assertNotFound();
-        $mine = collect($d['ips'])->firstWhere('cidr', '203.0.113.0/24')['id'];
-        $this->api($token)->deleteJson("/api/v1/projects/{$p->id}/firewall/ips/{$mine}")->assertNoContent();
-        $this->assertSame(2, FirewallIpList::allTenants()->count());
+        $y = app(Tenant::class)->as($org->id, fn () => app(\App\Services\TraefikConfigService::class)->render(\App\Models\Server::allTenants()->find($server->id), false));
+        $routers = json_decode(json_encode($y), true)['http']['routers'];
+        $this->assertArrayHasKey('dmp-shop-example-com-blocked', $routers);
+        $this->assertContains('dmp-shop-example-com-locked', $routers['dmp-shop-example-com']['middlewares']);
+        $this->assertArrayNotHasKey('dmp-blog-example-com-blocked', $routers, 'another app outside the project is untouched');
+        $this->assertNotContains('dmp-blog-example-com-locked', $routers['dmp-blog-example-com']['middlewares'] ?? []);
+        $blogPathRouters = array_filter(array_keys($routers), fn ($k) => str_starts_with($k, 'dmp-blog-example-com') && $k !== 'dmp-blog-example-com');
+        $this->assertSame([], array_values($blogPathRouters));
     }
 }

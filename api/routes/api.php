@@ -189,9 +189,6 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/canvas', [Admin\ProjectController::class, 'canvas'])->name('projects.canvas');
         Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
         Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
-        Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->middleware('perm:firewall.view')->name('projects.firewall');
-        Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('perm:firewall.ips|firewall.manage')->name('projects.firewall.ips.store');
-        Route::delete('projects/{id}/firewall/ips/{entry}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyIp'])->middleware('perm:firewall.ips|firewall.unblock|firewall.manage')->name('projects.firewall.ips.destroy');
         // PWS: the project workspace and its members; the project role is checked in the controller.
         Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
         // PWS-C: project databases and volumes; the project role is checked in the controller.
@@ -202,6 +199,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
         Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
         Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+        // PWS-E: the project firewall; the project role is checked in the controller.
+        Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->name('projects.firewall');
+        Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('throttle:30,1')->name('projects.firewall.ips.store');
+        Route::delete('projects/{id}/firewall/ips/{entryId}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyIp'])->whereUuid('entryId')->name('projects.firewall.ips.destroy');
+        Route::post('projects/{id}/firewall/rate-limits', [\App\Http\Controllers\ProjectFirewallController::class, 'storeRule'])->middleware('throttle:30,1')->name('projects.firewall.rules.store');
+        Route::delete('projects/{id}/firewall/rate-limits/{ruleId}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyRule'])->whereUuid('ruleId')->name('projects.firewall.rules.destroy');
+        Route::post('projects/{id}/firewall/apps/{appId}/{action}', [\App\Http\Controllers\ProjectFirewallController::class, 'lock'])->whereUuid('appId')->whereIn('action', ['lock', 'unlock'])->name('projects.firewall.lock');
         Route::match(['put', 'patch'], 'projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'setQuotas'])->name('projects.quotas.set');
         Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
         Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
@@ -751,9 +755,6 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects', [Customer\ProjectController::class, 'index'])->name('projects.index');
             Route::get('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'index'])->name('projects.backups');
             Route::get('projects/{id}/dashboard', \App\Http\Controllers\ProjectDashboardController::class)->name('projects.dashboard');
-            Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->middleware('perm:firewall.view')->name('projects.firewall');
-            Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('perm:firewall.ips|firewall.manage')->name('projects.firewall.ips.store');
-            Route::delete('projects/{id}/firewall/ips/{entry}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyIp'])->middleware('perm:firewall.ips|firewall.unblock|firewall.manage')->name('projects.firewall.ips.destroy');
             // PWS: the project workspace and its members; the project role is checked in the controller.
             Route::get('projects/{id}/workspace', [\App\Http\Controllers\ProjectWorkspaceController::class, 'show'])->name('projects.workspace');
             // PWS-C: project databases and volumes; the project role is checked in the controller.
@@ -764,6 +765,13 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::get('projects/{id}/databases/{dbId}/credentials', [\App\Http\Controllers\ProjectResourceController::class, 'credentials'])->whereUuid(['dbId'])->name('projects.databases.credentials');
             Route::get('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'volumes'])->name('projects.volumes');
             Route::get('projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'quotas'])->name('projects.quotas');
+            // PWS-E: the project firewall; the project role is checked in the controller.
+            Route::get('projects/{id}/firewall', [\App\Http\Controllers\ProjectFirewallController::class, 'show'])->name('projects.firewall');
+            Route::post('projects/{id}/firewall/ips', [\App\Http\Controllers\ProjectFirewallController::class, 'storeIp'])->middleware('throttle:30,1')->name('projects.firewall.ips.store');
+            Route::delete('projects/{id}/firewall/ips/{entryId}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyIp'])->whereUuid('entryId')->name('projects.firewall.ips.destroy');
+            Route::post('projects/{id}/firewall/rate-limits', [\App\Http\Controllers\ProjectFirewallController::class, 'storeRule'])->middleware('throttle:30,1')->name('projects.firewall.rules.store');
+            Route::delete('projects/{id}/firewall/rate-limits/{ruleId}', [\App\Http\Controllers\ProjectFirewallController::class, 'destroyRule'])->whereUuid('ruleId')->name('projects.firewall.rules.destroy');
+            Route::post('projects/{id}/firewall/apps/{appId}/{action}', [\App\Http\Controllers\ProjectFirewallController::class, 'lock'])->whereUuid('appId')->whereIn('action', ['lock', 'unlock'])->name('projects.firewall.lock');
             Route::match(['put', 'patch'], 'projects/{id}/quotas', [\App\Http\Controllers\ProjectResourceController::class, 'setQuotas'])->name('projects.quotas.set');
             Route::post('projects/{id}/volumes', [\App\Http\Controllers\ProjectResourceController::class, 'storeVolume'])->name('projects.volumes.store');
             Route::post('projects/{id}/volumes/{volumeId}/attach', [\App\Http\Controllers\ProjectResourceController::class, 'attachVolume'])->whereUuid(['volumeId'])->name('projects.volumes.attach');
