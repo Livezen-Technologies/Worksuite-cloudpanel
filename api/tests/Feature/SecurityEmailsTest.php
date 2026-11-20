@@ -59,7 +59,9 @@ class SecurityEmailsTest extends TestCase
         $svc = app(EmailTemplateService::class);
         $p = $svc->render('deploy_failed', $svc->sample('deploy_failed'));
         $this->assertStringContainsString('DEPLOYMENTS', $p['html'], 'category tag');
-        $this->assertStringContainsString('linear-gradient(90deg,#fecaca', $p['html'], 'red tone bar');
+        $this->assertStringContainsString('color:#B91C1C">&#9679;', $p['html'], 'red tone dot on the tag');
+        $this->assertStringContainsString('v:roundrect', $p['html'], 'bulletproof button for Outlook');
+        $this->assertStringContainsString('WorkSuite Cloud', $p['html'], 'brand name by default');
         $this->assertStringContainsString('npm ERR! missing script: build</div>', $p['html'], 'the error sits in the code block');
         $p = $svc->render('under_attack', $svc->sample('under_attack'));
         $this->assertStringContainsString('Under attack</div>', $p['html'], 'eyebrow');

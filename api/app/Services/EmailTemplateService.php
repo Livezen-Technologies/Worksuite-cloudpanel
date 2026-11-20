@@ -25,7 +25,10 @@ class EmailTemplateService
 
     public const GLOBALS = ['platform_name', 'user_name', 'panel_url'];
 
-    public const BRAND_DEFAULTS = ['sender_name' => null, 'logo_url' => null, 'color' => '#030712', 'footer' => 'You receive this email because you have an account on {{platform_name}}.'];
+    public const BRAND_DEFAULTS = ['sender_name' => null, 'logo_url' => null, 'color' => '#0A6CFF', 'footer' => 'You are receiving this because you have a {{platform_name}} account.'];
+
+    /** The name in emails when none is set under Email branding (APP_NAME is the old internal name). */
+    public const PLATFORM_NAME = 'WorkSuite Cloud';
 
     public function __construct(private AuditLogger $audit) {}
 
@@ -135,7 +138,7 @@ class EmailTemplateService
     {
         $t = $this->resolved($key);
         $brand = $this->brand();
-        $platform = $brand['sender_name'] ?: config('app.name', 'WorkSuite CloudPanel');
+        $platform = $brand['sender_name'] ?: (string) config('platform.email_name', self::PLATFORM_NAME);
         $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
         $vars = array_map('strval', array_replace(['platform_name' => $platform, 'user_name' => $user?->name ?? 'there', 'panel_url' => $panel], $vars));
         // A variable may hold {{panel_url}} (sample links); resolve globals inside values once.
@@ -171,9 +174,7 @@ class EmailTemplateService
         $brand = $this->brand();
         Mail::send([], [], function ($m) use ($mail, $to, $brand) {
             $m->to($to instanceof User ? $to->email : $to)->subject($mail['subject']);
-            if ($brand['sender_name']) {
-                $m->from(config('mail.from.address'), $brand['sender_name']);
-            }
+            $m->from(config('mail.from.address'), $brand['sender_name'] ?: (string) config('platform.email_name', self::PLATFORM_NAME));
             $m->html($mail['html']);
             $m->getSymfonyMessage()->text($mail['text']);
         });
@@ -240,52 +241,85 @@ class EmailTemplateService
         return $users->filter(fn (User $u) => $this->notify($key, $u, $vars))->count();
     }
 
-    /** EML-4: a 600 px table layout with inline styles, fluid down to 360 px, with a dark-mode stylesheet. */
+    /**
+     * EML-5: WorkSuite Cloud layout. A 600 px table layout with inline styles, fluid down to 360 px:
+     * a navy header with the WorkSuite mark (four table cells, so it shows with images off), a white card,
+     * a bulletproof button (table cell with bgcolor, plus VML for Outlook), and a footer. Dark mode: the
+     * `color-scheme` meta, a prefers-color-scheme sheet and Outlook.com's [data-ogsc] hooks, with colours
+     * chosen so a client that inverts them on its own still keeps contrast.
+     */
     private function html(array $f, array $details, array $brand, string $platform, string $footer, string $tone = 'blue', string $tag = ''): string
     {
-        [$tagBg, $tagFg, $bar] = self::TONES[$tone] ?? self::TONES['blue'];
+        [, $tagFg] = self::TONES[$tone] ?? self::TONES['blue'];
         $e = fn (?string $s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) ? $brand['color'] : self::BRAND_DEFAULTS['color'];
+        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $brand['color']) && strtolower((string) $brand['color']) !== '#030712' ? $brand['color'] : self::BRAND_DEFAULTS['color'];
         $safeUrl = fn (?string $u) => $u && preg_match('#^https?://#i', $u) ? $u : null;
+        $font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+        $mono = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+        // The WorkSuite mark: blue 2x2, cyan left, navy centre, cyan below (brand geometry, 7 px grid).
+        $cell = fn (string $bg, int $w = 7, int $h = 7) => '<td width="'.$w.'" height="'.$h.'" style="width:'.$w.'px;height:'.$h.'px;line-height:'.$h.'px;font-size:0;background:'.$bg.'">&nbsp;</td>';
+        $mark = '<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>'.$cell('transparent').$cell('#0A6CFF').$cell('#0A6CFF').'</tr><tr>'.$cell('#00DAF2').$cell('#001842').$cell('#0A6CFF').'</tr><tr>'.$cell('transparent').$cell('#00DAF2').$cell('transparent').'</tr></table>';
         $logo = $safeUrl($brand['logo_url'])
-            ? '<img src="'.$e($brand['logo_url']).'" alt="'.$e($platform).'" height="32" style="height:32px;border:0;display:block">'
-            : '<span style="font-size:18px;font-weight:700;color:'.$color.'">'.$e($platform).'</span>';
-        $body = implode('', array_map(fn ($p) => '<p style="margin:0 0 16px">'.nl2br($e(trim($p)), false).'</p>', preg_split('/\n\s*\n/', trim((string) $f['body'])) ?: []));
-        $rows = implode('', array_map(fn ($k, $v) => '<tr><td class="muted" style="padding:6px 0;color:#6b7280;width:40%">'.$e($k).'</td><td style="padding:6px 0;font-weight:600">'.$e($v).'</td></tr>', array_keys($details), $details));
-        $button = ($url = $safeUrl($f['button_url'])) && $f['button_label']
-            ? '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td style="border-radius:999px;background:'.$color.'"><a href="'.$e($url).'" style="display:inline-block;padding:13px 24px;color:#ffffff;text-decoration:none;font-weight:600;border-radius:999px">'.$e($f['button_label']).'</a></td></tr></table>'
+            ? '<img src="'.$e($brand['logo_url']).'" alt="'.$e($platform).'" height="28" style="height:28px;border:0;display:block">'
+            : '<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="padding-right:10px;vertical-align:middle">'.$mark.'</td><td style="vertical-align:middle;font:700 17px/1 '.$font.';color:#ffffff;letter-spacing:-0.01em">'.$e($platform).'</td></tr></table>';
+        $tagHtml = $tag !== '' ? '<span style="display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.18);font:600 10.5px/1 '.$mono.';letter-spacing:.12em;color:#cbd5e1"><span style="color:'.$tagFg.'">&#9679;</span>&nbsp;'.$e(strtoupper($tag)).'</span>' : '';
+        $body = implode('', array_map(fn ($p) => '<p class="tx" style="margin:0 0 16px;color:#334155">'.nl2br($e(trim($p)), false).'</p>', preg_split('/\n\s*\n/', trim((string) $f['body'])) ?: []));
+        $rows = implode('', array_map(fn ($k, $v) => '<tr><td class="mu" style="padding:9px 0;border-bottom:1px solid #e2e8f0;color:#64748b;width:40%;vertical-align:top">'.$e($k).'</td><td class="hd" style="padding:9px 0;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;word-break:break-word">'.$e($v).'</td></tr>', array_keys($details), $details));
+        $url = $safeUrl($f['button_url']);
+        $button = $url && $f['button_label']
+            ? '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 8px"><tr><td align="center" bgcolor="'.$color.'" style="border-radius:12px;background:'.$color.'">'
+              .'<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="'.$e($url).'" style="height:48px;v-text-anchor:middle;width:240px" arcsize="25%" stroke="f" fillcolor="'.$color.'"><center style="color:#ffffff;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:bold">'.$e($f['button_label']).'</center></v:roundrect><![endif]-->'
+              .'<!--[if !mso]><!--><a href="'.$e($url).'" class="btn" style="display:inline-block;padding:14px 28px;font:600 15px/20px '.$font.';color:#ffffff;text-decoration:none;border-radius:12px;background:'.$color.';mso-hide:all">'.$e($f['button_label']).'&nbsp;&rarr;</a><!--<![endif]-->'
+              .'</td></tr></table>'
             : '';
         $secondary = ($url2 = $safeUrl($f['secondary_url'])) && $f['secondary_label']
-            ? '<p style="margin:0 0 16px"><a href="'.$e($url2).'" style="color:'.$color.'">'.$e($f['secondary_label']).'</a></p>' : '';
+            ? '<p style="margin:12px 0 0"><a href="'.$e($url2).'" class="ln" style="color:'.$color.';font-weight:600;text-decoration:none">'.$e($f['secondary_label']).'</a></p>' : '';
         $code = trim((string) ($f['code'] ?? '')) !== ''
-            ? '<div style="margin:0 0 20px;padding:14px;border-radius:12px;background:#030712;color:#e5e7eb;font:500 12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word">'.$e(mb_substr(trim((string) $f['code']), 0, 2000)).'</div>' : '';
-        $eyebrow = trim((string) ($f['eyebrow'] ?? '')) !== '' ? '<div style="margin:0 0 10px;font:600 11.5px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:#6b7280">'.$e($f['eyebrow']).'</div>' : '';
-        $tagHtml = $tag !== '' ? '<span style="display:inline-block;padding:3px 9px;border-radius:999px;font:600 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;background:'.$tagBg.';color:'.$tagFg.'">'.$e(strtoupper($tag)).'</span>' : '';
-        $fallback = $url ? '<p class="muted" style="margin:16px 0 0;font-size:12px;color:#6b7280">If the button does not work, copy this link into your browser:<br><a href="'.$e($url).'" style="color:'.$color.';word-break:break-all">'.$e($url).'</a></p>' : '';
+            ? '<div style="margin:0 0 20px;padding:14px 16px;border-radius:12px;background:#0b1530;color:#e2e8f0;font:500 12.5px/1.6 '.$mono.';white-space:pre-wrap;word-break:break-word">'.$e(mb_substr(trim((string) $f['code']), 0, 2000)).'</div>' : '';
+        $eyebrow = trim((string) ($f['eyebrow'] ?? '')) !== '' ? '<div class="mu" style="margin:0 0 10px;font:600 11px/18px '.$mono.';letter-spacing:.14em;text-transform:uppercase;color:'.$color.'">'.$e($f['eyebrow']).'</div>' : '';
+        $fallback = $url ? '<p class="mu" style="margin:20px 0 0;font-size:12.5px;line-height:1.55;color:#64748b">Button not working? Paste this link into your browser:<br><a href="'.$e($url).'" class="ln" style="color:'.$color.';word-break:break-all">'.$e($url).'</a></p>' : '';
+        $year = date('Y');
 
         return <<<HTML
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
 <title>{$e($f['subject'])}</title>
 <style>
-  @media (max-width:620px){ .container{width:100% !important} .pad{padding:24px 20px !important} }
-  @media (prefers-color-scheme:dark){ body,.bg{background:#0b0d12 !important} .card{background:#151922 !important;color:#e5e7eb !important} .muted{color:#9ca3af !important} h1{color:#f9fafb !important} }
+  :root{color-scheme:light dark;supported-color-schemes:light dark}
+  @media (max-width:620px){ .container{width:100% !important} .pad{padding:28px 22px !important} .hpad{padding:20px 22px !important} }
+  @media (prefers-color-scheme:dark){
+    body,.bg{background:#05080f !important}
+    .card{background:#0f172a !important}
+    .hd,h1{color:#f8fafc !important}
+    .tx{color:#cbd5e1 !important}
+    .mu{color:#94a3b8 !important}
+    .dt{background:#111c33 !important}
+    .dt td{border-color:#1e293b !important}
+    .ln{color:#60a5fa !important}
+    .ft{color:#64748b !important}
+  }
+  [data-ogsc] .card{background:#0f172a !important} [data-ogsc] .hd,[data-ogsc] h1{color:#f8fafc !important} [data-ogsc] .tx{color:#cbd5e1 !important} [data-ogsc] .mu{color:#94a3b8 !important} [data-ogsc] .dt{background:#111c33 !important}
 </style></head>
-<body style="margin:0;padding:0;background:#f4f5f7">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0">{$e($f['preview'])}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg" style="background:#f4f5f7"><tr><td align="center" style="padding:24px 12px">
+<body style="margin:0;padding:0;background:#eef2f7;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">{$e($f['preview'])}&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg" bgcolor="#eef2f7" style="background:#eef2f7"><tr><td align="center" style="padding:28px 12px 32px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="container" style="width:600px;max-width:600px">
-<tr><td class="card" style="background:#ffffff;border-radius:24px 24px 0 0;height:8px;line-height:8px;font-size:0;background-image:linear-gradient(90deg,{$bar})">&nbsp;</td></tr>
-<tr><td class="card" style="background:#ffffff;padding:28px 40px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{$logo}</td><td align="right">{$tagHtml}</td></tr></table></td></tr>
-<tr><td class="card pad" style="background:#ffffff;border-radius:0 0 24px 24px;padding:24px 40px 32px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827">
-{$eyebrow}<h1 style="margin:0 0 16px;font-size:26px;line-height:1.2;letter-spacing:-0.02em;color:#111827">{$e($f['heading'])}</h1>
+<tr><td class="hpad" bgcolor="#0b1530" style="background:#0b1530;background-image:linear-gradient(135deg,#0b1530 0%,#0f2a5c 100%);border-radius:20px 20px 0 0;padding:22px 36px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{$logo}</td><td align="right">{$tagHtml}</td></tr></table>
+</td></tr>
+<tr><td class="card pad" bgcolor="#ffffff" style="background:#ffffff;border-radius:0 0 20px 20px;padding:36px 36px 36px;font-family:{$font};font-size:15.5px;line-height:1.65;color:#334155;box-shadow:0 1px 2px rgba(15,23,42,.04)">
+{$eyebrow}<h1 class="hd" style="margin:0 0 14px;font:700 26px/1.25 {$font};letter-spacing:-0.02em;color:#0f172a">{$e($f['heading'])}</h1>
 {$body}{$code}
 {$this->detailsTable($rows)}
-<div style="height:20px;line-height:20px;font-size:0">&nbsp;</div>{$button}{$secondary}
+<div style="height:24px;line-height:24px;font-size:0">&nbsp;</div>{$button}{$secondary}
 {$fallback}
 </td></tr>
-<tr><td class="muted" style="padding:16px 4px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280">{$e($footer)}</td></tr>
+<tr><td style="padding:22px 12px 0;font-family:{$font};font-size:12px;line-height:1.6;color:#64748b;text-align:center" class="ft">
+  <div style="font-weight:600;color:#475569" class="ft">{$e($platform)}</div>
+  <div class="ft">{$e($footer)}</div>
+  <div class="ft" style="margin-top:6px">&copy; {$year} Livezen Technologies</div>
+</td></tr>
 </table></td></tr></table>
 </body></html>
 HTML;
@@ -293,7 +327,7 @@ HTML;
 
     private function detailsTable(string $rows): string
     {
-        return $rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 0;padding:4px 16px;border-radius:14px;background:#f9fafb;font-size:14px">'.$rows.'</table>' : '';
+        return $rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="dt" bgcolor="#f8fafc" style="margin:8px 0 0;padding:6px 18px;border-radius:14px;background:#f8fafc;font-size:14px">'.$rows.'</table>' : '';
     }
 
     private function text(array $f, array $details, string $footer): string
