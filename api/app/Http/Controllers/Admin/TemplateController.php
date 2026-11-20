@@ -111,6 +111,8 @@ class TemplateController extends Controller
             'create_database.memory_mb' => 'nullable|integer|min:128|max:65536',
             'domain_mode' => 'nullable|in:auto,subdomain,custom,none',
             'subdomain' => 'nullable|string|max:63',
+            // PWS-G: install straight into a project (preselected from the project workspace).
+            'project_id' => 'nullable|uuid',
         ];
     }
 

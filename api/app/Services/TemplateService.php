@@ -291,6 +291,7 @@ class TemplateService
                     'health_path' => $data['health_path'] ?? $m['health'] ?? null, 'volume_path' => $data['volume_path'] ?? $m['volume'] ?? null, 'server_id' => $data['server_id'] ?? null,
                     'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id] + $this->gitSource($m)),
                     'size' => $data['size'] ?? null,
+                    'project_id' => ! empty($data['project_id']) ? \App\Models\Project::findOrFail($data['project_id'])->id : null,
                 ], fn ($v) => $v !== null) + (array_key_exists('auto_restart', $data) ? ['auto_restart' => (bool) $data['auto_restart']] : []));
                 foreach ($r['env'] as $k => $v) {
                     $secret = (bool) array_filter($secretKeys, fn ($s) => str_contains((string) ($m['env'][$k] ?? '${'.$k.'}'), '${'.$s.'}'))
