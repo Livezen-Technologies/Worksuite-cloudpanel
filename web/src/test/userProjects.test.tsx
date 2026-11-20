@@ -46,6 +46,23 @@ describe('Customer projects', () => {
 
   it('abbreviates names', () => { expect(initials('Online Store')).toBe('OS'); expect(initials('blog')).toBe('BL') })
 
+  it('shows the workspace sections a viewer may read and hides changes', async () => {
+    const base = (globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>)
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/app/projects/p1/workspace')) return json(200, { data: { role: 'viewer', abilities: ['view'] } })
+      if (url.includes('/app/projects/p1/databases')) return json(200, { data: { databases: [{ id: 'db1', name: 'shopdb', engine: 'postgres', status: 'running', connection: { url: 'postgres://postgres:••••••••@db-shopdb:5432' } }], attachable: [], nodes: [], engines: [] } })
+      return base(url, init)
+    }))
+    renderIt()
+    await userEvent.click(await screen.findByRole('button', { name: 'Open Online Store' }))
+    await userEvent.click(await screen.findByRole('tab', { name: 'Databases' }))
+    expect(await screen.findByText('shopdb')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New database' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Firewall & security' })).toBeInTheDocument()
+  })
+
   it('shows project cards and opens one to add an app', async () => {
     renderIt()
     const card = await screen.findByRole('button', { name: 'Open Online Store' })
