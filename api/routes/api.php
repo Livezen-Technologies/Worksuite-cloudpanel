@@ -945,6 +945,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('account', [Customer\AccountController::class, 'show'])->name('account.show');
         Route::patch('account', [Customer\AccountController::class, 'update'])->name('account.update');
         Route::post('account/team', [Customer\AccountController::class, 'team'])->middleware('perm:app.team')->name('account.team');
+        Route::patch('account/team/{userId}', [Customer\AccountController::class, 'updateMember'])->whereUuid('userId')->middleware('perm:app.team')->name('account.team.update');
+        Route::delete('account/team/{userId}', [Customer\AccountController::class, 'removeMember'])->whereUuid('userId')->middleware('perm:app.team')->name('account.team.destroy');
         Route::middleware('perm:app.manage|app.team')->group(function () {
             Route::get('account/tokens', [Customer\AccountController::class, 'tokens'])->name('account.tokens');
             Route::post('account/tokens', [Customer\AccountController::class, 'createToken'])->name('account.tokens.store');
