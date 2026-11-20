@@ -9,6 +9,26 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-11-19
+
+### Added
+
+- **Project networks & ingress routing** (Project workspace slice F). `GET projects/{id}/networking`
+  (admin and `/app`): the project's environment networks (the per-project Docker networks, with
+  ingress attachment), each app's node and network with what is missing, and each domain's
+  routing — through the central ingress (project DNS records, so moving an app between nodes
+  needs no DNS change) or pinned to a node's IP (legacy A records). `POST .../networking/reconcile`
+  (owner) runs the existing `networks:reconcile` logic for this project now (cross-organisation
+  servers resolved unscoped), audited.
+- Workspace Docker → Networks shows it (shared `ProjectNetworking` component).
+
+### Decisions for the owner (not changed)
+
+- Legacy domains still expect an A record at the **app's node IP** (`DomainService::ingressIp`).
+  Switching them to the central ingress needs every customer's DNS changed and the ingress to
+  route to other nodes, so it is reported, not changed.
+- Containers are not taken off the shared `proxy` network (hand-written routers depend on it).
+
 ## [1.22.0] — 2026-11-19
 
 ### Added
