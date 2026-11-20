@@ -64,6 +64,7 @@ export function AppGitTab({ app }: { app: R }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {s.update && s.repo && <UpdateCard appId={String(app.id)} u={s.update as R} branch={String(s.branch ?? 'main')} onChange={refetch} />}
       <Card title="Setup" subtitle="Four steps; the app then deploys by itself on every push.">
         <ol className="m-0 pl-0 list-none flex flex-wrap gap-2">{steps.map((st, i) => (
           <li key={st.label}><Badge tone={st.done ? 'g' : 'n'}>{st.done ? '✓' : i + 1} {st.label}</Badge></li>
@@ -139,5 +140,25 @@ export function AppGitTab({ app }: { app: R }) {
         </div>
       </Card>
     </div>
+  )
+}
+
+/** Updates from the repository: the commit running now, the head of the branch, update now / automatically. */
+function UpdateCard({ appId, u, branch, onChange }: { appId: string; u: R; branch: string; onChange: () => void }) {
+  const { run, busy } = useAction()
+  const short = (c: unknown) => (c ? String(c).slice(0, 7) : '—')
+  return (
+    <Card title="Updates from the repository" subtitle={`Checked every 15 minutes against ${branch}.`}>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        {u.available ? <Badge tone="y">Update available</Badge> : u.built_commit ? <Badge tone="g">Up to date</Badge> : <Badge tone="n">Not built from Git yet</Badge>}
+        <span className="text-muted">Running <code className="font-mono text-xs">{short(u.built_commit)}</code> · latest <code className="font-mono text-xs">{short(u.remote_commit)}</code>{u.checked_at ? ` · checked ${ago(u.checked_at)}` : ''}</span>
+        {u.error ? <span className="text-xs text-[var(--danger,#c00)]">{String(u.error)}</span> : null}
+        <span className="flex-1" />
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/applications/${appId}/git/check-update`, label: 'Check for updates', success: 'Checked the repository' }).then(onChange).catch(() => {})}>Check now</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy || !u.available} onClick={() => run({ path: '/deployments', body: { application_id: appId }, label: 'Update', success: 'Rebuilding from the latest commit' }).then(onChange).catch(() => {})}>Update now</button>
+      </div>
+      <div className="mt-3"><Toggle checked={!!u.auto_update} label="Update automatically when the branch gets a new commit"
+        onChange={(v: boolean) => run({ method: 'PATCH', path: `/applications/${appId}/git/auto-update`, body: { auto_update: v }, label: 'Automatic updates', success: v ? 'Automatic updates on' : 'Automatic updates off' }).then(onChange).catch(() => {})} /></div>
+    </Card>
   )
 }

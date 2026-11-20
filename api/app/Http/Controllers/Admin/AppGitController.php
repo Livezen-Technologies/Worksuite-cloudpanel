@@ -44,7 +44,7 @@ class AppGitController extends Controller
         return [
             'source_type' => $app->source_type,
             'repo' => $repo ?: null,
-            'branch' => $src['branch'] ?? null,
+            'branch' => $src['branch'] ?? $src['ref'] ?? null,
             'uses_ssh' => $repo !== '' && ! str_starts_with($repo, 'http'),
             'deploy_on_push' => $app->kind === 'customer' ? (bool) $app->auto_deploy : (($src['deploy_on_push'] ?? true) !== false),
             'deploy_key' => $key ? ['id' => $key->id, 'name' => $key->name, 'public_key' => $key->public_key, 'fingerprint' => $key->fingerprint] : null,
@@ -57,6 +57,7 @@ class AppGitController extends Controller
             'deliveries' => $project ? WebhookDelivery::where('project_id', $project->id)->latest('created_at')->limit(10)->get(['id', 'event', 'repo', 'ref', 'outcome', 'detail', 'created_at'])
                 ->map(fn ($d) => $d->only(['id', 'event', 'repo', 'ref', 'outcome', 'detail']) + ['created_at' => $d->created_at?->toIso8601ZuluString()])->values() : [],
             'last_deployment' => Deployment::where('application_id', $app->id)->latest()->first(['id', 'status', 'source', 'created_at']),
+            'update' => app(\App\Services\GitUpdateService::class)->state($app),
         ];
     }
 
@@ -164,5 +165,25 @@ class AppGitController extends Controller
         $this->audit->log('project.webhook_secret.rotate', 'project', $project->id, ['application_id' => $app->id]);
 
         return $this->data(['webhook_secret' => $project->webhook_secret, 'url' => url("/api/v1/hooks/git/{$project->id}")]);
+    }
+
+    /** Check the branch for a newer commit now. */
+    public function checkUpdate(Request $request, string $id)
+    {
+        $app = $this->app($request, $id, 'deploy');
+        app(\App\Services\GitUpdateService::class)->check($app);
+
+        return $this->data($this->state($app->fresh()));
+    }
+
+    /** Rebuild automatically whenever the branch gets a newer commit. */
+    public function autoUpdate(Request $request, string $id)
+    {
+        $app = $this->app($request, $id, 'deploy');
+        $v = $request->validate(['auto_update' => 'required|boolean']);
+        $app->update(['source' => array_merge((array) $app->source, ['auto_update' => (bool) $v['auto_update']])]);
+        $this->audit->log('app.git.auto_update', 'application', $app->id, ['auto_update' => (bool) $v['auto_update']]);
+
+        return $this->data($this->state($app->fresh()));
     }
 }

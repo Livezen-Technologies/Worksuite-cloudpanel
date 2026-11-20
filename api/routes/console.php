@@ -83,6 +83,11 @@ Artisan::command('environments:sleep', function (\App\Services\EnvironmentServic
     $this->info('Apps put to sleep: '.$envs->sleepIdle());
 })->purpose('ENV-7: stop idle apps in environments with a sleep window');
 
+Artisan::command('apps:check-git-updates', function (\App\Services\GitUpdateService $updates) {
+    $s = $updates->checkAll();
+    $this->info("Checked {$s['checked']}, updates available {$s['available']}, rebuilt {$s['deployed']}.");
+})->purpose('Compare Git-built apps with the head of their branch and rebuild those set to update automatically');
+
 Artisan::command('templates:sync', function (\App\Services\TemplateService $templates) {
     $s = $templates->sync();
     $this->info("bundled {$s['bundled']}, remote {$s['remote']}, invalid ".count($s['invalid']).(isset($s['remote_error']) ? "; remote error: {$s['remote_error']}" : ''));
@@ -437,6 +442,7 @@ Artisan::command('monitoring:prune', function () {
 })->purpose('Drop uptime checks past the retention window');
 
 Schedule::command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('apps:check-git-updates')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('monitoring:follow-up')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
