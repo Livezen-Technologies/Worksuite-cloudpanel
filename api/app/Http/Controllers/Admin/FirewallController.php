@@ -35,6 +35,8 @@ class FirewallController extends Controller
         return $this->data([
             'settings' => $settings + ['secret_key_set' => $hasSecret],
             'countries' => FirewallCountry::get(['id', 'code', 'state', 'domain_id'])->toArray(),
+            'isps' => \App\Models\FirewallIsp::orderBy('asn')->get()->map(fn ($i) => $i->only(['id', 'asn', 'name', 'state', 'domain_id', 'application_id', 'project_id']) + ['scope' => \App\Support\FirewallScope::label($i)])->values(),
+            'isp_suggestions' => [['asn' => 9329, 'name' => 'Sri Lanka Telecom (SLT)'], ['asn' => 18001, 'name' => 'Dialog Axiata']],
             'paths' => FirewallProtectedPath::with('domain:id,name')->get()
                 ->map(fn (FirewallProtectedPath $p) => [
                     'id' => $p->id, 'path' => $p->path, 'enabled' => $p->enabled,
@@ -58,7 +60,7 @@ class FirewallController extends Controller
         $data = $request->validate([
             'countries' => 'present|array',
             'countries.*.code' => 'required|string|size:2',
-            'countries.*.state' => 'required|in:block,challenge',
+            'countries.*.state' => 'required|in:block,challenge,allow',
             'countries.*.domain_id' => 'nullable|uuid|exists:domains,id',
         ]);
         FirewallCountry::query()->delete();
@@ -69,6 +71,33 @@ class FirewallController extends Controller
                 'domain_id' => $c['domain_id'] ?? null,
             ]);
         }
+        $this->traefik->push();
+
+        return $this->show();
+    }
+
+    /** Replaces the ISP rules wholesale, the way the tab edits them. */
+    public function isps(Request $request)
+    {
+        $data = $request->validate([
+            'isps' => 'present|array|max:500',
+            'isps.*.asn' => 'required|integer|min:1|max:4294967295',
+            'isps.*.name' => 'nullable|string|max:160',
+            'isps.*.state' => 'required|in:block,challenge,allow',
+            'isps.*.domain_id' => 'nullable|uuid|exists:domains,id',
+            'isps.*.application_id' => 'nullable|uuid|exists:applications,id',
+            'isps.*.project_id' => 'nullable|uuid|exists:projects,id',
+        ]);
+        foreach ($data['isps'] as $i) {
+            \App\Support\FirewallScope::assertSingle($i);
+        }
+        $before = \App\Models\FirewallIsp::get(['asn', 'name', 'state'])->toArray();
+        \App\Models\FirewallIsp::query()->delete();
+        foreach (collect($data['isps'])->unique(fn ($i) => $i['asn'].'|'.($i['domain_id'] ?? '').($i['application_id'] ?? '').($i['project_id'] ?? '')) as $i) {
+            \App\Models\FirewallIsp::create(['asn' => (int) $i['asn'], 'name' => $i['name'] ?? null, 'state' => $i['state'],
+                'domain_id' => $i['domain_id'] ?? null, 'application_id' => $i['application_id'] ?? null, 'project_id' => $i['project_id'] ?? null]);
+        }
+        app(\App\Services\AuditLogger::class)->log('firewall.isps', 'firewall', null, ['before' => $before, 'after' => $data['isps']]);
         $this->traefik->push();
 
         return $this->show();

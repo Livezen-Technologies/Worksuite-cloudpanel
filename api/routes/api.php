@@ -238,6 +238,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('template-installs/{id}/update', [Admin\TemplateController::class, 'update'])->name('template-installs.update');
         Route::post('templates-sync', [Admin\TemplateController::class, 'sync'])->name('templates.sync');
         Route::post('projects', [Admin\ProjectController::class, 'store'])->name('projects.store');
+        Route::post('projects/{id}/apps', [Admin\ProjectController::class, 'assign'])->name('projects.apps.assign');
         Route::post('projects/{id}/backups', [\App\Http\Controllers\ProjectBackupController::class, 'store'])->name('projects.backups.store');
         Route::match(['put', 'patch'], 'projects/{id}/backup-schedule', [\App\Http\Controllers\ProjectBackupController::class, 'schedule'])->name('projects.backup-schedule');
         Route::post('project-backups/{id}/restore', [\App\Http\Controllers\ProjectBackupController::class, 'restore'])->name('project-backups.restore');
@@ -527,6 +528,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::get('firewall', [Admin\FirewallController::class, 'show'])->middleware('perm:firewall.view')->name('firewall.show');
     Route::get('firewall/events', [Admin\FirewallController::class, 'events'])->middleware('perm:firewall.view')->name('firewall.events');
     Route::match(['put', 'patch'], 'firewall/countries', [Admin\FirewallController::class, 'countries'])->middleware('perm:firewall.manage')->name('firewall.countries');
+    Route::match(['put', 'patch'], 'firewall/isps', [Admin\FirewallController::class, 'isps'])->middleware('perm:firewall.manage')->name('firewall.isps');
     Route::post('firewall/paths', [Admin\FirewallController::class, 'storePath'])->middleware('perm:firewall.manage')->name('firewall.paths.store');
     Route::match(['put', 'patch'], 'firewall/paths/{id}', [Admin\FirewallController::class, 'updatePath'])->middleware('perm:firewall.manage')->name('firewall.paths.update');
     Route::delete('firewall/paths/{id}', [Admin\FirewallController::class, 'destroyPath'])->middleware('perm:firewall.manage')->name('firewall.paths.destroy');

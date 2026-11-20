@@ -28,7 +28,7 @@ class ProjectDashboardTest extends TestCase
         });
 
         $d = $this->api($token)->getJson("/api/v1/projects/{$project->id}/dashboard")->assertOk()->json('data');
-        $this->assertSame(['applications' => 2, 'containers' => 3, 'running' => 2, 'nodes' => 2, 'backups' => 0], $d['counts']);
+        $this->assertSame(['applications' => 2, 'containers' => 3, 'running' => 2, 'nodes' => 2, 'backups' => 0, 'databases' => 0], $d['counts']);
         $this->assertSame('degraded', $d['health'], 'one app has a stopped container');
         $this->assertEquals(5.0, $d['resources']['cpu_reserved']);          // 2 x 2 + 1
         $this->assertSame(9216, $d['resources']['memory_reserved_mb']);    // 4096 x 2 + 1024

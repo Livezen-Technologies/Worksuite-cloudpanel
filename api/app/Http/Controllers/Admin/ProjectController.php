@@ -55,6 +55,19 @@ class ProjectController extends Controller
         return $this->data($this->present($project) + ['webhook_secret' => $project->webhook_secret], 201);
     }
 
+    /** Moves an existing application into this project (its environment moves with it). */
+    public function assign(Request $request, string $id)
+    {
+        $project = Project::findOrFail($id);
+        $v = $request->validate(['app_id' => 'required|uuid']);
+        $app = \App\Models\Application::findOrFail($v['app_id']);
+        $env = $this->envs->environmentFor($project->id, $app->environment ?: 'production');
+        $app->update(['project_id' => $project->id, 'environment_id' => $env->id, 'environment' => $env->kind]);
+        app(\App\Services\AuditLogger::class)->log('project.app.assign', 'projects', $project->id, ['application' => $app->name]);
+
+        return $this->data(['id' => $app->id, 'project_id' => $project->id]);
+    }
+
     public function show(string $id)
     {
         return $this->data($this->present(Project::findOrFail($id)));
