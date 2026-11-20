@@ -301,7 +301,11 @@ return [
     ],
 
     // One-click customer templates (UHOST source "template").
-    'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL')],
+    // Catalogue apps built from first-party repositories (WorkSuite Server, WorkSuite CMS) clone with this
+    // read-only token, sent only to repositories under these owners.
+    'templates' => ['remote_url' => env('TEMPLATES_REMOTE_URL'), 'git_token' => env('TEMPLATES_GIT_TOKEN'),
+        'git_owners' => array_values(array_filter(explode(',', (string) env('TEMPLATES_GIT_OWNERS', 'https://github.com/Livezen-Technologies')))),
+    ],
 
     // PNET: the WireGuard private network between an organisation's servers and its admins' devices.
     'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'subnet6' => env('MESH_SUBNET6', 'fd88::/64'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'container_supernet' => env('MESH_CONTAINER_SUPERNET', '10.89.0.0/16'), 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
