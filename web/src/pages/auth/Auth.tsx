@@ -69,16 +69,26 @@ function useAuthConfig(): AuthConfig {
   return c
 }
 
+const SSO_LABEL: Record<string, string> = { wsc: 'Sign in with WorkSuite Cloud' }
 const SSO_LOGO: Record<string, [string, string]> = { google_login: ['google', '4285F4'], github_login: ['github', '181717'], microsoft_login: ['', ''], oidc: ['openid', 'F78C40'] }
 
 /** SVC-7: "Continue with …" buttons for the sign-in apps staff set up. */
 function SsoButtons({ sso, busy }: { sso: AuthConfig['sso']; busy: boolean }) {
   const [err, setErr] = useState<string | null>(null)
-  if (!sso.length) return null
-  const go = async (key: string) => {
+  const [params] = useSearchParams()
+  const go = async (key: string, silent = false) => {
     setErr(null)
-    try { const r = await api.get<{ data: { url: string } }>(`/auth/sso/${key}`); window.location.assign(r.data.url) } catch (e) { setErr(isApiError(e) ? e.message : 'That sign-in option is not available.') }
+    try { const r = await api.get<{ data: { url: string } }>(`/auth/sso/${key}${silent ? '?prompt=none' : ''}`); window.location.assign(r.data.url) } catch (e) { setErr(isApiError(e) ? e.message : 'That sign-in option is not available.') }
   }
+  // Staff SSO: arriving from the launcher with ?sso=1 tries a silent WorkSuite Cloud sign-in once.
+  const tried = useRef(false)
+  const wsc = sso.some((s) => s.key === 'wsc')
+  useEffect(() => {
+    if (tried.current || !wsc || params.get('sso') !== '1') return
+    tried.current = true
+    go('wsc', true)
+  }, [wsc]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!sso.length) return null
   return (
     <div className="flex flex-col gap-2">
       <div className={`grid gap-2.5 ${sso.length > 1 ? 'grid-cols-2' : ''}`}>
@@ -87,8 +97,9 @@ function SsoButtons({ sso, busy }: { sso: AuthConfig['sso']; busy: boolean }) {
           return (
             <button key={s.key} type="button" className="btn min-h-11 gap-2" disabled={busy} onClick={() => go(s.key)}>
               {l?.[0] ? <span aria-hidden="true" className="w-4 h-4" style={{ background: `#${l[1]}`, WebkitMask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat`, mask: `url(/service-icons/${l[0]}.svg) center/contain no-repeat` }} />
+                : s.key === 'wsc' ? <span aria-hidden="true" className="grid grid-cols-3 gap-[2px] w-4 h-4">{Array.from({ length: 9 }, (_, i) => <i key={i} className="rounded-full bg-accent" />)}</span>
                 : <span aria-hidden="true" className="grid grid-cols-2 gap-px w-4 h-4"><i className="bg-[#F25022]" /><i className="bg-[#7FBA00]" /><i className="bg-[#00A4EF]" /><i className="bg-[#FFB900]" /></span>}
-              {s.label}
+              {SSO_LABEL[s.key] ?? s.label}
             </button>
           )
         })}
@@ -119,6 +130,8 @@ export function SsoCallback() {
     if (once.current) return
     once.current = true
     const code = params.get('code'), state = params.get('state'), denied = params.get('error')
+    // Staff SSO: a silent WorkSuite Cloud attempt with no session falls back to the sign-in page.
+    if (denied === 'login_required' || denied === 'interaction_required' || denied === 'consent_required') { nav('/login', { replace: true }); return }
     if (denied || !code || !state) { setErr(denied === 'access_denied' ? 'Sign-in was cancelled.' : 'The sign-in link is incomplete.'); return }
     finish({ code, state })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

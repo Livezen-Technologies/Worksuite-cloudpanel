@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    // Staff SSO: "Sign in with WorkSuite Cloud" for panel staff (OneAuth, staff audience). Hidden while unset.
+    'wsc_oidc' => [
+        'issuer' => env('WSC_OIDC_ISSUER'),
+        'client_id' => env('WSC_OIDC_CLIENT_ID'),
+        'client_secret' => env('WSC_OIDC_CLIENT_SECRET'),
+        'redirect_uri' => env('WSC_OIDC_REDIRECT_URI'),
+    ],
+
 ];

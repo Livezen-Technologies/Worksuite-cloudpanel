@@ -98,9 +98,10 @@ class AuthController extends Controller
     }
 
     /** SVC-7: the provider's authorisation URL. */
-    public function ssoStart(string $provider)
+    public function ssoStart(Request $request, string $provider)
     {
-        return $this->data(['url' => app(\App\Services\Auth\SsoService::class)->start($provider)]);
+        // Staff SSO: ?prompt=none tries a silent WorkSuite Cloud sign-in (the launcher's ?sso=1).
+        return $this->data(['url' => app(\App\Services\Auth\SsoService::class)->start($provider, $request->query('prompt') === 'none')]);
     }
 
     /**
