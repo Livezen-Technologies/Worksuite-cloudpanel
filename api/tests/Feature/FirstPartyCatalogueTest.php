@@ -71,4 +71,14 @@ class FirstPartyCatalogueTest extends TestCase
         $none = collect($this->api($token)->postJson('/api/v1/templates/worksuite-server/preflight', ['name' => 'ws'])->json('data.checks'))->keyBy('key');
         $this->assertSame('fail', $none['variables']['status']);
     }
+
+    public function test_release_info_reads_the_head_commit_and_build_number_from_github(): void
+    {
+        config(['platform.templates.git_token' => 'ghp_test']);
+        \Illuminate\Support\Facades\Http::fake(['api.github.com/*' => \Illuminate\Support\Facades\Http::response([['sha' => str_repeat('a', 40)]], 200, ['Link' => '<https://api.github.com/repositories/1/commits?sha=main&per_page=1&page=2>; rel="next", <https://api.github.com/repositories/1/commits?sha=main&per_page=1&page=4495>; rel="last"'])]);
+        $info = app(BuildService::class)->releaseInfo('https://github.com/Livezen-Technologies/worksuite.git', 'main');
+        $this->assertSame(['commit' => str_repeat('a', 40), 'build' => 4495], $info);
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer ghp_test') && str_contains($r->url(), '/repos/Livezen-Technologies/worksuite/commits'));
+        $this->assertNull(app(BuildService::class)->releaseInfo('https://gitlab.com/a/b.git', 'main'));
+    }
 }

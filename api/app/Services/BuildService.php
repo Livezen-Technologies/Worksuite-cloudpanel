@@ -141,6 +141,12 @@ class BuildService
         if (! empty($source['build_args'])) {
             $payload['build_args'] = array_map('strval', (array) $source['build_args']);
         }
+        // First-party catalogue builds: the commit and its build number (commits on the branch), so the image's
+        // release stamp reads like a deploy's (<version>+<build>). The agent clones the branch (it cannot clone a
+        // bare commit), so a push in the seconds between this lookup and the clone can make the stamp one behind.
+        if (! empty($source['template_git']) && ($rel = $this->releaseInfo($payload['repo'], $payload['ref']))) {
+            $payload['build_args'] = array_merge(['WS_COMMIT' => $rel['commit'], 'WS_BUILD' => (string) $rel['build']], $payload['build_args'] ?? []);
+        }
         if (! empty($source['git_ssh_key_id'])) {
             $key = \App\Models\SshKey::find($source['git_ssh_key_id']) ?? throw ApiException::conflict('The deploy key referenced by this application no longer exists.');
             $payload['git_ssh_key'] = (string) $key->private_key;
@@ -196,5 +202,35 @@ class BuildService
         }
 
         return null;
+    }
+
+    /**
+     * The head commit of a GitHub branch and how many commits lead to it (the build number deploys use),
+     * from the GitHub API with the catalogue token. Null when it is not GitHub or the API does not answer.
+     */
+    public function releaseInfo(string $repo, string $ref): ?array
+    {
+        if (! preg_match('#^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$#', $repo, $m)) {
+            return null;
+        }
+        $auth = $this->catalogueAuth($repo);
+        $http = \Illuminate\Support\Facades\Http::timeout(10)->acceptJson()->withHeaders(['X-GitHub-Api-Version' => '2022-11-28']);
+        if ($auth) {
+            $http = $http->withToken($auth['token']);
+        }
+        try {
+            $r = $http->get("https://api.github.com/repos/{$m[1]}/{$m[2]}/commits", ['sha' => $ref, 'per_page' => 1]);
+            if (! $r->successful() || empty($r->json('0.sha'))) {
+                return null;
+            }
+            $build = 1;
+            if (preg_match('/[?&]page=(\d+)>;\s*rel="last"/', (string) $r->header('Link'), $p)) {
+                $build = (int) $p[1];
+            }
+
+            return ['commit' => (string) $r->json('0.sha'), 'build' => $build];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
