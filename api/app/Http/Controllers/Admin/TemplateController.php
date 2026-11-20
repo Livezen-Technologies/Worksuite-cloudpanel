@@ -37,10 +37,44 @@ class TemplateController extends Controller
         $this->templates->catalogue();
         $tpl = Template::findOrFail($template);
         $data = $request->validate($this->installRules());
+        // Install together with a new database: create the database container first (same server,
+        // generated password), then the app is wired to it exactly like an existing managed database.
+        if (! empty($data['create_database']['engine']) && empty($data['database_id']) && $tpl->type !== 'compose') {
+            $data = $this->withNewDatabase($tpl, $data);
+        }
         $install = $this->templates->install($tpl, $data, $request->user());
 
         return $this->data(['id' => $install->id, 'resource_type' => $install->resource_type, 'resource_id' => $install->resource_id, 'version' => $install->version,
             'job_id' => $install->job_id, 'deployment_id' => $install->deployment_id, 'url' => $install->url], 201);
+    }
+
+    private function withNewDatabase(Template $tpl, array $data): array
+    {
+        $serverId = $data['server_id'] ?? null;
+        if (! $serverId) {
+            $probe = new \App\Models\Application(['size' => $data['size'] ?? 'standard']);
+            $probe->organization_id = \App\Support\Tenant::current()?->id;
+            $serverId = app(\App\Services\Scheduler::class)->place($probe, app(\App\Services\Scheduler::class)->ramFor($probe))->id;
+        }
+        // The app's own database name: the template's DB-name variable when it has one, else the app name.
+        $vars = (array) ($data['variables'] ?? []);
+        $nameKey = ($tpl->manifest['database_vars']['name'] ?? null) ?: collect(array_column((array) ($tpl->manifest['variables'] ?? []), null, 'key'))
+            ->keys()->first(fn ($k) => preg_match('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG)_?(NAME|DATABASE|DB)$/', $k) && ! preg_match('/HOST|PORT|USER|PASS/', $k));
+        $default = $nameKey ? (collect($tpl->manifest['variables'])->firstWhere('key', $nameKey)['default'] ?? null) : null;
+        $dbName = preg_replace('/[^a-z0-9_]/', '_', strtolower((string) ($nameKey && ! empty($vars[$nameKey]) ? $vars[$nameKey] : ($default ?: $data['name']))));
+        if ($nameKey) {
+            $data['variables'][$nameKey] = $dbName;
+        }
+        $res = app(\App\Services\DatabaseService::class)->create([
+            'name' => $data['name'].'-db', 'engine' => $data['create_database']['engine'], 'version' => $data['create_database']['version'] ?? null,
+            'server_id' => $serverId, 'environment' => $data['environment'] ?? 'production', 'database' => $dbName,
+            'memory_mb' => $data['create_database']['memory_mb'] ?? 512,
+            'project_id' => $data['project_id'] ?? null,
+        ]);
+        $data['database_id'] = $res['database']['id'];
+        $data['server_id'] = $serverId;
+
+        return $data;
     }
 
     /** INST-7: run the install checks without installing anything. */
@@ -61,6 +95,7 @@ class TemplateController extends Controller
             'server_id' => 'nullable|uuid|exists:servers,id',
             'domain' => ['nullable', 'string', 'max:253', 'regex:/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
             'environment' => 'sometimes|in:production,staging,development',
+            'project_id' => 'nullable|uuid|exists:projects,id', // install straight into a project
             'variables' => 'sometimes|array', 'variables.*' => 'nullable|string|max:4096',
             // INST-2..4: options from the install wizard (single-image apps).
             'size' => 'nullable|in:small,standard,pro',
@@ -70,6 +105,10 @@ class TemplateController extends Controller
             'auto_restart' => 'sometimes|boolean',
             'env' => 'nullable|array|max:100', 'env.*.key' => 'required|string|max:120|regex:/^[A-Za-z_][A-Za-z0-9_]*$/', 'env.*.value' => 'nullable|string|max:4096', 'env.*.secret' => 'nullable|boolean',
             'database_id' => 'nullable|uuid',
+            'create_database' => 'nullable|array',
+            'create_database.engine' => 'nullable|in:postgres,mysql,mariadb,mongodb,redis',
+            'create_database.version' => 'nullable|string|max:20',
+            'create_database.memory_mb' => 'nullable|integer|min:128|max:65536',
             'domain_mode' => 'nullable|in:auto,subdomain,custom,none',
             'subdomain' => 'nullable|string|max:63',
             // PWS-G: install straight into a project (preselected from the project workspace).

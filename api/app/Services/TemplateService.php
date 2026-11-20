@@ -203,7 +203,12 @@ class TemplateService
         if (! in_array($m['type'] ?? null, self::TYPES, true)) {
             $errors[] = 'type must be image or compose';
         }
-        if (($m['type'] ?? null) === 'image') {
+        if (($m['type'] ?? null) === 'image' && ! empty($m['git'])) {
+            // A first-party app built from its own repository (Dockerfile) instead of a published image.
+            if (empty($m['git']['repo']) || ! preg_match('#^https://[^\s]+$#', (string) $m['git']['repo'])) {
+                $errors[] = 'git.repo must be an https URL';
+            }
+        } elseif (($m['type'] ?? null) === 'image') {
             if (empty($m['image']) || preg_match('/\s/', (string) $m['image'])) {
                 $errors[] = 'image is required';
             } elseif (! str_contains(substr((string) $m['image'], strrpos((string) $m['image'], '/') ?: 0), ':') || str_ends_with((string) $m['image'], ':latest')) {
@@ -271,7 +276,7 @@ class TemplateService
                 if (ComposeProject::where('name', $name)->exists()) {
                     throw ApiException::validation(['name' => ['A stack with this name already exists.']]);
                 }
-                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor']);
+                $project = ComposeProject::create(['name' => $name, 'server_id' => $data['server_id'], 'environment' => $data['environment'] ?? 'production', 'source' => 'editor', 'project_id' => $data['project_id'] ?? null]);
                 $this->compose->addRevision($project, $r['compose']);
                 $this->compose->deploy($project);
                 $type = 'compose_project';
@@ -282,9 +287,9 @@ class TemplateService
                 }
                 $secretKeys = array_merge($this->generatedKeys($m), array_column(array_filter((array) ($m['variables'] ?? []), fn ($v) => ! empty($v['secret'])), 'key'));
                 $app = Application::create(array_filter([
-                    'name' => $name, 'kind' => 'admin', 'source_type' => 'image', 'image' => $m['image'], 'port' => $data['port'] ?? $m['port'] ?? null,
+                    'name' => $name, 'kind' => 'admin', 'source_type' => empty($m['git']) ? 'image' : 'git', 'image' => $m['image'] ?? null, 'port' => $data['port'] ?? $m['port'] ?? null,
                     'health_path' => $data['health_path'] ?? $m['health'] ?? null, 'volume_path' => $data['volume_path'] ?? $m['volume'] ?? null, 'server_id' => $data['server_id'] ?? null,
-                    'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id]),
+                    'environment' => $data['environment'] ?? 'production', 'source' => array_filter(['template' => $t->id, 'database_id' => $db?->id] + $this->gitSource($m)),
                     'size' => $data['size'] ?? null,
                     'project_id' => ! empty($data['project_id']) ? \App\Models\Project::findOrFail($data['project_id'])->id : null,
                 ], fn ($v) => $v !== null) + (array_key_exists('auto_restart', $data) ? ['auto_restart' => (bool) $data['auto_restart']] : []));
@@ -300,6 +305,11 @@ class TemplateService
                 }
                 if ($host) {
                     app(DomainService::class)->create(['name' => $host, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platformHost], $platformHost);
+                }
+                if (! empty($data['project_id'])) {
+                    // Into a project: the app joins the project's environment of the same kind.
+                    $env = app(EnvironmentService::class)->environmentFor($data['project_id'], $app->environment ?: 'production');
+                    $app->update(['project_id' => $data['project_id'], 'environment_id' => $env->id, 'environment' => $env->kind]);
                 }
                 $type = 'application';
                 $id = $app->id;
@@ -319,6 +329,23 @@ class TemplateService
         $install->setAttribute('url', $host ? 'https://'.$host : null);
 
         return $install;
+    }
+
+    /**
+     * The build source of a catalogue app that is built from its repository: repo, ref, Dockerfile and
+     * `template_git`, which lets BuildService use the platform's catalogue token for that repo.
+     */
+    public function gitSource(array $m): array
+    {
+        if (empty($m['git']['repo'])) {
+            return [];
+        }
+
+        return array_filter([
+            'repo' => (string) $m['git']['repo'], 'ref' => (string) ($m['git']['ref'] ?? 'main'),
+            'dockerfile_path' => $m['git']['dockerfile'] ?? null, 'context' => $m['git']['context'] ?? null,
+            'builder' => 'dockerfile', 'template_git' => true,
+        ]);
     }
 
     /** INST-6: [hostname or null, is it under the platform domain]. */
@@ -500,6 +527,17 @@ class TemplateService
         $port = (string) ($tpl['port'] ?? '');
         $user = $db->engine === 'postgres' ? 'postgres' : 'root';
         $password = (string) (\App\Models\Secret::find($db->secret_id)?->value ?? '');
+        // A manifest can name its connection variables itself (`database_vars: {host, port, user, password, name}`),
+        // for apps whose keys do not follow the DB_HOST pattern (CodeIgniter's database_default_hostname).
+        if ($map = (array) ($m['database_vars'] ?? [])) {
+            foreach (['host' => $host, 'port' => $port, 'user' => $user, 'password' => $password] as $role => $value) {
+                if (! empty($map[$role])) {
+                    $vars[$map[$role]] = $value;
+                }
+            }
+
+            return $vars;
+        }
         $keys = array_column((array) ($m['variables'] ?? []), 'key');
         $hasPort = (bool) preg_grep('/(DB|DATABASE|MYSQL|MARIADB|POSTGRES|PG).*PORT$/', $keys);
         // A template with a single, generically named host variable (phpMyAdmin's PMA_HOST) points at the database too.

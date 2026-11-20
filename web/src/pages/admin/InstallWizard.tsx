@@ -143,14 +143,14 @@ function Row({ k, v }: { k: string; v: ReactNode }) {
 }
 
 /** INST-1..5: five-step install wizard for every catalogue template (single image or Compose stack). */
-export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBack: () => void }) {
+export default function InstallWizard({ t, onBack, projectId: projectProp }: { t: CatalogTemplate; onBack: () => void; projectId?: string }) {
   const nav = useNavigate()
   const { run, busy } = useAction()
   const { rows: servers } = useList<Server>('/servers')
   const { rows: databases } = useList<Db>('/databases')
   // PWS-G: opened from a project workspace (?project=<id>), the install goes straight into that project.
   const [search] = useSearchParams()
-  const projectId = search.get('project')
+  const projectId = projectProp || search.get('project') || undefined
   const project = useOne<{ id: string; name: string }>(projectId ? `/projects/${projectId}` : null).item
   const compose = t.type === 'compose'
   const keys = t.variables.map((v) => v.key)
@@ -166,7 +166,14 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
     domain_mode: (compose || t.port ? 'auto' : 'none') as DomainMode, subdomain: t.id.slice(0, 40), ...(draft?.d ?? {}) })
   const [pre, setPre] = useState<Preflight | null>(null)
   const [result, setResult] = useState<Result | null>(null)
-  const [dbMode, setDbMode] = useState<'existing' | 'manual' | 'none'>((draft?.dbMode as 'existing' | 'manual' | 'none' | undefined) ?? (wantsDb ? 'existing' : 'none'))
+  type DbMode = 'create' | 'existing' | 'manual' | 'none'
+  const [dbMode, setDbMode] = useState<DbMode>((draft?.dbMode as DbMode | undefined) ?? (wantsDb ? 'create' : 'none'))
+  // Which engine the app most likely wants, from its variable names; MySQL otherwise.
+  const guessEngine = () => { const k = keys.join(' '); return /POSTGRES|\bPG_|PGHOST/.test(k) ? 'postgres' : /MARIADB/.test(k) ? 'mariadb' : /MONGO/.test(k) ? 'mongodb' : /REDIS/.test(k) && !/MYSQL|DB_HOST/.test(k) ? 'redis' : 'mysql' }
+  const [newDb, setNewDb] = useState<{ engine: string; version: string }>({ engine: guessEngine(), version: '' })
+  // With managed databases already there, offering one of them stays the default (until the person chooses).
+  const [dbTouched, setDbTouched] = useState(!!draft?.dbMode)
+  useEffect(() => { if (!dbTouched && wantsDb && databases.length > 0 && dbMode === 'create') setDbMode('existing') }, [databases.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const [dbId, setDbId] = useState(draft?.dbId ?? '')
   // Secrets with no default get a strong generated value; the person can still change it.
   const [vars, setVars] = useState<Record<string, string>>(() => Object.fromEntries(t.variables.map((v) => [v.key, (v.secret ? null : draft?.vars?.[v.key]) ?? v.default ?? (v.secret ? generatePassword() : '')])))
@@ -202,7 +209,8 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
   const db = databases.find((x) => x.id === dbId)
   const linked = dbMode === 'existing' && !!db
   const server = servers.find((s) => s.id === (linked ? db!.server_id : d.server_id))
-  const visibleVars = t.variables.filter((v) => !(linked && dbFilled(v.key, keys)))
+  const filledByDb = linked || dbMode === 'create'
+  const visibleVars = t.variables.filter((v) => !(filledByDb && dbFilled(v.key, keys)))
 
   const validate = (i: number): string | null => {
     if (i === 0) {
@@ -243,14 +251,16 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
     [d, dbMode, dbId, vars, adv, env, databases])
 
   const body = () => ({
-      name: d.name, environment: d.environment, domain_mode: d.domain_mode, project_id: projectId || null,
+      ...(projectId ? { project_id: projectId } : {}),
+      name: d.name, environment: d.environment, domain_mode: d.domain_mode,
       domain: d.domain_mode === 'custom' ? d.domain.trim() : null, subdomain: d.domain_mode === 'subdomain' ? d.subdomain : null,
       server_id: linked ? null : (d.placement === 'manual' || compose ? d.server_id || null : null),
-      variables: Object.fromEntries(Object.entries(vars).filter(([k]) => !(linked && dbFilled(k, keys)))),
+      variables: Object.fromEntries(Object.entries(vars).filter(([k]) => !(filledByDb && dbFilled(k, keys)))),
       ...(compose ? {} : {
         size: d.size, port: d.port ? Number(d.port) : null, auto_restart: adv.auto_restart,
         volume_path: adv.volume_path || null, health_path: adv.health_path || null,
         env: env.filter((e) => e.key), database_id: linked ? dbId : null,
+        create_database: dbMode === 'create' ? { engine: newDb.engine, version: newDb.version || null } : null,
       }),
   })
 
@@ -362,12 +372,29 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         <p className="m-0 text-sm text-muted">This stack ships its own services{t.services?.length ? ` (${t.services.join(', ')})` : ''}; any database inside it is created and wired up automatically.</p>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Choice on={dbMode === 'existing'} onClick={() => setDbMode('existing')} title="Use a managed database">Credentials are filled in for you and kept secret.</Choice>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Choice on={dbMode === 'create'} onClick={() => { setDbTouched(true); setDbMode('create') }} title="Create a new database">Installed together with the app, on the same server. Password generated and kept secret.</Choice>
+            <Choice on={dbMode === 'existing'} onClick={() => { setDbTouched(true); setDbMode('existing') }} title="Use a managed database">Credentials are filled in for you and kept secret.</Choice>
             <Choice on={dbMode === 'manual'} onClick={() => setDbMode('manual')} title="Enter connection details">An external or self-managed server.</Choice>
             <Choice on={dbMode === 'none'} onClick={() => setDbMode('none')} title={wantsDb ? 'Skip for now' : 'No database'}>{wantsDb ? 'Fill the variables yourself.' : 'This app does not need one.'}</Choice>
           </div>
           {wantsDb && t.id === 'wordpress' && <p className="m-0 text-xs text-muted">Recommended: WordPress with MariaDB. Create one under Databases, or install the “WordPress + MariaDB” stack.</p>}
+          {dbMode === 'create' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Database engine" hint="Picked from what the app expects; change it if you need another.">
+                <Select className="input" value={newDb.engine} onChange={(e) => setNewDb({ engine: e.target.value, version: '' })}>
+                  <option value="mysql">MySQL</option><option value="mariadb">MariaDB</option><option value="postgres">PostgreSQL</option><option value="mongodb">MongoDB</option><option value="redis">Redis</option>
+                </Select>
+              </Field>
+              <Field label="Version" hint="Empty: the newest supported version.">
+                <Select className="input" value={newDb.version} onChange={(e) => setNewDb({ ...newDb, version: e.target.value })}>
+                  <option value="">Latest</option>
+                  {({ mysql: ['8.4', '8.0'], mariadb: ['11', '10.11'], postgres: ['16', '15'], mongodb: ['7'], redis: ['7'] } as Record<string, string[]>)[newDb.engine]?.map((v) => <option key={v} value={v}>{v}</option>)}
+                </Select>
+              </Field>
+              <p className="m-0 text-xs text-muted sm:col-span-2">A database named after the app is created inside it, and the app’s connection settings (host, port, user, password, database name) are filled in for you.</p>
+            </div>
+          )}
           {dbMode === 'existing' && (
             <Field label="Database" hint={databases.length ? 'The app is placed on the same server and joins its private network.' : 'No managed databases yet. Create one under Databases.'}>
               <Select className="input" value={dbId} onChange={(e) => setDbId(e.target.value)}>
@@ -456,7 +483,7 @@ export default function InstallWizard({ t, onBack }: { t: CatalogTemplate; onBac
         <Row k="Address" v={{ auto: `Auto-generated under ${platform} · HTTPS`, subdomain: `${d.subdomain}.${platform} · HTTPS`, custom: `${d.domain.trim()}${d.https ? ' · HTTPS' : ''}`, none: 'Internal only' }[d.domain_mode]} />
         <Row k="Server" v={server?.name ?? (compose ? '—' : 'Automatic')} />
         {!compose && <Row k="Resources" v={`${SIZES.find((s) => s.id === d.size)?.label} · ${SIZES.find((s) => s.id === d.size)?.spec} · port ${d.port || '—'}`} />}
-        {!compose && <Row k="Database" v={linked ? `${db!.name} (${db!.engine})` : dbMode === 'manual' ? 'Manual connection details' : 'None'} />}
+        {!compose && <Row k="Database" v={dbMode === 'create' ? `New ${newDb.engine}${newDb.version ? ` ${newDb.version}` : ''} database, created with the app` : linked ? `${db!.name} (${db!.engine})` : dbMode === 'manual' ? 'Manual connection details' : 'None'} />}
         {!compose && <Row k="Advanced" v={[adv.volume_path && `volume ${adv.volume_path}`, adv.health_path && `health ${adv.health_path}`, adv.auto_restart ? 'auto-restart' : 'no auto-restart', env.length ? `${env.length} extra variable${env.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')} />}
       </dl>
       {issues.length > 0 && <div role="alert" className="text-sm text-danger">{issues.map((x) => <div key={x}>• {x}</div>)}</div>}

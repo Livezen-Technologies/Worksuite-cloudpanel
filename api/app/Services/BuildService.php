@@ -152,6 +152,9 @@ class BuildService
             }
             $payload['git_auth'] = ['username' => match ($c->provider) { 'bitbucket' => (string) $c->username, 'gitlab' => 'oauth2', default => 'x-access-token' }, 'token' => (string) $c->token];
         }
+        if (! isset($payload['git_auth']) && ! empty($source['template_git']) && ($auth = $this->catalogueAuth((string) $source['repo']))) {
+            $payload['git_auth'] = $auth;
+        }
         if (! empty($source['git_secret_id'])) {
             $secret = Secret::find($source['git_secret_id']) ?? throw ApiException::conflict('The Git credential secret referenced by this application no longer exists.');
             $payload['git_auth'] = array_filter(['username' => $source['git_username'] ?? null, 'token' => (string) $secret->value]);
@@ -172,5 +175,26 @@ class BuildService
         }
 
         return $payload;
+    }
+
+    /**
+     * Catalogue apps built from a private first-party repository use the platform's read-only token
+     * (`platform.templates.git_token`), and only for repositories under `platform.templates.git_owners`,
+     * so a template cannot send it anywhere else.
+     */
+    public function catalogueAuth(string $repo): ?array
+    {
+        $token = (string) config('platform.templates.git_token');
+        if ($token === '' || str_contains($repo, '..') || str_contains($repo, '@')) {
+            return null;
+        }
+        foreach ((array) config('platform.templates.git_owners') as $owner) {
+            $owner = rtrim((string) $owner, '/').'/';
+            if ($owner !== '/' && str_starts_with(strtolower($repo), strtolower($owner))) {
+                return ['username' => 'x-access-token', 'token' => $token];
+            }
+        }
+
+        return null;
     }
 }
