@@ -142,10 +142,10 @@ class BuildService
             $payload['build_args'] = array_map('strval', (array) $source['build_args']);
         }
         // First-party catalogue builds: the commit and its build number (commits on the branch), so the image's
-        // release stamp reads like a deploy's (<version>+<build>), and the build is pinned to that commit.
+        // release stamp reads like a deploy's (<version>+<build>). The agent clones the branch (it cannot clone a
+        // bare commit), so a push in the seconds between this lookup and the clone can make the stamp one behind.
         if (! empty($source['template_git']) && ($rel = $this->releaseInfo($payload['repo'], $payload['ref']))) {
             $payload['build_args'] = array_merge(['WS_COMMIT' => $rel['commit'], 'WS_BUILD' => (string) $rel['build']], $payload['build_args'] ?? []);
-            $payload['ref'] = $rel['commit'];
         }
         if (! empty($source['git_ssh_key_id'])) {
             $key = \App\Models\SshKey::find($source['git_ssh_key_id']) ?? throw ApiException::conflict('The deploy key referenced by this application no longer exists.');
