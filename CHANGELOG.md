@@ -9,6 +9,24 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.32.0] — 2026-11-20
+
+### Added
+
+- **Branded maintenance page for locked apps** (Enterprise maintenance mode uses it). The public now gets an HTTP 503
+  with `Retry-After` and a self-contained WorkSuite page — "We're making improvements", the admin's reason
+  (HTML-escaped), when it started, the expected end, a status line, auto-refresh every 60 s, light/dark — instead of
+  Traefik's bare 403. Served by the panel at `GET /api/v1/hooks/maintenance/{app}` (cached 15 s). With clients
+  connecting directly, a takeover router `dmp-<domain>-maintenance` (priority 99000: above the app's routers, below IP
+  blocks and the public-pages takeovers) sends everyone outside the allow list and `FIREWALL_ALWAYS_ALLOW` to it, so
+  staff on kept ranges still reach the app; behind a CDN (`TRAEFIK_FORWARDED_DEPTH` > 0) an errors middleware wraps the
+  allow list and swaps its 403 body for the page. Only the `websecure` routers change, so ACME and backend health
+  checks are untouched. Unlocking removes the routing.
+- `applications.maintenance_until`: optional expected end, accepted as `until` on app/project lock and as
+  `maintenance_until` on the Enterprise settings PATCH, returned as `maintenance.until`; drives `Retry-After`
+  (else `MAINTENANCE_PAGE_RETRY_AFTER`, default 300 s). Cleared on unlock. Re-locking a locked app keeps its start time.
+- `MAINTENANCE_PAGE_ADMIN_LINK` (default off): shows "Admin? Sign in to CloudPanel" linking to `APP_URL`.
+
 ## [1.31.0] — 2026-11-20
 
 ### Added

@@ -237,8 +237,15 @@ class TraefikConfigService implements HandlesCommandResults
         }
 
         $http = ['routers' => (object) $routers];
+        $panel = ['loadBalancer' => ['passHostHeader' => false, 'servers' => [['url' => rtrim((string) config('app.url'), '/')]]]];
         if (collect($routers)->contains(fn ($r) => ($r['service'] ?? null) === 'dmp-panel-wake')) {
-            $services['dmp-panel-wake'] = ['loadBalancer' => ['passHostHeader' => false, 'servers' => [['url' => rtrim((string) config('app.url'), '/')]]]];
+            $services['dmp-panel-wake'] = $panel;
+        }
+        // Locked apps' maintenance pages: a takeover router or an errors middleware names this service.
+        $pagesSvc = FirewallConfigService::PANEL_PAGES_SERVICE;
+        if (collect($routers)->contains(fn ($r) => ($r['service'] ?? null) === $pagesSvc)
+            || collect($middlewares)->contains(fn ($m) => ($m['errors']['service'] ?? null) === $pagesSvc)) {
+            $services[$pagesSvc] = $panel;
         }
         if ($services) {
             $http['services'] = $services;

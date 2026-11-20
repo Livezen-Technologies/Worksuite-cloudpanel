@@ -28,6 +28,7 @@ class Application extends Model
             'replicas' => 'integer',
             'public_access' => 'boolean',
             'locked_at' => 'datetime',
+            'maintenance_until' => 'datetime',
         ];
     }
 

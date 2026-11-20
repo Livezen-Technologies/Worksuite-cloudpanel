@@ -34,6 +34,18 @@ class FirewallConfigService
     /** Actions Traefik can enforce with no plugin. Everything else degrades to a 429. */
     public const NATIVE_ACTIONS = ['block', 'throttle', 'log'];
 
+    /** File-provider service for pages the panel itself serves (declared by TraefikConfigService when used). */
+    public const PANEL_PAGES_SERVICE = 'dmp-panel-pages';
+
+    /** Above the domain's routers and path rules, below IP blocks (900000) and the public-pages takeovers (100000+). */
+    public const MAINTENANCE_PRIORITY = 99000;
+
+    /** The panel route that renders a locked app's maintenance page. */
+    public static function maintenancePath(\App\Models\Application $app): string
+    {
+        return '/api/v1/hooks/maintenance/'.$app->id;
+    }
+
     /** How a rule counts requests, as a Traefik sourceCriterion. */
     private function sourceCriterion(FirewallRule $rule): array
     {
@@ -87,7 +99,25 @@ class FirewallConfigService
             $keep = $entries->where('list', 'allow')->pluck('cidr')->merge(config('platform.firewall.always_allow', []))->unique()->values();
             $name = $router.'-locked';
             $out['middlewares'][$name] = ['ipAllowList' => array_filter(['sourceRange' => $keep->isEmpty() ? ['127.0.0.1/32'] : $keep->all()] + self::ipStrategy())];
-            $out['site'][] = $name;
+            // The public sees the branded maintenance page (503 + Retry-After), served by the panel.
+            $path = self::maintenancePath($app);
+            if ((int) config('platform.traefik.forwarded_depth', 0) === 0) {
+                // A takeover router above the domain's own for everyone outside the kept ranges, so
+                // its status is the page's 503. Kept addresses fall through to the app as before.
+                $out['middlewares'][$router.'-maintenance'] = ['replacePath' => ['path' => $path]];
+                $except = $keep->map(fn ($c) => 'ClientIP(`'.$c.'`)')->implode(' || ');
+                $out['routers'][$router.'-maintenance'] = array_filter([
+                    'rule' => '('.$rule.')'.($except !== '' ? ' && !('.$except.')' : ''),
+                    'entryPoints' => [config('platform.traefik.entrypoint')], 'service' => self::PANEL_PAGES_SERVICE,
+                    'priority' => self::MAINTENANCE_PRIORITY, 'middlewares' => [$router.'-maintenance'], 'tls' => $tls,
+                ]);
+                $out['site'][] = $name;
+            } else {
+                // Behind a CDN ClientIP() cannot see the visitor, so the allow list stays the gate and an
+                // errors middleware wrapping it swaps its bare 403 body for the page.
+                $out['middlewares'][$router.'-maintenance'] = ['errors' => ['status' => ['403'], 'service' => self::PANEL_PAGES_SERVICE, 'query' => $path]];
+                array_push($out['site'], $router.'-maintenance', $name);
+            }
 
             return $out;
         }

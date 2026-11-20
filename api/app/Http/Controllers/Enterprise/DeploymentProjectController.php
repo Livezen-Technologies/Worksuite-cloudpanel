@@ -262,7 +262,7 @@ class DeploymentProjectController extends Controller
             'app_url' => $webVar((string) config('enterprise.env.base_url'))?->value,
             'timezone' => $webVar($tzKey)?->value,
             'timezone_key' => $tzKey,
-            'maintenance' => ['enabled' => $web ? $web->public_access === false : false, 'reason' => $web?->lock_reason, 'since' => $web?->locked_at],
+            'maintenance' => ['enabled' => $web ? $web->public_access === false : false, 'reason' => $web?->lock_reason, 'since' => $web?->locked_at, 'until' => $web?->maintenance_until],
             'restart_policy' => ['value' => 'unless-stopped', 'editable' => false],
             'version' => $dep->version,
             'image' => EnterpriseProvisioningService::image($dep->version),
@@ -290,6 +290,7 @@ class DeploymentProjectController extends Controller
             'timezone' => ['sometimes', 'string', Rule::in(timezone_identifiers_list())],
             'maintenance' => 'sometimes|boolean',
             'maintenance_reason' => 'nullable|string|max:255',
+            'maintenance_until' => 'nullable|date|after:now',
             'version' => ['sometimes', 'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/'],
             'redeploy' => 'sometimes|boolean',
         ]);
@@ -330,7 +331,7 @@ class DeploymentProjectController extends Controller
                 $this->audit->log('enterprise.deployment.settings.env', 'enterprise_deployment', $dep->id, ['changes' => $changed], $dep->organization_id);
             }
             if (array_key_exists('maintenance', $data) && isset($apps['app'])) {
-                $request->merge(['reason' => $data['maintenance_reason'] ?? null]);
+                $request->merge(['reason' => $data['maintenance_reason'] ?? null, 'until' => $data['maintenance_until'] ?? null]);
                 app(ProjectFirewallController::class)->lock($request, $p, $apps['app']->id, $data['maintenance'] ? 'lock' : 'unlock');
             }
             $redeploy = null;

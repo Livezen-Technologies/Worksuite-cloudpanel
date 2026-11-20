@@ -309,9 +309,9 @@ class FirewallController extends Controller
     /** Locks an application: every one of its domains answers 403 to the public. */
     public function lockApp(Request $request, string $id)
     {
-        $data = $request->validate(['reason' => 'nullable|string|max:255']);
+        $data = $request->validate(['reason' => 'nullable|string|max:255', 'until' => 'nullable|date|after:now']);
         $app = $this->lockable($request, $id);
-        $app->forceFill(['public_access' => false, 'lock_reason' => $data['reason'] ?? null, 'locked_at' => now(), 'locked_by' => $request->user()?->id])->save();
+        $app->forceFill(['public_access' => false, 'lock_reason' => $data['reason'] ?? null, 'locked_at' => now(), 'locked_by' => $request->user()?->id, 'maintenance_until' => $data['until'] ?? null])->save();
         app(\App\Services\AuditLogger::class)->log('app.lock', 'applications', $app->id, ['application' => $app->name, 'reason' => $data['reason'] ?? null]);
         $this->traefik->push();
 
@@ -323,7 +323,7 @@ class FirewallController extends Controller
     {
         $app = $this->lockable($request, $id);
         $was = ['reason' => $app->lock_reason, 'locked_at' => $app->locked_at?->toIso8601String()];
-        $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null])->save();
+        $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null, 'maintenance_until' => null])->save();
         app(\App\Services\AuditLogger::class)->log('app.unlock', 'applications', $app->id, ['application' => $app->name, 'previous' => $was]);
         $this->traefik->push();
 
@@ -339,7 +339,7 @@ class FirewallController extends Controller
 
     private function lockState(\App\Models\Application $app): array
     {
-        return ['id' => $app->id, 'name' => $app->name, 'public_access' => (bool) $app->public_access, 'lock_reason' => $app->lock_reason, 'locked_at' => $app->locked_at];
+        return ['id' => $app->id, 'name' => $app->name, 'public_access' => (bool) $app->public_access, 'lock_reason' => $app->lock_reason, 'locked_at' => $app->locked_at, 'maintenance_until' => $app->maintenance_until];
     }
 
     /** Whether two CIDR ranges share any address (one contains the other's network address). */

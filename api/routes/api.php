@@ -44,6 +44,8 @@ Route::get('git/oauth/{provider}/callback', [\App\Http\Controllers\GitSourceCont
 Route::post('site/contact', [\App\Http\Controllers\SiteController::class, 'contact'])->middleware('throttle:5,1')->name('site.contact');
 Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('throttle:api')->name('hooks.git');
 Route::match(['get', 'post'], 'hooks/wake', [HookController::class, 'wake'])->middleware('throttle:20,1')->name('hooks.wake');
+// A locked app's maintenance page, fetched by Traefik (never by the visitor directly); cached, so no per-IP throttle.
+Route::get('hooks/maintenance/{app}', [\App\Http\Controllers\MaintenancePageController::class, 'show'])->whereUuid('app')->name('hooks.maintenance');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
 Route::match(['get', 'post'], 'shares/{token}', [\App\Http\Controllers\ShareController::class, 'show'])->middleware('throttle:api')->where('token', '[A-Za-z0-9]{40}')->name('files.share-public');

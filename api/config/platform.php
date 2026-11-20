@@ -127,6 +127,14 @@ return [
         'forwarded_depth' => (int) env('TRAEFIK_FORWARDED_DEPTH', 0),
     ],
 
+    // A locked app's public maintenance page (hooks/maintenance/{app}).
+    'maintenance_page' => [
+        // Off by default: the link tells every visitor where the panel lives. Turn on only where the panel URL is public anyway.
+        'admin_link' => (bool) env('MAINTENANCE_PAGE_ADMIN_LINK', false),
+        // Retry-After when no expected end is set, in seconds.
+        'retry_after' => (int) env('MAINTENANCE_PAGE_RETRY_AFTER', 300),
+    ],
+
     'firewall' => [
         // Ranges that an allow-list-only domain always admits, so administrators cannot lock
         // themselves out (comma separated CIDRs, e.g. the office and the panel host).
