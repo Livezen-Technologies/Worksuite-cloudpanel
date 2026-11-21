@@ -218,6 +218,68 @@ class EnterpriseProvisioningTest extends TestCase
         $this->assertSame(['enterprise.deploy'], $user->tokens()->first()->abilities);
     }
 
+    public function test_bootstrap_runs_as_root_and_failures_keep_a_diagnosis(): void
+    {
+        [, $token, , $agent] = $this->setUpPanel();
+        config(['enterprise.require_loaded_image' => false]);
+        $this->assertSame('0:0', config('enterprise.exec_user'), 'the entrypoint writes .env as root, then drops to www-data');
+        $id = $this->api($token)->withHeader('Idempotency-Key', 'c1')->postJson('/api/v1/enterprise/deployments', $this->body())->json('data.deployment_id');
+        $this->ack($agent, 'container.create');
+        $this->sync();
+        $this->ack($agent, 'container.create');
+        $this->passHealthChecks($agent);
+        $this->sync();
+
+        // Retry on bootstrap needs the wizard payload, which the panel never keeps.
+        $this->api($token)->withHeader('Idempotency-Key', 'r0')->postJson("/api/v1/enterprise/deployments/{$id}/configure", ['bootstrap' => ['administrator' => ['password' => 'Adm1n-Secret!']]])->assertStatus(202);
+        $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
+        $this->assertSame('host', $exec['payload']['mode']);
+        $this->assertSame('0:0', $exec['payload']['user']);
+        $this->assertStringStartsWith('docker exec -u 0:0 ', $exec['payload']['command']);
+        $this->assertStringContainsString('worksuite-entrypoint spark enterprise:bootstrap --json -', $exec['payload']['command']);
+        $b64 = base64_encode(json_encode(['administrator' => ['password' => 'Adm1n-Secret!']]));
+        $out = "+ printf %s {$b64}\n/usr/local/bin/worksuite-entrypoint: 28: cannot create .env: Permission denied\nDB_PASSWORD=hunter2222";
+        $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 2, 'output' => $out]]);
+        $err = $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}")->assertJsonPath('data.status', 'failed')->json('data.errors.0');
+        $this->assertSame('bootstrap', $err['step']);
+        $this->assertSame('EXEC_PERMISSION', $err['code']);
+        $this->assertStringContainsString('press Retry', $err['hint']);
+        $this->assertStringContainsString('Permission denied', $err['detail']);
+        $this->assertStringContainsString('Permission denied', $err['message']);
+        $stored = json_encode(EnterpriseDeployment::find($id)->getAttributes());
+        $this->assertStringNotContainsString('Adm1n-Secret', $stored);
+        $this->assertStringNotContainsString($b64, $stored);
+        $this->assertStringNotContainsString('hunter2222', $stored);
+
+        $this->api($token)->withHeader('Idempotency-Key', 'r1')->postJson("/api/v1/enterprise/deployments/{$id}/steps/bootstrap/retry")
+            ->assertStatus(409)->assertJsonPath('error.code', 'bootstrap_needs_payload');
+
+        // Cloud re-posts configure: accepted from failed; a JSON error code keeps its fields.
+        $this->api($token)->withHeader('Idempotency-Key', 'r2')->postJson("/api/v1/enterprise/deployments/{$id}/configure", ['bootstrap' => ['x' => 1]])
+            ->assertStatus(202)->assertJsonPath('data.status', 'configuring');
+        $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
+        $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 2, 'output' => '{"ok":false,"error":"INVALID_INPUT","message":"Some settings are invalid.","fields":{"administrator.email":["Required."]}}']]);
+        $err = $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}")->json('data.errors.0');
+        $this->assertSame('INVALID_INPUT', $err['code']);
+        $this->assertSame('Some settings are invalid.', $err['message']);
+        $this->assertSame(['administrator.email' => ['Required.']], $err['fields']);
+
+        // The database not answering.
+        $this->api($token)->withHeader('Idempotency-Key', 'r3')->postJson("/api/v1/enterprise/deployments/{$id}/configure", ['bootstrap' => ['x' => 2]])->assertStatus(202);
+        $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
+        $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 1, 'output' => 'SQLSTATE[HY000] [2002] Connection refused']]);
+        $err = $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}")->json('data.errors.0');
+        $this->assertSame('DB_UNREACHABLE', $err['code']);
+        $this->assertStringContainsString('database did not answer', $err['message']);
+    }
+
+    public function test_exec_user_other_than_root_keeps_container_mode(): void
+    {
+        config(['enterprise.exec_user' => '33:33']);
+        $p = \App\Services\EnterpriseProvisioningService::execPayload('ent-acme-web', 'true');
+        $this->assertSame(['container', 'ent-acme-web', '33:33'], [$p['mode'], $p['container'], $p['user']]);
+    }
+
     private function stepOf(EnterpriseDeployment $dep, string $name): ?string
     {
         return collect($dep->steps)->firstWhere('name', $name)['status'] ?? null;

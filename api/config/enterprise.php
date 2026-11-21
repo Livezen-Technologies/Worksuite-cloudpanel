@@ -43,8 +43,13 @@ return [
     'images_stale_after' => 300,
     'images_command' => "docker images --format '{{.Repository}}:{{.Tag}}'",
     'bootstrap_exit_codes' => ['ok' => [0, 3], 'licence_failed' => [5]],
-    // Numeric, non-root user the commands run as inside the container (the agent refuses root).
-    'exec_user' => env('ENTERPRISE_EXEC_USER', '33:33'),
+    // User the bootstrap, status and licence-refresh commands run as inside the web container.
+    // Root (0:0): `worksuite-entrypoint` writes /var/www/html/.env and chowns the writable volume,
+    // then drops to www-data itself (su) before running spark. Run as 33:33 it dies at once with
+    // ".env: Permission denied" and shell exit 2 (computerage, 1.33.0). The agent's container mode
+    // refuses root, so a root exec goes through host mode as `docker exec -u 0:0 <container>`;
+    // any other numeric user keeps the container mode.
+    'exec_user' => env('ENTERPRISE_EXEC_USER', '0:0'),
     'exec_timeout' => 600,
     'workdir' => env('ENTERPRISE_WORKDIR', '/var/www/html'),
     // How often an active deployment's `enterprise:status` is refreshed (minutes).

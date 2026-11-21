@@ -27,7 +27,7 @@ settings live in `api/config/enterprise.php`.
 | POST | `deployments/{ref}/domains/{domain}/primary` | | 202 deployment; APP_URL switches and web redeploys; 409 until the domain is verified with TLS active |
 | DELETE | `deployments/{ref}/domains/{domain}` | | deployment (removing the primary custom domain switches back to the platform address; the platform address cannot be removed) |
 | POST | `deployments/{ref}/licence-refresh` | | 202 `{job_id, status}`; runs `worksuite-entrypoint spark license:refresh` in web; step `licence_refresh` (and a failed `licence` step turns succeeded) |
-| POST | `deployments/{ref}/steps/{step}/retry` | step ∈ image, database, redis, app, worker, domain, custom_domain, licence, licence_refresh, redeploy, resize | 202 deployment; 409 when the step has not failed, 422 for other steps; a failed bootstrap is retried with `configure`. A failed deployment returns to `provisioning` (or `active` if it was activated) |
+| POST | `deployments/{ref}/steps/{step}/retry` | step ∈ image, database, redis, app, worker, domain, custom_domain, licence, licence_refresh, redeploy, resize | 202 deployment; 409 when the step has not failed, 422 for other steps; `bootstrap` returns 409 `bootstrap_needs_payload` with `error.hint` (the panel never keeps the wizard payload; Cloud re-posts `configure`). A failed deployment returns to `provisioning` (or `active` if it was activated) |
 | POST | `deployments/{ref}/purge` | `{confirm: "<slug>"}` | deployment, status `purged` (containers, volumes, databases, domains, project removed) |
 
 Statuses: `queued → provisioning → awaiting_setup → configuring → active`, plus `failed`, `stopped`,
@@ -35,7 +35,7 @@ Statuses: `queued → provisioning → awaiting_setup → configuring → active
 
 Deployment: `{id, external_id, customer_name, slug, version, image, size, status, status_reason,
 project_id, node{id,name,region}, urls{app,platform,custom,login,panel}, health (ok\|degraded\|down), domain{name,dns_status,https_status (ok\|pending\|failed),dns_raw,https_raw,records},
-custom_domain{…}|null, steps[{name,label,status,started_at,finished_at,message}], errors[{step,message,at}],
+custom_domain{…}|null, steps[{name,label,status,started_at,finished_at,message}], errors[{step,message,detail,code,hint,fields?,at}] (see Errors),
 containers[{role,name,state,health,cpu_pct,mem_mb,started_at}], resources{cpu_pct,ram_mb,ram_limit_mb,cpu_limit,disk_gb,node_disk_pct},
 limits{size (preset or `custom`), cpus, ram_mb, worker_cpus, worker_ram_mb, disk_gb, fpm_max_children},
 login{url (`<app url>/login`), admin_email}, domains[domain view], app_status (last enterprise:status JSON), bootstrap (bootstrap result JSON, secrets dropped), created_at, updated_at, activated_at, deleted_at, purged_at}`.
@@ -48,6 +48,30 @@ Bootstrap: `worksuite-entrypoint spark enterprise:bootstrap --json -` in the web
 stdin (sent base64; the command is redacted from the agent command once it finishes), result = the
 last JSON line. Exit 0 or 3 → active; 5 → active with the licence step failed; anything else → failed.
 A custom domain sets APP_URL to it and redeploys web.
+
+Exec user: bootstrap, status and licence refresh run as root (`ENTERPRISE_EXEC_USER`, default `0:0`)
+because the image's entrypoint writes `.env` and chowns before dropping to www-data for spark. The
+agent's container mode refuses root, so a root exec is sent in host mode as `docker exec -u 0:0 <web>`.
+
+Errors: every failed step in `errors[]` carries `message` (never empty), `detail` (redacted tail of the
+output, last 60 lines: secrets, `*key*/password/secret/token=` values and base64 blobs such as the
+bootstrap payload are removed; the administrator password is never stored), `code` and `hint` (fixing
+guide). `fields` is kept when enterprise:bootstrap printed them. Codes:
+
+| code | when |
+|---|---|
+| `EXEC_PERMISSION` | exit 2/126 with "Permission denied" (ran without root) |
+| `EXEC_USER_REFUSED` | the agent refused the exec user |
+| `INVALID_INPUT`, `ALREADY_BOOTSTRAPPED`, `MIGRATION_FAILED`, `ROLES_MISSING`, `BOOTSTRAP_FAILED` | bootstrap JSON `code`/`error` |
+| `LICENCE_FAILED` | bootstrap exit 5 (step `licence`) or license:refresh failed |
+| `DB_UNREACHABLE` | SQLSTATE 2002/2003/2006/1045, connection refused: the database did not answer |
+| `TIMEOUT` | exit 124 |
+| `CONTAINER_NOT_RUNNING` | no such / not running container |
+| `IMAGE_MISSING` | app/worker deploy failed pulling or finding the image |
+| `CONTAINER_UNHEALTHY` | app/worker not healthy; `detail` holds the container's last log lines |
+| `DB_CONTAINER_FAILED` | database/redis container failed to start |
+| `DNS_CONFLICT`, `TLS_FAILED` | domain / custom_domain step |
+| `EXEC_FAILED` | any other failed exec |
 
 Webhooks: `POST callback_url` on every status change, body `{id, event: "deployment.status",
 occurred_at, previous_status, deployment}`, headers `X-Enterprise-Event`, `X-Enterprise-Event-Id`,

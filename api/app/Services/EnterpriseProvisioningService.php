@@ -257,7 +257,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                     if ($row?->status === 'running') {
                         $this->step($dep, $step, 'succeeded', 'Running');
                     } elseif (! $row || $row->status === 'failed') {
-                        $this->fail($dep, $step, ucfirst($step).' container failed to start.');
+                        $this->fail($dep, $step, ucfirst($step).' container failed to start.', ['code' => 'DB_CONTAINER_FAILED', 'hint' => self::HINTS['DB_CONTAINER_FAILED']]);
 
                         return;
                     }
@@ -277,7 +277,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                     if ($app?->status === 'running') {
                         $this->step($dep, $step, 'succeeded', 'Running '.self::image($dep->version));
                     } elseif (! $app || $app->status === 'failed' || in_array($last?->status, ['failed', 'rolled_back'], true)) {
-                        $this->fail($dep, $step, Str::limit((string) (Job::find($last?->job_id)?->error ?? 'The container did not become healthy.'), 250));
+                        $err = (string) (Job::find($last?->job_id)?->error ?? 'The container did not become healthy.');
+                        $this->fail($dep, $step, Str::limit($this->redact($dep, $err), 250), $this->containerDiag($dep, $step, $err));
 
                         return;
                     }
@@ -337,6 +338,17 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     }
 
     /** The notice URL the app polls for scheduled maintenance. Returns true when it was added or changed. */
+    /** IMAGE_MISSING when the pull/run said so, otherwise CONTAINER_UNHEALTHY with the container's last log lines. */
+    private function containerDiag(EnterpriseDeployment $dep, string $role, string $error): array
+    {
+        if (preg_match('/No such image|manifest unknown|pull access denied|not found: manifest|repository does not exist|image .* not found/i', $error)) {
+            return ['code' => 'IMAGE_MISSING', 'hint' => self::HINTS['IMAGE_MISSING'], 'detail' => $this->tail($dep, $error, 20)];
+        }
+        $lines = rescue(fn () => $this->logs($dep, $role, 40)['lines'] ?? [], [], false);
+
+        return ['code' => 'CONTAINER_UNHEALTHY', 'hint' => self::HINTS['CONTAINER_UNHEALTHY'], 'detail' => $this->tail($dep, trim($error."\n".implode("\n", (array) $lines)), 40)];
+    }
+
     public static function ensureNoticeUrl(Application $app): bool
     {
         $key = (string) config('enterprise.env.maintenance_notice_url');
@@ -406,8 +418,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $this->step($dep, $role, 'running', 'Deploying '.self::image($dep->version));
         }
         $published ??= [];
-        $this->step($dep, 'domain', collect($published)->contains(fn ($r) => in_array($r['status'], ['conflict', 'failed'], true)) ? 'failed' : 'running',
-            trim($dep->hostname.' '.(self::zoneSummary($published) ?? '')));
+        $bad = collect($published)->contains(fn ($r) => in_array($r['status'], ['conflict', 'failed'], true));
+        $this->step($dep, 'domain', $bad ? 'failed' : 'running',
+            trim($dep->hostname.' '.(self::zoneSummary($published) ?? '')), null, $bad ? ['code' => 'DNS_CONFLICT', 'hint' => self::HINTS['DNS_CONFLICT'], 'detail' => self::zoneSummary($published)] : []);
         $this->stepDns($dep, 'domain', $published);
     }
 
@@ -426,7 +439,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $published = (array) (collect($dep->steps ?? [])->firstWhere('name', $step)['dns'] ?? []);
         $conflict = collect($published)->contains(fn ($r) => in_array($r['status'], ['conflict', 'failed'], true));
         $zone = self::zoneSummary($published);
-        $this->step($dep, $step, $done ? 'succeeded' : ($conflict ? 'failed' : 'running'), $done ? "https://{$domain->name} is live" : "DNS {$domain->dns_status}, TLS ".($domain->https_status ?? 'pending').($zone ? '. '.$zone : ''));
+        $tlsFailed = ! $done && self::tlsState($domain->https_status) === 'failed';
+        $diag = $conflict ? ['code' => 'DNS_CONFLICT', 'hint' => self::HINTS['DNS_CONFLICT'], 'detail' => $zone]
+            : ($tlsFailed ? ['code' => 'TLS_FAILED', 'hint' => self::HINTS['TLS_FAILED'], 'detail' => "DNS {$domain->dns_status}, TLS {$domain->https_status}"] : []);
+        $this->step($dep, $step, $done ? 'succeeded' : ($conflict || $tlsFailed ? 'failed' : 'running'), $done ? "https://{$domain->name} is live" : "DNS {$domain->dns_status}, TLS ".($domain->https_status ?? 'pending').($zone ? '. '.$zone : ''), null, $diag);
     }
 
     /** Runs the wizard's bootstrap inside the app container; attaches the customer's own domain when given. */
@@ -452,7 +468,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             }
             $json = json_encode((object) $bootstrap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && printf %s '.base64_encode($json).' | base64 -d | '.config('enterprise.bootstrap_command');
-            if (strlen($command) > 4000) {
+            if (strlen(self::execPayload(str_repeat('x', 64), $command)['command']) > 4000) {
                 throw ApiException::validation(['bootstrap' => ['The bootstrap settings are too large.']]);
             }
             $this->step($dep, 'setup', 'succeeded', 'Setup wizard finished');
@@ -477,13 +493,26 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $container = Container::allTenants()->where('application_id', $app->id)->where('state', 'running')->first();
         $server = Server::allTenants()->findOrFail($dep->server_id);
         $job = $this->jobs->create('enterprise.exec', ['execute'], $dep, ['kind' => $kind, 'deployment_id' => $dep->id], null, $dep->organization_id);
-        $this->bus->dispatch($server, 'cron.exec', [
-            'mode' => 'container', 'container' => $container?->name ?? $app->containerName(), 'user' => (string) config('enterprise.exec_user'),
-            'command' => $command, 'timeout' => (int) config('enterprise.exec_timeout'),
-        ], $job);
+        $this->bus->dispatch($server, 'cron.exec', self::execPayload($container?->name ?? $app->containerName(), $command), $job);
         $kind === 'licence' || $dep->update([$kind === 'bootstrap' ? 'bootstrap_job_id' : 'status_job_id' => $job->id] + ($kind === 'status' ? ['status_checked_at' => now()] : []));
 
         return $job;
+    }
+
+    /**
+     * The cron.exec payload. The image's entrypoint must start as root (it writes .env and chowns,
+     * then drops to www-data for spark); the agent's container mode refuses root, so a root user
+     * runs as `docker exec -u 0:0` in host mode. Any other numeric user keeps the container mode.
+     */
+    public static function execPayload(string $container, string $command): array
+    {
+        $user = (string) config('enterprise.exec_user');
+        $timeout = (int) config('enterprise.exec_timeout');
+        if (preg_match('/^0(:0)?$/', $user)) {
+            return ['mode' => 'host', 'command' => 'docker exec -u '.$user.' '.escapeshellarg($container).' sh -c '.escapeshellarg($command), 'timeout' => $timeout, 'user' => $user];
+        }
+
+        return ['mode' => 'container', 'container' => $container, 'user' => $user, 'command' => $command, 'timeout' => $timeout];
     }
 
     public function onCommandFinished(AgentCommand $command, Job $job): void
@@ -510,7 +539,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $codes = (array) config('enterprise.bootstrap_exit_codes');
         $licenceFailed = $kind === 'bootstrap' && $exit !== null && in_array((int) $exit, (array) ($codes['licence_failed'] ?? []), true);
         $ok = $exit !== null && ($kind === 'bootstrap' ? in_array((int) $exit, (array) ($codes['ok'] ?? [0]), true) || $licenceFailed : (int) $exit === 0);
-        $ok ? $this->jobs->succeed($job, ['exit_code' => $exit]) : $this->jobs->fail($job, Str::limit($this->redact($dep, $result['error'] ?? $command->message ?? $text ?: 'exit '.$exit), 250));
+        $ok ? $this->jobs->succeed($job, ['exit_code' => $exit]) : $this->jobs->fail($job, $this->diagnose($dep, (string) $kind, $exit, $text, $result, $command->message)['message']);
         if (! $dep) {
             return;
         }
@@ -520,7 +549,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             return;
         }
         if (($job->payload['kind'] ?? null) === 'licence') {
-            $this->step($dep, 'licence_refresh', $ok ? 'succeeded' : 'failed', $ok ? 'Licence refreshed' : Str::limit($this->redact($dep, (string) ($result['error'] ?? $command->message ?? 'license:refresh failed (exit '.$exit.')')), 250), 'Licence refresh');
+            $diag = $ok ? [] : $this->diagnose($dep, 'licence', $exit, $text, $result, $command->message);
+            $this->step($dep, 'licence_refresh', $ok ? 'succeeded' : 'failed', $ok ? 'Licence refreshed' : $diag['message'], 'Licence refresh', $diag);
             if ($ok && $this->stepStatus($dep, 'licence') === 'failed') {
                 $this->step($dep, 'licence', 'succeeded', 'Licence active', 'Licence');
             }
@@ -533,15 +563,93 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $this->step($dep, 'bootstrap', 'succeeded', (int) $exit === 3 ? 'WorkSuite was already configured' : 'WorkSuite configured');
             if ($licenceFailed) {
                 // Set up and usable; the licence is retried with `license:activate`.
-                $this->step($dep, 'licence', 'failed', Str::limit($this->redact($dep, (string) ($result['error'] ?? 'Licence activation failed; retry license:activate.')), 250), 'Licence');
+                $diag = $this->diagnose($dep, 'bootstrap', $exit, $text, $result, $command->message);
+                $this->step($dep, 'licence', 'failed', $diag['message'], 'Licence', $diag);
             }
             $dep->update(['activated_at' => now()]);
             $this->step($dep, 'live', 'succeeded', 'https://'.($dep->custom_domain ?: $dep->hostname), 'Live');
             $this->setStatus($dep, 'active');
             $this->exec($dep->fresh(), 'status', (string) config('enterprise.status_command'));
         } else {
-            $this->fail($dep, 'bootstrap', Str::limit($this->redact($dep, (string) ($result['error'] ?? $command->message ?? 'enterprise:bootstrap failed (exit '.$exit.')')), 250));
+            $diag = $this->diagnose($dep, 'bootstrap', $exit, $text, $result, $command->message);
+            $this->fail($dep, 'bootstrap', $diag['message'], $diag);
         }
+    }
+
+    /** Fixing-guide text per diagnostic code, shown with errors[]. */
+    public const HINTS = [
+        'EXEC_PERMISSION' => 'The command ran without root inside the container; the panel now runs it as root — press Retry.',
+        'EXEC_USER_REFUSED' => 'The node agent refused the exec user. Set ENTERPRISE_EXEC_USER=0:0 on the panel (the default) and press Retry.',
+        'INVALID_INPUT' => 'The setup wizard sent settings WorkSuite rejected (see fields). Ask the customer to correct them and finish the setup wizard again.',
+        'ALREADY_BOOTSTRAPPED' => 'WorkSuite is already configured in this deployment; sign in with the existing administrator or reset the deployment.',
+        'MIGRATION_FAILED' => 'The database migrations failed (see detail). Check the database container and its logs, then finish the setup wizard again.',
+        'ROLES_MISSING' => 'The image has no seeded roles. Redeploy a complete WorkSuite image, then finish the setup wizard again.',
+        'BOOTSTRAP_FAILED' => 'enterprise:bootstrap failed (see detail). Check the app container logs, then finish the setup wizard again.',
+        'LICENCE_FAILED' => 'WorkSuite is set up but the licence did not activate. Check the licence in Cloud Admin, then retry the licence step.',
+        'DB_UNREACHABLE' => 'The database did not answer. Check that the database container is running (retry the database step), then retry.',
+        'TIMEOUT' => 'The command ran past its time limit. Check the app container logs and the node load, then retry.',
+        'CONTAINER_NOT_RUNNING' => 'The app container is not running. Retry the app step, wait for it to be healthy, then retry.',
+        'IMAGE_MISSING' => 'The WorkSuite image is not on the node. Load it with docker load (build.sh --save) or pick a version the node has, then retry the step.',
+        'CONTAINER_UNHEALTHY' => 'The container did not become healthy (see the last log lines in detail). Fix the cause, then retry the step.',
+        'DB_CONTAINER_FAILED' => 'The database or Redis container failed to start. Check the node disk and memory, then retry the step.',
+        'DNS_CONFLICT' => 'A DNS record for this name conflicts or could not be published. Remove the conflicting record in the zone, then retry the domain step.',
+        'TLS_FAILED' => 'The certificate could not be issued. Check that DNS points at the node and port 80 is reachable, then retry the domain step.',
+        'EXEC_FAILED' => 'The command failed (see detail). Check the app container logs, then retry.',
+    ];
+
+    /** JSON error codes enterprise:bootstrap prints. */
+    private const BOOTSTRAP_CODES = ['INVALID_INPUT', 'ALREADY_BOOTSTRAPPED', 'MIGRATION_FAILED', 'ROLES_MISSING', 'BOOTSTRAP_FAILED'];
+
+    /**
+     * Turns a failed exec into {message, code, hint, detail[, fields]}: the redacted output tail is kept
+     * so an empty error never reaches the deployment again. Never carries the bootstrap payload.
+     */
+    public function diagnose(?EnterpriseDeployment $dep, string $kind, $exit, string $text, ?array $result, ?string $agentMessage): array
+    {
+        $exit = $exit === null ? null : (int) $exit;
+        $all = $text."\n".$agentMessage;
+        $jsonCode = strtoupper((string) ($result['code'] ?? ''));
+        if (! in_array($jsonCode, self::BOOTSTRAP_CODES, true) && preg_match('/^[A-Z_]+$/', (string) ($result['error'] ?? ''))) {
+            $jsonCode = (string) $result['error'];
+        }
+        $code = match (true) {
+            str_contains((string) $agentMessage, 'non-root user') => 'EXEC_USER_REFUSED',
+            in_array($jsonCode, self::BOOTSTRAP_CODES, true) => $jsonCode,
+            in_array($exit, [2, 126], true) && stripos($all, 'permission denied') !== false => 'EXEC_PERMISSION',
+            $kind === 'bootstrap' && $exit === 5 => 'LICENCE_FAILED',
+            (bool) preg_match('/SQLSTATE\[HY000\] \[(2002|2003|2006|1045)\]|Connection refused|Unable to connect to (the )?database|Can.t connect to (local )?(MySQL|MariaDB)|getaddrinfo .*db-/i', $all) => 'DB_UNREACHABLE',
+            $exit === 124 => 'TIMEOUT',
+            (bool) preg_match('/No such container|is not running/i', $all) => 'CONTAINER_NOT_RUNNING',
+            $kind === 'licence' => 'LICENCE_FAILED',
+            default => $kind === 'bootstrap' ? 'BOOTSTRAP_FAILED' : 'EXEC_FAILED',
+        };
+        $label = ['bootstrap' => 'enterprise:bootstrap', 'licence' => 'license:refresh', 'status' => 'enterprise:status'][$kind] ?? $kind;
+        $said = trim((string) ($result['message'] ?? $result['error'] ?? ''));
+        $message = $said !== '' && $said !== $jsonCode ? $said : $label.' failed (exit '.($exit ?? '?').')';
+        if ($code === 'DB_UNREACHABLE') {
+            $message = $label.' failed: the database did not answer';
+        } elseif ($said === '' || $said === $jsonCode) {
+            $lines = collect(explode("\n", trim($this->tail($dep, $all, 60))))->filter(fn ($l) => trim($l) !== '');
+            $last = $lines->last(fn ($l) => preg_match('/denied|error|fail|exception|fatal|cannot|refused/i', $l)) ?? $lines->last();
+            $last && $message .= ': '.trim($last);
+        }
+        $diag = ['message' => Str::limit($this->redact($dep, $message), 250), 'code' => $code, 'hint' => self::HINTS[$code], 'detail' => $this->tail($dep, $all, 60)];
+        if (! empty($result['fields']) && is_array($result['fields'])) {
+            $diag['fields'] = json_decode($this->redact($dep, (string) json_encode($result['fields'])), true) ?? [];
+        }
+
+        return $diag;
+    }
+
+    /** The last lines of command output, redacted: secrets, key=… pairs and base64 blobs (the bootstrap payload) removed. */
+    public function tail(?EnterpriseDeployment $dep, string $text, int $lines = 60): string
+    {
+        $text = (string) preg_replace('/printf %s \S+/', 'printf %s [payload]', $text);
+        $text = (string) preg_replace('#[A-Za-z0-9+/]{60,}={0,2}#', '[redacted]', $text);
+        $text = (string) preg_replace('/(\b[\w.-]*(?:key|password|passwd|secret|token)[\w.-]*["\']?\s*[:=]\s*["\']?)[^\s"\',}]+/i', '$1[redacted]', $text);
+        $out = implode("\n", array_slice(explode("\n", rtrim($text)), -$lines));
+
+        return Str::limit($this->redact($dep, $out), 8000);
     }
 
     /** The last JSON object a command printed (spark may print warnings first). */
@@ -746,7 +854,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             'domain' => $domainView($dep->hostname),
             'custom_domain' => $custom,
             'steps' => $dep->steps ?? [],
-            'errors' => collect($dep->steps ?? [])->where('status', 'failed')->map(fn ($s) => ['step' => $s['name'], 'message' => $s['message'], 'at' => $s['finished_at']])->values(),
+            'errors' => collect($dep->steps ?? [])->where('status', 'failed')->map(fn ($s) => ['step' => $s['name'], 'message' => $s['message'],
+                'detail' => $s['detail'] ?? null, 'code' => $s['code'] ?? null, 'hint' => $s['hint'] ?? (isset($s['code']) ? (self::HINTS[$s['code']] ?? null) : null),
+                'at' => $s['finished_at']] + (isset($s['fields']) ? ['fields' => $s['fields']] : []))->values(),
             'containers' => $containers,
             'resources' => [
                 'cpu_pct' => round((float) $containers->sum('cpu_pct'), 1),
@@ -1210,7 +1320,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                     $this->step($dep, $step, 'running', 'Retrying: redeploying '.self::image($dep->version));
                     break;
                 case 'bootstrap':
-                    throw ApiException::conflict('A failed bootstrap is retried by posting configure again with the wizard settings.');
+                    // The panel never keeps the bootstrap payload (it carries the administrator's password).
+                    throw new ApiException('bootstrap_needs_payload', 'The setup settings are not kept by the panel, so the bootstrap cannot be re-run from here; Cloud re-posts configure with the wizard settings.', 409, [], [
+                        'hint' => 'Ask the customer to finish the setup wizard again (Cloud Admin → Restart setup).',
+                    ]);
                 case 'licence':
                 case 'licence_refresh':
                     $this->exec($dep, 'licence', 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && '.config('enterprise.licence_refresh_command'));
@@ -1238,7 +1351,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         return collect($dep->steps ?? [])->firstWhere('name', $name)['status'] ?? null;
     }
 
-    public function step(EnterpriseDeployment $dep, string $name, string $status, ?string $message = null, ?string $label = null): void
+    public function step(EnterpriseDeployment $dep, string $name, string $status, ?string $message = null, ?string $label = null, array $diag = []): void
     {
         $steps = $dep->steps ?? [];
         $now = now()->toIso8601ZuluString();
@@ -1250,9 +1363,12 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $steps[$i]['finished_at'] = null;
             $steps[$i]['started_at'] = null;
         }
-        if ($steps[$i]['status'] === $status && $steps[$i]['message'] === $message) {
+        $diag = $status === 'failed' ? array_intersect_key($diag, array_flip(['code', 'hint', 'detail', 'fields'])) : [];
+        $had = array_intersect_key($steps[$i], array_flip(['code', 'hint', 'detail', 'fields']));
+        if ($steps[$i]['status'] === $status && $steps[$i]['message'] === $message && ($diag === [] || $had == $diag)) {
             return;
         }
+        $steps[$i] = array_diff_key($steps[$i], $had) + $diag;
         $steps[$i]['status'] = $status;
         $steps[$i]['message'] = $message;
         $steps[$i]['started_at'] ??= $now;
@@ -1260,9 +1376,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $dep->update(['steps' => $steps]);
     }
 
-    private function fail(EnterpriseDeployment $dep, string $step, string $message): void
+    private function fail(EnterpriseDeployment $dep, string $step, string $message, array $diag = []): void
     {
-        $this->step($dep, $step, 'failed', $message);
+        $this->step($dep, $step, 'failed', $message, null, $diag);
         $dep->update(['status_reason' => $message]);
         $this->setStatus($dep, 'failed');
     }
