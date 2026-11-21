@@ -9,6 +9,9 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+### Added
+- Enterprise API `POST deployments/{ref}/licence-activate {key}`: activates a WorkSuite Server key (WS-XXXX ×5) in the web container as root via `license:refresh --key -` (key on stdin; never in the command line, the stored command or the audit log, only its last four). `licence-refresh` and `licence-activate` now keep the app's JSON answer (masked key, status, edition, expiry, users) on the `licence_refresh` step as `result`, for Cloud's Licence tab. The default `ENTERPRISE_LICENCE_REFRESH_COMMAND` (`spark license:refresh`) needs WorkSuite Core 1.47.0, which adds that command.
+
 ## [1.33.1] — 2026-11-21
 
 ### Fixed

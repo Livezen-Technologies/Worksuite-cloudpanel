@@ -26,7 +26,8 @@ settings live in `api/config/enterprise.php`.
 | POST | `deployments/{ref}/domains/{domain}/verify` | | domain view (DNS check, then certificate) |
 | POST | `deployments/{ref}/domains/{domain}/primary` | | 202 deployment; APP_URL switches and web redeploys; 409 until the domain is verified with TLS active |
 | DELETE | `deployments/{ref}/domains/{domain}` | | deployment (removing the primary custom domain switches back to the platform address; the platform address cannot be removed) |
-| POST | `deployments/{ref}/licence-refresh` | | 202 `{job_id, status}`; runs `worksuite-entrypoint spark license:refresh` in web; step `licence_refresh` (and a failed `licence` step turns succeeded) |
+| POST | `deployments/{ref}/licence-refresh` | | 202 `{job_id, status}`; runs `worksuite-entrypoint spark license:refresh` in web (prints one JSON line; exit 0 ok, 2 bad key, 3 no licence, 4 failed); the parsed JSON (masked key only) lands on the step as `result`; step `licence_refresh` (and a failed `licence` step turns succeeded) |
+| POST | `deployments/{ref}/licence-activate` | `{key}` (WS-XXXX-XXXX-XXXX-XXXX-XXXX) | 202 `{job_id, status}`; root exec of `license:refresh --key -` with the key on stdin (never in the process list, a log or the stored command); 422 for another format, 409 unless active/configuring; same step `licence_refresh` + `result` |
 | POST | `deployments/{ref}/steps/{step}/retry` | step ∈ image, database, redis, app, worker, domain, custom_domain, licence, licence_refresh, redeploy, resize | 202 deployment; 409 when the step has not failed, 422 for other steps; `bootstrap` returns 409 `bootstrap_needs_payload` with `error.hint` (the panel never keeps the wizard payload; Cloud re-posts `configure`). A failed deployment returns to `provisioning` (or `active` if it was activated) |
 | POST | `deployments/{ref}/purge` | `{confirm: "<slug>"}` | deployment, status `purged` (containers, volumes, databases, domains, project removed) |
 
