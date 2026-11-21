@@ -71,6 +71,11 @@ Artisan::command('firewall:expire-ips', function (\App\Services\TraefikConfigSer
     $this->info("Removed {$n} expired firewall IP entr".($n === 1 ? 'y' : 'ies').'.');
 })->purpose('FW-011: drop expired allow/block list entries and re-render the edge');
 
+Artisan::command('maintenance:apply-schedules', function (\App\Services\MaintenanceScheduleService $schedules) {
+    [$locked, $unlocked] = $schedules->run();
+    $this->info("Scheduled maintenance: {$locked} locked, {$unlocked} unlocked.");
+})->purpose('Lock apps whose scheduled maintenance window has started and unlock the ones it locked once it ends');
+
 Artisan::command('scaling:evaluate', function (\App\Services\ScalingService $scaling) {
     $this->info('Apps rescaled: '.$scaling->evaluate());
 })->purpose('SCL-2: autoscale on CPU and follow scaling schedules');
@@ -448,6 +453,7 @@ Schedule::command('monitoring:prune')->daily();
 Schedule::command('firewall:sync-events')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('firewall:refresh-blocked')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('firewall:expire-ips')->everyMinute()->withoutOverlapping();
+Schedule::command('maintenance:apply-schedules')->everyMinute()->withoutOverlapping();
 Schedule::command('scaling:evaluate')->everyMinute()->withoutOverlapping();
 Schedule::command('cleanup:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('environments:sleep')->everyFiveMinutes()->withoutOverlapping();

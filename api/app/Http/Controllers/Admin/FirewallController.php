@@ -323,9 +323,26 @@ class FirewallController extends Controller
     {
         $app = $this->lockable($request, $id);
         $was = ['reason' => $app->lock_reason, 'locked_at' => $app->locked_at?->toIso8601String()];
-        $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null, 'maintenance_until' => null])->save();
+        $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null, 'maintenance_until' => null] + \App\Services\MaintenanceScheduleService::endedByUnlock($app))->save();
+        app(\App\Services\MaintenanceScheduleService::class)->forget($app);
         app(\App\Services\AuditLogger::class)->log('app.unlock', 'applications', $app->id, ['application' => $app->name, 'previous' => $was]);
         $this->traefik->push();
+
+        return $this->data($this->lockState($app));
+    }
+
+    /** Schedules a maintenance window: the scheduler locks the app at start and unlocks it at end. */
+    public function scheduleMaintenance(Request $request, string $id)
+    {
+        $data = $request->validate(\App\Services\MaintenanceScheduleService::rules());
+        $app = app(\App\Services\MaintenanceScheduleService::class)->set($this->lockable($request, $id), $data);
+
+        return $this->data($this->lockState($app));
+    }
+
+    public function clearMaintenanceSchedule(Request $request, string $id)
+    {
+        $app = app(\App\Services\MaintenanceScheduleService::class)->set($this->lockable($request, $id), null);
 
         return $this->data($this->lockState($app));
     }
@@ -339,7 +356,7 @@ class FirewallController extends Controller
 
     private function lockState(\App\Models\Application $app): array
     {
-        return ['id' => $app->id, 'name' => $app->name, 'public_access' => (bool) $app->public_access, 'lock_reason' => $app->lock_reason, 'locked_at' => $app->locked_at, 'maintenance_until' => $app->maintenance_until];
+        return ['id' => $app->id, 'name' => $app->name, 'public_access' => (bool) $app->public_access, 'lock_reason' => $app->lock_reason, 'locked_at' => $app->locked_at, 'maintenance_until' => $app->maintenance_until, 'maintenance_schedule' => app(\App\Services\MaintenanceScheduleService::class)->present($app)];
     }
 
     /** Whether two CIDR ranges share any address (one contains the other's network address). */

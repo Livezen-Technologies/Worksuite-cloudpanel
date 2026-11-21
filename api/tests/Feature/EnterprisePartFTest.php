@@ -132,6 +132,94 @@ class EnterprisePartFTest extends TestCase
         $this->api($token)->patchJson("{$base}/settings", ['timezone' => 'Mars/Base'])->assertStatus(422);
     }
 
+    public function test_a_scheduled_window_locks_and_unlocks_the_app_and_feeds_the_notice(): void
+    {
+        [$id, $token] = $this->ready();
+        $dep = EnterpriseDeployment::find($id);
+        $base = "/api/v1/enterprise/deployments/{$id}";
+        $web = $dep->app_application_id;
+        $notice = '/api/v1/hooks/maintenance-notice/'.$web;
+
+        // New deployments carry the notice URL for the web app only.
+        $url = EnvVar::where('application_id', $web)->where('key', 'WS_MAINTENANCE_NOTICE_URL')->value('value');
+        $this->assertStringEndsWith('/api/v1/hooks/maintenance-notice/'.$web, (string) $url);
+        $this->assertNull(EnvVar::where('application_id', $dep->worker_application_id)->where('key', 'WS_MAINTENANCE_NOTICE_URL')->first());
+        $this->getJson($notice)->assertOk()->assertJsonPath('data.scheduled', null)->assertJsonPath('data.active', false);
+
+        $start = now()->addDay()->startOfMinute();
+        $end = $start->copy()->addHours(2);
+        $this->api($token)->patchJson("{$base}/settings", ['maintenance_schedule' => ['start' => $end->toIso8601String(), 'end' => $start->toIso8601String()]])->assertStatus(422);
+        $res = $this->api($token)->patchJson("{$base}/settings", ['maintenance_schedule' => ['start' => $start->toIso8601String(), 'end' => $end->toIso8601String(), 'message' => 'Database upgrade']])
+            ->assertOk()->assertJsonPath('data.maintenance.enabled', false)->assertJsonPath('data.maintenance.schedule.message', 'Database upgrade')
+            ->assertJsonPath('data.needs_redeploy', false);
+        $this->assertTrue($start->equalTo($res->json('data.maintenance.schedule.start')));
+        $this->assertTrue(AuditLog::where('action', 'app.maintenance.schedule')->exists());
+        $this->getJson($notice)->assertOk()->assertJsonPath('data.scheduled.message', 'Database upgrade')->assertJsonPath('data.active', false)->assertHeader('Cache-Control', 'max-age=60, public');
+
+        // Nothing happens before the start; the scheduler is idempotent.
+        $this->artisan('maintenance:apply-schedules')->assertSuccessful();
+        $this->assertTrue(Application::allTenants()->find($web)->public_access !== false);
+
+        $this->travelTo($start->copy()->addMinute());
+        $this->artisan('maintenance:apply-schedules')->expectsOutputToContain('1 locked')->assertSuccessful();
+        $this->artisan('maintenance:apply-schedules')->expectsOutputToContain('0 locked, 0 unlocked')->assertSuccessful();
+        $app = Application::allTenants()->find($web);
+        $this->assertFalse($app->public_access);
+        $this->assertTrue($app->maintenance_auto_locked);
+        $this->assertSame('Database upgrade', $app->lock_reason);
+        $this->assertTrue($app->maintenance_until->equalTo($end));
+        $this->getJson($notice)->assertOk()->assertJsonPath('data.active', true);
+        $this->get('/api/v1/hooks/maintenance/'.$web)->assertStatus(503)->assertSee('Database upgrade');
+        $this->assertTrue(AuditLog::where('action', 'app.maintenance.auto_lock')->exists());
+
+        $this->travelTo($end->copy()->addMinute());
+        $this->artisan('maintenance:apply-schedules')->expectsOutputToContain('1 unlocked')->assertSuccessful();
+        $app = Application::allTenants()->find($web);
+        $this->assertTrue($app->public_access);
+        $this->assertNull($app->maintenance_scheduled_start);
+        $this->assertFalse($app->maintenance_auto_locked);
+        $this->assertTrue(AuditLog::where('action', 'app.maintenance.auto_unlock')->exists());
+        $this->api($token)->getJson("{$base}/settings")->assertOk()->assertJsonPath('data.maintenance.schedule', null);
+    }
+
+    public function test_a_window_never_unlocks_an_app_locked_by_hand_and_can_be_cleared(): void
+    {
+        [$id, $token] = $this->ready();
+        $dep = EnterpriseDeployment::find($id);
+        $base = "/api/v1/enterprise/deployments/{$id}";
+        $start = now()->addHour()->startOfMinute();
+        $end = $start->copy()->addHour();
+        $this->api($token)->patchJson("{$base}/settings", ['maintenance_schedule' => ['start' => $start->toIso8601String(), 'end' => $end->toIso8601String()]])->assertOk();
+        $this->api($token)->patchJson("{$base}/settings", ['maintenance' => true, 'maintenance_reason' => 'by hand'])->assertOk();
+
+        $this->travelTo($start->copy()->addMinute());
+        $this->artisan('maintenance:apply-schedules')->expectsOutputToContain('0 locked')->assertSuccessful();
+        $this->travelTo($end->copy()->addMinute());
+        $this->artisan('maintenance:apply-schedules')->expectsOutputToContain('0 unlocked')->assertSuccessful();
+        $app = Application::allTenants()->find($dep->app_application_id);
+        $this->assertFalse($app->public_access, 'a lock the scheduler did not make is left alone');
+        $this->assertSame('by hand', $app->lock_reason);
+        $this->assertNull($app->maintenance_scheduled_start);
+
+        // Clearing with null.
+        $this->api($token)->patchJson("{$base}/settings", ['maintenance_schedule' => ['start' => now()->addDay()->toIso8601String(), 'end' => now()->addDays(2)->toIso8601String()]])->assertOk();
+        $this->api($token)->patchJson("{$base}/settings", ['maintenance_schedule' => null])->assertOk()->assertJsonPath('data.maintenance.schedule', null);
+        $this->assertTrue(AuditLog::where('action', 'app.maintenance.schedule.clear')->exists());
+    }
+
+    public function test_the_notice_allows_only_the_apps_own_domains_and_unknown_apps_get_nothing(): void
+    {
+        [$id] = $this->ready();
+        $web = EnterpriseDeployment::find($id)->app_application_id;
+        $d = Domain::allTenants()->where('application_id', $web)->firstOrFail();
+        $d->forceFill(['dns_status' => 'verified'])->save();
+        $own = $d->name;
+        $this->getJson('/api/v1/hooks/maintenance-notice/'.$web, ['Origin' => 'https://'.$own])->assertOk()->assertHeader('Access-Control-Allow-Origin', 'https://'.$own);
+        $other = $this->getJson('/api/v1/hooks/maintenance-notice/'.$web, ['Origin' => 'https://evil.example']);
+        $this->assertNotSame('https://evil.example', $other->headers->get('Access-Control-Allow-Origin'));
+        $this->getJson('/api/v1/hooks/maintenance-notice/00000000-0000-4000-8000-000000000000')->assertOk()->assertJsonPath('data', ['scheduled' => null, 'active' => false]);
+    }
+
     public function test_backups_list_run_schedule_and_restore_need_confirmation(): void
     {
         [$id, $token] = $this->ready();

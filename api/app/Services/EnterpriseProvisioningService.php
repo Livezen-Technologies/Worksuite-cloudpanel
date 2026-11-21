@@ -336,6 +336,20 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         return $present;
     }
 
+    /** The notice URL the app polls for scheduled maintenance. Returns true when it was added or changed. */
+    public static function ensureNoticeUrl(Application $app): bool
+    {
+        $key = (string) config('enterprise.env.maintenance_notice_url');
+        $url = rtrim((string) config('app.url'), '/').'/api/v1/hooks/maintenance-notice/'.$app->id;
+        $existing = EnvVar::allTenants()->where('application_id', $app->id)->where('key', $key)->first();
+        if ($existing && $existing->value === $url) {
+            return false;
+        }
+        app(\App\Support\Tenant::class)->as($app->organization_id, fn () => EnvVar::updateOrCreate(['application_id' => $app->id, 'key' => $key], ['value' => $url, 'secret' => false]));
+
+        return true;
+    }
+
     private function createApps(EnterpriseDeployment $dep, Database $db, Database $redis, array $size): void
     {
         $env = config('enterprise.env');
@@ -379,6 +393,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             foreach ($vars as [$k, $v, $secret]) {
                 EnvVar::create(['application_id' => $app->id, 'key' => $k, 'value' => $v, 'secret' => $secret]);
             }
+            $public && self::ensureNoticeUrl($app);
             if ($public) {
                 $platform = config('enterprise.domain') === config('platform.domain');
                 $domain = $this->domains->create(['name' => $dep->hostname, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platform, 'is_primary' => true], $platform);
