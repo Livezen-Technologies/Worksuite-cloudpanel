@@ -168,7 +168,9 @@ class EnterprisePartETest extends TestCase
         $this->api($token)->withHeader('Idempotency-Key', 'a1')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => strtolower($key)])->assertStatus(202)->assertJsonStructure(['data' => ['job_id', 'status']]);
         $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
         $this->assertSame(['host', '0:0'], [$exec['payload']['mode'], $exec['payload']['user']]);
-        $this->assertStringContainsString('spark license:refresh --key -', $exec['payload']['command']);
+        $this->assertStringContainsString('WORKSUITE_LICENSE_KEY="$(printf %s ', $exec['payload']['command']);
+        $this->assertStringContainsString('spark license:refresh', $exec['payload']['command']);
+        $this->assertStringNotContainsString('--key -', $exec['payload']['command']);
         $this->assertStringContainsString(base64_encode($key), $exec['payload']['command']);
         $this->assertStringNotContainsString($key, $exec['payload']['command'], 'the key is never in the command line');
         $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => '{"ok":true,"action":"activated","status":"active","key_masked":"WS-****-****-****-****-JK23","edition":"enterprise","expires_at":"2027-11-21T00:00:00Z","max_users":50}']])->assertOk();

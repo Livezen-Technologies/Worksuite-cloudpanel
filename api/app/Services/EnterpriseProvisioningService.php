@@ -1282,8 +1282,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
 
     /**
      * POST licence-activate {key}: activate a WorkSuite Server key (WS-XXXX-XXXX-XXXX-XXXX-XXXX) inside the web
-     * container, then re-pull it — `license:refresh --key -` with the key on stdin, so it is in neither the
-     * process list nor any log (the command is redacted once it has run).
+     * container, then re-pull it — `license:refresh` with the key in WORKSUITE_LICENSE_KEY (base64 in the command, decoded in the
+     * container), so it is in no log (the command is redacted once it has run).
      */
     public function activateLicence(EnterpriseDeployment $dep, string $key): array
     {
@@ -1294,7 +1294,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         if (! in_array($dep->status, ['active', 'configuring'], true) || ! $dep->app_application_id) {
             throw ApiException::conflict("The deployment is {$dep->status}; a licence can be activated once it is active.");
         }
-        $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && printf %s '.base64_encode($key).' | base64 -d | '.config('enterprise.licence_refresh_command').' --key -';
+        // The key travels as WORKSUITE_LICENSE_KEY (decoded inside the container), not `--key -`: CodeIgniter's CLI
+        // parser drops a bare "-" option value, so license:refresh saw no key and answered LICENSE_NONE.
+        $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && WORKSUITE_LICENSE_KEY="$(printf %s '.base64_encode($key).' | base64 -d)" '.config('enterprise.licence_refresh_command');
         $job = $this->tenant->as($dep->organization_id, fn () => $this->exec($dep, 'licence', $command));
         $this->step($dep, 'licence_refresh', 'running', 'Activating the licence', 'Licence refresh');
         $this->log('enterprise.deployment.licence_activate', $dep, ['key_last4' => substr($key, -4)]);
