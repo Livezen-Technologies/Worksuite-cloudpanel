@@ -29,6 +29,9 @@ class Application extends Model
             'public_access' => 'boolean',
             'locked_at' => 'datetime',
             'maintenance_until' => 'datetime',
+            'maintenance_scheduled_start' => 'datetime',
+            'maintenance_scheduled_end' => 'datetime',
+            'maintenance_auto_locked' => 'boolean',
         ];
     }
 

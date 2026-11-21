@@ -133,6 +133,9 @@ return [
         'admin_link' => (bool) env('MAINTENANCE_PAGE_ADMIN_LINK', false),
         // Retry-After when no expected end is set, in seconds.
         'retry_after' => (int) env('MAINTENANCE_PAGE_RETRY_AFTER', 300),
+        // Optional, off by default: a "Contact support" mailto button and a "System status" link (https only).
+        'support_email' => env('MAINTENANCE_PAGE_SUPPORT_EMAIL'),
+        'status_url' => env('MAINTENANCE_PAGE_STATUS_URL'),
     ],
 
     'firewall' => [

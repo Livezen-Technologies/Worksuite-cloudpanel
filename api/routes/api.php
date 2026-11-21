@@ -46,6 +46,8 @@ Route::post('hooks/git/{project}', [HookController::class, 'git'])->middleware('
 Route::match(['get', 'post'], 'hooks/wake', [HookController::class, 'wake'])->middleware('throttle:20,1')->name('hooks.wake');
 // A locked app's maintenance page, fetched by Traefik (never by the visitor directly); cached, so no per-IP throttle.
 Route::get('hooks/maintenance/{app}', [\App\Http\Controllers\MaintenancePageController::class, 'show'])->whereUuid('app')->name('hooks.maintenance');
+// The app's own in-app notice of a scheduled window (CORS for the app's verified domains); cached 60 s.
+Route::get('hooks/maintenance-notice/{app}', [\App\Http\Controllers\MaintenanceNoticeController::class, 'show'])->whereUuid('app')->name('hooks.maintenance-notice');
 Route::post('hooks/scheduled-jobs/{id}/{token}', [HookController::class, 'scheduledJob'])->middleware('throttle:api')->name('hooks.scheduled-job');
 Route::get('backup-download/{id}', [\App\Http\Controllers\SignedFileController::class, 'backupDownload'])->middleware('signed')->name('backup.download');
 Route::match(['get', 'post'], 'shares/{token}', [\App\Http\Controllers\ShareController::class, 'show'])->middleware('throttle:api')->where('token', '[A-Za-z0-9]{40}')->name('files.share-public');
@@ -623,6 +625,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
     Route::post('firewall/blocked/{action}', [Admin\FirewallController::class, 'blockedAction'])->whereIn('action', ['extend', 'permanent', 'allow'])->middleware('perm:firewall.ips|firewall.manage')->name('firewall.blocked.action');
     Route::post('applications/{id}/lock', [Admin\FirewallController::class, 'lockApp'])->middleware('perm:app.lock')->name('applications.lock');
     Route::post('applications/{id}/unlock', [Admin\FirewallController::class, 'unlockApp'])->middleware('perm:app.lock')->name('applications.unlock');
+    Route::put('applications/{id}/maintenance-schedule', [Admin\FirewallController::class, 'scheduleMaintenance'])->middleware('perm:app.lock')->name('applications.maintenance-schedule');
+    Route::delete('applications/{id}/maintenance-schedule', [Admin\FirewallController::class, 'clearMaintenanceSchedule'])->middleware('perm:app.lock')->name('applications.maintenance-schedule.clear');
     Route::patch('firewall/domains/{id}/access', [Admin\FirewallController::class, 'access'])->middleware('perm:firewall.manage')->name('firewall.domains.access');
 
     // Users, roles, settings, integrations, audit
@@ -917,6 +921,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
             Route::patch('firewall/domains/{domain}/countries', [Customer\FirewallController::class, 'countries'])->middleware('perm:firewall.manage')->name('firewall.countries');
             Route::post('apps/{id}/lock', [Admin\FirewallController::class, 'lockApp'])->middleware('perm:app.lock')->name('apps.lock');
             Route::post('apps/{id}/unlock', [Admin\FirewallController::class, 'unlockApp'])->middleware('perm:app.lock')->name('apps.unlock');
+            Route::put('apps/{id}/maintenance-schedule', [Admin\FirewallController::class, 'scheduleMaintenance'])->middleware('perm:app.lock')->name('apps.maintenance-schedule');
+            Route::delete('apps/{id}/maintenance-schedule', [Admin\FirewallController::class, 'clearMaintenanceSchedule'])->middleware('perm:app.lock')->name('apps.maintenance-schedule.clear');
             // UMAIL: email on the customer's domains.
             Route::get('mail', [Customer\MailController::class, 'index'])->name('mail.index');
             Route::post('mail/domains', [Customer\MailController::class, 'storeDomain'])->name('mail.domains.store');

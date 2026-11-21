@@ -124,7 +124,8 @@ class ProjectFirewallController extends Controller
         $reason = $v['reason'] ?? null;
         $action === 'lock'
             ? $app->forceFill(['public_access' => false, 'lock_reason' => $reason, 'locked_at' => $app->public_access === false && $app->locked_at ? $app->locked_at : now(), 'locked_by' => $request->user()->id, 'maintenance_until' => $v['until'] ?? null])->save()
-            : $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null, 'maintenance_until' => null])->save();
+            : $app->forceFill(['public_access' => true, 'lock_reason' => null, 'locked_at' => null, 'locked_by' => null, 'maintenance_until' => null] + \App\Services\MaintenanceScheduleService::endedByUnlock($app))->save();
+        app(\App\Services\MaintenanceScheduleService::class)->forget($app);
         $this->audit->log("project.app.{$action}", 'project', $project->id, ['application_id' => $app->id, 'reason' => $reason], $project->organization_id);
         $this->traefik->push();
 

@@ -74,6 +74,8 @@ return [
         'redis_password' => 'REDIS_PASSWORD',
         'fpm_max_children' => 'FPM_MAX_CHILDREN',
         'deployment_id' => 'WORKSUITE_ENTERPRISE_ID',
+        // The panel's public notice endpoint for this app (in-app scheduled-maintenance banner).
+        'maintenance_notice_url' => 'WS_MAINTENANCE_NOTICE_URL',
     ],
 
     // Part F settings tab: the variable the image reads its timezone from (editable), and keys that

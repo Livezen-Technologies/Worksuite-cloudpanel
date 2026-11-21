@@ -28,76 +28,102 @@ class MaintenancePage
         $since = $app?->locked_at;
         $until = $app?->maintenance_until && $app->maintenance_until->isFuture() ? $app->maintenance_until : null;
 
-        $reasonHtml = $reason !== '' ? '<p class="reason"><span class="rl">Note from the team</span>'.$e($reason).'</p>' : '';
-        $facts = '';
-        if ($since) {
-            $facts .= '<div class="fact"><dt>Started</dt><dd><time datetime="'.$e($since->toIso8601String()).'" title="'.$e($since->utc()->format('j M Y, H:i').' UTC').'">'.$e($since->diffForHumans()).'</time></dd></div>';
+        // A moment as "11:00 PM" + "Fri 20 Nov"; the script rewrites both into the visitor's own time zone.
+        $moment = function (string $label, $at) use ($e) {
+            $utc = $at->copy()->utc();
+
+            return '<div class="fact"><dt>'.$label.'</dt><dd><time datetime="'.$e($utc->toIso8601String()).'" data-local="time">'.$e($utc->format('H:i')).'</time>'
+                .'<span class="sub"><span data-local-of="'.$e($utc->toIso8601String()).'">'.$e($utc->format('D j M')).'</span> · <span data-tzword>UTC</span></span></dd></div>';
+        };
+        $facts = ($since ? $moment('Started', $since) : '').($until ? $moment('Expected back', $until) : '');
+        if ($facts === '') {
+            $facts = '<div class="fact wide"><dt>Expected back</dt><dd><span class="soon">Shortly</span><span class="sub">We have not set an exact time</span></dd></div>';
         }
-        if ($until) {
-            $facts .= '<div class="fact"><dt>Expected back</dt><dd><time datetime="'.$e($until->toIso8601String()).'" data-local>'.$e($until->utc()->format('j M, H:i').' UTC').'</time></dd></div>';
-        }
-        $facts = $facts !== '' ? '<dl class="facts">'.$facts.'</dl>' : '';
+        $reasonHtml = $reason !== '' ? '<div class="reason"><span class="lbl">Note from the team</span><p>'.$e($reason).'</p></div>' : '';
         $admin = config('platform.maintenance_page.admin_link') && preg_match('#^https://#i', (string) config('app.url'))
-            ? '<a class="admin" href="'.$e(rtrim((string) config('app.url'), '/')).'/" rel="nofollow">Admin? Sign in to CloudPanel</a>'
+            ? '<a class="tl" href="'.$e(rtrim((string) config('app.url'), '/')).'/" rel="nofollow">Admin? Sign in to CloudPanel</a>'
             : '';
+        $mail = (string) config('platform.maintenance_page.support_email');
+        $support = filter_var($mail, FILTER_VALIDATE_EMAIL) ? '<a class="btn sec" href="mailto:'.$e($mail).'">Contact support</a>' : '';
+        $actions = $support !== '' ? '<div class="actions">'.$support.'</div>' : '';
+        $statusUrl = (string) config('platform.maintenance_page.status_url');
+        $status = preg_match('#^https://#i', $statusUrl) ? '<a class="tl" href="'.$e($statusUrl).'" rel="nofollow">System status</a>' : '';
+        $links = $status.$admin;
+        $year = now()->year;
 
         return <<<HTML
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><meta http-equiv="refresh" content="60">
+<meta name="robots" content="noindex"><meta http-equiv="refresh" content="60"><meta name="color-scheme" content="dark light">
 <title>We're making improvements · WorkSuite</title>
 <style>
-:root{color-scheme:light dark;--bg:#f7f7fb;--bg2:#eef0ff;--card:#ffffffcc;--line:rgba(17,24,39,.08);--ink:#0b1020;--muted:#5b6475;--soft:#8a93a6;--accent:#4f46e5;--accent2:#06b6d4;--ok:#f59e0b;--sky1:#e0e7ff;--sky2:#cffafe;--hill1:#c7d2fe;--hill2:#a5b4fc}
-@media (prefers-color-scheme:dark){:root{--bg:#070a14;--bg2:#0e1330;--card:#0f1426cc;--line:rgba(255,255,255,.08);--ink:#eef1f8;--muted:#a3abbd;--soft:#7b8399;--accent:#818cf8;--accent2:#22d3ee;--ok:#fbbf24;--sky1:#1e1b4b;--sky2:#083344;--hill1:#312e81;--hill2:#3730a3}}
+:root{color-scheme:dark;--bg:#050914;--glow:rgba(10,108,255,.20);--glow2:rgba(34,211,238,.06);--line:#1d2943;--line2:#26345a;--tx:#e8edf6;--tx2:#c3ccdc;--hd:#fff;--mut:#93a0b8;--soft:#6f7d97;--brand:#0a6cff;--brand2:#3d8bff;--cyan:#22d3ee;--warn:#f5b84a;--warn-tx:#ffd88f;--ok-tx:#bff3df;--ok-bd:rgba(34,195,142,.35);--ok-bg:rgba(34,195,142,.07);--panel:rgba(255,255,255,.025);--hi-bg:linear-gradient(180deg,rgba(10,108,255,.10),rgba(10,108,255,.03));--wm2:#93a0b8}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f5f7fc;--glow:rgba(10,108,255,.12);--glow2:rgba(34,211,238,.08);--line:#dfe4ef;--line2:#cfd7e6;--tx:#1b2333;--tx2:#36405a;--hd:#0b1222;--mut:#5b6680;--soft:#6b7690;--warn-tx:#8a5a00;--ok-tx:#0d5c41;--ok-bd:rgba(20,160,110,.35);--ok-bg:rgba(34,195,142,.08);--panel:#ffffff;--hi-bg:linear-gradient(180deg,rgba(10,108,255,.07),#fff);--wm2:#5b6680}}
 *{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(1200px 600px at 10% -10%,var(--bg2),transparent 60%),radial-gradient(900px 500px at 110% 110%,var(--bg2),transparent 60%),var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
-header{display:flex;align-items:center;justify-content:space-between;padding:22px 28px}
-.brand{display:inline-flex;align-items:center;gap:10px;font-weight:650;font-size:18px;letter-spacing:-.015em;color:var(--ink);text-decoration:none}
-.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;box-shadow:0 6px 18px -6px var(--accent)}
-main{flex:1;display:flex;align-items:center;justify-content:center;padding:8px 16px 40px}
-.card{width:100%;max-width:620px;background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:28px;padding:36px 36px 30px;box-shadow:0 30px 80px -40px rgba(15,23,42,.45);text-align:center}
-.art{display:block;width:100%;max-width:340px;height:auto;margin:0 auto 18px}
-.eyebrow{display:inline-flex;align-items:center;gap:8px;font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-h1{margin:14px 0 10px;font-size:clamp(30px,5.5vw,44px);line-height:1.08;font-weight:650;letter-spacing:-.035em;text-wrap:balance}
-.lead{margin:0 auto;max-width:470px;color:var(--muted);font-size:clamp(16px,2.2vw,18px)}
-.reason{margin:22px auto 0;max-width:480px;padding:14px 18px;border-radius:16px;border:1px solid var(--line);background:color-mix(in srgb,var(--accent) 7%,transparent);text-align:left;white-space:pre-line;overflow-wrap:anywhere}
-.rl{display:block;font:600 11px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--soft);margin-bottom:2px}
-.facts{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:20px 0 0;padding:0}
-.fact{min-width:150px;padding:10px 16px;border-radius:14px;border:1px solid var(--line)}
-.fact dt{font-size:12px;color:var(--soft);text-transform:uppercase;letter-spacing:.08em}
-.fact dd{margin:2px 0 0;font-weight:600}
-.status{display:inline-flex;align-items:center;gap:10px;margin-top:24px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);font-size:14px;color:var(--muted)}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}70%{box-shadow:0 0 0 10px transparent}100%{box-shadow:0 0 0 0 transparent}}
-.gear{transform-origin:center;transform-box:fill-box;animation:spin 14s linear infinite}.gear.r{animation-direction:reverse;animation-duration:10s}
-@keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.dot,.gear{animation:none}}
-footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 16px;padding:16px 28px 22px;font-size:13px;color:var(--soft)}
-.admin{color:var(--soft);text-decoration:none;border-bottom:1px dotted currentColor}.admin:hover{color:var(--ink)}
-@media (max-width:560px){header{padding:16px}.card{padding:26px 18px 22px;border-radius:22px}footer{padding:14px 16px 18px}}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(900px 420px at 50% -180px,var(--glow),transparent 70%),radial-gradient(600px 300px at 100% 100%,var(--glow2),transparent 70%),var(--bg);color:var(--tx);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#7cb2ff}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 40px}
+.logo{display:flex;align-items:center;gap:12px;color:var(--hd);font-weight:700;font-size:17px;letter-spacing:-.015em}
+.logo .wm2{color:var(--wm2);font-weight:600}
+.tlinks{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tl{font-size:13px;color:var(--tx2);text-decoration:none;padding:7px 11px;border-radius:10px}
+.tl:hover,.tl:focus-visible{background:rgba(127,140,170,.12);color:var(--hd)}
+main{flex:1;width:100%;max-width:1180px;margin:0 auto;padding:36px 40px 56px;display:flex;flex-direction:column;gap:28px}
+.hero{display:flex;gap:40px;flex-wrap:wrap;align-items:center}
+.copy{flex:1 1 520px;display:flex;flex-direction:column;gap:16px}
+.badge{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:999px;font-size:11.5px;font-weight:650;letter-spacing:.02em;color:var(--warn-tx);border:1px solid rgba(245,184,74,.4);background:rgba(245,184,74,.10)}
+.dot{width:8px;height:8px;border-radius:999px;background:var(--warn);box-shadow:0 0 0 4px rgba(245,184,74,.2);animation:pulse 2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 7px rgba(245,184,74,.05)}}
+h1{margin:0;font-size:46px;line-height:1.15;letter-spacing:-.035em;font-weight:700;color:var(--hd);text-wrap:balance}
+.lead{margin:0;color:var(--mut);font-size:16.5px;max-width:620px}
+.reason{max-width:620px;padding:14px 16px;border-radius:14px;border:1px solid var(--line2);background:var(--panel)}
+.reason p{margin:0;color:var(--tx);white-space:pre-line;overflow-wrap:anywhere}
+.lbl{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:700;margin-bottom:4px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:46px;padding:0 20px;border-radius:13px;font-weight:650;font-size:14.5px;text-decoration:none;color:var(--tx);border:1px solid var(--line2);background:rgba(127,140,170,.08)}
+.btn:hover,.btn:focus-visible{background:rgba(127,140,170,.16);color:var(--hd)}
+.panel{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:20px}
+.win{flex:1 1 360px;padding:26px;display:flex;flex-direction:column;gap:18px;border-color:rgba(61,139,255,.45);background:var(--hi-bg);box-shadow:0 0 0 4px rgba(10,108,255,.08)}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0}
+.fact.wide{grid-column:1/-1}
+.fact dt{font-size:12.5px;color:var(--mut)}
+.fact dd{margin:2px 0 0;display:flex;flex-direction:column}
+.fact time,.soon{color:var(--hd);font-size:20px;font-weight:700;letter-spacing:-.01em}
+.sub{font-size:12.5px;color:var(--mut)}
+.bar{height:8px;border-radius:999px;background:var(--line);overflow:hidden;position:relative}
+.bar span{position:absolute;inset:0 auto 0 0;width:38%;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--cyan));animation:slide 2.4s ease-in-out infinite}
+@keyframes slide{0%{left:-38%}100%{left:100%}}
+.help{font-size:12.5px;color:var(--mut)}
+.callout{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;font-size:13.5px;border:1px solid var(--ok-bd);background:var(--ok-bg);color:var(--ok-tx)}
+.callout svg{flex:none;margin-top:1px}
+.legal{text-align:center;font-size:12px;color:var(--soft);padding:0 20px 28px;margin:0}
+@media (prefers-reduced-motion:reduce){.dot,.bar span{animation:none}.bar span{left:0;width:100%;opacity:.5}}
+@media (max-width:640px){.top{padding:18px 20px}.logo{font-size:15px}.logo svg{width:26px;height:26px}main{padding:14px 20px 28px;gap:18px}.hero{gap:18px}.copy{gap:14px;flex-basis:100%}h1{font-size:30px}.lead{font-size:15px}.win{padding:20px;gap:14px;flex-basis:100%}.fact time,.soon{font-size:18px}.actions .btn{width:100%}}
 </style></head>
 <body>
-<header><span class="brand"><span class="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l4 12 5-9 5 9 4-12"/></svg></span>WorkSuite</span></header>
-<main><section class="card" role="status" aria-live="polite">
-<svg class="art" viewBox="0 0 340 170" role="img" aria-label="Gears turning over quiet hills">
-<defs><linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--sky1)"/><stop offset="1" stop-color="var(--sky2)"/></linearGradient>
-<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent2)"/></linearGradient></defs>
-<rect x="0" y="0" width="340" height="170" rx="22" fill="url(#sky)"/>
-<circle cx="276" cy="40" r="14" fill="var(--ok)" opacity=".55"/>
-<path d="M0 132c50-26 92-30 140-14s96 16 140-6 60-8 60-8v66H0z" fill="var(--hill1)"/>
-<path d="M0 150c60-18 120-18 180-4s110 10 160-6v30H0z" fill="var(--hill2)" opacity=".8"/>
-<g class="gear" fill="url(#g)"><path d="M150 52l6-1 2-8h10l2 8 6 1 6-5 7 7-5 6 1 6 8 2v10l-8 2-1 6 5 6-7 7-6-5-6 1-2 8h-10l-2-8-6-1-6 5-7-7 5-6-1-6-8-2V68l8-2 1-6-5-6 7-7z"/><circle cx="163" cy="73" r="10" fill="var(--sky1)"/></g>
-<g class="gear r" fill="url(#g)" opacity=".85"><path d="M206 92l4-1 1-5h7l1 5 4 1 4-3 5 5-3 4 1 4 5 1v7l-5 1-1 4 3 4-5 5-4-3-4 1-1 5h-7l-1-5-4-1-4 3-5-5 3-4-1-4-5-1v-7l5-1 1-4-3-4 5-5z"/><circle cx="214" cy="106" r="6" fill="var(--sky1)"/></g>
-</svg>
-<span class="eyebrow">Scheduled maintenance</span>
+<header class="top">
+<span class="logo"><svg viewBox="0 0 63 63" width="30" height="30" aria-hidden="true"><rect x="0" y="21" width="42" height="42" fill="#00DAF2"/><rect x="21" y="0" width="42" height="42" fill="#0A6CFF"/><rect x="21" y="21" width="21" height="21" fill="#001842"/></svg><span>WorkSuite <span class="wm2">Cloud</span></span></span>
+<nav class="tlinks" aria-label="Links">{$links}</nav>
+</header>
+<main>
+<div class="hero">
+<section class="copy" role="status" aria-live="polite">
+<span class="badge"><span class="dot" aria-hidden="true"></span>Maintenance in progress</span>
 <h1>We're making improvements</h1>
 <p class="lead">This WorkSuite server is briefly offline while our team carries out maintenance. Your data is safe, and everything will be back shortly.</p>
-{$reasonHtml}{$facts}
-<div class="status"><span class="dot" aria-hidden="true"></span><span>Maintenance in progress · this page refreshes every minute</span></div>
-</section></main>
-<footer><span>WorkSuite · Status 503</span>{$admin}</footer>
-<script>document.querySelectorAll("time[data-local]").forEach(function(t){var d=new Date(t.getAttribute("datetime"));if(!isNaN(d))t.textContent=d.toLocaleString([], {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})})</script>
+{$reasonHtml}{$actions}
+</section>
+<section class="panel win" aria-labelledby="mw">
+<span class="lbl" id="mw">Maintenance window</span>
+<dl class="facts">{$facts}</dl>
+<div class="bar" role="presentation"><span></span></div>
+<span class="help">Maintenance in progress · this page refreshes every minute. <span data-tzline>Times in UTC.</span></span>
+</section>
+</div>
+<div class="callout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><div><strong>Your work is safe.</strong> Nothing you saved is affected. Reload this page or come back in a few minutes.</div></div>
+</main>
+<p class="legal">© {$year} Livezen Technologies · WorkSuite · Status 503</p>
+<script>(function(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;document.querySelectorAll("time[data-local]").forEach(function(t){var d=new Date(t.getAttribute("datetime"));if(!isNaN(d))t.textContent=d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})});document.querySelectorAll("[data-local-of]").forEach(function(s){var d=new Date(s.getAttribute("data-local-of"));if(!isNaN(d))s.textContent=d.toLocaleDateString([],{weekday:"short",day:"numeric",month:"short"})});document.querySelectorAll("[data-tzword]").forEach(function(s){s.textContent="your time"});var l=document.querySelector("[data-tzline]");if(l&&tz)l.textContent="Times shown in "+tz+"."}catch(e){}})()</script>
 </body></html>
 HTML;
     }

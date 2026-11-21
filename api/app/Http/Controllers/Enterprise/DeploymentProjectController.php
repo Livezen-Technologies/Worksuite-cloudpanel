@@ -262,7 +262,8 @@ class DeploymentProjectController extends Controller
             'app_url' => $webVar((string) config('enterprise.env.base_url'))?->value,
             'timezone' => $webVar($tzKey)?->value,
             'timezone_key' => $tzKey,
-            'maintenance' => ['enabled' => $web ? $web->public_access === false : false, 'reason' => $web?->lock_reason, 'since' => $web?->locked_at, 'until' => $web?->maintenance_until],
+            'maintenance' => ['enabled' => $web ? $web->public_access === false : false, 'reason' => $web?->lock_reason, 'since' => $web?->locked_at, 'until' => $web?->maintenance_until,
+                'schedule' => $web ? app(\App\Services\MaintenanceScheduleService::class)->present($web) : null],
             'restart_policy' => ['value' => 'unless-stopped', 'editable' => false],
             'version' => $dep->version,
             'image' => EnterpriseProvisioningService::image($dep->version),
@@ -291,6 +292,7 @@ class DeploymentProjectController extends Controller
             'maintenance' => 'sometimes|boolean',
             'maintenance_reason' => 'nullable|string|max:255',
             'maintenance_until' => 'nullable|date|after:now',
+            'maintenance_schedule' => 'sometimes|nullable|array',
             'version' => ['sometimes', 'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/'],
             'redeploy' => 'sometimes|boolean',
         ]);
@@ -333,6 +335,17 @@ class DeploymentProjectController extends Controller
             if (array_key_exists('maintenance', $data) && isset($apps['app'])) {
                 $request->merge(['reason' => $data['maintenance_reason'] ?? null, 'until' => $data['maintenance_until'] ?? null]);
                 app(ProjectFirewallController::class)->lock($request, $p, $apps['app']->id, $data['maintenance'] ? 'lock' : 'unlock');
+            }
+            if (array_key_exists('maintenance_schedule', $data) && isset($apps['app'])) {
+                $window = $data['maintenance_schedule'];
+                if ($window !== null) {
+                    $window = validator($window, \App\Services\MaintenanceScheduleService::rules())->validate();
+                    // Deployments made before 1.33.0 lack the notice URL; it reaches the app on the next redeploy.
+                    if (EnterpriseProvisioningService::ensureNoticeUrl($apps['app'])) {
+                        $changed[] = ['application' => 'app', 'key' => (string) config('enterprise.env.maintenance_notice_url'), 'deleted' => false];
+                    }
+                }
+                app(\App\Services\MaintenanceScheduleService::class)->set($apps['app'], $window, $dep->organization_id);
             }
             $redeploy = null;
             if (! empty($data['redeploy']) || isset($data['version'])) {

@@ -9,6 +9,35 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.33.0] — 2026-11-21
+
+### Added
+
+- **Scheduled maintenance windows.** `applications.maintenance_scheduled_start`, `maintenance_scheduled_end` and
+  `maintenance_notice`, set with `maintenance_schedule {start, end, message}` (or `null` to clear) on the Enterprise
+  settings PATCH, or `PUT`/`DELETE /api/v1/{app/apps|applications}/{id}/maintenance-schedule` next to lock/unlock.
+  Returned as `maintenance.schedule` (Enterprise settings) and `maintenance_schedule` (lock state). The new
+  `maintenance:apply-schedules` command (every minute) locks the app at `start` the same way the maintenance toggle
+  does (reason = the notice, expected back = `end`) and, at `end`, unlocks it only if it locked it itself
+  (`maintenance_auto_locked`); a lock made by hand is left alone. Idempotent; audited as `app.maintenance.schedule`,
+  `.schedule.clear`, `.auto_lock`, `.auto_unlock`, `.schedule.expired`. A manual unlock during an open window ends
+  the window, so it is not re-locked a minute later.
+- `GET /api/v1/hooks/maintenance-notice/{app}` (public, cached 60 s): `{scheduled: {start, end, message} | null,
+  active}` for the app's in-app notice. CORS only for the app's own verified domains over https.
+- Enterprise web apps get `WS_MAINTENANCE_NOTICE_URL` (panel-managed, read-only) pointing at that endpoint; older
+  deployments get it the first time a window is scheduled (it then needs a redeploy to reach the container).
+- `MAINTENANCE_PAGE_SUPPORT_EMAIL` and `MAINTENANCE_PAGE_STATUS_URL` (both unset by default): optional "Contact
+  support" button and "System status" link on the maintenance page.
+
+### Changed
+
+- **Maintenance page redesigned** to the WorkSuite Cloud canvas (C01 desktop / C03 mobile): dark by default with a
+  light variant, the WorkSuite mark inline as SVG, a "Maintenance in progress" badge, a maintenance-window card with
+  started / expected back shown in the visitor's own time zone, the team's note, and a "your work is safe" callout.
+  Still one self-contained 503 response with no external requests (system font stack, no web fonts). The mockup's
+  progress percentage, service-status table, update timeline, notify-me form, calendar link and incident number are
+  not shown: the panel has no real data for them.
+
 ## [1.32.0] — 2026-11-20
 
 ### Added
