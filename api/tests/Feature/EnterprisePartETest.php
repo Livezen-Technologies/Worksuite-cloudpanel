@@ -153,7 +153,7 @@ class EnterprisePartETest extends TestCase
         EnterpriseDeployment::find($id)->update(['status' => 'active', 'activated_at' => now(), 'status_checked_at' => now()]);
         $this->api($token)->withHeader('Idempotency-Key', 'l1')->postJson("/api/v1/enterprise/deployments/{$id}/licence-refresh")->assertStatus(202)->assertJsonStructure(['data' => ['job_id', 'status']]);
         $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
-        $this->assertSame('container', $exec['payload']['mode']);
+        $this->assertSame(['host', '0:0'], [$exec['payload']['mode'], $exec['payload']['user']], 'root exec: docker exec -u 0:0 from the host');
         $this->assertStringContainsString('spark license:refresh', $exec['payload']['command']);
         $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => '{"ok":true}']])->assertOk();
         $this->assertSame('succeeded', collect(EnterpriseDeployment::find($id)->steps)->firstWhere('name', 'licence_refresh')['status']);

@@ -9,6 +9,24 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.33.1] — 2026-11-21
+
+### Fixed
+
+- **Enterprise "Configure WorkSuite" failed with exit 2 and an empty error** (computerage.worksuite.lk). The
+  bootstrap, status and licence-refresh execs ran as 33:33, but `worksuite-entrypoint` must start as root (it
+  writes `.env` and chowns, then drops to www-data itself). `enterprise.exec_user` now defaults to `0:0`; since the
+  agent's container mode refuses root, a root exec is dispatched in host mode as `docker exec -u 0:0 <web>`.
+  Note: the prod hot fix `ENTERPRISE_EXEC_USER=0:0` on 1.33.0 is refused by the agent's container mode.
+
+### Added
+
+- **Failure diagnostics on Enterprise deployments.** A failed step now keeps `code`, `hint` (fixing guide),
+  `detail` (redacted 60-line output tail, base64 payload and credentials removed) and the bootstrap's `fields`;
+  `errors[]` exposes them (docs/ENTERPRISE_API.md lists the codes). The step message is never empty.
+- Retrying the `bootstrap` step returns 409 `bootstrap_needs_payload` with a hint to restart the setup wizard;
+  `configure` stays accepted from a bootstrap-failed deployment.
+
 ## [1.33.0] — 2026-11-21
 
 ### Added
