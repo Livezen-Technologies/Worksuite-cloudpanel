@@ -173,6 +173,11 @@ Delete / purge stay the part E `DELETE {ref}` / `POST {ref}/purge`.
 | POST | `backups/{backupId}/restore` | `{confirm: true, scope?=project\|applications\|database\|volumes, application_ids?, mode?=replace\|separate}` | 202 restore result; a fresh recovery point is always taken first |
 | POST | `backups/{backupId}/artifacts/{artifactId}/download` | | 200 `{status: ready, url, expires_at, bytes, sha256}` or 202 `{status: exporting, job_id}` (call again) |
 
+A project backup covers each application's data volumes (an enterprise deployment's `ent-<slug>-writable` and
+`-uploads`, taken once for web + worker since they share them) **and** a dump of every managed SQL/document
+database of the project (the deployment's MariaDB; Redis is a cache and is skipped). Earlier releases snapshotted
+the unused `app-<name>-data` path and no database. Runs made by an update have `type: pre_update`.
+
 ### Monitor (composed)
 
 `GET monitor?range=1h|6h|24h|7d` →
@@ -200,3 +205,28 @@ web copies through ScalingService (needs a first release, respects quotas, recor
 `worker_replicas` other than 1 → 501 `PANEL_UNSUPPORTED` (the worker runs the scheduler).
 
 `PUT/PATCH scale/quotas` `{cpu?, ram_mb?, storage_gb?, apps?, containers?, replicas?, container_cpu?, container_ram_mb?}` → `{quotas, can_edit}` (same as `projects/{id}/quotas`).
+
+## Updates — `deployments/{ref}/updates…` (EnterpriseUpdateService)
+
+"New version released" = a newer `worksuite-server:<tag>` loaded on the enterprise nodes (`GET versions`; no
+registry). Tags that are not `major.minor[.patch][-build]` (e.g. `latest`) are never offered. A run is:
+`scheduled → backing_up` (project backup, `pre_update`) `→ deploying` (part E redeploy on the new tag; the panel's
+health gate decides) `→ succeeded`, or `→ rolling_back` (redeploy on the previous tag) `→ rolled_back | failed`.
+A failed or timed-out backup ends the run as `failed` with nothing changed. One active run per deployment.
+`enterprise:updates` (every minute, panel scheduler) advances runs and applies the policy:
+`notify` sends `deployment.update_available` once per version; `auto` starts one run per version (dedupe on
+deployment + version), only inside the maintenance window. Timeouts: `ENTERPRISE_UPDATE_BACKUP_TIMEOUT` (60 min),
+`ENTERPRISE_UPDATE_DEPLOY_TIMEOUT` (20 min).
+
+| Method | Path | Body | Answer `data` |
+|---|---|---|---|
+| GET | `updates` | | `{current_version, image, status, can_update, blocked_reason?, available[{version,image,created,size_mb,nodes[]}], latest?, settings{mode,channel,window{days[1-7 ISO],start "HH:MM",duration_minutes,timezone}}, next_window?, active?, last?, history[run]}` |
+| PUT/PATCH | `updates/settings` | `{mode?=off\|notify\|auto, channel?=latest\|"3.1", window?{days?,start?,duration_minutes? 30–720,timezone?}}` | as GET |
+| POST | `updates` | `{version, scheduled_for? (ISO, future), reason?, requested_by? (display name)}` | 202 run; started at once unless scheduled. 409 when one is active, 422 when the tag is not loaded |
+| POST | `updates/{updateId}/cancel` | | run (only `scheduled`) |
+| POST | `updates/{updateId}/restore` | `{confirm: true, reason}` | 202 `{update, redeploy?, restore{restored[],skipped[]}}`: redeploys the run's previous tag when it differs, then restores its pre-update backup (DB + volumes) after a fresh recovery point |
+
+run = `{id, from_version, to_version, trigger: manual|scheduled|auto, status, scheduled_for, started_at, finished_at, created_at, backup_id, backup_status, requested_by, reason, error, log[{at,status,message}], can_cancel, can_restore}`.
+
+Webhooks: `deployment.update` on every transition, body `{…, deployment, update: run}` (plus `restore{backup_id,restores}`
+for a restore); `deployment.update_available` `{…, update_available{version,current_version,mode}}`.
