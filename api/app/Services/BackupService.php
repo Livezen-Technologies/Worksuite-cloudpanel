@@ -43,7 +43,7 @@ class BackupService implements HandlesCommandResults
                     throw ApiException::conflict('This app has not been deployed yet, so there is nothing to back up.');
                 }
 
-                return [$app->server, ["/var/lib/docker/volumes/app-{$app->name}-data/_data"], $app->id, null];
+                return [$app->server, self::appPaths($app), $app->id, null];
             })(),
             'volume' => (function () use ($id) {
                 $volume = Volume::findOrFail($id);
@@ -58,6 +58,22 @@ class BackupService implements HandlesCommandResults
             'server' => [Server::findOrFail($id), ['/srv/dockermgr'], null, null],
             default => throw ApiException::validation(['target_type' => ['Unknown backup target.']]),
         };
+    }
+
+    /**
+     * The host paths of an application's data: its named volume mounts (source.mounts, e.g. an enterprise
+     * deployment's ent-<slug>-writable / -uploads) when it has them, else the default app-<name>-data volume.
+     *
+     * @return string[]
+     */
+    public static function appPaths(Application $app): array
+    {
+        $named = collect((array) (($app->source ?? [])['mounts'] ?? []))
+            ->map(fn ($m) => is_array($m) ? (string) ($m['source'] ?? '') : '')
+            ->filter(fn ($s) => preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $s))
+            ->map(fn ($s) => "/var/lib/docker/volumes/{$s}/_data")->unique()->values()->all();
+
+        return $named ?: ["/var/lib/docker/volumes/app-{$app->name}-data/_data"];
     }
 
     /** BAK-002: an application-consistent dump through `docker exec` into the DB container. */

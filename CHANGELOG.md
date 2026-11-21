@@ -10,6 +10,10 @@ Dates are the dates the work landed on `main`.
 ## [Unreleased]
 
 ### Added
+- **Enterprise Updates** (`docs/ENTERPRISE_API.md` "Updates"): `GET/PUT deployments/{ref}/updates[/settings]`, `POST updates` (now or at a time), `POST updates/{id}/cancel`, `POST updates/{id}/restore {confirm, reason}`. Every run takes a project backup first (DB dump + data volumes), redeploys on the new tag, waits for the health gate and rolls back to the previous tag on failure; nothing changes when the backup fails. Per-deployment settings off / notify / auto, channel `latest` or a `major.minor` line, and a maintenance window (days, time, time zone, length). `enterprise:updates` runs every minute; auto updates are idempotent per deployment and version. `deployment.update` and `deployment.update_available` webhooks, audit entries for every action. New table `enterprise_updates`, column `enterprise_deployments.update_settings` (migration `2026_11_28_090000_enterprise_updates`).
+
+### Fixed
+- **Project backups of enterprise deployments held no data**: an application backup snapshotted `app-<name>-data`, but enterprise apps keep their data in the named volumes of `source.mounts` (`ent-<slug>-writable`, `-uploads`), and the project's MariaDB was never dumped. Application backups now take the app's named mounts, a project backup also dumps the project's SQL/document databases, and web + worker sharing the same volumes are backed up once. Restores use the same paths.
 - Enterprise API `POST deployments/{ref}/licence-activate {key}`: activates a WorkSuite Server key (WS-XXXX ×5) in the web container as root via `license:refresh --key -` (key on stdin; never in the command line, the stored command or the audit log, only its last four). `licence-refresh` and `licence-activate` now keep the app's JSON answer (masked key, status, edition, expiry, users) on the `licence_refresh` step as `result`, for Cloud's Licence tab. The default `ENTERPRISE_LICENCE_REFRESH_COMMAND` (`spark license:refresh`) needs WorkSuite Core 1.47.0, which adds that command.
 
 ## [1.33.1] — 2026-11-21

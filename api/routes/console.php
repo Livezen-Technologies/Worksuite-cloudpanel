@@ -592,3 +592,7 @@ Artisan::command('enterprise:service-account {--email=cloud-admin-enterprise@ser
 })->purpose('Create the Cloud Admin service account and issue its enterprise.deploy API token');
 Schedule::command('enterprise:sync')->everyMinute()->withoutOverlapping();
 Schedule::command('enterprise:webhooks')->everyMinute()->withoutOverlapping();
+Artisan::command('enterprise:updates', function (\App\Services\EnterpriseUpdateService $updates) {
+    $this->info('Advanced '.$updates->tick().' enterprise update(s).');
+})->purpose('Run due enterprise updates (backup, redeploy, health, rollback) and the auto/notify policies');
+Schedule::command('enterprise:updates')->everyMinute()->withoutOverlapping();

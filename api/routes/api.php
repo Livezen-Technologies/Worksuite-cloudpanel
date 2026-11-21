@@ -83,6 +83,14 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('deployments/{ref}/licence-refresh', [$ctl, 'licenceRefresh'])->where($r)->name('deployments.licence-refresh');
         Route::post('deployments/{ref}/licence-activate', [$ctl, 'licenceActivate'])->where($r)->name('deployments.licence-activate');
         Route::post('deployments/{ref}/steps/{step}/retry', [$ctl, 'retry'])->where($r)->name('deployments.steps.retry');
+        // Updates tab: backup first, redeploy on a newer tag, roll back on failure (EnterpriseUpdateService).
+        $uc = \App\Http\Controllers\Enterprise\DeploymentUpdateController::class;
+        $u = ['ref' => '[A-Za-z0-9_-]{1,64}', 'updateId' => '[0-9a-fA-F-]{36}'];
+        Route::get('deployments/{ref}/updates', [$uc, 'show'])->where($u)->name('deployments.updates');
+        Route::match(['put', 'patch'], 'deployments/{ref}/updates/settings', [$uc, 'settings'])->where($u)->name('deployments.updates.settings');
+        Route::post('deployments/{ref}/updates', [$uc, 'store'])->where($u)->middleware('throttle:10,1')->name('deployments.updates.store');
+        Route::post('deployments/{ref}/updates/{updateId}/cancel', [$uc, 'cancel'])->where($u)->name('deployments.updates.cancel');
+        Route::post('deployments/{ref}/updates/{updateId}/restore', [$uc, 'restore'])->where($u)->middleware('throttle:5,1')->name('deployments.updates.restore');
         // Part F: the deployment page's CloudPanel tabs, delegated to the project features of the deployment's project.
         $pc = \App\Http\Controllers\Enterprise\DeploymentProjectController::class;
         $f = ['ref' => '[A-Za-z0-9_-]{1,64}', 'domainId' => '[0-9a-fA-F-]{36}', 'entryId' => '[0-9a-fA-F-]{36}', 'ruleId' => '[0-9a-fA-F-]{36}',

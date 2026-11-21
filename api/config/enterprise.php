@@ -112,4 +112,10 @@ return [
     // Outbound webhooks: attempts before a delivery is parked as failed, and the backoff base (s).
     'webhook_max_attempts' => 12,
     'webhook_backoff' => 30,
+
+    // Updates (EnterpriseUpdateService, `enterprise:updates` every minute): backup first, redeploy, roll back on failure.
+    'updates' => [
+        'backup_timeout_minutes' => (int) env('ENTERPRISE_UPDATE_BACKUP_TIMEOUT', 60),
+        'deploy_timeout_minutes' => (int) env('ENTERPRISE_UPDATE_DEPLOY_TIMEOUT', 20),
+    ],
 ];

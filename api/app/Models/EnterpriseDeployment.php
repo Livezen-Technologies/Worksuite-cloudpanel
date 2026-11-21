@@ -25,6 +25,7 @@ class EnterpriseDeployment extends Model
         return [
             'steps' => 'array',
             'limits' => 'array',
+            'update_settings' => 'array',
             'app_status' => 'array',
             'bootstrap_result' => 'array',
             'callback_secret' => 'encrypted',

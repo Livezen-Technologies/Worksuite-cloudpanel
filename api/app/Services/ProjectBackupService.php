@@ -26,6 +26,15 @@ class ProjectBackupService
     public function backup(Project $project, string $trigger = 'manual', ?BackupPolicy $policy = null, ?array $appIds = null): BackupJob
     {
         $apps = $this->apps($project, $appIds);
+        // The project's managed databases are dumped too (whole-project runs only), and two apps that share
+        // the same volumes (an enterprise web + worker) are backed up once.
+        $databases = $appIds ? collect() : $this->databases($project);
+        $seen = [];
+        $apps = $apps->filter(function (Application $a) use (&$seen) {
+            $key = implode('|', BackupService::appPaths($a));
+
+            return isset($seen[$key]) ? false : ($seen[$key] = true);
+        })->values();
         if ($apps->isEmpty()) {
             throw ApiException::conflict('This project has no deployed applications to back up yet.');
         }
@@ -33,7 +42,7 @@ class ProjectBackupService
         $parent = BackupJob::create([
             'organization_id' => $project->organization_id, 'backup_policy_id' => $policy?->id,
             'target_type' => 'project', 'target_id' => $project->id, 'project_id' => $project->id,
-            'trigger' => $trigger, 'status' => 'running', 'started_at' => now(), 'metadata' => $this->snapshot($project, $apps),
+            'trigger' => $trigger, 'status' => 'running', 'started_at' => now(), 'metadata' => $this->snapshot($project, $apps, $databases),
         ]);
         $log = [];
         foreach ($apps as $app) {
@@ -43,6 +52,15 @@ class ProjectBackupService
                 $log[] = now()->toIso8601ZuluString()." {$app->name}: backup started";
             } catch (\Throwable $e) {
                 $log[] = now()->toIso8601ZuluString()." {$app->name}: could not start: ".$e->getMessage();
+            }
+        }
+        foreach ($databases as $db) {
+            try {
+                $child = $this->backups->run(null, 'database', $db->id, $trigger, ['project_backup_id' => $parent->id]);
+                $child->forceFill(['parent_id' => $parent->id, 'project_id' => $project->id])->saveQuietly();
+                $log[] = now()->toIso8601ZuluString()." database {$db->name}: dump started";
+            } catch (\Throwable $e) {
+                $log[] = now()->toIso8601ZuluString()." database {$db->name}: could not start: ".$e->getMessage();
             }
         }
         $parent->forceFill(['log' => implode("\n", $log)])->saveQuietly();
@@ -60,7 +78,7 @@ class ProjectBackupService
             return;
         }
         $children = BackupJob::allTenants()->where('parent_id', $parentId)->get();
-        $expected = count($parent->metadata['applications'] ?? []);
+        $expected = count($parent->metadata['applications'] ?? []) + count($parent->metadata['databases'] ?? []);
         $done = $children->whereIn('status', ['succeeded', 'failed']);
         if ($children->isNotEmpty() && $done->count() < $children->count()) {
             return; // still running
@@ -73,8 +91,8 @@ class ProjectBackupService
             $failed->count() + $missing >= $expected => 'failed',
             default => 'partial',
         };
-        $names = collect($parent->metadata['applications'] ?? [])->pluck('name', 'id');
-        $error = $status === 'succeeded' ? null : trim(($failed->isNotEmpty() ? 'Failed: '.$failed->map(fn ($c) => $names[$c->application_id] ?? $c->target_id)->implode(', ').'. ' : '').($missing ? "{$missing} application(s) could not start." : ''));
+        $names = collect($parent->metadata['applications'] ?? [])->pluck('name', 'id')->merge(collect($parent->metadata['databases'] ?? [])->pluck('name', 'id'));
+        $error = $status === 'succeeded' ? null : trim(($failed->isNotEmpty() ? 'Failed: '.$failed->map(fn ($c) => $names[$c->application_id ?? $c->target_id] ?? $c->target_id)->implode(', ').'. ' : '').($missing ? "{$missing} application(s) could not start." : ''));
         $parent->forceFill(['status' => $status, 'error' => $error ?: null, 'finished_at' => $parent->finished_at ?? now()])->saveQuietly();
         if ($parent->backup_policy_id) {
             BackupPolicy::allTenants()->whereKey($parent->backup_policy_id)->update(['last_status' => $status === 'succeeded' ? 'succeeded' : 'failed']);
@@ -99,7 +117,9 @@ class ProjectBackupService
         $restored = [];
         $skipped = [];
         foreach (BackupJob::allTenants()->where('parent_id', $parent->id)->with('artifacts')->get() as $child) {
-            $name = collect($parent->metadata['applications'] ?? [])->firstWhere('id', $child->application_id)['name'] ?? $child->target_id;
+            $name = $child->target_type === 'database'
+                ? 'database '.(collect($parent->metadata['databases'] ?? [])->firstWhere('id', $child->target_id)['name'] ?? $child->target_id)
+                : (collect($parent->metadata['applications'] ?? [])->firstWhere('id', $child->application_id)['name'] ?? $child->target_id);
             if ($scope === 'applications' && ! in_array($child->application_id, (array) $appIds, true)) {
                 continue;
             }
@@ -108,7 +128,7 @@ class ProjectBackupService
                 $skipped[] = "{$name}: no successful backup in this run";
                 continue;
             }
-            $isDump = (bool) $artifact->dump_engine;
+            $isDump = (bool) $artifact->dump_engine || $child->target_type === 'database';
             if (($scope === 'database' && ! $isDump) || ($scope === 'volumes' && $isDump)) {
                 continue;
             }
@@ -146,7 +166,8 @@ class ProjectBackupService
             'verified' => $children->flatMap->artifacts->isNotEmpty() && $children->flatMap->artifacts->every(fn ($a) => $a->verified),
             'log' => $parent->log,
             'applications' => $children->map(fn ($c) => [
-                'id' => $c->application_id, 'name' => $apps[$c->application_id]['name'] ?? $c->target_id, 'status' => $c->status, 'error' => $c->error,
+                'id' => $c->application_id ?? $c->target_id, 'target_type' => $c->target_type, 'status' => $c->status, 'error' => $c->error,
+                'name' => $c->target_type === 'database' ? 'database '.(collect($parent->metadata['databases'] ?? [])->firstWhere('id', $c->target_id)['name'] ?? $c->target_id) : ($apps[$c->application_id]['name'] ?? $c->target_id),
                 'artifacts' => $c->artifacts->map(fn ($a) => ['id' => $a->id, 'size_mb' => $a->size_mb, 'kind' => $a->dump_engine ? 'database' : 'volumes', 'verified' => $a->verified, 'verify_message' => $a->verify_message])->values(),
             ])->values(),
             'configuration' => $parent->metadata,
@@ -162,10 +183,18 @@ class ProjectBackupService
             ->when($appIds, fn ($q) => $q->whereIn('id', $appIds))->orderBy('name')->get();
     }
 
+    /** The project's managed SQL / document databases (redis is a cache and is not dumped). */
+    private function databases(Project $project)
+    {
+        return \App\Models\Database::allTenants()->where('project_id', $project->id)->whereNotNull('server_id')
+            ->whereIn('engine', (array) config('backups.project_dump_engines', ['postgres', 'mysql', 'mariadb', 'mongodb']))->orderBy('name')->get();
+    }
+
     /** Configuration needed to rebuild the apps; secrets and env values are never stored. */
-    private function snapshot(Project $project, $apps): array
+    private function snapshot(Project $project, $apps, $databases = null): array
     {
         return [
+            'databases' => collect($databases)->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'engine' => $d->engine, 'version' => $d->version])->values()->all(),
             'project' => ['id' => $project->id, 'name' => $project->name],
             'taken_at' => now()->toIso8601ZuluString(),
             'applications' => $apps->map(fn (Application $a) => [
