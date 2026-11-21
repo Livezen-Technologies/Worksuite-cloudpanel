@@ -159,6 +159,25 @@ class EnterprisePartETest extends TestCase
         $this->assertSame('succeeded', collect(EnterpriseDeployment::find($id)->steps)->firstWhere('name', 'licence_refresh')['status']);
     }
 
+    public function test_licence_activate_sends_the_key_on_stdin_and_keeps_the_result(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        EnterpriseDeployment::find($id)->update(['status' => 'active', 'activated_at' => now(), 'status_checked_at' => now()]);
+        $key = 'WS-AB23-CD45-EF67-GH89-JK23';
+        $this->api($token)->withHeader('Idempotency-Key', 'a0')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => 'WSB-AB23-CD45-EF67-GH89'])->assertStatus(422);
+        $this->api($token)->withHeader('Idempotency-Key', 'a1')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => strtolower($key)])->assertStatus(202)->assertJsonStructure(['data' => ['job_id', 'status']]);
+        $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
+        $this->assertSame(['host', '0:0'], [$exec['payload']['mode'], $exec['payload']['user']]);
+        $this->assertStringContainsString('spark license:refresh --key -', $exec['payload']['command']);
+        $this->assertStringContainsString(base64_encode($key), $exec['payload']['command']);
+        $this->assertStringNotContainsString($key, $exec['payload']['command'], 'the key is never in the command line');
+        $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => '{"ok":true,"action":"activated","status":"active","key_masked":"WS-****-****-****-****-JK23","edition":"enterprise","expires_at":"2027-11-21T00:00:00Z","max_users":50}']])->assertOk();
+        $step = collect(EnterpriseDeployment::find($id)->steps)->firstWhere('name', 'licence_refresh');
+        $this->assertSame(['succeeded', 'active', 'enterprise', 50], [$step['status'], $step['result']['status'], $step['result']['edition'], $step['result']['max_users']]);
+        $this->assertStringNotContainsString(base64_encode($key), json_encode(\App\Models\AgentCommand::allTenants()->find($exec['id'])->payload));
+        $this->assertFalse(\Illuminate\Support\Str::contains(json_encode(\App\Models\AuditLog::query()->get()->toArray()), $key));
+    }
+
     public function test_redeploy_and_retry_bring_a_failed_deployment_back(): void
     {
         [$id, $token] = $this->ready();
