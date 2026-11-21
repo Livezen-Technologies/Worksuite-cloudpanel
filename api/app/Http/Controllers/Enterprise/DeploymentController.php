@@ -171,6 +171,13 @@ class DeploymentController extends Controller
         return response()->json(['data' => $this->svc->refreshLicence($this->find($id))], 202);
     }
 
+    public function licenceActivate(Request $request, string $id)
+    {
+        $data = $request->validate(['key' => 'required|string|max:64']);
+
+        return response()->json(['data' => $this->svc->activateLicence($this->find($id), $data['key'])], 202);
+    }
+
     public function retry(string $id, string $step)
     {
         return response()->json(['data' => $this->svc->present($this->svc->retryStep($this->find($id), $step))], 202);

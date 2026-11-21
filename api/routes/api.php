@@ -81,6 +81,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('deployments/{ref}/domains/{domain}/primary', [$ctl, 'primaryDomain'])->where($r)->name('deployments.domains.primary');
         Route::delete('deployments/{ref}/domains/{domain}', [$ctl, 'removeDomain'])->where($r)->name('deployments.domains.destroy');
         Route::post('deployments/{ref}/licence-refresh', [$ctl, 'licenceRefresh'])->where($r)->name('deployments.licence-refresh');
+        Route::post('deployments/{ref}/licence-activate', [$ctl, 'licenceActivate'])->where($r)->name('deployments.licence-activate');
         Route::post('deployments/{ref}/steps/{step}/retry', [$ctl, 'retry'])->where($r)->name('deployments.steps.retry');
         // Part F: the deployment page's CloudPanel tabs, delegated to the project features of the deployment's project.
         $pc = \App\Http\Controllers\Enterprise\DeploymentProjectController::class;

@@ -551,6 +551,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         if (($job->payload['kind'] ?? null) === 'licence') {
             $diag = $ok ? [] : $this->diagnose($dep, 'licence', $exit, $text, $result, $command->message);
             $this->step($dep, 'licence_refresh', $ok ? 'succeeded' : 'failed', $ok ? 'Licence refreshed' : $diag['message'], 'Licence refresh', $diag);
+            $this->stepResult($dep, 'licence_refresh', $result);
             if ($ok && $this->stepStatus($dep, 'licence') === 'failed') {
                 $this->step($dep, 'licence', 'succeeded', 'Licence active', 'Licence');
             }
@@ -1277,6 +1278,45 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $this->log('enterprise.deployment.licence_refresh', $dep, []);
 
         return ['job_id' => $job->id, 'status' => $dep->fresh()->status];
+    }
+
+    /**
+     * POST licence-activate {key}: activate a WorkSuite Server key (WS-XXXX-XXXX-XXXX-XXXX-XXXX) inside the web
+     * container, then re-pull it — `license:refresh --key -` with the key on stdin, so it is in neither the
+     * process list nor any log (the command is redacted once it has run).
+     */
+    public function activateLicence(EnterpriseDeployment $dep, string $key): array
+    {
+        $key = strtoupper(trim($key));
+        if (! preg_match('/^WS(-[A-Z0-9]{4}){5}$/', $key)) {
+            throw ApiException::validation(['key' => ['A WorkSuite Server licence key looks like WS-XXXX-XXXX-XXXX-XXXX-XXXX.']]);
+        }
+        if (! in_array($dep->status, ['active', 'configuring'], true) || ! $dep->app_application_id) {
+            throw ApiException::conflict("The deployment is {$dep->status}; a licence can be activated once it is active.");
+        }
+        $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && printf %s '.base64_encode($key).' | base64 -d | '.config('enterprise.licence_refresh_command').' --key -';
+        $job = $this->tenant->as($dep->organization_id, fn () => $this->exec($dep, 'licence', $command));
+        $this->step($dep, 'licence_refresh', 'running', 'Activating the licence', 'Licence refresh');
+        $this->log('enterprise.deployment.licence_activate', $dep, ['key_last4' => substr($key, -4)]);
+
+        return ['job_id' => $job->id, 'status' => $dep->fresh()->status];
+    }
+
+    /** The app's license:refresh JSON (never the key: only the masked form), kept on the step for Cloud's Licence tab. */
+    private function stepResult(EnterpriseDeployment $dep, string $name, ?array $result): void
+    {
+        if (! is_array($result)) {
+            return;
+        }
+        $keep = array_intersect_key($result, array_flip(['ok', 'action', 'status', 'license_status', 'license_id', 'key_masked', 'edition', 'organization', 'expires_at', 'max_users', 'update_eligible', 'last_validated_at', 'grace_ends_at', 'error', 'message']));
+        $steps = $dep->fresh()->steps ?? [];
+        foreach ($steps as &$st) {
+            if ($st['name'] === $name) {
+                $st['result'] = $keep;
+            }
+        }
+        unset($st);
+        $dep->update(['steps' => $steps]);
     }
 
     public const RETRYABLE = ['image', 'database', 'redis', 'app', 'worker', 'domain', 'custom_domain', 'bootstrap', 'licence', 'licence_refresh', 'redeploy', 'resize'];
