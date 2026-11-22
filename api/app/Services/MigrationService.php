@@ -512,7 +512,7 @@ class MigrationService implements HandlesCommandResults
 
     private function dbContainer(Database $db): string
     {
-        return Container::allTenants()->find($db->container_id)?->name ?? 'db-'.Str::slug($db->name);
+        return $db->resolveContainer()?->name ?? $db->containerName();
     }
 
     /** The new database is named after the app. */

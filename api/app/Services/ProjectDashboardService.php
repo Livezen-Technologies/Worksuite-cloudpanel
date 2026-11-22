@@ -63,7 +63,7 @@ class ProjectDashboardService
             'applications' => $rows,
             'databases' => $dbs->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'engine' => $d->engine, 'version' => $d->version, 'status' => $d->status,
                 'server' => $servers[$d->server_id]->name ?? \App\Models\Server::allTenants()->whereKey($d->server_id)->value('name'), 'container_id' => $d->container_id,
-                'state' => $d->container_id ? Container::allTenants()->whereKey($d->container_id)->value('state') : null,
+                'state' => $d->resolveContainer()?->state,
                 'host' => 'db-'.\Illuminate\Support\Str::slug($d->name),
                 'used_by' => $apps->filter(fn ($a) => ($a->source['database_id'] ?? null) === $d->id)->pluck('name')->values()])->values(),
             'stacks' => $stacks->map(fn ($s) => ['id' => $s->id, 'name' => $s->name, 'status' => $s->status])->values(),
