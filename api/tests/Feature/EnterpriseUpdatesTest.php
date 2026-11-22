@@ -193,7 +193,7 @@ class EnterpriseUpdatesTest extends TestCase
         $this->api($token)->putJson("{$base}/settings", ['window' => ['timezone' => 'Mars/Base']])->assertStatus(422);
         $now = Carbon::parse('2026-11-21 21:00:00', 'UTC'); // Sunday 02:30 in Colombo (UTC+5:30)
         Carbon::setTestNow($now);
-        $this->api($token)->putJson("{$base}/settings", ['mode' => 'auto', 'channel' => '3.2', 'window' => ['days' => [7], 'start' => '02:00', 'duration_minutes' => 120, 'timezone' => 'Asia/Colombo']])
+        $this->api($token)->putJson("{$base}/settings", ['mode' => 'auto', 'channel' => '3.2', 'notice_hours' => 0, 'window' => ['days' => [7], 'start' => '02:00', 'duration_minutes' => 120, 'timezone' => 'Asia/Colombo']])
             ->assertOk()->assertJsonPath('data.settings.mode', 'auto')->assertJsonPath('data.settings.channel', '3.2')->assertJsonPath('data.latest', '3.2.1-3100');
 
         $this->tick();
@@ -203,6 +203,47 @@ class EnterpriseUpdatesTest extends TestCase
         $this->assertSame('backing_up', $auto[0]->status);
         $this->assertSame(1, EnterpriseWebhook::where('enterprise_deployment_id', $id)->where('event', 'deployment.update_available')->count());
         Carbon::setTestNow();
+    }
+
+    public function test_auto_update_is_announced_notice_hours_ahead_and_only_an_announced_window_runs(): void
+    {
+        [$id, $token] = $this->ready();
+        $base = "/api/v1/enterprise/deployments/{$id}/updates";
+        $this->api($token)->putJson("{$base}/settings", ['notice_hours' => 5])->assertStatus(422);
+
+        // Sunday 02:30 Colombo, inside the window, but nothing was announced: this window is skipped.
+        Carbon::setTestNow(Carbon::parse('2026-11-21 21:00:00', 'UTC'));
+        $this->api($token)->putJson("{$base}/settings", ['mode' => 'auto', 'channel' => '3.2', 'notice_hours' => 24, 'window' => ['days' => [7], 'start' => '02:00', 'duration_minutes' => 120, 'timezone' => 'Asia/Colombo']])
+            ->assertOk()->assertJsonPath('data.settings.notice_hours', 24)->assertJsonMissingPath('data.settings.announced')
+            ->assertJsonPath('data.next_notice.window_start', '2026-11-28T20:30:00Z')->assertJsonPath('data.next_notice.notify_at', '2026-11-27T20:30:00Z')
+            ->assertJsonPath('data.next_notice.announced', false);
+        $this->tick();
+        $this->tick();
+        $this->assertSame(0, EnterpriseUpdate::where('enterprise_deployment_id', $id)->count());
+        $hooks = EnterpriseWebhook::where('enterprise_deployment_id', $id)->where('event', 'deployment.update_scheduled')->get();
+        $this->assertCount(1, $hooks); // once per (version, window)
+        $p = $hooks[0]->payload['update_scheduled'];
+        $this->assertSame(['3.2.1-3100', '3.2.0-3011', '2026-11-28T20:30:00Z', '2026-11-28T22:30:00Z', 'Asia/Colombo', 24, '2026-11-27T20:30:00Z'],
+            [$p['version'], $p['current_version'], $p['window_start'], $p['window_end'], $p['timezone'], $p['notice_hours'], $p['notify_at']]);
+        $this->api($token)->getJson($base)->assertOk()->assertJsonPath('data.next_notice.announced', true);
+
+        // The announced window opens: the run starts.
+        Carbon::setTestNow(Carbon::parse('2026-11-28 21:00:00', 'UTC'));
+        $this->tick();
+        $auto = EnterpriseUpdate::where('enterprise_deployment_id', $id)->where('trigger', 'auto')->get();
+        $this->assertCount(1, $auto);
+        $this->assertSame('3.2.1-3100', $auto[0]->to_version);
+        Carbon::setTestNow();
+    }
+
+    public function test_notice_window_skips_windows_too_close_to_announce(): void
+    {
+        $w = ['days' => [7], 'start' => '02:00', 'duration_minutes' => 120, 'timezone' => 'UTC'];
+        $sat = Carbon::parse('2026-11-21 12:00', 'UTC'); // Sunday 02:00 is 14 h away
+        $this->assertSame('2026-11-22T02:00:00+00:00', EnterpriseUpdateService::noticeWindow($w, 6, $sat)->toIso8601String());
+        $this->assertSame('2026-11-29T02:00:00+00:00', EnterpriseUpdateService::noticeWindow($w, 24, $sat)->toIso8601String());
+        $this->assertSame('2026-12-06T02:00:00+00:00', EnterpriseUpdateService::noticeWindow($w, 200, $sat)->toIso8601String());
+        $this->assertSame('2026-11-22T02:00:00+00:00', EnterpriseUpdateService::openedAt($w, Carbon::parse('2026-11-22 03:00', 'UTC'))->toIso8601String());
     }
 
     public function test_window_and_version_rules(): void

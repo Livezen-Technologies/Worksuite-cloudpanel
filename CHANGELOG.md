@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.34.0] — 2026-11-22
+
+### Added
+- **Enterprise Updates: customer notice before an automatic update** (owner decision 2026-11-22). New setting `notice_hours` (0/6/24/48/72, default 24) on `PUT deployments/{ref}/updates/settings`. In `auto` mode `enterprise:updates` sends a new `deployment.update_scheduled` webhook (`version`, `current_version`, `window_start`, `window_end`, `timezone`, `notice_hours`, `notify_at`) once per version and window, for the first window that can still be announced `notice_hours` ahead; Cloud emails the customer contacts from it. An auto run now only starts in a window that was announced in time, so a customer is never updated without notice; `notice_hours: 0` keeps the old behaviour. `GET updates` adds `next_notice {version, window_start, notify_at, announced}`. No migration (kept in `update_settings`).
+
 ### Added
 - **Enterprise Updates** (`docs/ENTERPRISE_API.md` "Updates"): `GET/PUT deployments/{ref}/updates[/settings]`, `POST updates` (now or at a time), `POST updates/{id}/cancel`, `POST updates/{id}/restore {confirm, reason}`. Every run takes a project backup first (DB dump + data volumes), redeploys on the new tag, waits for the health gate and rolls back to the previous tag on failure; nothing changes when the backup fails. Per-deployment settings off / notify / auto, channel `latest` or a `major.minor` line, and a maintenance window (days, time, time zone, length). `enterprise:updates` runs every minute; auto updates are idempotent per deployment and version. `deployment.update` and `deployment.update_available` webhooks, audit entries for every action. New table `enterprise_updates`, column `enterprise_deployments.update_settings` (migration `2026_11_28_090000_enterprise_updates`).
 

@@ -37,6 +37,7 @@ class DeploymentUpdateController extends Controller
             'window.start' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
             'window.duration_minutes' => 'sometimes|integer|between:30,720',
             'window.timezone' => 'sometimes|string|timezone:all',
+            'notice_hours' => ['sometimes', 'integer', Rule::in(EnterpriseUpdateService::NOTICE_HOURS)],
         ]);
         $dep = $this->find($ref);
         $this->updates->saveSettings($dep, $v, $request->user()?->id);

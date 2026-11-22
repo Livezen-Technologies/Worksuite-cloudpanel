@@ -38,7 +38,16 @@ class EnterpriseUpdateService
         'mode' => 'off', 'channel' => 'latest',
         'window' => ['days' => [7], 'start' => '02:00', 'duration_minutes' => 120, 'timezone' => 'UTC'],
         'notified_version' => null,
+        // Hours before the window opens that Cloud emails the customer (0 = no email, and no gate). Cloud owns the mail.
+        'notice_hours' => 24,
+        // The last deployment.update_scheduled sent: {version, window_start, at, notice_hours, notify_at}. Internal.
+        'announced' => null,
     ];
+
+    public const NOTICE_HOURS = [0, 6, 24, 48, 72];
+
+    /** Settings keys the scheduler keeps for itself; never shown or accepted. */
+    private const INTERNAL = ['notified_version' => 1, 'announced' => 1];
 
     public function __construct(
         private EnterpriseProvisioningService $deployments,
@@ -100,19 +109,28 @@ class EnterpriseUpdateService
     public function saveSettings(EnterpriseDeployment $dep, array $in, ?string $userId): array
     {
         $before = $this->settings($dep);
-        $s = array_replace_recursive($before, array_intersect_key($in, array_flip(['mode', 'channel', 'window'])));
+        $s = array_replace_recursive($before, array_intersect_key($in, array_flip(['mode', 'channel', 'window', 'notice_hours'])));
+        if (isset($in['notice_hours'])) {
+            $s['notice_hours'] = (int) $in['notice_hours'];
+        }
         if (isset($in['window']['days'])) {
             $s['window']['days'] = array_values(array_unique(array_map('intval', $in['window']['days'])));
         }
         $dep->update(['update_settings' => $s]);
         $this->audit->log('enterprise.deployment.update.settings', 'EnterpriseDeployment', $dep->id,
-            ['from' => array_diff_key($before, ['notified_version' => 1]), 'to' => array_diff_key($s, ['notified_version' => 1]), 'external_id' => $dep->external_id], $dep->organization_id, $userId);
+            ['from' => array_diff_key($before, self::INTERNAL), 'to' => array_diff_key($s, self::INTERNAL), 'external_id' => $dep->external_id], $dep->organization_id, $userId);
 
         return $this->settings($dep->fresh());
     }
 
     /** True when $at falls inside the deployment's maintenance window (in the window's own time zone). */
     public static function inWindow(array $window, Carbon $at): bool
+    {
+        return self::openedAt($window, $at) !== null;
+    }
+
+    /** When the window $at falls inside opened (UTC), or null outside every window. */
+    public static function openedAt(array $window, Carbon $at): ?Carbon
     {
         $tz = $window['timezone'] ?? 'UTC';
         [$h, $m] = array_map('intval', explode(':', (string) ($window['start'] ?? '02:00')) + [1 => 0]);
@@ -121,11 +139,25 @@ class EnterpriseUpdateService
             $start = $local->copy()->subDays($back)->setTime($h, $m);
             if (in_array($start->dayOfWeekIso, (array) ($window['days'] ?? []), true)
                 && $local->gte($start) && $local->lt($start->copy()->addMinutes((int) ($window['duration_minutes'] ?? 120)))) {
-                return true;
+                return $start->utc();
             }
         }
 
-        return false;
+        return null;
+    }
+
+    /**
+     * The first window the customer can still be told about $hours ahead: the next opening after $at whose notice
+     * time (opening − $hours) has not passed. A window announced too late is skipped, never run unannounced.
+     */
+    public static function noticeWindow(array $window, int $hours, Carbon $at): ?Carbon
+    {
+        $w = self::nextWindow($window, $at);
+        for ($i = 0; $w && $i < 60 && $w->copy()->subHours($hours)->lt($at); $i++) {
+            $w = self::nextWindow($window, $w);
+        }
+
+        return $w;
     }
 
     /** The next window opening after $at (UTC), or null when no day is chosen. */
@@ -164,8 +196,9 @@ class EnterpriseUpdateService
             'blocked_reason' => $this->updatable($dep),
             'available' => $available,
             'latest' => collect($available)->first(fn ($v) => self::onChannel($v['version'], $settings['channel']))['version'] ?? null,
-            'settings' => array_diff_key($settings, ['notified_version' => 1]),
+            'settings' => array_diff_key($settings, self::INTERNAL),
             'next_window' => $settings['mode'] === 'auto' ? self::nextWindow($settings['window'], now())?->toIso8601ZuluString() : null,
+            'next_notice' => $this->nextNotice($dep, $settings, $available),
             'active' => ($a = $runs->first(fn ($r) => in_array($r->status, EnterpriseUpdate::ACTIVE, true))) ? $this->present($a) : null,
             'last' => ($l = $runs->first(fn ($r) => in_array($r->status, EnterpriseUpdate::TERMINAL, true) && $r->status !== 'cancelled')) ? $this->present($l) : null,
             'history' => $runs->map(fn ($r) => $this->present($r))->values(),
@@ -313,7 +346,11 @@ class EnterpriseUpdateService
         return $n;
     }
 
-    /** notify: tell Cloud Admin once per new version. auto: start one run per version, inside the window only. */
+    /**
+     * notify: tell Cloud Admin once per new version. auto: start one run per version, inside the window only. With
+     * notice_hours > 0 an auto run also needs the window to have been announced (deployment.update_scheduled, which
+     * Cloud turns into the customer email) at least notice_hours before it opened; otherwise that window is skipped.
+     */
     private function policy(EnterpriseDeployment $dep): void
     {
         $s = $this->settings($dep);
@@ -329,10 +366,66 @@ class EnterpriseUpdateService
             $this->deployments->enqueue($dep->fresh(), 'deployment.update_available', ['update_available' => ['version' => $target, 'current_version' => $dep->version, 'mode' => $s['mode']]]);
             $this->audit->log('enterprise.deployment.update.available', 'EnterpriseDeployment', $dep->id, ['version' => $target, 'external_id' => $dep->external_id], $dep->organization_id);
         }
-        if ($s['mode'] === 'auto' && self::inWindow($s['window'], now())
-            && ! EnterpriseUpdate::where('enterprise_deployment_id', $dep->id)->whereIn('status', EnterpriseUpdate::ACTIVE)->exists()) {
-            $this->request($dep, $target, null, 'auto', null, 'Automatic update in the maintenance window');
+        if ($s['mode'] !== 'auto' || EnterpriseUpdate::where('enterprise_deployment_id', $dep->id)->whereIn('status', EnterpriseUpdate::ACTIVE)->exists()) {
+            return;
         }
+        $hours = (int) $s['notice_hours'];
+        $opened = self::openedAt($s['window'], now());
+        if ($opened && ($hours === 0 || $this->announcedFor($s, $target, $opened))) {
+            $this->request($dep, $target, null, 'auto', null, 'Automatic update in the maintenance window');
+
+            return;
+        }
+        if ($hours > 0 && ! $this->updatable($dep) && ! $this->autoRan($dep, $target)) {
+            $this->announce($dep, $s, $target);
+        }
+    }
+
+    private function announcedFor(array $s, string $target, Carbon $windowStart): bool
+    {
+        $a = (array) ($s['announced'] ?? []);
+
+        return ($a['version'] ?? null) === $target && ($a['window_start'] ?? null) === $windowStart->toIso8601ZuluString();
+    }
+
+    private function autoRan(EnterpriseDeployment $dep, string $version): bool
+    {
+        return EnterpriseUpdate::where('enterprise_deployment_id', $dep->id)->where('to_version', $version)->where('dedupe_key', 'auto')->exists();
+    }
+
+    /** Send deployment.update_scheduled once per (version, window). */
+    private function announce(EnterpriseDeployment $dep, array $s, string $target): void
+    {
+        $hours = (int) $s['notice_hours'];
+        $w = self::noticeWindow($s['window'], $hours, now());
+        if (! $w || $this->announcedFor($s, $target, $w)) {
+            return;
+        }
+        $a = ['version' => $target, 'window_start' => $w->toIso8601ZuluString(), 'at' => now()->toIso8601ZuluString(), 'notice_hours' => $hours, 'notify_at' => $w->copy()->subHours($hours)->toIso8601ZuluString()];
+        $dep->update(['update_settings' => array_merge((array) $dep->update_settings, ['announced' => $a])]);
+        $this->deployments->enqueue($dep->fresh(), 'deployment.update_scheduled', ['update_scheduled' => [
+            'version' => $target, 'current_version' => $dep->version, 'window_start' => $a['window_start'],
+            'window_end' => $w->copy()->addMinutes((int) $s['window']['duration_minutes'])->toIso8601ZuluString(),
+            'timezone' => $s['window']['timezone'], 'notice_hours' => $hours, 'notify_at' => $a['notify_at'],
+        ]]);
+        $this->audit->log('enterprise.deployment.update.scheduled', 'EnterpriseDeployment', $dep->id, ['version' => $target, 'window_start' => $a['window_start'], 'notice_hours' => $hours, 'external_id' => $dep->external_id], $dep->organization_id);
+    }
+
+    /** For the tab: the auto update the customer will be emailed about, or null. */
+    private function nextNotice(EnterpriseDeployment $dep, array $s, array $available): ?array
+    {
+        $hours = (int) $s['notice_hours'];
+        $target = collect($available)->first(fn ($v) => self::onChannel($v['version'], $s['channel']))['version'] ?? null;
+        if ($s['mode'] !== 'auto' || $hours === 0 || ! $target || $this->autoRan($dep, $target)) {
+            return null;
+        }
+        $a = (array) ($s['announced'] ?? []);
+        if (($a['version'] ?? null) === $target && isset($a['window_start']) && Carbon::parse($a['window_start'])->isFuture()) {
+            return ['version' => $target, 'window_start' => $a['window_start'], 'notify_at' => $a['notify_at'] ?? null, 'announced' => true];
+        }
+        $w = self::noticeWindow($s['window'], $hours, now());
+
+        return $w ? ['version' => $target, 'window_start' => $w->toIso8601ZuluString(), 'notify_at' => $w->copy()->subHours($hours)->toIso8601ZuluString(), 'announced' => false] : null;
     }
 
     /** Moves one run forward as far as the current facts allow. Safe to call repeatedly. */
