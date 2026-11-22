@@ -85,6 +85,8 @@ func newAgent(cfg *config.Config, binary string, logger *log.Logger) (*agent, er
 		ClamAVContainer:   cfg.ClamAVContainer,
 		Log:               logger,
 	}
+	// XNODE-3: after a reboot Docker republishes ports at once; put the edge-port filter back first.
+	ex.RestoreEdgePorts(context.Background())
 	ex.Terminal = &executor.TerminalConfig{RelayURL: cfg.RelayURL, Secret: cfg.AgentSecret, Shells: cfg.TerminalShells,
 		TLS: func() *tls.Config { return tlsCfg }}
 	return &agent{cfg: cfg, client: client, docker: dc, sampler: &stats.Sampler{}, exec: ex, log: logger,

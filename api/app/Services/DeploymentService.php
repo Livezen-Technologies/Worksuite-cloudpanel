@@ -340,14 +340,17 @@ class DeploymentService implements HandlesCommandResults
     private function dispatchDeploy(Deployment $deployment, Application $app, Server $server, array $config, Job $job): void
     {
         $old = Container::where('application_id', $app->id)->get();
-        $blueGreen = in_array($deployment->strategy, ['blue_green', 'rolling'], true) && $old->isNotEmpty();
+        // XNODE-3: an app the ingress reaches over this node's public IP publishes its port on the
+        // host at a fixed number, which two containers cannot share: it is always replaced in place.
+        $edgeRouted = EdgeRoutingService::offIngress($server) && ($config['port'] ?? $app->port);
+        $blueGreen = ! $edgeRouted && in_array($deployment->strategy, ['blue_green', 'rolling'], true) && $old->isNotEmpty();
         $name = $blueGreen ? $app->containerName().'-'.substr($deployment->id, 0, 6) : $app->containerName();
 
         $input = [
             'name' => $name,
             'image' => $config['image'],
             'env' => $config['env_encrypted'] ? json_decode(Crypt::decryptString($config['env_encrypted']), true) : [],
-            'ports' => [],
+            'ports' => $edgeRouted ? [['container_port' => (int) ($config['port'] ?? $app->port), 'host_port' => app(EdgeRoutingService::class)->port($app)]] : [],
             'restart_policy' => ($config['auto_restart'] ?? true) ? 'unless-stopped' : 'no',
             'read_only_rootfs' => false,
             'memory_mb' => $config['memory_mb'] ?? null,
@@ -387,6 +390,10 @@ class DeploymentService implements HandlesCommandResults
             'server_id' => $server->id, 'application_id' => $app->id, 'name' => $name, 'image' => $spec['image'],
             'state' => 'creating', 'spec' => ContainerSpec::redact($spec), 'labels' => (array) $spec['labels'],
         ]);
+        if ($edgeRouted) {
+            // XNODE-3: filter the host port to the ingress IPs before the container publishes it.
+            app(EdgeRoutingService::class)->syncFirewall($server, true, $job);
+        }
         $this->bus->dispatch($server, 'container.create', $spec, $job);
         $job->update(['payload' => array_merge($job->payload ?? [], ['container_name' => $name, 'replaces' => $blueGreen ? $old->pluck('id')->all() : []])]);
         $app->update(['status' => 'deploying']);

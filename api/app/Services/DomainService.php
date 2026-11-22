@@ -102,7 +102,8 @@ class DomainService
                 continue;
             }
             try {
-                $this->zones->createRecord($zone, ['type' => $r['type'], 'name' => $r['name'], 'content' => $r['value'], 'ttl' => 1, 'proxied' => false]);
+                $this->zones->createRecord($zone, ['type' => $r['type'], 'name' => $r['name'], 'content' => $r['value'], 'ttl' => 1,
+                    'proxied' => ! empty($r['proxied']) && $zone->provider?->driver()->supportsProxy()]);
                 $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'created'];
             } catch (\Throwable $e) {
                 $out[] = ['name' => $r['name'], 'type' => $r['type'], 'status' => 'failed', 'message' => $e->getMessage()];
@@ -140,7 +141,10 @@ class DomainService
         if ($domain->dns_method && ! $domain->platform_subdomain) {
             return $this->projectRecords($domain);
         }
-        $records = array_map(fn ($ip) => ['type' => 'A', 'name' => $domain->name, 'value' => $ip], $this->routingIps($domain));
+        // XNODE-4: an enterprise domain on the edges is proxied (orange cloud) so the watchdog can
+        // drop a failed edge's record without visitors' resolvers caching it.
+        $proxied = $this->edgeProxied($domain);
+        $records = array_map(fn ($ip) => array_filter(['type' => 'A', 'name' => $domain->name, 'value' => $ip, 'proxied' => $proxied ?: null]), $this->routingIps($domain));
         if ($domain->www_redirect) {
             $records[] = ['type' => 'CNAME', 'name' => 'www.'.$domain->name, 'value' => $domain->name];
         }
@@ -233,6 +237,20 @@ class DomainService
         return [$this->ingressIp($domain)];
     }
 
+    private function zoneHasEdgeRecord(Domain $domain, string $name): bool
+    {
+        $zone = \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id);
+        $edges = \App\Services\TraefikConfigService::edgeServers()->pluck('ip')->filter()->all();
+
+        return $zone && $edges && \App\Models\DnsRecord::allTenants()->where('dns_zone_id', $zone->id)->where('type', 'A')->where('name', $name)->whereIn('content', $edges)->exists();
+    }
+
+    /** XNODE-4: enterprise domains served by edges are published proxied. */
+    public function edgeProxied(Domain $domain): bool
+    {
+        return \App\Services\TraefikConfigService::isEnterpriseDomain($domain) && \App\Services\TraefikConfigService::edgeServers()->isNotEmpty();
+    }
+
     public function ingressIp(Domain $domain): string
     {
         $server = $domain->application_id ? Application::find($domain->application_id)?->server : null;
@@ -249,6 +267,12 @@ class DomainService
             $lookupName = ltrim($record['name'], '*.');
             $values = $domain->platform_subdomain ? [$record['value']] : $this->dns->lookup($lookupName, $record['type']);
             $ok = in_array(rtrim($record['value'], '.'), array_map(fn ($v) => rtrim($v, '.'), $values), true);
+            if (! $ok && ! empty($record['proxied'])) {
+                // XNODE-4: a proxied record resolves to Cloudflare, and the edge watchdog may have
+                // taken this edge out: one edge record still in the managed zone is enough.
+                $ok = $this->zoneHasEdgeRecord($domain, $record['name']);
+                $values = $ok ? ['proxied'] : $values;
+            }
             $records[] = $record + ['status' => $ok ? 'verified' : 'waiting', 'found' => $values];
         }
         $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified');

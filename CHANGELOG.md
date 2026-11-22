@@ -9,6 +9,16 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.37.0] — 2026-11-22
+
+### Changed
+- **Ingress → app node routing over public IPs, no WireGuard** (XNODE-3, owner decision 2026-11-22; replaces XNODE-1's mesh path). An app homed on a non-ingress node (while a dedicated ingress or enterprise edge exists) now publishes its container port on the host at a fixed port (`source.edge_port`, `EDGE_BACKEND_PORT_BASE` 51000 + crc32(app id) mod `EDGE_BACKEND_PORT_SPAN` 10000, next free one on a clash, kept across deploys; such apps always deploy in place since two containers cannot share it), and the ingress/edge Traefik routes the domain to `http://<node public ip>:<port>` with a backend health check (`EDGE_BACKEND_HEALTH_PATH` default `/`, `_INTERVAL` 10s, `_TIMEOUT` 3s). A remote node with no public IP: routers dropped and the reason recorded, as before. Apps no longer get `mesh_network` turned on automatically, and enterprise placement refuses a remote node without a public IP instead of one off the mesh. MeshService itself is unchanged.
+- **Hop security: plain HTTP behind a source-IP filter, first step.** The node's agent filters each such port to the IPs of the ingress servers that serve the app (edges for enterprise apps, the other ingress servers otherwise) with the new agent command `edge.ports` (agent 1.37.0+): its own nftables table `dockermgr_edge` at prerouting -150, ahead of Docker's DNAT, which UFW and DOCKER-USER cannot do for published ports. Sent before `container.create` on every deploy and after every proxy push when the rules change; reloaded by the agent at start (reboot). HTTPS on the hop (panel CA + per-app cert) is TODO (XNODE-3b): `EDGE_BACKEND_TLS=true` makes these apps unroutable with a stated reason rather than silently sending plain HTTP.
+
+### Added
+- **Enterprise edge DNS watchdog** (XNODE-4, Cloudflare free plan, no Load Balancing). `edge:watchdog`, scheduled every minute, off by default (`EDGE_WATCHDOG_ENABLED=false`). Each run probes every enterprise edge: agent heartbeat AND an HTTPS request to the edge's IP with an enterprise hostname as SNI/Host (`EDGE_WATCHDOG_HOST`, default the first verified enterprise domain; `EDGE_WATCHDOG_PATH` `/`; `EDGE_WATCHDOG_TIMEOUT` 5 s; below `EDGE_WATCHDOG_MAX_OK_STATUS` 500 is up). After `EDGE_WATCHDOG_FAIL_AFTER` (2) consecutive failures the edge's A records are deleted from every enterprise domain's managed zone; after `EDGE_WATCHDOG_RESTORE_AFTER` (2) passes they are recreated. The last edge record of a domain is never removed; when every edge fails nothing changes and one alert is raised. Each change is audited (`edge.watchdog.removed` / `.restored`) and raises/resolves a critical alert through the notification channels. SCL-8 `edge:failover` leaves enterprise domains to the watchdog when it is on.
+- Enterprise domains on the edges are published **proxied** (orange cloud) when the zone's provider supports it; their DNS check accepts an edge record in the managed zone instead of a public lookup (which returns Cloudflare's addresses, or misses an edge the watchdog took out). The panel has no separate enterprise meetings host, so nothing is DNS-only.
+
 ## [1.36.0] — 2026-11-22
 
 ### Added

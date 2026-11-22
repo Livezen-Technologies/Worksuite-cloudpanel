@@ -186,9 +186,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $scored = [];
         $rejected = [];
         foreach ($candidates as $s) {
-            // XNODE-1: the ingress reaches a node other than itself only over the private network.
-            if (Application::needsMesh($s) && ! $s->mesh_ip) {
-                $rejected[] = "{$s->name}: not on the private network, so the ingress cannot route to it (join it to the mesh first)";
+            // XNODE-3: the edges reach a node other than themselves at its public IP.
+            if (EdgeRoutingService::offIngress($s) && ! $s->ip) {
+                $rejected[] = "{$s->name}: has no public IP, so the edges cannot route to it";
 
                 continue;
             }
@@ -398,8 +398,6 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'image' => self::image($dep->version), 'strategy' => 'recreate',
                 'project_id' => $dep->project_id, 'environment_id' => $environment->id, 'environment' => 'production',
                 'server_id' => $dep->server_id, 'size' => 'small', 'status' => 'deploying',
-                // XNODE-1: off the ingress host the app needs its dmp-mesh address before the first deploy.
-                'mesh_network' => Application::needsMesh(Server::allTenants()->find($dep->server_id)),
                 'port' => $public ? (int) config('enterprise.port') : null,
                 'health_path' => $public ? (string) config('enterprise.health_path') : null,
                 'memory_limit_mb' => $size[$role.'_ram_mb'], 'cpu_limit' => $size[$role.'_cpus'],

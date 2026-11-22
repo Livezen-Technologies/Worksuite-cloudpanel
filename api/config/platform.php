@@ -326,7 +326,34 @@ return [
     'mesh' => ['subnet' => env('MESH_SUBNET', '10.88.0.0/16'), 'subnet6' => env('MESH_SUBNET6', 'fd88::/64'), 'port' => (int) env('MESH_PORT', 51820), 'zone' => 'internal', 'container_supernet' => env('MESH_CONTAINER_SUPERNET', '10.89.0.0/16'), 'dns_image' => env('MESH_DNS_IMAGE', 'coredns/coredns:1.11.3')],
 
     // SCL-8: keep domains' A records on the online ingress servers.
-    'edge' => ['failover' => (bool) env('EDGE_FAILOVER', false)],
+    'edge' => [
+        'failover' => (bool) env('EDGE_FAILOVER', false),
+        // XNODE-3: how an ingress/edge reaches an app homed on another node: the node's public IP
+        // at a published host port that only the ingress servers' IPs may reach (agent
+        // edge.ports, nftables). No WireGuard mesh involved.
+        // TODO(XNODE-3b): HTTPS on that hop (panel CA + per-app cert + TLS sidecar). Until it
+        // exists the hop is plain HTTP behind the source-IP filter; setting this true makes
+        // such apps unroutable (reported) instead of silently sending plain HTTP.
+        'backend_tls' => (bool) env('EDGE_BACKEND_TLS', false),
+        'health_path' => env('EDGE_BACKEND_HEALTH_PATH', '/'),
+        'health_interval' => env('EDGE_BACKEND_HEALTH_INTERVAL', '10s'),
+        'health_timeout' => env('EDGE_BACKEND_HEALTH_TIMEOUT', '3s'),
+        // Host ports for those apps: port_base + crc32(app id) % port_span, then the next free one.
+        'port_base' => (int) env('EDGE_BACKEND_PORT_BASE', 51000),
+        'port_span' => (int) env('EDGE_BACKEND_PORT_SPAN', 10000),
+        // XNODE-4: Cloudflare DNS watchdog for enterprise domains with one A record per edge.
+        'watchdog' => [
+            'enabled' => (bool) env('EDGE_WATCHDOG_ENABLED', false),
+            'fail_after' => (int) env('EDGE_WATCHDOG_FAIL_AFTER', 2),
+            'restore_after' => (int) env('EDGE_WATCHDOG_RESTORE_AFTER', 2),
+            'path' => env('EDGE_WATCHDOG_PATH', '/'),
+            // SNI/Host for the probe; empty = the first verified enterprise domain.
+            'host' => env('EDGE_WATCHDOG_HOST'),
+            'timeout' => (int) env('EDGE_WATCHDOG_TIMEOUT', 5),
+            // Any response below this status counts as the edge being up (a 404 is still Traefik answering).
+            'max_ok_status' => (int) env('EDGE_WATCHDOG_MAX_OK_STATUS', 500),
+        ],
+    ],
 
     // CFT: cloudflared connector image and the Traefik entry point it forwards to on the proxy network.
     'tunnels' => ['image' => env('CLOUDFLARED_IMAGE', 'cloudflare/cloudflared:2024.10.1'), 'origin' => env('TUNNEL_ORIGIN', 'http://traefik:80')],
