@@ -424,6 +424,9 @@ class BackupService implements HandlesCommandResults
 
     private function notifyFailed(BackupJob $backup, string $error, ?string $label = null): void
     {
+        if (EnterpriseRunReportService::ownsBackup($backup)) {
+            return; // ENT-MAIL: one summary for the whole backup set of an Enterprise deployment
+        }
         app(\App\Services\EmailTemplateService::class)->notifyOrganization($backup->organization_id, 'backup_failed', [
             'target' => $label ?? $this->label($backup->target_type, $backup->target_id), 'error' => $error,
             'time' => now()->toDayDateTimeString().' UTC',

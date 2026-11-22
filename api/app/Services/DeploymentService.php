@@ -554,7 +554,9 @@ class DeploymentService implements HandlesCommandResults
         });
         $deployment->refresh();
         // EML: a pull-request preview gets "Preview ready" with its address instead of the usual note.
-        if ($deployment->source === 'preview') {
+        if (EnterpriseRunReportService::ownsApplication($app->id)) {
+            // ENT-MAIL: an Enterprise container is reported once, in the run's summary (EnterpriseRunReportService).
+        } elseif ($deployment->source === 'preview') {
             app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'preview_ready', [
                 'app' => $app->name, 'branch' => (string) ($app->source['branch'] ?? $app->environmentModel?->branch ?? ''), 'url' => (string) $this->primaryUrl($app),
             ]);
@@ -623,6 +625,9 @@ class DeploymentService implements HandlesCommandResults
 
     private function notifyFailed(Application $app, string $stage, string $error): void
     {
+        if (EnterpriseRunReportService::ownsApplication($app->id)) {
+            return; // ENT-MAIL: in the Enterprise run's summary instead
+        }
         app(EmailTemplateService::class)->notifyOrganization($app->organization_id, 'deploy_failed', [
             'app' => $app->name, 'stage' => $stage, 'error' => $error,
             'deployment_url' => rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/apps/'.$app->id,

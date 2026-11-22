@@ -609,6 +609,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         'DNS_CONFLICT' => 'A DNS record for this name conflicts or could not be published. Remove the conflicting record in the zone, then retry the domain step.',
         'TLS_FAILED' => 'The certificate could not be issued. Check that DNS points at the node and port 80 is reachable, then retry the domain step.',
         'EXEC_FAILED' => 'The command failed (see detail). Check the app container logs, then retry.',
+        'RESTIC_MISSING' => 'restic is not installed on the node. Install it there (apt install restic), then run the backup or the update again.',
+        'BACKUP_FAILED' => 'A backup did not complete (see the error). Check the node disk and the backup destination, then run it again.',
     ];
 
     /** JSON error codes enterprise:bootstrap prints. */
@@ -930,6 +932,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 }
             }
         });
+        rescue(fn () => app(EnterpriseRunReportService::class)->sweep());
 
         return $n;
     }
@@ -1448,6 +1451,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $from = $dep->status;
         $dep->update(['status' => $status] + (in_array($status, ['active', 'awaiting_setup', 'provisioning'], true) ? ['status_reason' => null] : []));
         $this->enqueue($dep->fresh(), 'deployment.status', ['previous_status' => $from]);
+        rescue(fn () => app(EnterpriseRunReportService::class)->provisioningFinished($dep->fresh(), $from, $status));
     }
 
     public function enqueue(EnterpriseDeployment $dep, string $event, array $extra = []): ?EnterpriseWebhook
