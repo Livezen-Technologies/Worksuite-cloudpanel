@@ -9,6 +9,18 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.38.2] — 2026-11-22
+
+### Fixed
+- Container rows keep their id when Docker recreates a container. The agent inventory matched rows by
+  docker_id only, so a container recreated under the same name (a hand migration, `docker rm` + run)
+  got a new row and the old one was deleted, leaving `databases.container_id` pointing at nothing.
+  Inventory now reuses the same-named row on the same server when its old docker_id is no longer reported.
+- A database with a missing or stale `container_id` finds its container by name (`db-<slug>`) on its own
+  server and repairs the link. Enterprise deployments no longer show the database/redis as `absent`, and
+  logs, retry, migration and the project dashboard use the same lookup. A same-named container on another
+  server is never picked.
+
 ## [1.38.1] — 2026-11-22
 
 ### Fixed

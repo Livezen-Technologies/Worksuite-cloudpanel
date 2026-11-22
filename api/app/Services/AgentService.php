@@ -129,6 +129,7 @@ class AgentService
     private function reconcileContainers(Server $server, array $reported, Carbon $now): void
     {
         $seen = [];
+        $reportedIds = array_values(array_filter(array_column($reported, 'docker_id')));
         foreach ($reported as $c) {
             if (empty($c['docker_id'])) {
                 continue;
@@ -139,6 +140,12 @@ class AgentService
             // (docker_id null) share a name, and the placeholder must not take over the old id.
             $row = Container::allTenants()->where('server_id', $server->id)->where('docker_id', $c['docker_id'])->first()
                 ?? Container::allTenants()->where('server_id', $server->id)->whereNull('docker_id')->where('name', $name)->first()
+                // Recreated by Docker (compose up, a redeploy, a manual `docker rm` + run): same name on the
+                // same server, new docker_id. Keep the row and its id so databases.container_id and other
+                // references stay valid, instead of deleting it below and inserting a new one. Only a row
+                // whose docker_id is no longer reported qualifies, so a live container is never taken over.
+                ?? Container::allTenants()->where('server_id', $server->id)->where('name', $name)
+                    ->whereNotNull('docker_id')->whereNotIn('docker_id', $reportedIds ?: [''])->orderByDesc('updated_at')->first()
                 ?? new Container(['organization_id' => $server->organization_id, 'server_id' => $server->id]);
             $state = $c['state'] ?? 'unknown';
             $row->fill([

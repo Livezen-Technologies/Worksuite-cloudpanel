@@ -790,8 +790,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $byApp = fn ($id) => $id ? Container::allTenants()->where('application_id', $id)->orderByDesc('updated_at')->first() : null;
 
         return [
-            'database' => ($c = $db[$dep->database_id]?->container_id ?? null) ? Container::allTenants()->find($c) : null,
-            'redis' => ($c = $db[$dep->redis_id]?->container_id ?? null) ? Container::allTenants()->find($c) : null,
+            'database' => isset($db[$dep->database_id]) ? $db[$dep->database_id]->resolveContainer() : null,
+            'redis' => isset($db[$dep->redis_id]) ? $db[$dep->redis_id]->resolveContainer() : null,
             'app' => $byApp($dep->app_application_id),
             'worker' => $byApp($dep->worker_application_id),
         ];
@@ -1355,7 +1355,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                     // Drop the failed container record; advance creates it again on the same data volume.
                     $col = $step === 'database' ? 'database_id' : 'redis_id';
                     if ($db = Database::find($dep->{$col})) {
-                        Container::whereKey($db->container_id)->delete();
+                        if ($c = $db->resolveContainer()) {
+                            $c->delete();
+                        }
                         Secret::whereKey($db->secret_id)->delete();
                         $db->delete();
                     }
