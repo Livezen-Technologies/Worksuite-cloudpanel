@@ -91,8 +91,10 @@ return [
     // Public address: <slug>.<domain>.
     'domain' => env('ENTERPRISE_DOMAIN', 'worksuite.lk'),
 
-    // ENT-MAIL: the deployment link in run summary emails; {id} and {external_id} are filled in.
-    // Empty: the deployment's project in this panel.
+    // ENT-MAIL: the deployment link in run summary emails; {id} and {external_id} are filled in (URL-encoded).
+    // Cloud Admin is a static export, so use the query form:
+    //   https://account.worksuitecloud.com/admin/enterprise/deployments/?id={external_id}
+    // (a path form …/deployments/{external_id} is rewritten to it). Empty: the deployment's project in this panel.
     'admin_url' => env('ENTERPRISE_ADMIN_URL', ''),
     // Slugs never handed out (they are our own hosts).
     'reserved_slugs' => ['www', 'account', 'admin', 'api', 'app', 'panel', 'mail', 'download', 'developer', 'docs', 'status', 'cms', 'desk', 'demo', 'staging'],

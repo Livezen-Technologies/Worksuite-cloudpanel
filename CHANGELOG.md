@@ -9,6 +9,47 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.41.1] — 2026-11-23
+
+### Fixed
+- **Enterprise run summary e-mails linked to a 404.** The "Open the deployment" link was built by plain substitution
+  into `ENTERPRISE_ADMIN_URL`, and the documented form `…/admin/enterprise/deployments/{external_id}` is a path Cloud
+  Admin (a static export) does not have: its detail is `…/deployments/?id=<uid>`. `link()` now turns a path-form
+  setting into the `?id=` form (keeping any query), URL-encodes the substituted values, ignores a setting that is not
+  an http(s) address, and falls back to the panel project when the placeholder has no value (no `external_id`) or
+  the setting is empty. Old links in mail already sent are forwarded by Cloud Admin 0.23.1's 404 page.
+- **Secrets in the summary.** Step details, failures, the reason and the run log now go through the provisioning
+  redactor (`EnterpriseProvisioningService::redact`: database / Redis passwords, secret env values,
+  `password=` / `token:` / `api_key=` style pairs) before they are put in the e-mail.
+
+### Changed
+- **The summary e-mail reads first time.** Subjects say what happened: `✓ computerage.worksuite.lk updated to
+  3.1.0-4558`, `✗ … update to 3.1.0-4558 failed — nothing changed` (the pre-update backup failed), `✗ … failed —
+  rolled back to 3.0.9-4410, data restored`, `✓ … is ready for the setup wizard`, `✓ … restarted`, `✗ … backup
+  failed`. The host is the eyebrow, the heading is the outcome, and the summary sentence says what state the server
+  is in now ("still runs 3.0.9-4410", "is back on … and its data was restored").
+- **Failures first, as boxes, with the fix.** Each failure is a red box (title, error, "How to fix") above
+  everything else, in the HTML and in the plain-text part; the preview line is the first failure.
+- **The steps are a real table** (step, a coloured result pill, detail; backup jobs indented under their set)
+  instead of space-padded text in a dark code block that wrapped badly on phones. Inline styles only, no external
+  CSS; dark mode through the existing layout's classes (plus `[data-ogsc]` for Outlook.com). The run log keeps the
+  code block, labelled UTC and cut to its last 40 lines so the newest lines survive.
+- **Times in the recipient's timezone.** Started / finished use `users.timezone` when it is set, with UTC beside it
+  (`22 Nov 2026, 23:50:33 Asia/Colombo (18:20 UTC)`); otherwise, and for staff copies, UTC labelled as before.
+- Run names no longer repeat the host ("Provisioning on x" rather than "Provisioning of x on x").
+- Layout: `EmailTemplateService::render()` accepts two structured blocks, `_alerts` and `_steps` (never admin copy,
+  escaped by the layout); the two templates declare `blocks` and gain the variables `outcome`, `headline`,
+  `first_failure` and `log`. Template count and keys are unchanged (38). Admin overrides of these two templates made
+  before this release still render; reset them to get the new copy.
+
+### Tests
+- `EnterpriseRunSummaryTest`: the four summaries (provisioned, update succeeded, pre-update backup failed with
+  "restic is not installed", rolled back with data restored) render with the subjects above, failures before the
+  table in both parts, a plain-text part without markup, UTC / local times; the link uses `?id=` with the live
+  setting, path-form settings are rewritten, values are encoded, and the default never yields a path-form
+  `deployments/<uuid>`; no secret from a backup error reaches the e-mail. `RUN_MAIL_RENDER_DIR=<dir>` writes the
+  rendered HTML/text for review.
+
 ## [1.41.0] — 2026-11-22
 
 ### Added

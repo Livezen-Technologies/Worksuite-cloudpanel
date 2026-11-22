@@ -217,7 +217,7 @@ class EnterpriseRunReportService
             unset($vars['_failed']);
             $n = 0;
             foreach ($this->recipients($dep->organization_id, $key) as $user) {
-                $n += $this->emails->notify($key, $user, $vars) ? 1 : 0;
+                $n += $this->emails->notify($key, $user, $this->forRecipient($vars, $user)) ? 1 : 0;
             }
             $platform = \App\Models\Organization::orderBy('created_at')->orderBy('id')->value('id');
             if ($key === self::FAILED && $platform && $dep->organization_id !== $platform) {
@@ -264,9 +264,20 @@ class EnterpriseRunReportService
         $started = collect($dep->steps ?? [])->pluck('started_at')->filter()->sort()->first();
         $what = $from === 'configuring' || $to === 'active' ? 'Setup' : 'Provisioning';
         $result = ['awaiting_setup' => 'Ready for the setup wizard', 'active' => 'Active', 'failed' => 'Failed'][$to];
+        $at = $failures[0][0] ?? null;
+        $outcome = match ($to) {
+            'awaiting_setup' => 'is ready for the setup wizard',
+            'active' => $what === 'Setup' ? 'is set up and active' : 'is active',
+            default => strtolower($what).' failed'.($at ? ' at '.$at : ''),
+        };
+        $note = match ($to) {
+            'awaiting_setup' => 'The customer can now finish the setup wizard.',
+            'active' => 'WorkSuite is running and signed in to its licence.',
+            default => 'Fix the cause below, then press Retry on the failed step: the steps that succeeded are kept.',
+        };
 
-        return $this->vars($dep, $what.' of '.$dep->hostname, $result, $to === 'failed', 'Cloud Admin', null, (string) $dep->version,
-            $started ? Carbon::parse($started) : $dep->created_at, now(), $rows, $failures, null);
+        return $this->vars($dep, $what, $result, $to === 'failed', 'Cloud Admin', null, (string) $dep->version,
+            $started ? Carbon::parse($started) : $dep->created_at, now(), $rows, $failures, null, '', $outcome, $note);
     }
 
     private function updateContent(EnterpriseDeployment $dep, EnterpriseUpdate $run): array
@@ -294,11 +305,24 @@ class EnterpriseRunReportService
             $failures[] = ['Update', (string) $run->error, null];
         }
         $result = ['succeeded' => 'Succeeded', 'rolled_back' => 'Rolled back to '.$run->from_version, 'failed' => 'Failed'][$run->status];
-        $log = collect((array) $run->log)->map(fn ($l) => Carbon::parse($l['at'])->format('H:i:s').'  '.$l['message'])->implode("\n");
+        // The tail of the run log (UTC), so the newest lines survive the layout's length limit.
+        $lines = collect((array) $run->log)->map(fn ($l) => Carbon::parse($l['at'])->utc()->format('H:i:s').'  '.$l['message'])->take(-40);
+        $log = $lines->isEmpty() ? '' : "Run log (UTC)\n".$lines->implode("\n");
+        $restored = ($restore['state'] ?? null) === 'succeeded';
+        $from = $run->from_version ?: 'the previous version';
+        [$outcome, $note] = match (true) {
+            $run->status === 'succeeded' => ['updated to '.$run->to_version, $dep->hostname.' now runs '.$run->to_version.'.'],
+            $run->status === 'rolled_back' => [
+                'update to '.$run->to_version.' failed — rolled back to '.$from.($restored ? ', data restored' : (($restore['state'] ?? null) === 'failed' ? ', data restore failed' : '')),
+                $dep->hostname.' is back on '.$from.($restored ? ' and its data was restored from the pre-update backup.' : (($restore['state'] ?? null) === 'failed' ? '; restoring its data failed (see below).' : '.')),
+            ],
+            ! $run->deploy_started_at => ['update to '.$run->to_version.' failed — nothing changed', 'Nothing was changed: '.$dep->hostname.' still runs '.$from.'.'],
+            default => ['update to '.$run->to_version.' failed', 'The update stopped after its containers were deployed; check the deployment before users sign in.'],
+        };
 
         return $this->vars($dep, 'Update to '.$run->to_version, $result, $run->status !== 'succeeded', $run->requested_by_name ?: ucfirst((string) $run->trigger).' update',
             $run->reason, ($run->from_version ? $run->from_version.' → ' : '').$run->to_version, $run->started_at ?? $run->created_at, $run->finished_at ?? now(),
-            $rows, $failures, $backup, $log);
+            $rows, $failures, $backup, $log, $outcome, $note);
     }
 
     private function actionContent(EnterpriseDeployment $dep, EnterpriseRunReport $r): array
@@ -319,9 +343,11 @@ class EnterpriseRunReportService
             }
         }
         $label = ['redeploy' => 'Redeploy', 'restart' => 'Restart', 'start' => 'Start', 'stop' => 'Stop'][$r->kind] ?? ucfirst($r->kind);
+        $done = ['redeploy' => 'redeployed', 'restart' => 'restarted', 'start' => 'started', 'stop' => 'stopped'][$r->kind] ?? $r->kind.' finished';
+        $outcome = $r->status === 'succeeded' ? $done : strtolower($label).' failed';
 
-        return $this->vars($dep, $label.' of '.$dep->hostname, $r->status === 'succeeded' ? 'Succeeded' : 'Failed', $r->status !== 'succeeded',
-            $r->triggered_by ?: 'Cloud Admin', $r->reason, (string) $dep->version, $r->started_at ?? $r->created_at, $r->finished_at ?? now(), $rows, $failures, null);
+        return $this->vars($dep, $label, $r->status === 'succeeded' ? 'Succeeded' : 'Failed', $r->status !== 'succeeded',
+            $r->triggered_by ?: 'Cloud Admin', $r->reason, (string) $dep->version, $r->started_at ?? $r->created_at, $r->finished_at ?? now(), $rows, $failures, null, '', $outcome);
     }
 
     private function backupContent(EnterpriseDeployment $dep, EnterpriseRunReport $r): array
@@ -334,9 +360,11 @@ class EnterpriseRunReportService
             $failures[] = ['Backup set', 'The backup record is gone.', null];
         }
         $result = ['succeeded' => 'Succeeded', 'partial' => 'Partly failed', 'failed' => 'Failed'][$r->status] ?? ucfirst($r->status);
+        $outcome = ['succeeded' => 'backed up', 'partial' => 'backup partly failed'][$r->status] ?? 'backup failed';
+        $note = $r->status === 'succeeded' ? null : 'The deployment itself was not changed; only the backup is missing or incomplete.';
 
-        return $this->vars($dep, 'Backup of '.$dep->hostname, $result, $r->status !== 'succeeded', $r->triggered_by ?: 'Cloud Admin', $r->reason,
-            (string) $dep->version, $r->started_at ?? $r->created_at, $r->finished_at ?? now(), $rows, $failures, $backup);
+        return $this->vars($dep, 'Backup', $result, $r->status !== 'succeeded', $r->triggered_by ?: 'Cloud Admin', $r->reason,
+            (string) $dep->version, $r->started_at ?? $r->created_at, $r->finished_at ?? now(), $rows, $failures, $backup, '', $outcome, $note);
     }
 
     /** The project backup and one row per backup job (application volumes, database dumps), with their errors. */
@@ -401,43 +429,91 @@ class EnterpriseRunReportService
         return $s < 60 ? "{$s}s" : ($s < 3600 ? intdiv($s, 60).'m '.($s % 60).'s' : intdiv($s, 3600).'h '.intdiv($s % 3600, 60).'m');
     }
 
-    /** The template variables. Failures (with their fix hints) come first in the body; the steps table is the code block. */
+    /**
+     * The template variables. Failures (red boxes with their fix hints) come first in the body, then the step table;
+     * both are passed as structured blocks (_alerts, _steps) and also as text (failures, steps) for the plain-text
+     * part, admin overrides and the tests. Every free-text value goes through the provisioning redactor first.
+     */
     private function vars(EnterpriseDeployment $dep, string $run, string $result, bool $failed, string $by, ?string $reason, string $versions,
-        ?Carbon $start, Carbon $end, array $rows, array $failures, ?BackupJob $backup, string $log = ''): array
+        ?Carbon $start, Carbon $end, array $rows, array $failures, ?BackupJob $backup, string $log = '', ?string $outcome = null, ?string $note = null): array
     {
-        $fmt = fn (?Carbon $t) => $t ? $t->copy()->utc()->format('j M Y, H:i:s').' UTC' : '—';
+        $redactor = app(EnterpriseProvisioningService::class);
+        $clean = fn (?string $t) => $t === null || $t === '' ? (string) $t : $redactor->redact($dep, $t);
+        $rows = array_map(fn ($r) => [$r[0], $r[1], $clean($r[2])], $rows);
+        $failures = array_map(fn ($f) => [$f[0], $clean($f[1]), $f[2]], $failures);
+        $log = $clean($log);
+        $reason = $reason !== null ? $clean($reason) : null;
+
         $width = max(12, ...array_map(fn ($r) => mb_strlen($r[0]), $rows ?: [['']]));
         $table = $rows ? implode("\n", array_merge(
             [str_pad('STEP', $width + 2).str_pad('RESULT', 13).'DETAIL'],
-            array_map(fn ($r) => str_pad(Str::limit($r[0], 60, ''), $width + 2).str_pad($r[1], 13).Str::limit(preg_replace('/\s+/', ' ', $r[2]), 300), $rows),
+            array_map(fn ($r) => rtrim(str_pad(Str::limit($r[0], 60, ''), $width + 2).str_pad($r[1], 13).Str::limit(preg_replace('/\s+/', ' ', $r[2]), 300)), $rows),
         )) : 'No steps recorded.';
-        if ($log !== '') {
-            $table .= "\n\nRun log\n".$log;
-        }
-        $failText = implode("\n\n", array_map(fn ($f) => '✗ '.$f[0].': '.rtrim($f[1], '.').'.'.($f[2] ? "\nFix: ".$f[2] : ''), $failures));
-        $recovery = $backup ? $backup->id.' · '.$backup->status.($backup->finished_at || $backup->started_at ? ' · recovery point '.$fmt($backup->finished_at ?? $backup->started_at) : '') : '—';
-        $summary = $failed
-            ? $run.' on '.$dep->hostname.' finished with the result: '.$result.'.'
-            : $run.' on '.$dep->hostname.' finished successfully.';
+        $sentence = fn (string $t) => rtrim(trim($t), '.').'.';
+        $failText = implode("\n\n", array_map(fn ($f) => '✗ '.$f[0].': '.$sentence($f[1]).($f[2] ? "\nFix: ".$f[2] : ''), $failures));
+        $recovery = $backup ? $backup->id.' · '.$backup->status.($backup->finished_at || $backup->started_at ? ' · recovery point '.self::utc($backup->finished_at ?? $backup->started_at) : '') : '—';
+        $outcome ??= $failed ? strtolower($run).' failed' : strtolower($run).' succeeded';
+        $summary = ($failed ? $run.' on '.$dep->hostname.' finished with the result: '.$result.'.' : $run.' on '.$dep->hostname.' finished successfully.')
+            .($note ? ' '.$note : '');
 
         return [
             '_failed' => $failed,
             'deployment' => (string) $dep->hostname, 'run' => $run, 'result' => $result,
+            'outcome' => $outcome, 'headline' => Str::ucfirst((string) preg_replace('/^is /', '', $outcome)),
             'triggered_by' => $by, 'reason' => $reason ?: '—', 'versions' => $versions ?: '—',
-            'started' => $fmt($start), 'finished' => $fmt($end), 'duration' => $start ? $this->duration($start, $end) : '—',
-            'backup' => $recovery, 'failures' => $failText !== '' ? $failText : 'Nothing failed.', 'summary' => $summary, 'steps' => $table,
+            'started' => self::utc($start), 'finished' => self::utc($end), 'duration' => $start ? $this->duration($start, $end) : '—',
+            'backup' => $recovery, 'failures' => $failText !== '' ? $failText : 'Nothing failed.', 'summary' => $summary, 'steps' => $table, 'log' => $log,
+            'first_failure' => $failures ? Str::limit($failures[0][0].': '.$sentence($failures[0][1]), 180) : $summary,
             'failure_count' => (string) count($failures), 'deployment_url' => $this->link($dep),
+            // Structured blocks for the layout, and the instants for per-recipient times.
+            '_alerts' => array_map(fn ($f) => ['title' => $f[0], 'text' => $sentence($f[1]), 'hint' => (string) $f[2]], $failures),
+            '_steps' => array_map(fn ($r) => ['name' => ltrim($r[0]), 'state' => $r[1], 'detail' => $r[2], 'child' => str_starts_with($r[0], '  ')], $rows),
+            '_start' => $start, '_end' => $end,
         ];
     }
 
-    /** Cloud Admin's page for the deployment when configured (ENTERPRISE_ADMIN_URL with {id}/{external_id}), else the panel project. */
-    public function link(EnterpriseDeployment $dep): string
+    private static function utc(?Carbon $t): string
     {
-        $tpl = (string) config('enterprise.admin_url', '');
-        if ($tpl !== '') {
-            return strtr($tpl, ['{id}' => $dep->id, '{external_id}' => (string) $dep->external_id]);
+        return $t ? $t->copy()->utc()->format('j M Y, H:i:s').' UTC' : '—';
+    }
+
+    /** Started / finished in the recipient's own timezone (users.timezone) with UTC beside it; UTC alone when unset. */
+    public function forRecipient(array $vars, User $user): array
+    {
+        $tz = trim((string) ($user->timezone ?? ''));
+        if ($tz === '' || strtoupper($tz) === 'UTC' || ! in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            return $vars;
+        }
+        foreach (['started' => '_start', 'finished' => '_end'] as $var => $at) {
+            if (($vars[$at] ?? null) instanceof Carbon) {
+                $local = $vars[$at]->copy()->setTimezone($tz);
+                $vars[$var] = $local->format('j M Y, H:i:s').' '.$tz.' ('.$vars[$at]->copy()->utc()->format('H:i').' UTC)';
+            }
         }
 
-        return rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/projects/'.$dep->project_id;
+        return $vars;
+    }
+
+    /**
+     * Cloud Admin's page for the deployment when configured (ENTERPRISE_ADMIN_URL with {id} / {external_id}), else
+     * the deployment's project in this panel. Cloud Admin is a static export, so its detail is
+     * /admin/enterprise/deployments/?id=<uid>: a path-form setting (…/deployments/{external_id}, the form 1.39.0–1.41.0
+     * documented) is turned into the ?id= form rather than sending everyone to a 404. Values are URL-encoded; a
+     * placeholder with no value (no external_id yet) falls back to the panel link.
+     */
+    public function link(EnterpriseDeployment $dep): string
+    {
+        $tpl = trim((string) config('enterprise.admin_url', ''));
+        $values = ['{id}' => (string) $dep->id, '{external_id}' => (string) $dep->external_id];
+        $used = array_filter(array_keys($values), fn ($k) => str_contains($tpl, $k));
+        if ($tpl !== '' && preg_match('#^https?://#i', $tpl) && ! array_filter($used, fn ($k) => $values[$k] === '')) {
+            $tpl = (string) preg_replace_callback('#/deployments/(\{(?:id|external_id)\})/?(\?|\#|$)#',
+                fn ($m) => '/deployments/?id='.$m[1].($m[2] === '?' ? '&' : $m[2]), $tpl);
+
+            return strtr($tpl, array_map('rawurlencode', $values));
+        }
+        $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+
+        return $dep->project_id ? $panel.'/admin/projects/'.rawurlencode((string) $dep->project_id) : $panel.'/admin/projects';
     }
 }
