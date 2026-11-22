@@ -223,7 +223,10 @@ class EdgeTlsService implements HandlesCommandResults
         $recreate = ! $present || array_map('intval', (array) $cert->ports) !== $ports;
 
         $job = $this->jobs->create('edge.tls', ['execute'], $home, ['ports' => $ports, 'serial' => $cert->serial, 'recreate' => $recreate], null, $home->organization_id);
-        foreach ($this->fileCommands($cert, $caddyfile) as [$type, $payload]) {
+        // The key file is create-only, so it is sent once per serial: once the node has confirmed
+        // it, later syncs (route changes, a forced resync) must not send it again or they fail.
+        $sendKey = $cert->key_delivered_serial !== $cert->serial;
+        foreach ($this->fileCommands($cert, $caddyfile, $sendKey) as [$type, $payload]) {
             $this->bus->dispatch($home, $type, $payload, $job);
         }
         if ($recreate) {
@@ -248,21 +251,27 @@ class EdgeTlsService implements HandlesCommandResults
      *
      * @return list<array{0: string, 1: array}>
      */
-    public function fileCommands(EdgeTlsCert $cert, string $caddyfile): array
+    public function fileCommands(EdgeTlsCert $cert, string $caddyfile, bool $includeKey = true): array
     {
         $v = self::VOLUME;
         $crt = "node-{$cert->serial}.crt";
         $key = "node-{$cert->serial}.key";
 
-        return [
-            ['volume.create', ['name' => $v, 'driver' => 'local', 'labels' => (object) ['io.dockermgr.managed' => 'true']]],
-            ['fs.write', ['volume' => $v, 'path' => $crt, 'content' => $cert->cert_pem.$this->ca()->cert_pem]],
-            ['fs.write', ['volume' => $v, 'path' => $key, 'content' => $cert->key_encrypted, 'create' => true]],
-            ['fs.chmod', ['volume' => $v, 'paths' => [$key], 'mode' => '0600']],
-            // The Caddyfile last: --watch reloads on it, by which time the files it names exist.
-            ['fs.write', ['volume' => $v, 'path' => 'Caddyfile', 'content' => $caddyfile]],
-            ['fs.chmod', ['volume' => $v, 'paths' => [$crt, 'Caddyfile'], 'mode' => '0644']],
-        ];
+        return array_merge(
+            [
+                ['volume.create', ['name' => $v, 'driver' => 'local', 'labels' => (object) ['io.dockermgr.managed' => 'true']]],
+                ['fs.write', ['volume' => $v, 'path' => $crt, 'content' => $cert->cert_pem.$this->ca()->cert_pem]],
+            ],
+            $includeKey ? [
+                ['fs.write', ['volume' => $v, 'path' => $key, 'content' => $cert->key_encrypted, 'create' => true]],
+                ['fs.chmod', ['volume' => $v, 'paths' => [$key], 'mode' => '0600']],
+            ] : [],
+            [
+                // The Caddyfile last: --watch reloads on it, by which time the files it names exist.
+                ['fs.write', ['volume' => $v, 'path' => 'Caddyfile', 'content' => $caddyfile]],
+                ['fs.chmod', ['volume' => $v, 'paths' => [$crt, 'Caddyfile'], 'mode' => '0644']],
+            ],
+        );
     }
 
     public function spec(array $ports): array
@@ -293,7 +302,11 @@ class EdgeTlsService implements HandlesCommandResults
 
             return;
         }
-        EdgeTlsCert::where('kind', 'node')->where('server_id', $job->resource_id)->update(['live_ports' => json_encode($job->payload['ports'] ?? [])]);
+        EdgeTlsCert::where('kind', 'node')->where('server_id', $job->resource_id)->update(array_filter([
+            'live_ports' => json_encode($job->payload['ports'] ?? []),
+            // Every command succeeded, so the key for this serial is on the node now.
+            'key_delivered_serial' => $job->payload['serial'] ?? null,
+        ], fn ($v) => $v !== null));
         $this->jobs->succeed($job, ['ports' => $job->payload['ports'] ?? []]);
         // Now the edges may switch these ports to https.
         app(TraefikConfigService::class)->push();

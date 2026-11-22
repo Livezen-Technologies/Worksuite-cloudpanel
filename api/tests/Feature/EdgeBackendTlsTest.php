@@ -243,4 +243,34 @@ class EdgeBackendTlsTest extends TestCase
         $this->assertStringContainsString('edge:tls-renew', $events);
         $this->assertSame(0, Artisan::call('edge:tls-renew'));
     }
+
+    public function test_a_confirmed_key_is_sent_once_per_serial_so_a_resync_succeeds(): void
+    {
+        [$token, , $node] = $this->fleet();
+        $this->app($token, $node);
+        config(['platform.edge.backend_tls' => true]);
+        $tls = app(EdgeTlsService::class);
+        $keyWrites = fn (string $serial) => AgentCommand::allTenants()->where('type', 'fs.write')->get()
+            ->filter(fn ($c) => ($c->payload['path'] ?? null) === "node-{$serial}.key")->count();
+
+        $tls->syncNode($node);
+        $cert = EdgeTlsCert::where('kind', 'node')->sole();
+        $this->assertSame(1, $keyWrites($cert->serial));
+        $this->agentSucceeds($node);
+        $this->assertSame($cert->serial, $cert->fresh()->key_delivered_serial, 'recorded once the agent confirmed the job');
+
+        // A forced resync (the live failure: "node-<serial>.key already exists") must skip the key.
+        $this->assertTrue($tls->syncNode($node, true));
+        $this->assertSame(1, $keyWrites($cert->serial), 'the create-only key is not sent again');
+        $this->agentSucceeds($node);
+        $job = \App\Models\Job::allTenants()->where('type', 'edge.tls')->latest('created_at')->latest('id')->first();
+        $this->assertSame('succeeded', $job->status);
+
+        // A renewed certificate has a new serial, so its key goes out again, once.
+        $cert->update(['not_after' => now()->addDays(10)]);
+        $tls->renewDue();
+        $fresh = $cert->fresh();
+        $this->assertNotSame($cert->serial, $fresh->serial);
+        $this->assertSame(1, $keyWrites($fresh->serial));
+    }
 }
