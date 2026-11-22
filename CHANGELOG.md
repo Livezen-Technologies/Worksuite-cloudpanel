@@ -9,6 +9,26 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.41.0] — 2026-11-22
+
+### Added
+- **Enterprise: installs set up outside the wizard are adopted.** A deployment in `awaiting_setup` is now part of
+  `enterprise:sync` and gets the same `enterprise:status --json` probe active ones get (every
+  `status_every_minutes`). When the app answers `bootstrapped: true` — e.g. an existing WorkSuite install migrated in,
+  as salonashi.worksuite.lk was, where the wizard never ran — the deployment is moved to `active` the way finishing
+  the wizard does: `setup` and `live` steps succeeded, `activated_at` set, the `deployment.status` webhook to Cloud,
+  and an `enterprise.deployment.adopted` audit entry. `bootstrapped: false` (a fresh install mid-wizard) changes
+  nothing. Before this the main session had to mark such a deployment active by hand.
+- The deployment view carries `bootstrapped` (true / false / null from the last `app_status`).
+
+### Changed
+- **licence-activate / licence-refresh accept `awaiting_setup` once bootstrapped.** They used to refuse anything but
+  active/configuring ("a licence can be activated once it is active"). Now awaiting_setup is allowed when the app's
+  last `enterprise:status` says bootstrapped; otherwise the 409 says whether the app reported `bootstrapped=false` or
+  has not reported yet. Provisioning, failed, stopped and the rest are still refused.
+- A status probe can now sit in the agent queue while a deployment awaits set-up; a test that took the first
+  `cron.exec` as the bootstrap now picks it by command.
+
 ## [1.40.0] — 2026-11-22
 
 ### Added
