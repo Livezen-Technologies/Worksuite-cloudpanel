@@ -105,7 +105,12 @@ class DeploymentController extends Controller
             throw \App\Exceptions\ApiException::validation(['container' => ['Only restart takes a single container.']]);
         }
 
-        return response()->json(['data' => $this->svc->act($this->find($id), $action, array_filter($data))], 202);
+        $dep = $this->find($id);
+        $out = $this->svc->act($dep, $action, array_filter($data));
+        // ENT-MAIL: one summary email when every container of this action has finished.
+        rescue(fn () => app(\App\Services\EnterpriseRunReportService::class)->started($dep->fresh(), $action, (array) ($out['job_ids'] ?? []), $request->user(), $request->input('reason')));
+
+        return response()->json(['data' => $out], 202);
     }
 
     /** worksuite-server tags on the enterprise nodes (inventory + a direct scan when it is stale). */

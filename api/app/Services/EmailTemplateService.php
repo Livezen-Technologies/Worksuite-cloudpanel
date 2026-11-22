@@ -127,6 +127,10 @@ class EmailTemplateService
             'retry_date' => now()->addDays(3)->format('j M'), 'resource' => 'apps', 'used' => '5', 'limit' => '5', 'plan' => 'Standard',
             'started' => now()->format('j M Y, H:i').' UTC', 'mode' => 'Browser check for every visitor (CrowdSec)', 'customer' => 'Acme Ltd', 'by' => 'ops@example.com',
             'scenario' => 'crowdsecurity/http-bf-wordpress_bf', 'origins' => 'VN 41% · BR 18% · RU 12%', 'targets' => '38 sites · /wp-login.php', 'window' => '5 minutes',
+            'deployment' => 'acme.worksuite.lk', 'run' => 'Update to 3.2.1-3100', 'result' => 'Failed', 'triggered_by' => 'Ops Person', 'versions' => '3.2.0-3011 → 3.2.1-3100',
+            'finished' => now()->format('j M Y, H:i').' UTC', 'backup' => 'b1c2… · failed', 'failure_count' => '1', 'summary' => 'Update to 3.2.1-3100 on acme.worksuite.lk finished with the result: Failed.',
+            'failures' => "✗ Backup of database ent-acme-db: restic is not installed on this server.\nFix: Install restic on the node, then run the update again.",
+            'steps' => "STEP                 RESULT       DETAIL\nPre-update backup    failed\n  database ent-acme-db failed     restic is not installed on this server",
             'log' => "1284   crowdsecurity/http-bf-wordpress_bf\n212    crowdsecurity/http-probing",
         ];
 
