@@ -11,6 +11,7 @@ use App\Services\EnterpriseProvisioningService;
 use App\Services\EnterpriseRunReportService;
 use App\Services\EnterpriseUpdateService;
 use App\Support\Tenant;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /** ENT-MAIL: an Enterprise run sends one summary email; its containers and backup jobs send none of their own. */
@@ -101,8 +102,8 @@ class EnterpriseRunSummaryTest extends TestCase
         }
     }
 
-    /** Awaiting setup on 3.2.0-3011 with 3.2.1-3100 loaded: [id, token, agent]. */
-    private function ready(): array
+    /** Awaiting setup on $from with $to loaded: [id, token, agent]. */
+    private function ready(string $slug = 'acme', string $from = '3.2.0-3011', string $to = '3.2.1-3100'): array
     {
         [, $org, $ownerToken] = $this->org();
         $server = $this->server($org, ['ram_mb' => 65536, 'tags' => ['enterprise']]);
@@ -110,8 +111,8 @@ class EnterpriseRunSummaryTest extends TestCase
         [$svc] = $this->member($org, 'enterprise_service');
         $token = $this->tokenFor($svc, ['enterprise.deploy']);
         config(['enterprise.require_loaded_image' => false]);
-        $id = $this->api($token)->withHeader('Idempotency-Key', 'c1')->postJson('/api/v1/enterprise/deployments', [
-            'external_id' => 'ent_s', 'customer_name' => 'Acme', 'slug' => 'acme', 'version' => '3.2.0-3011', 'size' => 'small',
+        $id = $this->api($token)->withHeader('Idempotency-Key', 'c-'.$slug)->postJson('/api/v1/enterprise/deployments', [
+            'external_id' => $slug === 'acme' ? 'ent_s' : 'ent_'.$slug, 'customer_name' => ucfirst($slug), 'slug' => $slug, 'version' => $from, 'size' => 'small',
         ])->assertStatus(202)->json('data.deployment_id');
         $this->ack($agent, ['container.create']);
         $this->sync();
@@ -119,7 +120,7 @@ class EnterpriseRunSummaryTest extends TestCase
         $this->passHealthChecks($agent);
         $this->sync();
         $this->assertSame('awaiting_setup', EnterpriseDeployment::find($id)->status);
-        foreach (['3.2.0-3011', '3.2.1-3100'] as $i => $tag) {
+        foreach ([$from, $to] as $i => $tag) {
             Image::allTenants()->create(['organization_id' => $server->organization_id, 'server_id' => $server->id, 'docker_id' => 'sha256:'.$i, 'repository' => 'worksuite-server', 'tags' => ['worksuite-server:'.$tag], 'size_mb' => 900]);
         }
         $this->ack($agent, ['cron.exec'], ['exit_code' => 0, 'output' => '']);
@@ -283,5 +284,156 @@ class EnterpriseRunSummaryTest extends TestCase
         $users[0]->update(['email_preferences' => ['opt_out' => ['deploy_succeeded']]]);
         $this->assertCount(0, $svc->recipients($dep->organization_id, EnterpriseRunReportService::SUCCEEDED));
         $this->assertCount(1, $svc->recipients($dep->organization_id, EnterpriseRunReportService::FAILED), 'failures still arrive while backup_failed is wanted');
+    }
+
+    // ------------------------------------------------------------------ 1.41.1: the email itself
+
+    private function render(array $sent): array
+    {
+        [$key, $vars] = $sent;
+        $mail = (new EmailTemplateService(app(\App\Services\AuditLogger::class)))->render($key, $vars);
+        if ($dir = getenv('RUN_MAIL_RENDER_DIR')) {
+            // Local review only: RUN_MAIL_RENDER_DIR=/path php vendor/bin/phpunit --filter EnterpriseRunSummaryTest
+            @mkdir($dir, 0777, true);
+            $name = Str::slug($mail['subject']);
+            file_put_contents($dir.'/'.$name.'.html', $mail['html']);
+            file_put_contents($dir.'/'.$name.'.txt', "Subject: {$mail['subject']}\nPreview: {$mail['preview']}\n\n".$mail['text']);
+        }
+
+        return $mail;
+    }
+
+    private function assertReadable(array $mail): void
+    {
+        $this->assertStringContainsString('max-width:600px', $mail['html']);
+        $this->assertStringContainsString('prefers-color-scheme:dark', $mail['html']);
+        $this->assertStringNotContainsString('<link', $mail['html'], 'no external stylesheet');
+        $this->assertStringNotContainsString('{{', $mail['subject'].$mail['html'].$mail['text']);
+        $this->assertStringNotContainsString('<', $mail['text'], 'the plain-text part has no markup');
+        $this->assertStringContainsString('STEP', $mail['text'], 'the plain-text part carries the step table');
+        $this->assertStringContainsString('class="st"', $mail['html'], 'the steps are a real table');
+        $this->assertStringContainsString('UTC', $mail['text']);
+        $this->assertStringContainsString('Open the deployment:', $mail['text']);
+    }
+
+    public function test_the_four_summaries_read_clearly(): void
+    {
+        config(['enterprise.admin_url' => 'https://account.worksuitecloud.com/admin/enterprise/deployments/?id={external_id}']);
+        // A successful update.
+        [$id, $token, $agent] = $this->ready('computerage', '3.0.9-4410', '3.1.0-4558');
+        $host = EnterpriseDeployment::find($id)->hostname;
+        $provisioned = $this->render($this->summaries('Provisioning')[0]);
+        $this->assertSame("✓ {$host} is ready for the setup wizard", $provisioned['subject']);
+        $this->assertReadable($provisioned);
+        $this->assertStringNotContainsString('class="al"', $provisioned['html'], 'no failure box on a success');
+
+        $this->api($token)->withHeader('Idempotency-Key', 'u1')->postJson("/api/v1/enterprise/deployments/{$id}/updates", ['version' => '3.1.0-4558', 'reason' => 'November release', 'requested_by' => 'Ops Person'])->assertStatus(202);
+        $this->backups($agent);
+        $this->tick();
+        $this->rollout($agent);
+        $this->tick();
+        $this->tick();
+        $ok = $this->render($this->summaries('Update')[0]);
+        $this->assertSame("✓ {$host} updated to 3.1.0-4558", $ok['subject']);
+        $this->assertReadable($ok);
+        $this->assertStringContainsString('3.0.9-4410 → 3.1.0-4558', $ok['text']);
+        $this->assertStringContainsString('Ops Person', $ok['text']);
+        $this->assertStringContainsString('November release', $ok['text']);
+        $this->assertStringContainsString('Run log (UTC)', $ok['text']);
+        $this->assertStringContainsString('Open the deployment: https://account.worksuitecloud.com/admin/enterprise/deployments/?id=ent_computerage', $ok['text']);
+        $this->assertStringContainsString('href="https://account.worksuitecloud.com/admin/enterprise/deployments/?id=ent_computerage"', $ok['html']);
+
+        // An update whose pre-update backup fails: nothing changed, the failure and its fix lead.
+        $this->mail->log = [];
+        [$id2, $token2, $agent2] = $this->ready('acme', '3.0.9-4410', '3.1.0-4558');
+        $host2 = EnterpriseDeployment::find($id2)->hostname;
+        $run = $this->api($token2)->withHeader('Idempotency-Key', 'u2')->postJson("/api/v1/enterprise/deployments/{$id2}/updates", ['version' => '3.1.0-4558', 'requested_by' => 'Ops Person'])->assertStatus(202)->json('data');
+        $this->backups($agent2, 'restic is not installed on this server');
+        $this->tick();
+        $this->tick();
+        $this->sync();
+        $failed = $this->render($this->summaries('Update')[0]);
+        $this->assertSame("✗ {$host2} update to 3.1.0-4558 failed — nothing changed", $failed['subject']);
+        $this->assertReadable($failed);
+        $this->assertStringContainsString('restic is not installed on this server', $failed['preview']);
+        $this->assertLessThan(strpos($failed['html'], 'class="st"'), strpos($failed['html'], 'class="al"'), 'the failure box comes before the step table');
+        $this->assertLessThan(strpos($failed['text'], 'STEP'), strpos($failed['text'], 'How to fix: '.EnterpriseProvisioningService::HINTS['RESTIC_MISSING']), 'and in the text part');
+        $this->assertStringContainsString('still runs 3.0.9-4410', $failed['text']);
+        $this->assertStringContainsString($run['backup_id'], $failed['text']);
+
+        // Rolled back, data restored.
+        $dep = EnterpriseDeployment::find($id2);
+        $dep->update(['version' => '3.0.9-4410']);
+        \App\Models\User::whereIn('id', app(EnterpriseRunReportService::class)->recipients($dep->organization_id, EnterpriseRunReportService::FAILED)->pluck('id'))->update(['timezone' => 'Asia/Colombo']);
+        $at = now()->subMinutes(9);
+        $rb = EnterpriseUpdate::create([
+            'organization_id' => $dep->organization_id, 'enterprise_deployment_id' => $dep->id, 'from_version' => '3.0.9-4410', 'to_version' => '3.1.0-4558',
+            'trigger' => 'manual', 'dedupe_key' => 'rb', 'status' => 'rolled_back', 'requested_by_name' => 'Ops Person', 'reason' => 'retry after restic',
+            'error' => 'The app container did not become healthy on 3.1.0-4558.', 'started_at' => $at, 'deploy_started_at' => $at->copy()->addMinutes(2),
+            'rollback_started_at' => $at->copy()->addMinutes(6), 'finished_at' => now(),
+            'data_restore' => ['state' => 'succeeded', 'backup_id' => 'b-1'],
+            'log' => [['at' => $at->toIso8601ZuluString(), 'message' => 'Backing up'], ['at' => now()->toIso8601ZuluString(), 'message' => 'Rolled back, data restored']],
+        ]);
+        app(EnterpriseRunReportService::class)->updateFinished($rb);
+        $sent = array_values(array_filter($this->summaries('Update'), fn ($x) => str_contains($x[1]['result'], 'Rolled back')));
+        $this->assertCount(1, $sent);
+        $this->assertStringContainsString('Asia/Colombo', $sent[0][1]['started'], 'times in the recipient’s timezone');
+        $this->assertStringContainsString('UTC)', $sent[0][1]['started'], 'with UTC beside them');
+        $back = $this->render($sent[0]);
+        $this->assertSame("✗ {$host2} update to 3.1.0-4558 failed — rolled back to 3.0.9-4410, data restored", $back['subject']);
+        $this->assertStringContainsString('did not become healthy', $back['text']);
+        $this->assertStringContainsString('its data was restored', $back['text']);
+        $this->assertStringContainsString('Data restore', $back['text']);
+    }
+
+    public function test_no_secret_reaches_the_email(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        $this->api($token)->withHeader('Idempotency-Key', 'b1')->postJson("/api/v1/enterprise/deployments/{$id}/backups")->assertStatus(202);
+        $this->backups($agent, 'restic: repository wrong, RESTIC_PASSWORD=Sup3rS3cretValue token: abcdef123456');
+        $this->sync();
+        $this->sync();
+        [$key, $vars] = $this->summaries('Backup')[0];
+        $mail = $this->render([$key, $vars]);
+        foreach (['Sup3rS3cretValue', 'abcdef123456'] as $secret) {
+            $this->assertStringNotContainsString($secret, $mail['html'].$mail['text'].$mail['subject'].$mail['preview']);
+        }
+        $this->assertStringContainsString('[redacted]', $mail['text']);
+        $this->assertSame('✗ '.EnterpriseDeployment::find($id)->hostname.' backup failed', $mail['subject']);
+    }
+
+    public function test_the_deployment_link_uses_the_static_exports_query_form(): void
+    {
+        [$id] = $this->ready();
+        $dep = EnterpriseDeployment::find($id);
+        $svc = app(EnterpriseRunReportService::class);
+        $pathForm = '#/deployments/[0-9a-f]{8}-[0-9a-f]{4}-#i';
+
+        // The default (no ENTERPRISE_ADMIN_URL): the panel project, never a Cloud Admin path-form link.
+        config(['enterprise.admin_url' => '']);
+        $this->assertSame(rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/').'/admin/projects/'.$dep->project_id, $svc->link($dep));
+        $this->assertDoesNotMatchRegularExpression($pathForm, $svc->link($dep));
+        $this->assertDoesNotMatchRegularExpression('#/deployments/[^?]#', $svc->link($dep));
+
+        // The live setting: ?id= with the Cloud Admin uid.
+        config(['enterprise.admin_url' => 'https://account.worksuitecloud.com/admin/enterprise/deployments/?id={external_id}']);
+        $this->assertSame('https://account.worksuitecloud.com/admin/enterprise/deployments/?id=ent_s', $svc->link($dep));
+        config(['enterprise.admin_url' => 'https://account.worksuitecloud.com/admin/enterprise/deployments/?id={id}']);
+        $this->assertSame('https://account.worksuitecloud.com/admin/enterprise/deployments/?id='.$dep->id, $svc->link($dep));
+
+        // The old path-form setting is turned into the ?id= form (it was a 404), keeping a query.
+        config(['enterprise.admin_url' => 'https://account.worksuitecloud.com/admin/enterprise/deployments/{id}']);
+        $this->assertSame('https://account.worksuitecloud.com/admin/enterprise/deployments/?id='.$dep->id, $svc->link($dep));
+        config(['enterprise.admin_url' => 'https://account.worksuitecloud.com/admin/enterprise/deployments/{external_id}/?tab=updates']);
+        $this->assertSame('https://account.worksuitecloud.com/admin/enterprise/deployments/?id=ent_s&tab=updates', $svc->link($dep));
+
+        // Values are URL-encoded; a placeholder with no value falls back to the panel.
+        $dep->external_id = 'ent a&b/c';
+        $this->assertSame('https://account.worksuitecloud.com/admin/enterprise/deployments/?id=ent%20a%26b%2Fc&tab=updates', $svc->link($dep));
+        $dep->external_id = null;
+        $this->assertStringContainsString('/admin/projects/'.$dep->project_id, $svc->link($dep));
+        // A setting that is not a web address is ignored.
+        config(['enterprise.admin_url' => 'javascript:alert(1)//{id}']);
+        $this->assertStringContainsString('/admin/projects/', $svc->link($dep));
     }
 }

@@ -130,11 +130,26 @@ class EmailTemplateService
             'deployment' => 'acme.worksuite.lk', 'run' => 'Update to 3.2.1-3100', 'result' => 'Failed', 'triggered_by' => 'Ops Person', 'versions' => '3.2.0-3011 → 3.2.1-3100',
             'finished' => now()->format('j M Y, H:i').' UTC', 'backup' => 'b1c2… · failed', 'failure_count' => '1', 'summary' => 'Update to 3.2.1-3100 on acme.worksuite.lk finished with the result: Failed.',
             'failures' => "✗ Backup of database ent-acme-db: restic is not installed on this server.\nFix: Install restic on the node, then run the update again.",
+            'outcome' => 'update to 3.2.1-3100 failed — nothing changed', 'headline' => 'Update to 3.2.1-3100 failed — nothing changed',
+            'first_failure' => 'Backup of database ent-acme-db: restic is not installed on this server.',
             'steps' => "STEP                 RESULT       DETAIL\nPre-update backup    failed\n  database ent-acme-db failed     restic is not installed on this server",
             'log' => "1284   crowdsecurity/http-bf-wordpress_bf\n212    crowdsecurity/http-probing",
         ];
 
-        return array_intersect_key($samples, array_flip($this->definition($key)['vars']));
+        $out = array_intersect_key($samples, array_flip($this->definition($key)['vars']));
+        if (! empty($this->definition($key)['blocks'])) {
+            // Run summaries: the structured failure boxes and step table the layout draws.
+            $out += [
+                '_alerts' => [['title' => 'Backup of database ent-acme-db', 'text' => 'restic is not installed on this server.', 'hint' => 'restic is not installed on the node. Install it there (apt install restic), then run the backup or the update again.']],
+                '_steps' => [
+                    ['name' => 'Pre-update backup', 'state' => 'failed', 'detail' => 'in 4s'],
+                    ['name' => 'database ent-acme-db', 'state' => 'failed', 'detail' => 'restic is not installed on this server', 'child' => true],
+                    ['name' => 'application ent-acme', 'state' => 'failed', 'detail' => 'restic is not installed on this server', 'child' => true],
+                ],
+            ];
+        }
+
+        return $out;
     }
 
     /** @return array{subject: string, preview: string, html: string, text: string} */
@@ -144,6 +159,9 @@ class EmailTemplateService
         $brand = $this->brand();
         $platform = $brand['sender_name'] ?: (string) config('platform.email_name', self::PLATFORM_NAME);
         $panel = rtrim((string) (config('platform.panel_url') ?: config('app.url')), '/');
+        // Structured blocks (run summaries): never admin copy, never {{variables}}; escaped by the layout.
+        $blocks = ['steps' => array_values((array) ($vars['_steps'] ?? [])), 'alerts' => array_values((array) ($vars['_alerts'] ?? []))];
+        $vars = array_filter($vars, fn ($v, $k) => ! str_starts_with((string) $k, '_') && (is_scalar($v) || $v === null || $v instanceof \Stringable), ARRAY_FILTER_USE_BOTH);
         $vars = array_map('strval', array_replace(['platform_name' => $platform, 'user_name' => $user?->name ?? 'there', 'panel_url' => $panel], $vars));
         // A variable may hold {{panel_url}} (sample links); resolve globals inside values once.
         $vars = array_map(fn ($v) => str_replace('{{panel_url}}', $panel, $v), $vars);
@@ -155,8 +173,8 @@ class EmailTemplateService
 
         return [
             'subject' => $f['subject'], 'preview' => (string) $f['preview'],
-            'html' => $this->html($f, $details, $brand, $platform, $footer, $t['tone'], (string) config('email_templates.groups.'.$t['group'].'.name')),
-            'text' => $this->text($f, $details, $footer),
+            'html' => $this->html($f, $details, $brand, $platform, $footer, $t['tone'], (string) config('email_templates.groups.'.$t['group'].'.name'), $blocks),
+            'text' => $this->text($f, $details, $footer, $blocks),
         ];
     }
 
@@ -252,7 +270,7 @@ class EmailTemplateService
      * `color-scheme` meta, a prefers-color-scheme sheet and Outlook.com's [data-ogsc] hooks, with colours
      * chosen so a client that inverts them on its own still keeps contrast.
      */
-    private function html(array $f, array $details, array $brand, string $platform, string $footer, string $tone = 'blue', string $tag = ''): string
+    private function html(array $f, array $details, array $brand, string $platform, string $footer, string $tone = 'blue', string $tag = '', array $blocks = []): string
     {
         [, $tagFg] = self::TONES[$tone] ?? self::TONES['blue'];
         $e = fn (?string $s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -282,6 +300,8 @@ class EmailTemplateService
             ? '<div style="margin:0 0 20px;padding:14px 16px;border-radius:12px;background:#0b1530;color:#e2e8f0;font:500 12.5px/1.6 '.$mono.';white-space:pre-wrap;word-break:break-word">'.$e(mb_substr(trim((string) $f['code']), 0, 2000)).'</div>' : '';
         $eyebrow = trim((string) ($f['eyebrow'] ?? '')) !== '' ? '<div class="mu" style="margin:0 0 10px;font:600 11px/18px '.$mono.';letter-spacing:.14em;text-transform:uppercase;color:'.$color.'">'.$e($f['eyebrow']).'</div>' : '';
         $fallback = $url ? '<p class="mu" style="margin:20px 0 0;font-size:12.5px;line-height:1.55;color:#64748b">Button not working? Paste this link into your browser:<br><a href="'.$e($url).'" class="ln" style="color:'.$color.';word-break:break-all">'.$e($url).'</a></p>' : '';
+        $alerts = $this->alertsHtml($blocks['alerts'] ?? [], $e);
+        $steps = $this->stepsHtml($blocks['steps'] ?? [], $e, $font, $mono);
         $year = date('Y');
 
         return <<<HTML
@@ -302,8 +322,12 @@ class EmailTemplateService
     .dt td{border-color:#1e293b !important}
     .ln{color:#60a5fa !important}
     .ft{color:#64748b !important}
+    .st td,.st th{border-color:#1e293b !important}
+    .al{background:#2a1215 !important;border-color:#f87171 !important}
+    .alh{color:#fecaca !important} .alt{color:#fde2e2 !important}
   }
   [data-ogsc] .card{background:#0f172a !important} [data-ogsc] .hd,[data-ogsc] h1{color:#f8fafc !important} [data-ogsc] .tx{color:#cbd5e1 !important} [data-ogsc] .mu{color:#94a3b8 !important} [data-ogsc] .dt{background:#111c33 !important}
+  [data-ogsc] .st td,[data-ogsc] .st th{border-color:#1e293b !important} [data-ogsc] .al{background:#2a1215 !important} [data-ogsc] .alh{color:#fecaca !important} [data-ogsc] .alt{color:#fde2e2 !important}
 </style></head>
 <body style="margin:0;padding:0;background:#eef2f7;-webkit-text-size-adjust:100%">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">{$e($f['preview'])}&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
@@ -314,7 +338,7 @@ class EmailTemplateService
 </td></tr>
 <tr><td class="card pad" bgcolor="#ffffff" style="background:#ffffff;border-radius:0 0 20px 20px;padding:36px 36px 36px;font-family:{$font};font-size:15.5px;line-height:1.65;color:#334155;box-shadow:0 1px 2px rgba(15,23,42,.04)">
 {$eyebrow}<h1 class="hd" style="margin:0 0 14px;font:700 26px/1.25 {$font};letter-spacing:-0.02em;color:#0f172a">{$e($f['heading'])}</h1>
-{$body}{$code}
+{$alerts}{$body}{$steps}{$code}
 {$this->detailsTable($rows)}
 <div style="height:24px;line-height:24px;font-size:0">&nbsp;</div>{$button}{$secondary}
 {$fallback}
@@ -329,14 +353,97 @@ class EmailTemplateService
 HTML;
     }
 
+    /** Result word of a step => [label, pill background, pill text]. Light tints keep contrast when a client inverts them. */
+    private const STEP_STATES = [
+        'succeeded' => ['Succeeded', '#dcfce7', '#166534'], 'failed' => ['Failed', '#fee2e2', '#991b1b'], 'partial' => ['Partly failed', '#fef3c7', '#92400e'],
+        'rolled_back' => ['Rolled back', '#fef3c7', '#92400e'], 'cancelled' => ['Cancelled', '#e5e7eb', '#374151'], 'skipped' => ['Skipped', '#e5e7eb', '#374151'],
+        'running' => ['Running', '#dbeafe', '#1e40af'], 'pending' => ['Pending', '#e5e7eb', '#374151'], 'queued' => ['Queued', '#e5e7eb', '#374151'],
+    ];
+
+    /** What failed and how to fix it: one red box per failure, above everything else in the card. */
+    private function alertsHtml(array $alerts, callable $e): string
+    {
+        $out = '';
+        foreach (array_slice($alerts, 0, 10) as $a) {
+            $title = trim((string) ($a['title'] ?? ''));
+            $text = trim((string) ($a['text'] ?? ''));
+            $hint = trim((string) ($a['hint'] ?? ''));
+            $out .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="al" bgcolor="#fef2f2" style="margin:0 0 12px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:10px"><tr><td style="padding:14px 16px;font-size:14.5px;line-height:1.55">'
+                .'<div class="alh" style="font-weight:700;color:#991b1b">&#10007;&nbsp;'.$e(mb_substr($title, 0, 160)).'</div>'
+                .($text !== '' ? '<div class="alt" style="margin-top:4px;color:#7f1d1d;word-break:break-word">'.nl2br($e(mb_substr($text, 0, 600)), false).'</div>' : '')
+                .($hint !== '' ? '<div class="alt" style="margin-top:8px;color:#7f1d1d"><strong>How to fix:</strong> '.$e(mb_substr($hint, 0, 400)).'</div>' : '')
+                .'</td></tr></table>';
+        }
+
+        return $out !== '' ? $out.'<div style="height:8px;line-height:8px;font-size:0">&nbsp;</div>' : '';
+    }
+
+    /** The run's steps as a real table (inline styles only): step, a coloured result pill, detail. */
+    private function stepsHtml(array $steps, callable $e, string $font, string $mono): string
+    {
+        if ($steps === []) {
+            return '';
+        }
+        $th = 'text-align:left;padding:0 10px 8px 0;border-bottom:2px solid #e2e8f0;font:600 11px/1.4 '.$mono.';letter-spacing:.08em;text-transform:uppercase;color:#64748b';
+        $td = 'padding:9px 10px 9px 0;border-bottom:1px solid #e2e8f0;vertical-align:top';
+        $rows = '';
+        foreach (array_slice($steps, 0, 60) as $s) {
+            $state = (string) ($s['state'] ?? '');
+            [$label, $bg, $fg] = self::STEP_STATES[$state] ?? [ucfirst(str_replace('_', ' ', $state)), '#e5e7eb', '#374151'];
+            $child = ! empty($s['child']);
+            $rows .= '<tr>'
+                .'<td class="hd" style="'.$td.';color:#0f172a;'.($child ? 'padding-left:14px;font-weight:400' : 'font-weight:600').';word-break:break-word">'.($child ? '&#8627;&nbsp;' : '').$e(mb_substr((string) ($s['name'] ?? ''), 0, 80)).'</td>'
+                .'<td style="'.$td.';white-space:nowrap"><span style="display:inline-block;padding:2px 9px;border-radius:999px;background:'.$bg.';color:'.$fg.';font:600 12px/18px '.$font.'">'.$e($label).'</span></td>'
+                .'<td class="tx" style="'.$td.';padding-right:0;color:#334155;word-break:break-word">'.$e(mb_substr((string) ($s['detail'] ?? ''), 0, 300)).'</td>'
+                .'</tr>';
+        }
+
+        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="st" style="margin:0 0 20px;border-collapse:collapse;font-size:13.5px;line-height:1.5">'
+            .'<tr><th class="mu" style="'.$th.';width:38%">Step</th><th class="mu" style="'.$th.'">Result</th><th class="mu" style="'.$th.';padding-right:0">Detail</th></tr>'
+            .$rows.'</table>';
+    }
+
+    /** The same blocks as plain text (the text/plain part). */
+    private function blocksText(array $blocks): array
+    {
+        $alerts = array_map(function ($a) {
+            $hint = trim((string) ($a['hint'] ?? ''));
+
+            return '✗ '.trim((string) ($a['title'] ?? '')).': '.trim((string) ($a['text'] ?? '')).($hint !== '' ? "\n  How to fix: ".$hint : '');
+        }, array_slice($blocks['alerts'] ?? [], 0, 10));
+        $steps = array_slice($blocks['steps'] ?? [], 0, 60);
+        $table = '';
+        if ($steps !== []) {
+            $name = fn ($s) => (! empty($s['child']) ? '  ' : '').mb_substr((string) ($s['name'] ?? ''), 0, 60);
+            $w = max(12, ...array_map(fn ($s) => mb_strlen($name($s)), $steps));
+            $pad = fn (string $v, int $n) => $v.str_repeat(' ', max(1, $n - mb_strlen($v)));
+            $table = implode("\n", array_merge([$pad('STEP', $w + 2).$pad('RESULT', 15).'DETAIL'], array_map(
+                fn ($s) => rtrim($pad($name($s), $w + 2).$pad(self::STEP_STATES[(string) ($s['state'] ?? '')][0] ?? (string) ($s['state'] ?? ''), 15).preg_replace('/\s+/', ' ', mb_substr((string) ($s['detail'] ?? ''), 0, 300))),
+                $steps,
+            )));
+        }
+
+        return [implode("\n\n", $alerts), $table];
+    }
+
     private function detailsTable(string $rows): string
     {
         return $rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="dt" bgcolor="#f8fafc" style="margin:8px 0 0;padding:6px 18px;border-radius:14px;background:#f8fafc;font-size:14px">'.$rows.'</table>' : '';
     }
 
-    private function text(array $f, array $details, string $footer): string
+    private function text(array $f, array $details, string $footer, array $blocks = []): string
     {
-        $lines = [$f['heading'], '', trim((string) $f['body'])];
+        [$alerts, $steps] = $this->blocksText($blocks);
+        $lines = [$f['heading'], ''];
+        if ($alerts !== '') {
+            $lines[] = $alerts;
+            $lines[] = '';
+        }
+        $lines[] = trim((string) $f['body']);
+        if ($steps !== '') {
+            $lines[] = '';
+            $lines[] = $steps;
+        }
         if (trim((string) ($f['code'] ?? '')) !== '') {
             $lines[] = '';
             $lines[] = trim((string) $f['code']);
