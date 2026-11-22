@@ -125,6 +125,50 @@ class EnterprisePartETest extends TestCase
         $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}/metrics?range=9y")->assertStatus(422);
     }
 
+    private const PKG = ['code' => 'ULTIMATE', 'label' => 'Ultimate', 'app_cpus' => 3, 'app_ram_mb' => 3072, 'worker_cpus' => 1, 'worker_ram_mb' => 1024,
+        'db_ram_mb' => 2048, 'redis_ram_mb' => 512, 'fpm_max_children' => 36, 'disk_gb' => 120];
+
+    public function test_resize_to_a_package_uses_its_explicit_limits_and_checks_bounds(): void
+    {
+        [$id, $token] = $this->ready();
+        $this->api($token)->withHeader('Idempotency-Key', 'p0')->postJson("/api/v1/enterprise/deployments/{$id}/resize", ['package' => ['code' => 'X'] + array_diff_key(self::PKG, ['db_ram_mb' => 1])])->assertStatus(422);
+        $this->api($token)->withHeader('Idempotency-Key', 'p1')->postJson("/api/v1/enterprise/deployments/{$id}/resize", ['package' => ['app_cpus' => 999] + self::PKG])->assertStatus(422);
+        $res = $this->api($token)->withHeader('Idempotency-Key', 'p2')->postJson("/api/v1/enterprise/deployments/{$id}/resize", ['package' => self::PKG])->assertStatus(202);
+        $res->assertJsonPath('data.limits.size', 'package')->assertJsonPath('data.limits.package', 'ULTIMATE')->assertJsonPath('data.limits.ram_mb', 3072)
+            ->assertJsonPath('data.limits.fpm_max_children', 36)->assertJsonPath('data.limits.disk_gb', 120);
+        $dep = EnterpriseDeployment::find($id);
+        $this->assertSame('package', $dep->size);
+        $app = Application::allTenants()->find($dep->app_application_id);
+        $this->assertSame(3072, (int) $app->memory_limit_mb);
+        $this->assertSame('36', EnvVar::where('application_id', $app->id)->where('key', 'FPM_MAX_CHILDREN')->value('value'));
+        // Disk only grows.
+        $this->api($token)->withHeader('Idempotency-Key', 'p3')->postJson("/api/v1/enterprise/deployments/{$id}/resize", ['package' => ['disk_gb' => 30] + self::PKG])->assertStatus(422);
+        // The old size keys still work.
+        $this->api($token)->withHeader('Idempotency-Key', 'p4')->postJson("/api/v1/enterprise/deployments/{$id}/resize", ['size' => 'large'])->assertStatus(202)->assertJsonPath('data.limits.size', 'large');
+    }
+
+    public function test_create_with_a_package_and_capacity_is_checked(): void
+    {
+        [, $token] = $this->setUpPanel();
+        config(['enterprise.require_loaded_image' => false]);
+        $this->api($token)->getJson('/api/v1/enterprise/options')->assertOk()->assertJsonPath('data.packages', true);
+        $res = $this->api($token)->withHeader('Idempotency-Key', 'pc1')->postJson('/api/v1/enterprise/deployments', [
+            'external_id' => 'ent_pkg', 'customer_name' => 'Acme', 'slug' => 'acmepkg', 'version' => '3.2.0-3011', 'package' => self::PKG,
+        ])->assertStatus(202);
+        $res->assertJsonPath('data.limits.package', 'ULTIMATE')->assertJsonPath('data.limits.ram_mb', 3072);
+        $this->assertSame(2048, EnterpriseDeployment::find($res->json('data.deployment_id'))->limits['db_ram_mb']);
+        // Neither a size nor a package.
+        $this->api($token)->withHeader('Idempotency-Key', 'pc2')->postJson('/api/v1/enterprise/deployments', [
+            'external_id' => 'ent_pkg2', 'customer_name' => 'Acme', 'slug' => 'acmepkg2', 'version' => '3.2.0-3011',
+        ])->assertStatus(422);
+        // More than any node has.
+        $big = $this->api($token)->withHeader('Idempotency-Key', 'pc3')->postJson('/api/v1/enterprise/deployments', [
+            'external_id' => 'ent_pkg3', 'customer_name' => 'Acme', 'slug' => 'acmepkg3', 'version' => '3.2.0-3011',
+            'package' => ['app_ram_mb' => 131072, 'db_ram_mb' => 131072] + self::PKG,
+        ]);
+        $this->assertContains($big->status(), [409, 422, 503]);
+    }
+
     public function test_domains_add_verify_primary_remove(): void
     {
         [$id, $token] = $this->ready();

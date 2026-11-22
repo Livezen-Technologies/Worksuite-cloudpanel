@@ -9,6 +9,17 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.39.0] — 2026-11-22
+
+### Added
+- Enterprise server packages from Cloud Admin. `POST /enterprise/deployments` and `POST deployments/{ref}/resize` (and the Scale up tab's `POST deployments/{ref}/scale`)
+  accept `package` {code, label, app_cpus, app_ram_mb, worker_cpus, worker_ram_mb, db_ram_mb, redis_ram_mb,
+  fpm_max_children, disk_gb} in place of a `size` key. The limits are stored on the deployment (`size = package`,
+  `limits.package = code`), placement and resize check the node's free CPU/RAM exactly as for sizes, and disk can
+  only grow. Bounds live in `enterprise.package_limits`; `GET /enterprise/options` reports `packages: true` and them.
+  The `small` / `medium` / `large` keys keep working for existing deployments and older Cloud versions. As with any
+  resize, MariaDB / Redis memory is set at creation only.
+
 ## [1.38.2] — 2026-11-22
 
 ### Fixed

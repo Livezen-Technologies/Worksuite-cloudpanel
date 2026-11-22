@@ -274,6 +274,8 @@ class EnterprisePartFTest extends TestCase
         $this->api($token)->withHeader('Idempotency-Key', 's2')->postJson("{$base}/scale", ['worker_replicas' => 2])->assertStatus(501)->assertJsonPath('error.code', 'PANEL_UNSUPPORTED');
         $this->api($token)->withHeader('Idempotency-Key', 's3')->postJson("{$base}/scale", ['size' => 'medium'])->assertStatus(202)->assertJsonPath('data.limits.size', 'medium');
         $this->assertSame(2048, (int) Application::allTenants()->find($dep->app_application_id)->memory_limit_mb);
+        $this->api($token)->withHeader('Idempotency-Key', 's3p')->postJson("{$base}/scale", ['package' => ['code' => 'ULTIMATE', 'label' => 'Ultimate', 'app_cpus' => 3, 'app_ram_mb' => 3072, 'worker_cpus' => 1, 'worker_ram_mb' => 1024, 'db_ram_mb' => 2048, 'redis_ram_mb' => 512, 'fpm_max_children' => 36, 'disk_gb' => 120]])
+            ->assertStatus(202)->assertJsonPath('data.limits.size', 'package')->assertJsonPath('data.limits.package', 'ULTIMATE')->assertJsonPath('data.limits.ram_mb', 3072);
 
         $this->api($token)->putJson("{$base}/scale/quotas", ['apps' => 4])->assertOk()->assertJsonPath('data.can_edit', true);
         $this->assertNotNull(Project::allTenants()->find($dep->project_id)->quotas);

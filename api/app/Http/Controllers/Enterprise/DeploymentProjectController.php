@@ -521,13 +521,14 @@ class DeploymentProjectController extends Controller
             'disk_gb' => ['nullable', 'integer', 'min:'.$b['disk_gb'][0], 'max:'.$b['disk_gb'][1]],
             'web_replicas' => 'nullable|integer|min:1|max:'.ScalingService::MAX,
             'worker_replicas' => 'nullable|integer|min:1|max:'.ScalingService::MAX,
+            ...DeploymentController::packageRules(),
         ]);
         if (isset($data['worker_replicas']) && $data['worker_replicas'] !== 1) {
             throw self::unsupported('The worker runs the WorkSuite scheduler; it cannot have more than one copy.');
         }
-        $limits = array_filter(array_intersect_key($data, array_flip(['size', 'cpus', 'ram_mb', 'disk_gb'])), fn ($v) => $v !== null);
+        $limits = array_filter(array_intersect_key($data, array_flip(['size', 'package', 'cpus', 'ram_mb', 'disk_gb'])), fn ($v) => $v !== null);
         if (! $limits && ! isset($data['web_replicas']) && ! isset($data['worker_replicas'])) {
-            throw ApiException::validation(['size' => ['Give a size, cpus / ram_mb / disk_gb, or web_replicas.']]);
+            throw ApiException::validation(['size' => ['Give a size, a package, cpus / ram_mb / disk_gb, or web_replicas.']]);
         }
 
         return $this->on($dep, function ($p) use ($request, $dep, $data, $limits) {

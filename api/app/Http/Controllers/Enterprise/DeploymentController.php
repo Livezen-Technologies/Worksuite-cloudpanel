@@ -43,6 +43,8 @@ class DeploymentController extends Controller
             'domain' => config('enterprise.domain'),
             'sizes' => collect(config('enterprise.sizes'))->map(fn ($s, $k) => ['code' => $k, 'label' => $s['label'],
                 'cpus' => $s['app_cpus'] + $s['worker_cpus'], 'ram_mb' => $s['app_ram_mb'] + $s['worker_ram_mb'] + $s['db_ram_mb'] + $s['redis_ram_mb'], 'disk_gb' => $s['disk_gb']])->values(),
+            // 1.39.0: Cloud may send a package's explicit limits instead of a size key.
+            'packages' => true, 'package_limits' => config('enterprise.package_limits'),
         ]);
     }
 
@@ -61,7 +63,8 @@ class DeploymentController extends Controller
             'customer_name' => 'required|string|min:2|max:160',
             'slug' => ['required', 'string', self::SLUG],
             'version' => ['required', 'string', self::VERSION],
-            'size' => ['required', Rule::in(array_keys(config('enterprise.sizes')))],
+            'size' => ['required_without:package', 'nullable', Rule::in(array_keys(config('enterprise.sizes')))],
+            ...self::packageRules(),
             'callback_url' => 'nullable|url:https,http|max:500',
             'callback_secret' => 'nullable|string|min:32|max:200',
             'node_id' => 'nullable|uuid',
@@ -120,6 +123,26 @@ class DeploymentController extends Controller
         return $this->data(['nodes' => $this->svc->nodes(app(\App\Support\Tenant::class)->id())]);
     }
 
+    /**
+     * 1.39.0: Cloud Admin's server packages. A package carries its own explicit limits (web, worker, database,
+     * Redis, PHP-FPM children, disk); the old `size` keys keep working for existing deployments and older Cloud.
+     */
+    public static function packageRules(): array
+    {
+        $b = (array) config('enterprise.package_limits');
+        $n = fn (string $k, string $t = 'numeric') => ['required_with:package', $t, 'min:'.$b[$k][0], 'max:'.$b[$k][1]];
+
+        return [
+            'package' => ['nullable', 'array'],
+            'package.code' => ['required_with:package', 'string', 'max:40', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'package.label' => ['nullable', 'string', 'max:120'],
+            'package.app_cpus' => $n('app_cpus'), 'package.app_ram_mb' => $n('app_ram_mb', 'integer'),
+            'package.worker_cpus' => $n('worker_cpus'), 'package.worker_ram_mb' => $n('worker_ram_mb', 'integer'),
+            'package.db_ram_mb' => $n('db_ram_mb', 'integer'), 'package.redis_ram_mb' => $n('redis_ram_mb', 'integer'),
+            'package.fpm_max_children' => $n('fpm_max_children', 'integer'), 'package.disk_gb' => $n('disk_gb', 'integer'),
+        ];
+    }
+
     public function resize(Request $request, string $id)
     {
         $b = (array) config('enterprise.custom_limits');
@@ -128,9 +151,10 @@ class DeploymentController extends Controller
             'cpus' => ['nullable', 'numeric', 'min:'.$b['cpus'][0], 'max:'.$b['cpus'][1]],
             'ram_mb' => ['nullable', 'integer', 'min:'.$b['ram_mb'][0], 'max:'.$b['ram_mb'][1]],
             'disk_gb' => ['nullable', 'integer', 'min:'.$b['disk_gb'][0], 'max:'.$b['disk_gb'][1]],
+            ...self::packageRules(),
         ]);
-        if (empty($data['size']) && ! isset($data['cpus']) && ! isset($data['ram_mb']) && ! isset($data['disk_gb'])) {
-            throw \App\Exceptions\ApiException::validation(['size' => ['Give a size, or cpus / ram_mb / disk_gb.']]);
+        if (empty($data['size']) && empty($data['package']) && ! isset($data['cpus']) && ! isset($data['ram_mb']) && ! isset($data['disk_gb'])) {
+            throw \App\Exceptions\ApiException::validation(['size' => ['Give a size, a package, or cpus / ram_mb / disk_gb.']]);
         }
 
         return response()->json(['data' => $this->svc->present($this->svc->resize($this->find($id), array_filter($data, fn ($v) => $v !== null)))], 202);
