@@ -331,10 +331,15 @@ return [
         // XNODE-3: how an ingress/edge reaches an app homed on another node: the node's public IP
         // at a published host port that only the ingress servers' IPs may reach (agent
         // edge.ports, nftables). No WireGuard mesh involved.
-        // TODO(XNODE-3b): HTTPS on that hop (panel CA + per-app cert + TLS sidecar). Until it
-        // exists the hop is plain HTTP behind the source-IP filter; setting this true makes
-        // such apps unroutable (reported) instead of silently sending plain HTTP.
+        // XNODE-3b: HTTPS on that hop. Each app node runs one ws-edge-tls terminator (Caddy) with
+        // a certificate from the panel's internal CA; edges verify it (serverName + rootCAs).
+        // Off: the hop stays plain HTTP behind the source-IP filter, exactly as before.
         'backend_tls' => (bool) env('EDGE_BACKEND_TLS', false),
+        'tls_image' => env('EDGE_BACKEND_TLS_IMAGE', 'caddy:2.8.4-alpine'),
+        'tls_port_base' => (int) env('EDGE_BACKEND_TLS_PORT_BASE', 41000),
+        'tls_port_span' => (int) env('EDGE_BACKEND_TLS_PORT_SPAN', 10000),
+        'tls_cert_days' => (int) env('EDGE_BACKEND_TLS_CERT_DAYS', 365),
+        'tls_renew_days' => (int) env('EDGE_BACKEND_TLS_RENEW_DAYS', 30),
         'health_path' => env('EDGE_BACKEND_HEALTH_PATH', '/'),
         'health_interval' => env('EDGE_BACKEND_HEALTH_INTERVAL', '10s'),
         'health_timeout' => env('EDGE_BACKEND_HEALTH_TIMEOUT', '3s'),

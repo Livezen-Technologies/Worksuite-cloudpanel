@@ -152,6 +152,15 @@ Artisan::command('edge:failover', function (\App\Services\EdgeFailoverService $e
     $this->info('Online edge servers: '.implode(', ', $r['online']).'; changes: '.(implode(', ', $r['changes']) ?: 'none'));
 })->purpose('SCL-8: DNS failover between ingress servers');
 
+Artisan::command('edge:tls-renew', function (\App\Services\EdgeTlsService $tls) {
+    $r = $tls->renewDue();
+    $this->info('Edge TLS certificates renewed: '.(implode(', ', $r) ?: 'none'));
+})->purpose('XNODE-3b: renew app-node edge certificates within EDGE_BACKEND_TLS_RENEW_DAYS of expiry');
+
+Artisan::command('edge:tls-sync {--force}', function (\App\Services\EdgeTlsService $tls) {
+    $this->info('ws-edge-tls nodes updated: '.$tls->syncAll((bool) $this->option('force')));
+})->purpose('XNODE-3b: write/refresh the ws-edge-tls terminators on the app nodes');
+
 Artisan::command('edge:watchdog', function (\App\Services\EdgeWatchdogService $w) {
     $r = $w->run();
     $this->info(isset($r['skipped']) ? 'Skipped: '.$r['skipped'] : 'Edges probed: '.count($r['probed']).'; changes: '.(implode(', ', $r['changes']) ?: 'none'));
@@ -471,6 +480,7 @@ Schedule::command('services:check')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('mail:watch')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('edge:failover')->everyMinute()->withoutOverlapping();
 Schedule::command('edge:watchdog')->everyMinute()->withoutOverlapping();
+Schedule::command('edge:tls-renew')->dailyAt('03:40')->withoutOverlapping();
 // AV-3: full scans on each organisation's schedule (Settings → Antivirus; default weekly, Sunday 02:00).
 Schedule::command('antivirus:scan-due')->everyFifteenMinutes()->withoutOverlapping();
 // AV-10 daily integrity check; AV-11 nightly image rescans (new CVEs appear for old images).

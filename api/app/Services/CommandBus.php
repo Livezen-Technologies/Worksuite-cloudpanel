@@ -47,6 +47,7 @@ class CommandBus
         'backup.probe' => BackupService::class,
         'mail.import' => MailImportService::class,
         'proxy.certs' => \App\Services\TraefikConfigService::class,
+        'edge.tls' => \App\Services\EdgeTlsService::class,
         'proxy.adopt' => ProxyAdoptionService::class,
         'compose.deploy' => ComposeService::class,
         'database.create' => DatabaseService::class,
