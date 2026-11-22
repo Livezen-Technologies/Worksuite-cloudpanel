@@ -211,7 +211,7 @@ web copies through ScalingService (needs a first release, respects quotas, recor
 "New version released" = a newer `worksuite-server:<tag>` loaded on the enterprise nodes (`GET versions`; no
 registry). Tags that are not `major.minor[.patch][-build]` (e.g. `latest`) are never offered. A run is:
 `scheduled → backing_up` (project backup, `pre_update`) `→ deploying` (part E redeploy on the new tag; the panel's
-health gate decides) `→ succeeded`, or `→ rolling_back` (redeploy on the previous tag) `→ rolled_back | failed`.
+health gate decides) `→ succeeded`, or `→ rolling_back` (redeploy on the previous tag) `→ restoring_data` (when `settings.restore_data_on_rollback`, default true: the run's pre-update backup is restored, DB + files, each after a fresh safety backup of the current state) `→ rolled_back | failed`. A rolled-back run carries `data_restore {state: running|succeeded|failed|skipped, backup_id, restore_job_ids[], safety_backup_ids[], error?, started_at, finished_at}` and `data_restored` (true only when the data was put back); "rolled back, data restore failed" is `status: rolled_back` + `data_restore.state: failed`, with the safety backups kept. `ENTERPRISE_UPDATE_RESTORE_TIMEOUT` (90 min).
 A failed or timed-out backup ends the run as `failed` with nothing changed. One active run per deployment.
 `enterprise:updates` (every minute, panel scheduler) advances runs and applies the policy:
 `notify` sends `deployment.update_available` once per version; `auto` starts one run per version (dedupe on
@@ -224,8 +224,8 @@ that was announced that way; a window too close to announce is skipped, never ru
 
 | Method | Path | Body | Answer `data` |
 |---|---|---|---|
-| GET | `updates` | | `{current_version, image, status, can_update, blocked_reason?, available[{version,image,created,size_mb,nodes[]}], latest?, settings{mode,channel,notice_hours,window{days[1-7 ISO],start "HH:MM",duration_minutes,timezone}}, next_window?, next_notice?{version,window_start,notify_at,announced}, active?, last?, history[run]}` |
-| PUT/PATCH | `updates/settings` | `{mode?=off\|notify\|auto, channel?=latest\|"3.1", notice_hours?=0\|6\|24\|48\|72, window?{days?,start?,duration_minutes? 30–720,timezone?}}` | as GET |
+| GET | `updates` | | `{current_version, image, status, can_update, blocked_reason?, available[{version,image,created,size_mb,nodes[]}], latest?, settings{mode,channel,notice_hours,restore_data_on_rollback,window{days[1-7 ISO],start "HH:MM",duration_minutes,timezone}}, next_window?, next_notice?{version,window_start,notify_at,announced}, active?, last?, history[run]}` |
+| PUT/PATCH | `updates/settings` | `{mode?=off\|notify\|auto, channel?=latest\|"3.1", notice_hours?=0\|6\|24\|48\|72, restore_data_on_rollback?=bool, window?{days?,start?,duration_minutes? 30–720,timezone?}}` | as GET |
 | POST | `updates` | `{version, scheduled_for? (ISO, future), reason?, requested_by? (display name)}` | 202 run; started at once unless scheduled. 409 when one is active, 422 when the tag is not loaded |
 | POST | `updates/{updateId}/cancel` | | run (only `scheduled`) |
 | POST | `updates/{updateId}/restore` | `{confirm: true, reason}` | 202 `{update, redeploy?, restore{restored[],skipped[]}}`: redeploys the run's previous tag when it differs, then restores its pre-update backup (DB + volumes) after a fresh recovery point |

@@ -135,11 +135,29 @@ class EnterpriseUpdatesTest extends TestCase
         $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}/backups/{$run['backup_id']}")->assertOk()->assertJsonPath('data.type', 'pre_update');
     }
 
-    public function test_an_unhealthy_new_version_rolls_back_and_the_backup_can_be_restored(): void
+    /** Answers every command a heartbeat hands out (safety backups, restore.run, health checks) until none are left. */
+    private function restoreRuns(string $agent, bool $ok): void
     {
-        [$id, $token, $agent] = $this->ready();
-        $base = "/api/v1/enterprise/deployments/{$id}/updates";
-        $run = $this->api($token)->withHeader('Idempotency-Key', 'r1')->postJson($base, ['version' => '3.2.1-3100'])->assertStatus(202)->json('data.id');
+        for ($i = 0; $i < 6; $i++) {
+            foreach ($this->heartbeat($agent)['commands'] as $j => $c) {
+                if ($c['type'] === 'backup.run') {
+                    $out = ['snapshot_id' => 'safe'.$i.$j, 'summary' => ['snapshot_id' => 'safe'.$i.$j, 'total_bytes_processed' => 1024], 'check' => ['ok' => true]];
+                    isset($c['payload']['dump']) && $out['dump'] = ['bytes' => 2048];
+                    $this->commandResult($agent, $c['id'], 'succeeded', ['output' => $out])->assertOk();
+                } elseif ($c['type'] === 'restore.run' && ! $ok) {
+                    $this->commandResult($agent, $c['id'], 'failed', ['message' => 'restic: wrong password'])->assertOk();
+                } else {
+                    $out = $c['type'] === 'container.healthcheck' ? ['healthy' => true, 'status' => 200] : ['container_id' => 'c-'.$c['id']];
+                    $this->commandResult($agent, $c['id'], 'succeeded', ['output' => $out])->assertOk();
+                }
+            }
+        }
+    }
+
+    /** Update → unhealthy → rollback to the previous tag: returns the run id, now past rolling_back. */
+    private function rolledBack(string $id, string $token, string $agent, string $key): string
+    {
+        $run = $this->api($token)->withHeader('Idempotency-Key', $key)->postJson("/api/v1/enterprise/deployments/{$id}/updates", ['version' => '3.2.1-3100'])->assertStatus(202)->json('data.id');
         $this->backupsSucceed($agent);
         $this->tick();
         $this->rollout($agent, false);
@@ -148,9 +166,74 @@ class EnterpriseUpdatesTest extends TestCase
         $this->assertSame('3.2.0-3011', EnterpriseDeployment::find($id)->version);
         $this->rollout($agent, true);
         $this->tick();
+
+        return $run;
+    }
+
+    public function test_an_unhealthy_new_version_rolls_back_and_restores_the_pre_update_data(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        $base = "/api/v1/enterprise/deployments/{$id}/updates";
+        $this->api($token)->getJson($base)->assertOk()->assertJsonPath('data.settings.restore_data_on_rollback', true); // default on
+        $run = $this->rolledBack($id, $token, $agent, 'r1');
+
+        $u = EnterpriseUpdate::find($run);
+        $this->assertSame('restoring_data', $u->status);
+        $this->assertSame('running', $u->data_restore['state']);
+        $this->assertCount(2, $u->data_restore['restore_job_ids']); // volumes + database
+        $this->api($token)->getJson($base)->assertOk()->assertJsonPath('data.active.status', 'restoring_data');
+        $this->api($token)->withHeader('Idempotency-Key', 'r0')->postJson("{$base}/{$run}/restore", ['confirm' => true, 'reason' => 'too early'])->assertStatus(409); // still running
+
+        $this->restoreRuns($agent, true);
+        $this->tick();
         $u = EnterpriseUpdate::find($run);
         $this->assertSame('rolled_back', $u->status);
+        $this->assertSame('succeeded', $u->data_restore['state']);
+        $this->assertCount(2, $u->data_restore['safety_backup_ids']); // a fresh safety backup before each restore
+        $this->assertSame('pre_restore', BackupJob::allTenants()->find($u->data_restore['safety_backup_ids'][0])->trigger);
         $this->assertNotNull($u->error);
+        $this->api($token)->getJson($base)->assertOk()->assertJsonPath('data.last.data_restored', true)->assertJsonPath('data.last.data_restore.state', 'succeeded');
+        $this->assertTrue(AuditLog::query()->withoutGlobalScopes()->where('action', 'enterprise.deployment.update.data_restore')->exists());
+        $last = EnterpriseWebhook::where('enterprise_deployment_id', $id)->where('event', 'deployment.update')->get()->last()->payload['update'];
+        $this->assertSame(['rolled_back', true, 'succeeded'], [$last['status'], $last['data_restored'], $last['data_restore']['state']]);
+        $this->assertSame(['restoring_data'], EnterpriseWebhook::where('enterprise_deployment_id', $id)->where('event', 'deployment.update')->get()
+            ->pluck('payload.update.status')->filter(fn ($s) => $s === 'restoring_data')->unique()->values()->all());
+
+        // Restore… by hand still works on the finished run.
+        $out = $this->api($token)->withHeader('Idempotency-Key', 'r4')->postJson("{$base}/{$run}/restore", ['confirm' => true, 'reason' => 'again'])->assertStatus(202)->json('data');
+        $this->assertCount(2, $out['restore']['restored']);
+    }
+
+    public function test_a_failed_data_restore_marks_the_run_and_keeps_the_safety_backup(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        $run = $this->rolledBack($id, $token, $agent, 'd1');
+        $this->restoreRuns($agent, false);
+        $this->tick();
+        $u = EnterpriseUpdate::find($run);
+        $this->assertSame('rolled_back', $u->status);
+        $this->assertSame('failed', $u->data_restore['state']);
+        $this->assertStringContainsString('data restore failed', $u->error);
+        $this->assertStringContainsString('safety backup', $u->error);
+        $this->assertNotEmpty($u->data_restore['safety_backup_ids']);
+        foreach ($u->data_restore['safety_backup_ids'] as $b) {
+            $this->assertNotNull(BackupJob::allTenants()->find($b));
+        }
+        $this->assertSame('3.2.0-3011', EnterpriseDeployment::find($id)->version);
+        $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}/updates")->assertOk()->assertJsonPath('data.last.data_restored', false)
+            ->assertJsonPath('data.last.can_restore', true);
+    }
+
+    public function test_with_the_setting_off_a_rollback_leaves_the_data_and_the_backup_can_be_restored(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        $base = "/api/v1/enterprise/deployments/{$id}/updates";
+        $this->api($token)->putJson("{$base}/settings", ['restore_data_on_rollback' => 'maybe'])->assertStatus(422);
+        $this->api($token)->putJson("{$base}/settings", ['restore_data_on_rollback' => false])->assertOk()->assertJsonPath('data.settings.restore_data_on_rollback', false);
+        $run = $this->rolledBack($id, $token, $agent, 'o1');
+        $u = EnterpriseUpdate::find($run);
+        $this->assertSame('rolled_back', $u->status);
+        $this->assertSame('skipped', $u->data_restore['state']);
 
         $this->api($token)->withHeader('Idempotency-Key', 'r2')->postJson("{$base}/{$run}/restore", ['reason' => 'data'])->assertStatus(422); // confirm
         $this->api($token)->withHeader('Idempotency-Key', 'r3')->postJson("{$base}/{$run}/restore", ['confirm' => true])->assertStatus(422); // reason

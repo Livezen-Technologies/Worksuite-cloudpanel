@@ -117,5 +117,6 @@ return [
     'updates' => [
         'backup_timeout_minutes' => (int) env('ENTERPRISE_UPDATE_BACKUP_TIMEOUT', 60),
         'deploy_timeout_minutes' => (int) env('ENTERPRISE_UPDATE_DEPLOY_TIMEOUT', 20),
+        'restore_timeout_minutes' => (int) env('ENTERPRISE_UPDATE_RESTORE_TIMEOUT', 90),
     ],
 ];

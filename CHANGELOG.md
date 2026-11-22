@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.35.0] — 2026-11-22
+
+### Added
+- **Enterprise Updates: restore the pre-update data on an automatic rollback** (owner decision 2026-11-22). New setting `restore_data_on_rollback` (default on, in `update_settings`). When a run (manual, scheduled or auto) is unhealthy and has rolled back to the previous tag, it moves to a new active status `restoring_data` and restores its pre-update backup through the existing project restore (fresh safety backup of the current state first, then database + files), then finishes `rolled_back`. Runs carry `data_restore {state, backup_id, restore_job_ids, safety_backup_ids, error}` and `data_restored`, in `GET updates`, the run log, the `deployment.update` webhook and the audit (`enterprise.deployment.update.data_restore`). A failed or timed-out data restore (`ENTERPRISE_UPDATE_RESTORE_TIMEOUT`, 90 min) leaves the run `rolled_back` with `data_restore.state: failed`, an explicit error, and the safety backups kept. Migration `2026_11_29_090000_enterprise_update_data_restore` adds `enterprise_updates.data_restore`.
+
 ## [1.34.0] — 2026-11-22
 
 ### Added

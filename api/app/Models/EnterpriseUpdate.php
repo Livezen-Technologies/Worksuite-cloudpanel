@@ -10,7 +10,7 @@ class EnterpriseUpdate extends Model
 {
     use Uuid;
 
-    public const ACTIVE = ['scheduled', 'backing_up', 'deploying', 'rolling_back'];
+    public const ACTIVE = ['scheduled', 'backing_up', 'deploying', 'rolling_back', 'restoring_data'];
 
     public const TERMINAL = ['succeeded', 'failed', 'rolled_back', 'cancelled'];
 
@@ -21,6 +21,7 @@ class EnterpriseUpdate extends Model
         return [
             'log' => 'array',
             'job_ids' => 'array',
+            'data_restore' => 'array',
             'scheduled_for' => 'datetime',
             'started_at' => 'datetime',
             'deploy_started_at' => 'datetime',

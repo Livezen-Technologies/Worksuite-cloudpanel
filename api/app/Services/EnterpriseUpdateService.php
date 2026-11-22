@@ -9,6 +9,7 @@ use App\Models\Deployment;
 use App\Models\EnterpriseDeployment;
 use App\Models\EnterpriseUpdate;
 use App\Models\Project;
+use App\Models\RestoreJob;
 use App\Models\User;
 use App\Support\Tenant;
 use Illuminate\Support\Carbon;
@@ -24,7 +25,12 @@ use Illuminate\Support\Str;
  *   scheduled → backing_up (project backup: database dump + data volumes, ProjectBackupService)
  *             → deploying  (EnterpriseProvisioningService::act redeploy on the new tag; the panel's
  *                           deployment health gate decides)
- *             → succeeded, or rolling_back (redeploy on the previous tag) → rolled_back | failed.
+ *             → succeeded, or rolling_back (redeploy on the previous tag)
+ *             → restoring_data (the run's pre-update backup, when restore_data_on_rollback is on; a fresh
+ *                               safety backup of the current state is taken first) → rolled_back | failed.
+ *
+ * A rolled-back run carries data_restore {state: running|succeeded|failed|skipped, ...}: "rolled back, data
+ * restore failed" is status rolled_back with data_restore.state failed, and the safety backups are kept.
  *
  * Nothing is changed when the backup fails. The panel owns the scheduler (not Cloud Admin) because every
  * transition waits on agent results that only the panel sees; Cloud Admin reads the state and is told of
@@ -42,6 +48,8 @@ class EnterpriseUpdateService
         'notice_hours' => 24,
         // The last deployment.update_scheduled sent: {version, window_start, at, notice_hours, notify_at}. Internal.
         'announced' => null,
+        // After an automatic rollback, also restore the run's pre-update backup (DB + files). Owner decision 2026-11-22.
+        'restore_data_on_rollback' => true,
     ];
 
     public const NOTICE_HOURS = [0, 6, 24, 48, 72];
@@ -102,6 +110,7 @@ class EnterpriseUpdateService
     {
         $s = array_replace_recursive(self::DEFAULTS, (array) ($dep->update_settings ?? []));
         $s['window']['days'] = array_values(array_map('intval', (array) $s['window']['days']));
+        $s['restore_data_on_rollback'] = (bool) $s['restore_data_on_rollback'];
 
         return $s;
     }
@@ -109,7 +118,10 @@ class EnterpriseUpdateService
     public function saveSettings(EnterpriseDeployment $dep, array $in, ?string $userId): array
     {
         $before = $this->settings($dep);
-        $s = array_replace_recursive($before, array_intersect_key($in, array_flip(['mode', 'channel', 'window', 'notice_hours'])));
+        $s = array_replace_recursive($before, array_intersect_key($in, array_flip(['mode', 'channel', 'window', 'notice_hours', 'restore_data_on_rollback'])));
+        if (array_key_exists('restore_data_on_rollback', $in)) {
+            $s['restore_data_on_rollback'] = (bool) $in['restore_data_on_rollback'];
+        }
         if (isset($in['notice_hours'])) {
             $s['notice_hours'] = (int) $in['notice_hours'];
         }
@@ -214,6 +226,9 @@ class EnterpriseUpdateService
             'backup_id' => $u->backup_job_id,
             'backup_status' => $u->backup_job_id ? BackupJob::allTenants()->whereKey($u->backup_job_id)->value('status') : null,
             'requested_by' => $u->requested_by_name, 'reason' => $u->reason, 'error' => $u->error, 'log' => array_values((array) $u->log),
+            'data_restore' => $u->data_restore ?: null,
+            // True only when an automatic rollback also put the pre-update data back.
+            'data_restored' => ($u->data_restore['state'] ?? null) === 'succeeded',
             'can_cancel' => $u->status === 'scheduled',
             'can_restore' => $u->backup_job_id !== null && in_array($u->status, ['failed', 'rolled_back', 'succeeded'], true),
         ];
@@ -442,6 +457,7 @@ class EnterpriseUpdateService
             'backing_up' => $this->afterBackup($dep, $run, (int) ($cfg['backup_timeout_minutes'] ?? 60)),
             'deploying' => $this->afterDeploy($dep, $run, (int) ($cfg['deploy_timeout_minutes'] ?? 20), false),
             'rolling_back' => $this->afterDeploy($dep, $run, (int) ($cfg['deploy_timeout_minutes'] ?? 20), true),
+            'restoring_data' => $this->afterDataRestore($dep, $run, (int) ($cfg['restore_timeout_minutes'] ?? 90)),
             default => null,
         };
     }
@@ -543,10 +559,81 @@ class EnterpriseUpdateService
             return;
         }
         if ($result === 'ok') {
-            $this->finish($dep, $run, 'rolled_back', $run->error, 'Rolled back: running '.$run->from_version.' again. The data was not touched; restore the pre-update backup only if the new version changed it.');
+            $this->note($run, 'Running '.$run->from_version.' again');
+            $this->restoreData($dep, $run->fresh());
         } else {
             $this->finish($dep, $run, 'failed', trim($run->error.' The rollback to '.$run->from_version.' failed too. Restore the pre-update backup.'));
         }
+    }
+
+    /** After a healthy rollback: restore the pre-update backup too (setting on), or finish as rolled back. */
+    private function restoreData(EnterpriseDeployment $dep, EnterpriseUpdate $run): void
+    {
+        if (! $this->settings($dep)['restore_data_on_rollback']) {
+            $run->update(['data_restore' => ['state' => 'skipped', 'reason' => 'setting_off']]);
+            $this->finish($dep, $run, 'rolled_back', $run->error, 'Rolled back: running '.$run->from_version.' again. The data was not restored (restore_data_on_rollback is off); restore the pre-update backup if the new version changed it.');
+
+            return;
+        }
+        $backup = $run->backup_job_id ? BackupJob::allTenants()->find($run->backup_job_id) : null;
+        try {
+            if (! $backup) {
+                throw new \RuntimeException('the pre-update backup is missing');
+            }
+            $out = $this->tenant->as($dep->organization_id, fn () => $this->backups->restore($backup, null, 'project'));
+        } catch (\Throwable $e) {
+            $this->dataRestoreFailed($dep, $run, ['backup_id' => $run->backup_job_id, 'started_at' => now()->toIso8601ZuluString()], 'The data restore could not start: '.$e->getMessage());
+
+            return;
+        }
+        $run->update(['status' => 'restoring_data', 'data_restore' => [
+            'state' => 'running', 'backup_id' => $backup->id, 'started_at' => now()->toIso8601ZuluString(),
+            'restore_job_ids' => array_column($out['restored'], 'restore_job_id'), 'safety_backup_ids' => [], 'skipped' => $out['skipped'],
+        ]]);
+        $this->note($run, 'Restoring the pre-update backup (database + files), after a fresh safety backup of the current state');
+        $this->audit->log('enterprise.deployment.update.data_restore', 'EnterpriseDeployment', $dep->id,
+            ['update_id' => $run->id, 'backup_id' => $backup->id, 'state' => 'running', 'restores' => count($out['restored']), 'automatic' => true, 'external_id' => $dep->external_id], $dep->organization_id);
+        $this->event($dep, $run);
+        $this->afterDataRestore($dep, $run->fresh(), (int) config('enterprise.updates.restore_timeout_minutes', 90));
+    }
+
+    private function afterDataRestore(EnterpriseDeployment $dep, EnterpriseUpdate $run, int $timeout): void
+    {
+        $info = (array) $run->data_restore;
+        $jobs = RestoreJob::allTenants()->whereIn('id', (array) ($info['restore_job_ids'] ?? []))->get();
+        $info['safety_backup_ids'] = $jobs->pluck('pre_restore_backup_job_id')->filter()->values()->all();
+        $started = isset($info['started_at']) ? Carbon::parse($info['started_at']) : $run->updated_at;
+        if ($jobs->contains(fn ($j) => $j->status === 'failed') || $jobs->isEmpty()) {
+            $this->dataRestoreFailed($dep, $run, $info, 'The data restore failed'.(($m = $jobs->where('status', 'failed')->pluck('message')->filter()->first()) ? ': '.$m : '').'.');
+
+            return;
+        }
+        if ($jobs->every(fn ($j) => $j->status === 'succeeded')) {
+            $run->update(['data_restore' => array_merge($info, ['state' => 'succeeded', 'finished_at' => now()->toIso8601ZuluString()])]);
+            $this->audit->log('enterprise.deployment.update.data_restore', 'EnterpriseDeployment', $dep->id,
+                ['update_id' => $run->id, 'backup_id' => $info['backup_id'] ?? null, 'state' => 'succeeded', 'safety_backup_ids' => $info['safety_backup_ids'], 'external_id' => $dep->external_id], $dep->organization_id);
+            $this->finish($dep, $run, 'rolled_back', $run->error, 'Rolled back: running '.$run->from_version.' again, and the data was restored to before the update.');
+
+            return;
+        }
+        if ($started?->lt(now()->subMinutes($timeout))) {
+            $this->dataRestoreFailed($dep, $run, $info, 'The data restore did not finish in time.');
+
+            return;
+        }
+        if ($info !== (array) $run->data_restore) {
+            $run->update(['data_restore' => $info]);
+        }
+    }
+
+    /** Rolled back, data restore failed: the previous version runs; the safety backups stay for a manual restore. */
+    private function dataRestoreFailed(EnterpriseDeployment $dep, EnterpriseUpdate $run, array $info, string $why): void
+    {
+        $run->update(['data_restore' => array_merge($info, ['state' => 'failed', 'error' => $why, 'finished_at' => now()->toIso8601ZuluString()])]);
+        $this->audit->log('enterprise.deployment.update.data_restore', 'EnterpriseDeployment', $dep->id,
+            ['update_id' => $run->id, 'backup_id' => $info['backup_id'] ?? null, 'state' => 'failed', 'error' => $why, 'safety_backup_ids' => $info['safety_backup_ids'] ?? [], 'external_id' => $dep->external_id], $dep->organization_id);
+        $this->finish($dep, $run, 'rolled_back', trim($run->error.' Rolled back, but '.lcfirst($why).' The safety backup of the state before the restore is kept.'),
+            'Rolled back to '.$run->from_version.', data restore failed: '.$why.' The safety backup is kept; use Restore… to try again.');
     }
 
     private function finish(EnterpriseDeployment $dep, EnterpriseUpdate $run, string $status, ?string $error, ?string $line = null): void
@@ -554,7 +641,7 @@ class EnterpriseUpdateService
         $run->update(['status' => $status, 'error' => $error, 'finished_at' => now()]);
         $this->note($run, $line ?? ucfirst(str_replace('_', ' ', $status)).($error ? ': '.$error : ''));
         $this->audit->log('enterprise.deployment.update.'.$status, 'EnterpriseDeployment', $dep->id,
-            ['update_id' => $run->id, 'from' => $run->from_version, 'to' => $run->to_version, 'trigger' => $run->trigger, 'error' => $error, 'external_id' => $dep->external_id], $dep->organization_id);
+            ['update_id' => $run->id, 'from' => $run->from_version, 'to' => $run->to_version, 'trigger' => $run->trigger, 'error' => $error, 'data_restore' => $run->fresh()->data_restore['state'] ?? null, 'external_id' => $dep->external_id], $dep->organization_id);
         $this->event($dep, $run);
     }
 
