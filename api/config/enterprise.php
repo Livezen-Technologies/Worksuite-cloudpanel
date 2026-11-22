@@ -95,6 +95,9 @@ return [
 
     // Nodes carrying this tag take enterprise deployments; when none does, any app node does.
     'node_tag' => env('ENTERPRISE_NODE_TAG', 'enterprise'),
+    // XNODE-2: Lego provider for DNS-01 on enterprise edges when the hostname's zone is not a
+    // managed DnsZone (its credentials then come from the domain's own token).
+    'edge_dns_provider' => env('ENTERPRISE_EDGE_DNS_PROVIDER', 'cloudflare'),
 
     // Sizes: RAM (MB) / CPU per container, PHP-FPM children and the disk the deployment is expected to use.
     'sizes' => [

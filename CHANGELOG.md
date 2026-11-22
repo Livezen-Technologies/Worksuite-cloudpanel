@@ -9,6 +9,16 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.35.0] — 2026-11-22
+
+### Added
+- **Ingress routes apps on other nodes over the private network** (XNODE-1). The ingress server's Traefik now sends a domain whose app lives on another node to that app's fixed `dmp-mesh` address (`http://10.89.<n>.x:<port>`) over WireGuard, instead of a container name only its own Docker network can resolve. An app it cannot reach (its node, or the ingress, is not on the private network) is left out of the pushed config and logged, rather than published pointing nowhere; other sites are unaffected. Apps created on, or moved to, a non-ingress node while a dedicated ingress exists get `mesh_network` turned on before their first deploy; apps on the ingress host are unchanged. Remote scaling copies (`<app>-pool`) keep routing via `mesh_ip:hostPort` as before.
+
+- **Enterprise edge ingress nodes** (XNODE-2). Ingress servers also tagged `enterprise-edge` (`TRAEFIK_EDGE_TAG`) serve only the Enterprise deployments' domains, and the other ingress servers keep every other domain; with no edge server nothing changes (panel-01's config is byte-identical). Enterprise domains then publish an A record for every edge (redundancy) instead of the app node's address, and the provisioned hostname takes its certificate by DNS-01 (`ENTERPRISE_EDGE_DNS_PROVIDER`, default `cloudflare`, with the managed zone's credentials), since HTTP-01 cannot work with two edges behind one name. A customer's own domain goes DNS-01 only when it sits in one of our managed zones; otherwise it stays HTTP-01, which can fail on whichever edge the CA reaches.
+
+### Changed
+- Enterprise placement skips (and an explicit `node_id` refuses) a non-ingress node that is not on the private network, with a clear reason.
+
 ## [1.34.0] — 2026-11-22
 
 ### Added
