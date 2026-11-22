@@ -643,6 +643,7 @@ class EnterpriseUpdateService
         $this->audit->log('enterprise.deployment.update.'.$status, 'EnterpriseDeployment', $dep->id,
             ['update_id' => $run->id, 'from' => $run->from_version, 'to' => $run->to_version, 'trigger' => $run->trigger, 'error' => $error, 'data_restore' => $run->fresh()->data_restore['state'] ?? null, 'external_id' => $dep->external_id], $dep->organization_id);
         $this->event($dep, $run);
+        rescue(fn () => app(EnterpriseRunReportService::class)->updateFinished($run));
     }
 
     private function note(EnterpriseUpdate $run, string $line): void

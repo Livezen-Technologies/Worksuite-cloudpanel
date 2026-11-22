@@ -350,6 +350,7 @@ class DeploymentProjectController extends Controller
             $redeploy = null;
             if (! empty($data['redeploy']) || isset($data['version'])) {
                 $redeploy = $this->svc->act($dep->fresh(), 'redeploy', array_filter(['version' => $data['version'] ?? null]));
+                rescue(fn () => app(\App\Services\EnterpriseRunReportService::class)->started($dep->fresh(), 'redeploy', (array) ($redeploy['job_ids'] ?? []), $request->user(), 'Settings changed'));
             }
 
             return $this->data($this->presentSettings($dep->fresh()) + ['changed' => $changed, 'redeploy' => $redeploy,
@@ -372,7 +373,14 @@ class DeploymentProjectController extends Controller
 
     public function backupRun(Request $request, string $ref)
     {
-        return $this->pass($ref, fn ($p) => app(ProjectBackupController::class)->store($request, $p));
+        $dep = $this->find($ref);
+        $response = $this->on($dep, fn ($p) => app(ProjectBackupController::class)->store($request, $p));
+        // ENT-MAIL: one summary for the whole backup set (every application and database job).
+        if ($backupId = self::inner($response)['id'] ?? null) {
+            rescue(fn () => app(\App\Services\EnterpriseRunReportService::class)->started($dep, 'backup', [], $request->user(), $request->input('reason'), $backupId));
+        }
+
+        return $response;
     }
 
     public function backupSchedule(Request $request, string $ref)

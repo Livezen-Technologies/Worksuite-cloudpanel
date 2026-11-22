@@ -9,7 +9,7 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
-## [1.39.0] — 2026-11-22
+## [1.40.0] — 2026-11-22
 
 ### Added
 - Enterprise server packages from Cloud Admin. `POST /enterprise/deployments` and `POST deployments/{ref}/resize` (and the Scale up tab's `POST deployments/{ref}/scale`)
@@ -19,6 +19,25 @@ Dates are the dates the work landed on `main`.
   only grow. Bounds live in `enterprise.package_limits`; `GET /enterprise/options` reports `packages: true` and them.
   The `small` / `medium` / `large` keys keep working for existing deployments and older Cloud versions. As with any
   resize, MariaDB / Redis memory is set at creation only.
+
+## [1.39.0] — 2026-11-22
+
+### Changed
+- Enterprise deployments send ONE email per run, after the whole run, instead of one per container and
+  backup job. The per-item "<app> vN is live", "Deployment of <app> failed", "Backup of <target> failed"
+  and staff "new application deployed" emails are no longer sent for the containers, databases and
+  backup jobs of an Enterprise deployment; normal projects are unchanged.
+  A summary ("Enterprise run succeeded" / "Enterprise run failed" templates) goes out when provisioning
+  ends (ready for setup, active, or failed), when an update run ends (succeeded, rolled back incl. the
+  data restore, failed), when a manual redeploy / restart / start / stop finishes, and when a backup set
+  of the deployment finishes (manual always, scheduled only on failure). It names the hostname, the run,
+  who triggered it and why, from→to version, start/end/duration, the result, the pre-update backup and
+  recovery point, and a table of every step, container and backup job with its error; failures come
+  first with their fix hint (e.g. "restic is not installed" → install restic on the node).
+  Recipients are the members who got the per-item emails; opting out of the summary, or of every
+  email it replaces, stops it. Each run is emailed once (`enterprise_run_reports.run_key`).
+  `ENTERPRISE_ADMIN_URL` (with `{id}`/`{external_id}`) sets the deployment link; otherwise it points
+  at the deployment's project in the panel.
 
 ## [1.38.2] — 2026-11-22
 

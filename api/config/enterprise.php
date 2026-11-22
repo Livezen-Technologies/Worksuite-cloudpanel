@@ -90,6 +90,10 @@ return [
 
     // Public address: <slug>.<domain>.
     'domain' => env('ENTERPRISE_DOMAIN', 'worksuite.lk'),
+
+    // ENT-MAIL: the deployment link in run summary emails; {id} and {external_id} are filled in.
+    // Empty: the deployment's project in this panel.
+    'admin_url' => env('ENTERPRISE_ADMIN_URL', ''),
     // Slugs never handed out (they are our own hosts).
     'reserved_slugs' => ['www', 'account', 'admin', 'api', 'app', 'panel', 'mail', 'download', 'developer', 'docs', 'status', 'cms', 'desk', 'demo', 'staging'],
 
@@ -106,7 +110,7 @@ return [
         'large' => ['label' => 'Large', 'app_ram_mb' => 4096, 'app_cpus' => 4.0, 'worker_ram_mb' => 2048, 'worker_cpus' => 2.0, 'db_ram_mb' => 4096, 'redis_ram_mb' => 1024, 'fpm_max_children' => 48, 'disk_gb' => 100],
     ],
 
-    // 1.39.0: bounds for a Cloud Admin package's explicit limits (POST deployments / resize with `package`).
+    // 1.40.0: bounds for a Cloud Admin package's explicit limits (POST deployments / resize with `package`).
     'package_limits' => ['app_cpus' => [0.5, 32], 'app_ram_mb' => [512, 131072], 'worker_cpus' => [0.25, 16], 'worker_ram_mb' => [256, 65536],
         'db_ram_mb' => [512, 131072], 'redis_ram_mb' => [128, 16384], 'fpm_max_children' => [4, 512], 'disk_gb' => [10, 4000]],
 

@@ -43,7 +43,7 @@ class DeploymentController extends Controller
             'domain' => config('enterprise.domain'),
             'sizes' => collect(config('enterprise.sizes'))->map(fn ($s, $k) => ['code' => $k, 'label' => $s['label'],
                 'cpus' => $s['app_cpus'] + $s['worker_cpus'], 'ram_mb' => $s['app_ram_mb'] + $s['worker_ram_mb'] + $s['db_ram_mb'] + $s['redis_ram_mb'], 'disk_gb' => $s['disk_gb']])->values(),
-            // 1.39.0: Cloud may send a package's explicit limits instead of a size key.
+            // 1.40.0: Cloud may send a package's explicit limits instead of a size key.
             'packages' => true, 'package_limits' => config('enterprise.package_limits'),
         ]);
     }
@@ -108,7 +108,12 @@ class DeploymentController extends Controller
             throw \App\Exceptions\ApiException::validation(['container' => ['Only restart takes a single container.']]);
         }
 
-        return response()->json(['data' => $this->svc->act($this->find($id), $action, array_filter($data))], 202);
+        $dep = $this->find($id);
+        $out = $this->svc->act($dep, $action, array_filter($data));
+        // ENT-MAIL: one summary email when every container of this action has finished.
+        rescue(fn () => app(\App\Services\EnterpriseRunReportService::class)->started($dep->fresh(), $action, (array) ($out['job_ids'] ?? []), $request->user(), $request->input('reason')));
+
+        return response()->json(['data' => $out], 202);
     }
 
     /** worksuite-server tags on the enterprise nodes (inventory + a direct scan when it is stale). */
@@ -124,7 +129,7 @@ class DeploymentController extends Controller
     }
 
     /**
-     * 1.39.0: Cloud Admin's server packages. A package carries its own explicit limits (web, worker, database,
+     * 1.40.0: Cloud Admin's server packages. A package carries its own explicit limits (web, worker, database,
      * Redis, PHP-FPM children, disk); the old `size` keys keep working for existing deployments and older Cloud.
      */
     public static function packageRules(): array
