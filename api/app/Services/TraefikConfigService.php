@@ -243,7 +243,7 @@ class TraefikConfigService implements HandlesCommandResults
         // SCL-6/7: copies on other servers and canaries need a file-provider service in front of the app.
         [$services, $swap, $dead] = $this->scalingServices($this->domainsFor($server, $dedicated)->pluck('application')->filter()->unique('id'), $server);
         $services += $upstreams;
-        // XNODE-1: a remote app with no mesh address has nowhere to send traffic; drop its
+        // XNODE-3: a remote app on a node with no public IP has nowhere to send traffic; drop its
         // routers rather than publish them pointing at a container name that cannot resolve.
         foreach ($routers as $r => $router) {
             if (in_array($router['service'] ?? null, $dead, true)) {
@@ -326,11 +326,11 @@ class TraefikConfigService implements HandlesCommandResults
             // into `<app>@docker`, so the service its routers name has to be declared here or
             // Traefik drops every one of them. A pool already replaced it, so only the plain
             // case needs it.
-            // XNODE-1: a pool (SCL-6) already routes remote copies via mesh_ip:hostPort.
+            // A pool (SCL-6) already routes remote copies via mesh_ip:hostPort.
             $remote = $ingress && $app->server_id !== $ingress->id && $live === $base.$suffix;
             if ($remote) {
-                // XNODE-1: the docker provider cannot see another node's containers either,
-                // so a remote app always gets a file service at its dmp-mesh address.
+                // XNODE-3: the docker provider cannot see another node's containers either,
+                // so a remote app always gets a file service at its node's public IP.
                 if (! ($lb = $this->appService($app, '', $ingress))) {
                     $dead[] = $base.$suffix;
 
@@ -346,7 +346,7 @@ class TraefikConfigService implements HandlesCommandResults
             if (! empty($s['canary']['image'])) {
                 $w = max(0, min(100, (int) $s['canary']['weight']));
                 if ($remote) {
-                    // A canary has no mesh address of its own: keep serving the live release.
+                    // A canary publishes no host port of its own: keep serving the live release.
                     $this->unroutable[$app->id] ??= "{$app->name}: canary on another node is not reachable from the ingress";
                 } elseif ($suffix !== '@docker' && $lb = $this->appService($app, '-canary')) {
                     $services[$base.'-canary'] = $lb;
@@ -367,7 +367,7 @@ class TraefikConfigService implements HandlesCommandResults
     /** @var array<string,string> XNODE-1: app id → why its domains were left out of the last render. */
     private array $unroutable = [];
 
-    /** XNODE-1: apps the last render could not route (remote node off the mesh, no mesh address). */
+    /** XNODE-3: apps the last render could not route (remote node without a public IP, TLS asked but missing). */
     public function unroutable(): array
     {
         return $this->unroutable;
@@ -387,19 +387,29 @@ class TraefikConfigService implements HandlesCommandResults
             return null;
         }
         if ($ingress && $app->server_id !== $ingress->id) {
-            // XNODE-1: another node's container, reached over WireGuard at its dmp-mesh address.
+            // XNODE-3: another node's container, reached at that node's public IP on the host port
+            // it publishes for this app (filtered there to the ingress IPs by edge.ports).
             $home = Server::allTenants()->find($app->server_id);
-            $ip = $home && $ingress->mesh_ip ? app(MeshService::class)->appAddress($app, $home) : null;
-            if (! $ip) {
-                $why = ! $ingress->mesh_ip ? "ingress {$ingress->name} is not on the private network"
-                    : (! $home?->mesh_ip ? 'its server '.($home->name ?? '?').' is not on the private network' : 'it has no private-network address (mesh_network off)');
+            $why = ! $home ? 'its server is unknown'
+                : (! $home->ip ? "its server {$home->name} has no public IP"
+                : (EdgeRoutingService::tlsEnabled() ? 'EDGE_BACKEND_TLS is on but HTTPS to the backend is not implemented yet' : null));
+            if ($why) {
                 $this->unroutable[$app->id] = "{$app->name}: {$why}";
                 \Illuminate\Support\Facades\Log::warning("Traefik: not routing {$app->name} from {$ingress->name}: {$why}.");
 
                 return null;
             }
+            $hostPort = app(EdgeRoutingService::class)->port($app);
 
-            return ['loadBalancer' => ['servers' => [['url' => "http://{$ip}:{$port}"]]]];
+            return ['loadBalancer' => [
+                'servers' => [['url' => "http://{$home->ip}:{$hostPort}"]],
+                // A dead backend is marked down instead of answering every request with a timeout.
+                'healthCheck' => [
+                    'path' => (string) config('platform.edge.health_path', '/'),
+                    'interval' => (string) config('platform.edge.health_interval', '10s'),
+                    'timeout' => (string) config('platform.edge.health_timeout', '3s'),
+                ],
+            ]];
         }
         $names = Container::allTenants()->where('application_id', $app->id)
             ->where('server_id', $app->server_id)
@@ -480,6 +490,10 @@ class TraefikConfigService implements HandlesCommandResults
             Cache::put($key, $hash, now()->addDays(30));
             Cache::forever('traefik-config:servers', array_values(array_unique(array_merge(Cache::get('traefik-config:servers', []), [$server->id]))));
             $count++;
+        }
+        // XNODE-3: keep the app nodes' host-port filters in step with the ingress set.
+        if ($dedicated) {
+            app(EdgeRoutingService::class)->syncAll();
         }
 
         return $count;

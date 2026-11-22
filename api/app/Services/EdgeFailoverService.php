@@ -43,6 +43,10 @@ class EdgeFailoverService
         }
         $this->announce($ingress, $online);
         foreach (Domain::allTenants()->where('dns_status', 'verified')->whereNotNull('application_id')->get() as $domain) {
+            // XNODE-4: enterprise domains on the edges belong to the edge watchdog.
+            if (EdgeWatchdogService::enabled() && TraefikConfigService::isEnterpriseDomain($domain)) {
+                continue;
+            }
             $zone = DnsZone::forDomain($domain->name, $domain->organization_id);
             if (! $zone?->provider) {
                 continue;

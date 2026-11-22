@@ -39,18 +39,18 @@ class EnterpriseEdgeIngressTest extends TestCase
         config(['platform.drivers.certificates' => 'traefik']);
         [, $org, $token] = $this->org();
         $panel = $this->server($org, ['name' => 'panel-01', 'tags' => ['ingress']]);
-        $node = $this->server($org, ['name' => 'node-05', 'mesh_ip' => '10.88.0.5']);
+        $node = $this->server($org, ['name' => 'node-05', 'ip' => '203.0.113.5']);
         $this->app($token, $panel, 'shop', false);
         $ent = $this->app($token, $node, 'ent-acme', true);
 
-        // Without edges panel-01 would serve both, but it is off the mesh, so the remote
-        // enterprise app is left out rather than pointed at an unresolvable name.
+        // Without edges panel-01 serves both; the remote app at node-05's public IP (XNODE-3).
         $before = $this->yaml($panel);
         $this->assertStringContainsString('shop.acme.test', $before);
-        $this->assertStringNotContainsString('app-ent-acme:', $before);
+        $this->assertStringNotContainsString('http://app-ent-acme:', $before);
+        $this->assertStringContainsString('http://203.0.113.5:', $before);
 
-        $e7 = $this->server($org, ['name' => 'frontdoor-01', 'ip' => '51.254.220.203', 'tags' => ['ingress', 'enterprise-edge'], 'mesh_ip' => '10.88.0.7']);
-        $e8 = $this->server($org, ['name' => 'frontdoor-02', 'ip' => '51.254.213.183', 'tags' => ['ingress', 'enterprise-edge'], 'mesh_ip' => '10.88.0.8']);
+        $e7 = $this->server($org, ['name' => 'frontdoor-01', 'ip' => '51.254.220.203', 'tags' => ['ingress', 'enterprise-edge']]);
+        $e8 = $this->server($org, ['name' => 'frontdoor-02', 'ip' => '51.254.213.183', 'tags' => ['ingress', 'enterprise-edge']]);
         $this->assertEqualsCanonicalizing([$panel->id, $e7->id, $e8->id], app(TraefikConfigService::class)->ingressServers()->pluck('id')->all());
 
         $after = $this->yaml($panel);
@@ -59,9 +59,9 @@ class EnterpriseEdgeIngressTest extends TestCase
             $y = $this->yaml($edge);
             $this->assertStringContainsString('ent-acme.acme.test', $y);
             $this->assertStringNotContainsString('shop.acme.test', $y);
-            $this->assertStringContainsString('http://10.89.5.10:8080', $y, 'proxied over the mesh to node-05');
+            $this->assertStringContainsString('http://203.0.113.5:'.app(\App\Services\EdgeRoutingService::class)->port($ent->fresh()), $y, 'proxied to node-05 public IP');
         }
-        $this->assertTrue((bool) $ent->mesh_network);
+        $this->assertFalse((bool) $ent->fresh()->mesh_network, 'no mesh');
     }
 
     public function test_panel_01_render_is_byte_identical_when_edges_carry_only_enterprise_domains(): void
@@ -81,7 +81,7 @@ class EnterpriseEdgeIngressTest extends TestCase
     {
         [, $org, $token] = $this->org();
         $panel = $this->server($org, ['name' => 'panel-01', 'ip' => '51.89.7.73', 'tags' => ['ingress']]);
-        $node = $this->server($org, ['name' => 'node-05', 'ip' => '203.0.113.5', 'mesh_ip' => '10.88.0.5']);
+        $node = $this->server($org, ['name' => 'node-05', 'ip' => '203.0.113.5']);
         $ent = $this->app($token, $node, 'ent-acme', true);
         $plain = $this->app($token, $node, 'plain', false);
         $svc = app(DomainService::class);

@@ -35,38 +35,6 @@ class Application extends Model
         ];
     }
 
-    /**
-     * XNODE-1: an app whose home server is not the ingress is reached by the ingress's
-     * Traefik over the private network, at its fixed dmp-mesh address. Turn that on when
-     * the app is created on, or moved to, such a server while a dedicated ingress exists.
-     * Apps on the ingress itself are left alone (no new network).
-     */
-    protected static function booted(): void
-    {
-        static::saving(function (Application $app) {
-            if ($app->mesh_network || ! $app->server_id || ! $app->isDirty('server_id')) {
-                return;
-            }
-            if (self::needsMesh(Server::allTenants()->find($app->server_id))) {
-                $app->mesh_network = true;
-            }
-        });
-    }
-
-    /** True when $server is not an ingress but a dedicated ingress server exists. */
-    public static function needsMesh(?Server $server): bool
-    {
-        if (! $server || in_array('ingress', (array) ($server->tags ?? []), true) || \App\Services\TraefikConfigService::isEdge($server)) {
-            return false;
-        }
-        $ids = (array) config('platform.traefik.ingress_server_ids');
-        if ($ids) {
-            return ! in_array($server->id, $ids, true);
-        }
-
-        return Server::allTenants()->get(['id', 'tags'])->contains(fn ($s) => in_array('ingress', (array) ($s->tags ?? []), true) || \App\Services\TraefikConfigService::isEdge($s));
-    }
-
     protected $hidden = ['source'];
 
     protected $appends = ['source_summary'];
