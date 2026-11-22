@@ -112,7 +112,7 @@ class IngressCrossNodeTest extends TestCase
         $this->assertStringContainsString('node-05 has no public IP', implode(' ', $svc->unroutable()));
     }
 
-    public function test_backend_tls_flag_refuses_rather_than_silently_sending_http(): void
+    public function test_backend_tls_without_a_terminator_or_plain_port_is_unroutable_not_plain(): void
     {
         [$token, $in, $node] = $this->fleet();
         $this->app($token, $node);
@@ -120,7 +120,7 @@ class IngressCrossNodeTest extends TestCase
         $svc = app(TraefikConfigService::class);
         $http = json_decode(json_encode($svc->render($in)), true)['http'] ?? [];
         $this->assertNull($this->routerFor($http, 'shop.acme.test'));
-        $this->assertStringContainsString('EDGE_BACKEND_TLS', implode(' ', $svc->unroutable()));
+        $this->assertStringContainsString('waiting for ws-edge-tls', implode(' ', $svc->unroutable()));
     }
 
     public function test_the_host_port_is_filtered_to_the_ingress_ips_only(): void

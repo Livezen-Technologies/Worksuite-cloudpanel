@@ -288,6 +288,10 @@ class TraefikConfigService implements HandlesCommandResults
         if ($middlewares) {
             $http['middlewares'] = $middlewares;
         }
+        if ($this->transports) {
+            ksort($this->transports);
+            $http['serversTransports'] = $this->transports;
+        }
 
         return ['http' => $http];
     }
@@ -302,6 +306,7 @@ class TraefikConfigService implements HandlesCommandResults
     private function scalingServices(Collection $apps, ?Server $ingress = null): array
     {
         $this->unroutable = [];
+        $this->transports = [];
         $dead = [];
         $scaling = app(ScalingService::class);
         $suffix = config('platform.traefik.docker_service_suffix');
@@ -364,6 +369,9 @@ class TraefikConfigService implements HandlesCommandResults
         return [$services, $swap, $dead];
     }
 
+    /** @var array<string,array> XNODE-3b: serversTransports the last render's services name. */
+    private array $transports = [];
+
     /** @var array<string,string> XNODE-1: app id → why its domains were left out of the last render. */
     private array $unroutable = [];
 
@@ -390,26 +398,42 @@ class TraefikConfigService implements HandlesCommandResults
             // XNODE-3: another node's container, reached at that node's public IP on the host port
             // it publishes for this app (filtered there to the ingress IPs by edge.ports).
             $home = Server::allTenants()->find($app->server_id);
-            $why = ! $home ? 'its server is unknown'
-                : (! $home->ip ? "its server {$home->name} has no public IP"
-                : (EdgeRoutingService::tlsEnabled() ? 'EDGE_BACKEND_TLS is on but HTTPS to the backend is not implemented yet' : null));
+            $why = ! $home ? 'its server is unknown' : (! $home->ip ? "its server {$home->name} has no public IP" : null);
+            $tls = app(EdgeTlsService::class);
+            $https = ! $why && EdgeRoutingService::tlsEnabled() && $tls->live($app);
+            if (! $why && EdgeRoutingService::tlsEnabled() && ! $https && ! $tls->plainStillPublished($app)) {
+                // XNODE-3b: no confirmed terminator yet and no plain port to fall back on.
+                $why = "waiting for ws-edge-tls on {$home->name}";
+            }
             if ($why) {
                 $this->unroutable[$app->id] = "{$app->name}: {$why}";
                 \Illuminate\Support\Facades\Log::warning("Traefik: not routing {$app->name} from {$ingress->name}: {$why}.");
 
                 return null;
             }
-            $hostPort = app(EdgeRoutingService::class)->port($app);
-
-            return ['loadBalancer' => [
-                'servers' => [['url' => "http://{$home->ip}:{$hostPort}"]],
+            if ($https) {
+                // XNODE-3b: the node's terminator, verified against the panel CA by serverName.
+                $this->transports[EdgeTlsService::transportName($home)] = $tls->transport($home);
+                $url = "https://{$home->ip}:".app(EdgeRoutingService::class)->tlsPort($app);
+            } else {
+                // Flag off, or (migration) on but the terminator is not confirmed yet while the
+                // container still publishes the filtered plain port.
+                $url = "http://{$home->ip}:".app(EdgeRoutingService::class)->port($app);
+            }
+            $lb = [
+                'servers' => [['url' => $url]],
                 // A dead backend is marked down instead of answering every request with a timeout.
                 'healthCheck' => [
                     'path' => (string) config('platform.edge.health_path', '/'),
                     'interval' => (string) config('platform.edge.health_interval', '10s'),
                     'timeout' => (string) config('platform.edge.health_timeout', '3s'),
                 ],
-            ]];
+            ];
+            if ($https) {
+                $lb['serversTransport'] = EdgeTlsService::transportName($home);
+            }
+
+            return ['loadBalancer' => $lb];
         }
         $names = Container::allTenants()->where('application_id', $app->id)
             ->where('server_id', $app->server_id)
@@ -494,6 +518,8 @@ class TraefikConfigService implements HandlesCommandResults
         // XNODE-3: keep the app nodes' host-port filters in step with the ingress set.
         if ($dedicated) {
             app(EdgeRoutingService::class)->syncAll();
+            // XNODE-3b: and the app nodes' TLS terminators with their routed apps.
+            app(EdgeTlsService::class)->syncAll();
         }
 
         return $count;

@@ -18,9 +18,9 @@ use Illuminate\Support\Facades\Cache;
  * before Docker's DNAT, which is why UFW cannot do it). Traefik then sends the domain to
  * http://<home public ip>:<port> with a health check.
  *
- * TODO(XNODE-3b): the hop is plain HTTP behind that filter. HTTPS (panel CA, per-app
- * certificate, TLS sidecar, Traefik serversTransport rootCAs) is the next step; until then
- * EDGE_BACKEND_TLS=true makes these apps unroutable rather than silently downgrading.
+ * XNODE-3b: with EDGE_BACKEND_TLS=true the hop is HTTPS instead: each app also gets a TLS host
+ * port (tlsPort(), filtered the same way) served by the node's ws-edge-tls terminator, verified
+ * by the edges against the panel CA (EdgeTlsService).
  */
 class EdgeRoutingService
 {
@@ -87,6 +87,34 @@ class EdgeRoutingService
         return $p;
     }
 
+    /** XNODE-3b: the app's TLS host port on the ws-edge-tls terminator, kept in source.edge_tls_port. */
+    public function tlsPort(Application $app): int
+    {
+        return $this->allocate($app, 'edge_tls_port', (int) config('platform.edge.tls_port_base', 41000), (int) config('platform.edge.tls_port_span', 10000));
+    }
+
+    private function allocate(Application $app, string $field, int $base, int $span): int
+    {
+        if ($p = (int) ($app->source[$field] ?? 0)) {
+            return $p;
+        }
+        $span = max(1, $span);
+        // Both ranges are checked so a plain port and a TLS port never collide either.
+        $taken = Application::allTenants()->where('server_id', $app->server_id)->get(['id', 'source'])
+            ->flatMap(fn ($a) => [(int) ($a->source['edge_port'] ?? 0), (int) ($a->source['edge_tls_port'] ?? 0)])->filter()->all();
+        $start = crc32((string) $app->id) % $span;
+        for ($i = 0; $i < $span; $i++) {
+            $p = $base + (($start + $i) % $span);
+            if (! in_array($p, $taken, true)) {
+                break;
+            }
+        }
+        $app->source = array_merge((array) $app->source, [$field => $p]);
+        $app->saveQuietly();
+
+        return $p;
+    }
+
     /** Apps on $home that the ingress reaches over the public IP. */
     public function routedApps(Server $home): Collection
     {
@@ -106,6 +134,10 @@ class EdgeRoutingService
         foreach ($this->routedApps($home) as $app) {
             $allow = $this->ingressFor($app)->pluck('ip')->filter()->unique()->sort()->values()->all();
             $rules[] = ['port' => $this->port($app), 'allow' => $allow];
+            if (self::tlsEnabled()) {
+                // XNODE-3b: the terminator's port for this app, open to the same edges only.
+                $rules[] = ['port' => $this->tlsPort($app), 'allow' => $allow];
+            }
         }
 
         return ['rules' => $rules];

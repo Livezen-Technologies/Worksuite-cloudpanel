@@ -9,6 +9,14 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.38.0] — 2026-11-22
+
+### Added
+- **Verified HTTPS on the edge → app-node hop** (XNODE-3b, behind `EDGE_BACKEND_TLS`, default off). The panel keeps an internal CA (P-256, 10 years; private keys stored with the `encrypted` cast in the new `edge_tls_certs` table) and issues each app node a server certificate (SAN `DNS:<server id>.edge.internal` + `IP:<public ip>`, `EDGE_BACKEND_TLS_CERT_DAYS` 365, reissued on IP change and by the daily `edge:tls-renew` at `EDGE_BACKEND_TLS_RENEW_DAYS` 30 left). Each app node hosting edge-routed apps runs one `ws-edge-tls` terminator (Caddy `EDGE_BACKEND_TLS_IMAGE` caddy:2.8.4-alpine, `--watch`, on `proxy`, files in the `ws-edge-tls` volume via fs.write + explicit fs.chmod) that publishes one TLS host port per app (`source.edge_tls_port`, `EDGE_BACKEND_TLS_PORT_BASE` 41000 + span 10000), filtered by `edge.ports` to the same edge IPs, and proxies to `app-<name>:<port>`. Edges route to `https://<node ip>:<tls port>` through a per-node `serversTransport` with `serverName` and the CA inline in `rootCAs` (no insecureSkipVerify); health check unchanged. An edge switches an app to https only after the agent confirmed the terminator (`live_ports`); until then it keeps the plain port while the app's container still publishes it, so switching a running app is zero-downtime. With the flag on, deploys no longer publish the plain host port. `edge:tls-sync [--force]` pushes the terminators by hand. No agent change (any agent with `edge.ports`, i.e. 1.37.0+). With the flag off nothing renders or is sent differently.
+
+### Changed
+- `EDGE_BACKEND_TLS=true` no longer makes edge-routed apps unroutable; it enables XNODE-3b (an app with neither a confirmed terminator nor a published plain port is reported as "waiting for ws-edge-tls").
+
 ## [1.37.0] — 2026-11-22
 
 ### Changed

@@ -350,7 +350,8 @@ class DeploymentService implements HandlesCommandResults
             'name' => $name,
             'image' => $config['image'],
             'env' => $config['env_encrypted'] ? json_decode(Crypt::decryptString($config['env_encrypted']), true) : [],
-            'ports' => $edgeRouted ? [['container_port' => (int) ($config['port'] ?? $app->port), 'host_port' => app(EdgeRoutingService::class)->port($app)]] : [],
+            // XNODE-3b: with backend TLS the node's ws-edge-tls terminator publishes the port instead.
+            'ports' => $edgeRouted && ! EdgeRoutingService::tlsEnabled() ? [['container_port' => (int) ($config['port'] ?? $app->port), 'host_port' => app(EdgeRoutingService::class)->port($app)]] : [],
             'restart_policy' => ($config['auto_restart'] ?? true) ? 'unless-stopped' : 'no',
             'read_only_rootfs' => false,
             'memory_mb' => $config['memory_mb'] ?? null,
@@ -393,6 +394,7 @@ class DeploymentService implements HandlesCommandResults
         if ($edgeRouted) {
             // XNODE-3: filter the host port to the ingress IPs before the container publishes it.
             app(EdgeRoutingService::class)->syncFirewall($server, true, $job);
+            app(EdgeTlsService::class)->syncNode($server);
         }
         $this->bus->dispatch($server, 'container.create', $spec, $job);
         $job->update(['payload' => array_merge($job->payload ?? [], ['container_name' => $name, 'replaces' => $blueGreen ? $old->pluck('id')->all() : []])]);
