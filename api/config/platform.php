@@ -109,6 +109,10 @@ return [
         // router whose middleware chain will not resolve, so every domain
         // carrying the errors middleware falls through to the catch-all 404.
         'docker_service_suffix' => env('TRAEFIK_DOCKER_SERVICE_SUFFIX', '@docker'),
+        // XNODE-2: ingress servers carrying this tag (beside `ingress`) are enterprise edges.
+        // Once one exists, enterprise domains render only on the edges and every other
+        // domain only on the remaining ingress servers. No edge: everything as before.
+        'edge_tag' => env('TRAEFIK_EDGE_TAG', 'enterprise-edge'),
         // Used when the suffix is not "@docker": how Traefik reaches the pages
         // container, and the network the two must share for that name to
         // resolve at all.

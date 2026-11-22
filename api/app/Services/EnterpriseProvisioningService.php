@@ -186,6 +186,12 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $scored = [];
         $rejected = [];
         foreach ($candidates as $s) {
+            // XNODE-1: the ingress reaches a node other than itself only over the private network.
+            if (Application::needsMesh($s) && ! $s->mesh_ip) {
+                $rejected[] = "{$s->name}: not on the private network, so the ingress cannot route to it (join it to the mesh first)";
+
+                continue;
+            }
             $c = $this->scheduler->capacity($s);
             if ($why = $this->scheduler->ineligible($s, $c, $ram, $cpu, (bool) $nodeId)) {
                 $rejected[] = "{$s->name}: {$why}";
@@ -392,6 +398,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'image' => self::image($dep->version), 'strategy' => 'recreate',
                 'project_id' => $dep->project_id, 'environment_id' => $environment->id, 'environment' => 'production',
                 'server_id' => $dep->server_id, 'size' => 'small', 'status' => 'deploying',
+                // XNODE-1: off the ingress host the app needs its dmp-mesh address before the first deploy.
+                'mesh_network' => Application::needsMesh(Server::allTenants()->find($dep->server_id)),
                 'port' => $public ? (int) config('enterprise.port') : null,
                 'health_path' => $public ? (string) config('enterprise.health_path') : null,
                 'memory_limit_mb' => $size[$role.'_ram_mb'], 'cpu_limit' => $size[$role.'_cpus'],
@@ -408,7 +416,11 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $public && self::ensureNoticeUrl($app);
             if ($public) {
                 $platform = config('enterprise.domain') === config('platform.domain');
-                $domain = $this->domains->create(['name' => $dep->hostname, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platform, 'is_primary' => true], $platform);
+                // XNODE-2: several edges answer for one host, so HTTP-01 (served by whichever edge
+                // the CA reaches) cannot work there; the certificate comes by DNS-01 instead.
+                $edge = TraefikConfigService::edgeServers()->isNotEmpty();
+                $domain = $this->domains->create(array_filter(['name' => $dep->hostname, 'application_id' => $app->id, 'target_port' => $app->port, 'platform_subdomain' => $platform, 'is_primary' => true,
+                    'challenge' => $edge ? 'dns-01' : null, 'dns_provider' => $edge ? config('enterprise.edge_dns_provider') : null], fn ($v) => $v !== null), $platform);
                 $published = (array) ($domain->publishedRecords ?? []);
                 $dep->update(['app_application_id' => $app->id]);
             } else {
@@ -455,7 +467,10 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             if ($customDomain && $customDomain !== $dep->custom_domain) {
                 $app = Application::findOrFail($dep->app_application_id);
                 try {
-                    $published = (array) ($this->domains->create(['name' => $customDomain, 'application_id' => $app->id, 'target_port' => $app->port])->publishedRecords ?? []);
+                    // XNODE-2: on the edges a custom domain inside one of our managed zones goes DNS-01;
+                    // outside them it stays HTTP-01 (see CHANGELOG: one edge may fail the challenge).
+                    $edge = TraefikConfigService::edgeServers()->isNotEmpty() && \App\Models\DnsZone::forDomain($customDomain, $dep->organization_id);
+                    $published = (array) ($this->domains->create(array_filter(['name' => $customDomain, 'application_id' => $app->id, 'target_port' => $app->port, 'challenge' => $edge ? 'dns-01' : null]))->publishedRecords ?? []);
                 } catch (ApiException $e) {
                     throw ApiException::validation(['custom_domain' => [$e->getMessage()]]);
                 }
