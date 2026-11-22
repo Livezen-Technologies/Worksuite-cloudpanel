@@ -9,10 +9,20 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
-## [1.35.0] — 2026-11-22
+## [1.36.0] — 2026-11-22
 
 ### Added
 - **Enterprise Updates: restore the pre-update data on an automatic rollback** (owner decision 2026-11-22). New setting `restore_data_on_rollback` (default on, in `update_settings`). When a run (manual, scheduled or auto) is unhealthy and has rolled back to the previous tag, it moves to a new active status `restoring_data` and restores its pre-update backup through the existing project restore (fresh safety backup of the current state first, then database + files), then finishes `rolled_back`. Runs carry `data_restore {state, backup_id, restore_job_ids, safety_backup_ids, error}` and `data_restored`, in `GET updates`, the run log, the `deployment.update` webhook and the audit (`enterprise.deployment.update.data_restore`). A failed or timed-out data restore (`ENTERPRISE_UPDATE_RESTORE_TIMEOUT`, 90 min) leaves the run `rolled_back` with `data_restore.state: failed`, an explicit error, and the safety backups kept. Migration `2026_11_29_090000_enterprise_update_data_restore` adds `enterprise_updates.data_restore`.
+
+## [1.35.0] — 2026-11-22
+
+### Added
+- **Ingress routes apps on other nodes over the private network** (XNODE-1). The ingress server's Traefik now sends a domain whose app lives on another node to that app's fixed `dmp-mesh` address (`http://10.89.<n>.x:<port>`) over WireGuard, instead of a container name only its own Docker network can resolve. An app it cannot reach (its node, or the ingress, is not on the private network) is left out of the pushed config and logged, rather than published pointing nowhere; other sites are unaffected. Apps created on, or moved to, a non-ingress node while a dedicated ingress exists get `mesh_network` turned on before their first deploy; apps on the ingress host are unchanged. Remote scaling copies (`<app>-pool`) keep routing via `mesh_ip:hostPort` as before.
+
+- **Enterprise edge ingress nodes** (XNODE-2). Ingress servers also tagged `enterprise-edge` (`TRAEFIK_EDGE_TAG`) serve only the Enterprise deployments' domains, and the other ingress servers keep every other domain; with no edge server nothing changes (panel-01's config is byte-identical). Enterprise domains then publish an A record for every edge (redundancy) instead of the app node's address, and the provisioned hostname takes its certificate by DNS-01 (`ENTERPRISE_EDGE_DNS_PROVIDER`, default `cloudflare`, with the managed zone's credentials), since HTTP-01 cannot work with two edges behind one name. A customer's own domain goes DNS-01 only when it sits in one of our managed zones; otherwise it stays HTTP-01, which can fail on whichever edge the CA reaches.
+
+### Changed
+- Enterprise placement skips (and an explicit `node_id` refuses) a non-ingress node that is not on the private network, with a clear reason.
 
 ## [1.34.0] — 2026-11-22
 

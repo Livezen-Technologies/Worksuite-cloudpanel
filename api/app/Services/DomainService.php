@@ -140,8 +140,7 @@ class DomainService
         if ($domain->dns_method && ! $domain->platform_subdomain) {
             return $this->projectRecords($domain);
         }
-        $ip = $this->ingressIp($domain);
-        $records = [['type' => 'A', 'name' => $domain->name, 'value' => $ip]];
+        $records = array_map(fn ($ip) => ['type' => 'A', 'name' => $domain->name, 'value' => $ip], $this->routingIps($domain));
         if ($domain->www_redirect) {
             $records[] = ['type' => 'CNAME', 'name' => 'www.'.$domain->name, 'value' => $domain->name];
         }
@@ -215,6 +214,23 @@ class DomainService
     public function isSubdomain(string $name): bool
     {
         return \App\Support\DomainName::isSubdomain($name);
+    }
+
+    /**
+     * XNODE-2: the addresses a domain's A records name. An enterprise domain, once enterprise
+     * edges exist, names every edge (customer DNS points at all of them for redundancy);
+     * everything else keeps the single address it had.
+     */
+    public function routingIps(Domain $domain): array
+    {
+        if (\App\Services\TraefikConfigService::isEnterpriseDomain($domain)) {
+            $edges = \App\Services\TraefikConfigService::edgeServers()->pluck('ip')->filter()->values()->all();
+            if ($edges) {
+                return $edges;
+            }
+        }
+
+        return [$this->ingressIp($domain)];
     }
 
     public function ingressIp(Domain $domain): string
