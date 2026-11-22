@@ -132,11 +132,12 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             throw ApiException::validation(['slug' => [self::hostFor($in['slug']).' is taken or reserved. Pick another slug.']]);
         }
         $orgId = $this->tenant->id() ?? $user->current_organization_id;
-        $size = config('enterprise.sizes')[$in['size']];
+        $limits = ! empty($in['package']) ? self::packageLimits($in['package']) : null;
+        $size = $limits ?? config('enterprise.sizes')[$in['size']];
         $server = $this->place($orgId, $size, $in['node_id'] ?? null, $in['region'] ?? null);
         $secret = ! empty($in['callback_secret']) ? (string) $in['callback_secret'] : Str::random(48);
 
-        $dep = DB::transaction(function () use ($in, $orgId, $server, $secret) {
+        $dep = DB::transaction(function () use ($in, $orgId, $server, $secret, $limits) {
             $project = Project::create([
                 'organization_id' => $orgId,
                 'name' => Str::limit('Enterprise · '.$in['customer_name'], 120, ''),
@@ -146,7 +147,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             $dep = EnterpriseDeployment::create([
                 'organization_id' => $orgId, 'project_id' => $project->id, 'server_id' => $server->id,
                 'external_id' => $in['external_id'], 'customer_name' => $in['customer_name'], 'slug' => $in['slug'],
-                'version' => $in['version'], 'size' => $in['size'], 'status' => 'queued',
+                'version' => $in['version'], 'size' => $limits ? 'package' : $in['size'], 'limits' => $limits, 'status' => 'queued',
                 'hostname' => self::hostFor($in['slug']), 'callback_url' => $in['callback_url'] ?? null, 'callback_secret' => $secret,
                 'steps' => collect(self::STEPS)->map(fn ($label, $name) => ['name' => $name, 'label' => $label, 'status' => 'pending', 'started_at' => null, 'finished_at' => null, 'message' => null])->values()->all(),
             ]);
@@ -222,6 +223,16 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $tagged = $candidates->filter(fn (Server $s) => in_array($tag, (array) ($s->tags ?? []), true))->values();
 
         return $tagged->isNotEmpty() ? $tagged : $candidates;
+    }
+
+    /** A Cloud Admin package's explicit limits, as a size array (label + package code kept for the view). */
+    public static function packageLimits(array $p): array
+    {
+        return ['label' => (string) ($p['label'] ?? $p['code']), 'package' => (string) $p['code'],
+            'app_cpus' => (float) $p['app_cpus'], 'app_ram_mb' => (int) $p['app_ram_mb'],
+            'worker_cpus' => (float) $p['worker_cpus'], 'worker_ram_mb' => (int) $p['worker_ram_mb'],
+            'db_ram_mb' => (int) $p['db_ram_mb'], 'redis_ram_mb' => (int) $p['redis_ram_mb'],
+            'fpm_max_children' => (int) $p['fpm_max_children'], 'disk_gb' => (int) $p['disk_gb']];
     }
 
     /** The deployment's effective size: custom limits after a resize, else its preset. */
@@ -883,7 +894,8 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 'node_disk_pct' => $server?->disk_pct,
             ],
             'limits' => [
-                'size' => $dep->limits ? 'custom' : $dep->size,
+                'size' => $dep->limits ? (isset($dep->limits['package']) ? 'package' : 'custom') : $dep->size,
+                'package' => $dep->limits['package'] ?? null,
                 'cpus' => (float) ($size['app_cpus'] ?? 0), 'ram_mb' => (int) ($size['app_ram_mb'] ?? 0),
                 'worker_cpus' => (float) ($size['worker_cpus'] ?? 0), 'worker_ram_mb' => (int) ($size['worker_ram_mb'] ?? 0),
                 'disk_gb' => $size['disk_gb'] ?? null, 'fpm_max_children' => (int) ($size['fpm_max_children'] ?? 0),
@@ -1048,7 +1060,13 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             throw ApiException::conflict("The deployment is {$dep->status}; it cannot be resized now.");
         }
         $from = $this->sizeOf($dep);
-        if (! empty($in['size'])) {
+        if (! empty($in['package'])) {
+            $size = self::packageLimits($in['package']);
+            if (($from['disk_gb'] ?? 0) > $size['disk_gb']) {
+                throw ApiException::validation(['package' => ["Disk cannot shrink below {$from['disk_gb']} GB."]]);
+            }
+            $changes = ['size' => 'package', 'limits' => $size];
+        } elseif (! empty($in['size'])) {
             $size = config('enterprise.sizes')[$in['size']];
             $changes = ['size' => $in['size'], 'limits' => null];
         } else {
