@@ -9,6 +9,15 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.38.1] — 2026-11-22
+
+### Fixed
+- Edge backend TLS (XNODE-3b): a second `edge.tls` sync for the same certificate failed with
+  "node-<serial>.key already exists", because the create-only key write was sent on every sync.
+  The key now goes out once per serial: `edge_tls_certs.key_delivered_serial` records the serial
+  the node confirmed, later syncs skip the key, and a renewed certificate sends its new key once.
+  Rows already confirmed (`live_ports` set) are backfilled as delivered, so the next sync works.
+
 ## [1.38.0] — 2026-11-22
 
 ### Added
