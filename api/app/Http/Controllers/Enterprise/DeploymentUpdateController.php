@@ -38,6 +38,7 @@ class DeploymentUpdateController extends Controller
             'window.duration_minutes' => 'sometimes|integer|between:30,720',
             'window.timezone' => 'sometimes|string|timezone:all',
             'notice_hours' => ['sometimes', 'integer', Rule::in(EnterpriseUpdateService::NOTICE_HOURS)],
+            'restore_data_on_rollback' => 'sometimes|boolean',
         ]);
         $dep = $this->find($ref);
         $this->updates->saveSettings($dep, $v, $request->user()?->id);
