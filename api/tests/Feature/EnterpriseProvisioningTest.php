@@ -128,7 +128,8 @@ class EnterpriseProvisioningTest extends TestCase
         $this->api($token)->withHeader('Idempotency-Key', 'cfg')->postJson("/api/v1/enterprise/deployments/{$id}/configure", [
             'bootstrap' => ['organisation' => ['name' => 'Acme'], 'administrator' => ['email' => 'it@acme.test', 'password' => 'S3cure-Passw0rd!']],
         ])->assertStatus(202)->assertJsonPath('data.status', 'configuring');
-        $exec = collect($this->heartbeat($agent)['commands'])->firstWhere('type', 'cron.exec');
+        // 1.41.0: while awaiting set-up the panel also probes enterprise:status, so pick the bootstrap exec.
+        $exec = collect($this->heartbeat($agent)['commands'])->first(fn ($c) => $c['type'] === 'cron.exec' && str_contains($c['payload']['command'], 'enterprise:bootstrap'));
         $this->assertStringContainsString('worksuite-entrypoint spark enterprise:bootstrap --json -', $exec['payload']['command']);
         $this->assertStringNotContainsString('S3cure', $exec['payload']['command'], 'only base64 on the wire');
         $this->commandResult($agent, $exec['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => "warming up\n{\"ok\":true,\"company_id\":1}"]])->assertOk();

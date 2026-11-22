@@ -244,10 +244,19 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     /** One step of the machine: start what is due, record what finished. Safe to call repeatedly. */
     public function advance(EnterpriseDeployment $dep): void
     {
-        if (! in_array($dep->status, ['provisioning', 'configuring', 'active'], true)) {
+        if (! in_array($dep->status, ['provisioning', 'awaiting_setup', 'configuring', 'active'], true)) {
             return;
         }
         $this->tenant->as($dep->organization_id, function () use ($dep) {
+            if ($dep->status === 'awaiting_setup') {
+                // 1.41.0: an install set up outside the wizard (data migrated in) never finishes it, so ask the app
+                // itself (`enterprise:status`) on the usual cadence; onCommandFinished adopts it once bootstrapped.
+                if ($dep->app_application_id && $this->statusDue($dep)) {
+                    $this->exec($dep, 'status', (string) config('enterprise.status_command'));
+                }
+
+                return;
+            }
             $size = $this->sizeOf($dep);
             $base = 'ent-'.$dep->slug;
             if ($dep->status === 'provisioning') {
@@ -313,7 +322,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             if ($dep->custom_domain) {
                 $this->checkDomain($dep, $dep->custom_domain, 'custom_domain');
             }
-            if ($dep->status === 'active' && (! $dep->status_checked_at || $dep->status_checked_at->lt(now()->subMinutes((int) config('enterprise.status_every_minutes'))))) {
+            if ($dep->status === 'active' && $this->statusDue($dep)) {
                 $this->exec($dep, 'status', (string) config('enterprise.status_command'));
             }
             if ($this->stepStatus($dep, 'redeploy') === 'running') {
@@ -325,6 +334,54 @@ class EnterpriseProvisioningService implements HandlesCommandResults
                 }
             }
         });
+    }
+
+    private function statusDue(EnterpriseDeployment $dep): bool
+    {
+        return ! $dep->status_checked_at || $dep->status_checked_at->lt(now()->subMinutes((int) config('enterprise.status_every_minutes')));
+    }
+
+    /** What the app's last `enterprise:status --json` said about being set up: true / false, or null when unknown. */
+    public static function bootstrapped(?array $appStatus): ?bool
+    {
+        return is_array($appStatus) && is_bool($appStatus['bootstrapped'] ?? null) ? $appStatus['bootstrapped'] : null;
+    }
+
+    /**
+     * A licence can go to the server while it runs (active / configuring), or while it is still awaiting set-up
+     * when the app reports it is bootstrapped (an existing install migrated in). Refused otherwise, saying why.
+     */
+    private function licenceAllowed(EnterpriseDeployment $dep, string $what): void
+    {
+        if (! $dep->app_application_id) {
+            throw ApiException::conflict("The deployment is {$dep->status} and has no app yet; {$what} once it is active.");
+        }
+        if (in_array($dep->status, ['active', 'configuring'], true)) {
+            return;
+        }
+        if ($dep->status === 'awaiting_setup') {
+            $b = self::bootstrapped($dep->app_status);
+            if ($b === true) {
+                return;
+            }
+            throw ApiException::conflict($b === false
+                ? "The deployment is awaiting_setup and WorkSuite reports it is not set up yet (enterprise:status bootstrapped=false); {$what} once the setup wizard has finished."
+                : "The deployment is awaiting_setup and WorkSuite has not reported its set-up state yet (enterprise:status runs every ".(int) config('enterprise.status_every_minutes')." minutes); {$what} once it reports bootstrapped.");
+        }
+        throw ApiException::conflict("The deployment is {$dep->status}; {$what} once it is active.");
+    }
+
+    /**
+     * 1.41.0: an awaiting_setup deployment whose app says it is bootstrapped (data migrated in, the wizard never ran)
+     * is adopted — the same end state as finishing the wizard: setup + live succeeded, activated, active.
+     */
+    private function adoptBootstrapped(EnterpriseDeployment $dep): void
+    {
+        $this->step($dep, 'setup', 'succeeded', 'Already set up (enterprise:status reports bootstrapped)');
+        $dep->update(['activated_at' => $dep->activated_at ?? now()]);
+        $this->step($dep, 'live', 'succeeded', 'https://'.($dep->custom_domain ?: $dep->hostname), 'Live');
+        $this->setStatus($dep, 'active');
+        $this->log('enterprise.deployment.adopted', $dep, ['reason' => 'bootstrapped']);
     }
 
     /**
@@ -569,6 +626,9 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         }
         if (($job->payload['kind'] ?? null) === 'status') {
             $result !== null && $dep->update(['app_status' => $result]);
+            if ($ok && $dep->status === 'awaiting_setup' && self::bootstrapped($result) === true) {
+                $this->tenant->as($dep->organization_id, fn () => $this->adoptBootstrapped($dep->fresh()));
+            }
 
             return;
         }
@@ -906,6 +966,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             ],
             'domains' => $this->domainList($dep),
             'app_status' => $dep->app_status,
+            'bootstrapped' => self::bootstrapped($dep->app_status),
             'bootstrap' => $dep->bootstrap_result,
             'created_at' => $dep->created_at?->toIso8601ZuluString(),
             'updated_at' => $dep->updated_at?->toIso8601ZuluString(),
@@ -934,7 +995,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     public function sync(): int
     {
         $n = 0;
-        EnterpriseDeployment::whereIn('status', ['provisioning', 'configuring', 'active'])->chunkById(50, function ($deps) use (&$n) {
+        EnterpriseDeployment::whereIn('status', ['provisioning', 'awaiting_setup', 'configuring', 'active'])->chunkById(50, function ($deps) use (&$n) {
             foreach ($deps as $dep) {
                 try {
                     $this->advance($dep);
@@ -1303,9 +1364,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     /** POST licence-refresh: re-read the licence inside the web container. */
     public function refreshLicence(EnterpriseDeployment $dep): array
     {
-        if (! in_array($dep->status, ['active', 'configuring'], true) || ! $dep->app_application_id) {
-            throw ApiException::conflict("The deployment is {$dep->status}; the licence can be refreshed once it is active.");
-        }
+        $this->licenceAllowed($dep, 'the licence can be refreshed');
         $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && '.config('enterprise.licence_refresh_command');
         $job = $this->tenant->as($dep->organization_id, fn () => $this->exec($dep, 'licence', $command));
         $this->step($dep, 'licence_refresh', 'running', 'Refreshing the licence', 'Licence refresh');
@@ -1325,9 +1384,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         if (! preg_match('/^WS(-[A-Z0-9]{4}){5}$/', $key)) {
             throw ApiException::validation(['key' => ['A WorkSuite Server licence key looks like WS-XXXX-XXXX-XXXX-XXXX-XXXX.']]);
         }
-        if (! in_array($dep->status, ['active', 'configuring'], true) || ! $dep->app_application_id) {
-            throw ApiException::conflict("The deployment is {$dep->status}; a licence can be activated once it is active.");
-        }
+        $this->licenceAllowed($dep, 'a licence can be activated');
         // The key travels as WORKSUITE_LICENSE_KEY (decoded inside the container), not `--key -`: CodeIgniter's CLI
         // parser drops a bare "-" option value, so license:refresh saw no key and answered LICENSE_NONE.
         $command = 'cd '.escapeshellarg((string) config('enterprise.workdir')).' && WORKSUITE_LICENSE_KEY="$(printf %s '.base64_encode($key).' | base64 -d)" '.config('enterprise.licence_refresh_command');

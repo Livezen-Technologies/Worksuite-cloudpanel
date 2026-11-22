@@ -224,6 +224,56 @@ class EnterprisePartETest extends TestCase
         $this->assertFalse(\Illuminate\Support\Str::contains(json_encode(\App\Models\AuditLog::query()->get()->toArray()), $key));
     }
 
+    /** 1.41.0: an install set up outside the wizard (data migrated in) is licensable while awaiting set-up, and adopted. */
+    public function test_awaiting_setup_takes_a_licence_once_bootstrapped_and_is_adopted_as_active(): void
+    {
+        [$id, $token, $agent] = $this->ready();
+        $key = 'WS-AB23-CD45-EF67-GH89-JK23';
+        // Unknown set-up state: refused, saying why.
+        $r = $this->api($token)->withHeader('Idempotency-Key', 'b0')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => $key])->assertStatus(409);
+        $this->assertStringContainsString('has not reported its set-up state', json_encode($r->json()));
+        $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}")->assertJsonPath('data.bootstrapped', null);
+        // Not bootstrapped (a fresh install mid-wizard): refused, and nothing is adopted.
+        EnterpriseDeployment::find($id)->update(['app_status' => ['ok' => true, 'bootstrapped' => false]]);
+        $r = $this->api($token)->withHeader('Idempotency-Key', 'b1')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => $key])->assertStatus(409);
+        $this->assertStringContainsString('bootstrapped=false', json_encode($r->json()));
+        // Bootstrapped: the licence goes through while still awaiting_setup.
+        EnterpriseDeployment::find($id)->update(['app_status' => ['ok' => true, 'bootstrapped' => true]]);
+        $this->api($token)->withHeader('Idempotency-Key', 'b2')->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => $key])->assertStatus(202)->assertJsonPath('data.status', 'awaiting_setup');
+        $this->api($token)->withHeader('Idempotency-Key', 'b3')->postJson("/api/v1/enterprise/deployments/{$id}/licence-refresh")->assertStatus(202);
+        // Other states stay refused.
+        foreach (['provisioning', 'failed', 'stopped'] as $st) {
+            EnterpriseDeployment::find($id)->update(['status' => $st]);
+            $this->api($token)->withHeader('Idempotency-Key', 'b-'.$st)->postJson("/api/v1/enterprise/deployments/{$id}/licence-activate", ['key' => $key])->assertStatus(409);
+        }
+        EnterpriseDeployment::find($id)->update(['status' => 'awaiting_setup', 'app_status' => null, 'status_checked_at' => null]);
+
+        // The periodic sync probes enterprise:status while awaiting set-up; bootstrapped:true adopts it.
+        $this->sync();
+        $probe = collect($this->heartbeat($agent)['commands'])->first(fn ($c) => $c['type'] === 'cron.exec' && str_contains($c['payload']['command'], 'enterprise:status'));
+        $this->assertNotNull($probe, 'awaiting_setup is probed with enterprise:status');
+        $this->commandResult($agent, $probe['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => '{"ok":true,"version":"3.2.0","bootstrapped":true}']])->assertOk();
+        $dep = EnterpriseDeployment::find($id);
+        $this->assertSame('active', $dep->status);
+        $this->assertNotNull($dep->activated_at);
+        $this->assertSame('succeeded', collect($dep->steps)->firstWhere('name', 'setup')['status']);
+        $this->assertSame('succeeded', collect($dep->steps)->firstWhere('name', 'live')['status']);
+        $this->assertTrue(\App\Models\AuditLog::query()->where('action', 'enterprise.deployment.adopted')->exists());
+        $this->api($token)->getJson("/api/v1/enterprise/deployments/{$id}")->assertJsonPath('data.bootstrapped', true);
+    }
+
+    public function test_a_not_bootstrapped_probe_leaves_awaiting_setup_alone(): void
+    {
+        [$id, , $agent] = $this->ready();
+        $this->sync();
+        $probe = collect($this->heartbeat($agent)['commands'])->first(fn ($c) => $c['type'] === 'cron.exec' && str_contains($c['payload']['command'], 'enterprise:status'));
+        $this->commandResult($agent, $probe['id'], 'succeeded', ['output' => ['exit_code' => 0, 'output' => '{"ok":true,"bootstrapped":false}']])->assertOk();
+        $this->assertSame('awaiting_setup', EnterpriseDeployment::find($id)->status);
+        // Not probed again before the cadence.
+        $this->sync();
+        $this->assertNull(collect($this->heartbeat($agent)['commands'])->first(fn ($c) => $c['type'] === 'cron.exec' && str_contains($c['payload']['command'], 'enterprise:status')));
+    }
+
     public function test_redeploy_and_retry_bring_a_failed_deployment_back(): void
     {
         [$id, $token] = $this->ready();
