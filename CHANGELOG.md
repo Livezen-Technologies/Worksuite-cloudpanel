@@ -18,6 +18,7 @@ Dates are the dates the work landed on `main`.
   organisation runs on, the deployment's own node first. A deployment's available versions carry `on_node`: a tag
   seen only on another node is still listed, with "Not on <node> yet", but is never `latest` or an auto-update
   target, and updating to it is refused with the node named instead of the old "not loaded on the enterprise nodes".
+  (#243)
 - **Why one deployment showed no updates while another in the same organisation did.** `available()` only differs
   per deployment by the version it runs: a deployment placed on node-05 from a tag loaded there (and not on
   panel-01) runs a version at least as new as every tag panel-01 has, so nothing was "newer". It now sees node-05's
