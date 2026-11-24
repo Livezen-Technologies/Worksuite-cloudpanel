@@ -27,6 +27,12 @@ class DeploymentUpdateController extends Controller
         return $this->data($this->updates->state($this->find($ref)));
     }
 
+    /** Refresh: scan the deployment's node and the enterprise nodes now (bounded wait), then the fresh state. */
+    public function refresh(string $ref)
+    {
+        return $this->data($this->updates->refresh($this->find($ref)));
+    }
+
     public function settings(Request $request, string $ref)
     {
         $v = $request->validate([

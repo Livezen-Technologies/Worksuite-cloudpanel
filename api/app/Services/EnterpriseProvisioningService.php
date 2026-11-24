@@ -1021,9 +1021,18 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     /**
      * Ask the node for its images through the agent (host-mode cron.exec), at most once per
      * $every seconds. Independent of the heartbeat inventory, which can lag on a busy node.
+     * A scan still waiting for the agent is returned instead of queueing another one, so a node
+     * that is offline does not collect a pile of scans to run when it comes back.
      */
     public function scanImages(Server $server, int $every = 0): ?Job
     {
+        $pendingKey = 'enterprise.images.pending.'.$server->id;
+        if ($pendingId = \Illuminate\Support\Facades\Cache::get($pendingKey)) {
+            $pending = Job::allTenants()->find($pendingId);
+            if ($pending && ! $pending->isFinished() && $pending->created_at?->gt(now()->subSeconds((int) config('enterprise.images_pending_ttl', 600)))) {
+                return $pending;
+            }
+        }
         $lock = 'enterprise.images.scan.'.$server->id;
         if ($every > 0 && ! \Illuminate\Support\Facades\Cache::add($lock, 1, $every)) {
             return null;
@@ -1032,6 +1041,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $this->bus->dispatch($server, 'cron.exec', [
             'mode' => 'host', 'command' => (string) config('enterprise.images_command').' '.escapeshellarg((string) config('enterprise.image')), 'timeout' => 60,
         ], $job);
+        \Illuminate\Support\Facades\Cache::put($pendingKey, $job->id, (int) config('enterprise.images_pending_ttl', 600));
 
         return $job;
     }
@@ -1051,6 +1061,70 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $this->jobs->succeed($job, ['tags' => count($tags)]);
     }
 
+    /**
+     * Scan these nodes now and wait (bounded) for their agents to answer: the Updates tab's Refresh.
+     * Returns one row per node: state scanned | failed | timeout (the scan stays queued and its
+     * answer still lands in the cache when the agent picks it up).
+     */
+    public function refreshImages(iterable $servers, ?int $timeout = null): array
+    {
+        $timeout ??= (int) config('enterprise.images_refresh_timeout', 20);
+        $interval = max(50, (int) config('enterprise.images_refresh_poll_ms', 500));
+        $jobs = [];
+        $rows = [];
+        foreach ($servers as $server) {
+            $job = rescue(fn () => $this->scanImages($server), report: true);
+            $rows[$server->id] = ['id' => $server->id, 'name' => $server->name, 'state' => $job ? 'pending' : 'failed', 'error' => $job ? null : 'The scan could not be queued.'];
+            $job && $jobs[$server->id] = $job->id;
+        }
+        for ($i = (int) ceil($timeout * 1000 / $interval); $jobs && $i > 0; $i--) {
+            \Illuminate\Support\Sleep::for($interval)->milliseconds();
+            foreach (Job::allTenants()->whereIn('id', array_values($jobs))->get() as $job) {
+                if ($job->isFinished()) {
+                    $sid = array_search($job->id, $jobs, true);
+                    $rows[$sid]['state'] = $job->status === 'succeeded' ? 'scanned' : 'failed';
+                    $rows[$sid]['error'] = $job->status === 'succeeded' ? null : ($job->error ?? 'docker images failed');
+                    unset($jobs[$sid]);
+                }
+            }
+        }
+        foreach ($jobs as $sid => $_) {
+            $rows[$sid]['state'] = 'timeout';
+            $rows[$sid]['error'] = "The node's agent did not answer within {$timeout}s; the list updates when it does.";
+        }
+        foreach ($rows as $sid => $row) {
+            $rows[$sid]['scanned_at'] = \Illuminate\Support\Facades\Cache::get('enterprise.images.'.$sid)['checked_at'] ?? null;
+        }
+
+        return array_values($rows);
+    }
+
+    /**
+     * Periodic (`enterprise:images`): scan every node an enterprise deployment runs on, plus the
+     * tagged enterprise nodes, so a newly `docker load`ed tag shows without anyone asking.
+     * Nodes whose agent has not been heard from recently are skipped.
+     */
+    public function scanDeploymentNodes(): int
+    {
+        $ids = EnterpriseDeployment::whereNotIn('status', ['deleted', 'purged'])->whereNotNull('server_id')->distinct()->pluck('server_id');
+        $tag = (string) config('enterprise.node_tag');
+        $servers = Server::allTenants()->whereIn('id', $ids->all())->get()
+            ->concat(Server::allTenants()->get()->filter(fn (Server $s) => $tag !== '' && in_array($tag, (array) ($s->tags ?? []), true) && $s->hasRole('app')))
+            ->unique('id');
+        $offline = now()->subSeconds((int) config('enterprise.images_offline_after', 600));
+        $n = 0;
+        foreach ($servers as $server) {
+            if (! $server->last_heartbeat_at || $server->last_heartbeat_at->lt($offline)) {
+                continue;
+            }
+            rescue(function () use ($server, &$n) {
+                $this->scanImages($server, max(30, (int) config('enterprise.images_scan_every', 110))) && $n++;
+            }, report: true);
+        }
+
+        return $n;
+    }
+
     /** Enterprise nodes for the organisation (tagged first, as placement does). */
     public function enterpriseNodes(string $orgId)
     {
@@ -1058,17 +1132,36 @@ class EnterpriseProvisioningService implements HandlesCommandResults
     }
 
     /**
-     * GET versions: worksuite-server tags on the enterprise nodes, from the heartbeat inventory
-     * merged with the direct scan. A node whose heartbeat is older than images_stale_after is
-     * scanned again (the answer then arrives on a later call).
+     * Nodes whose images make up the version list: the enterprise nodes plus every node an
+     * enterprise deployment of the organisation runs on (a deployment placed on an untagged node
+     * by node_id, e.g. node-05, gets its images from there, not from the tagged node).
      */
-    public function versions(string $orgId): array
+    public function versionNodes(string $orgId, ?EnterpriseDeployment $dep = null)
+    {
+        $ids = EnterpriseDeployment::where('organization_id', $orgId)->whereNotIn('status', ['deleted', 'purged'])
+            ->whereNotNull('server_id')->distinct()->pluck('server_id');
+        $dep?->server_id && $ids->push($dep->server_id);
+        $own = $ids->isEmpty() ? collect() : Server::allTenants()->whereIn('id', $ids->unique()->all())->get();
+        $nodes = $this->enterpriseNodes($orgId)->concat($own)->unique('id');
+
+        // The deployment's own node first: its tags are the ones it can update to.
+        return $dep?->server_id ? $nodes->sortBy(fn (Server $s) => $s->id === $dep->server_id ? 0 : 1)->values() : $nodes->values();
+    }
+
+    /**
+     * GET versions: worksuite-server tags on the enterprise nodes and the deployments' nodes, from the
+     * heartbeat inventory merged with the direct scan. A node whose scan is older than images_stale_after
+     * is scanned again (the answer then arrives on a later call; `enterprise:images` keeps it fresh and
+     * the Updates tab's Refresh waits for it). With $dep, each version says whether it is on that
+     * deployment's node (on_node) — only those can be deployed there.
+     */
+    public function versions(string $orgId, ?EnterpriseDeployment $dep = null): array
     {
         $repo = (string) config('enterprise.image');
         $stale = (int) config('enterprise.images_stale_after', 300);
         $byTag = [];
         $nodes = [];
-        foreach ($this->enterpriseNodes($orgId) as $server) {
+        foreach ($this->versionNodes($orgId, $dep) as $server) {
             $inventory = \App\Models\Image::allTenants()->where('server_id', $server->id)->get(['repository', 'tags', 'size_mb', 'docker_created_at'])
                 ->flatMap(fn ($i) => collect((array) ($i->tags ?? []))->map(fn ($t) => ['tag' => $t, 'size_mb' => $i->size_mb, 'created' => $i->docker_created_at?->toIso8601ZuluString()]))
                 ->filter(fn ($t) => str_starts_with($t['tag'], $repo.':'));
@@ -1084,17 +1177,29 @@ class EnterpriseProvisioningService implements HandlesCommandResults
             }
             foreach ($tags as $t) {
                 $version = substr($t['tag'], strlen($repo) + 1);
-                $byTag[$version] ??= ['version' => $version, 'published_at' => $t['created'], 'image' => $t['tag'], 'created' => $t['created'], 'size_mb' => $t['size_mb'], 'nodes' => []];
+                $byTag[$version] ??= ['version' => $version, 'published_at' => $t['created'], 'image' => $t['tag'], 'created' => $t['created'], 'size_mb' => $t['size_mb'], 'nodes' => [], 'node_ids' => []];
                 $byTag[$version]['nodes'][] = $server->name;
+                $byTag[$version]['node_ids'][] = $server->id;
                 $byTag[$version]['created'] ??= $t['created'];
                 $byTag[$version]['published_at'] ??= $t['created'];
+                $byTag[$version]['size_mb'] ??= $t['size_mb'];
             }
             $nodes[] = ['id' => $server->id, 'name' => $server->name, 'inventory_at' => $server->last_heartbeat_at?->toIso8601ZuluString(),
-                'inventory_stale' => (bool) $inventoryStale, 'scanned_at' => $scan['checked_at'] ?? null];
+                'inventory_stale' => (bool) $inventoryStale, 'scanned_at' => $scan['checked_at'] ?? null,
+                'deployment_node' => $dep?->server_id === $server->id];
+        }
+        $node = $dep?->server_id ? collect($nodes)->firstWhere('id', $dep->server_id) : null;
+        if ($dep) {
+            foreach ($byTag as $v => $row) {
+                // No known node (never placed): any node counts, as before.
+                $on = ! $dep->server_id || in_array($dep->server_id, $row['node_ids'], true);
+                $byTag[$v]['on_node'] = $on;
+                $byTag[$v]['not_on_node'] = $on ? null : 'Not on '.($node['name'] ?? 'this deployment\'s node').' yet: load it there (docker load), then Refresh.';
+            }
         }
         $versions = collect($byTag)->sortByDesc(fn ($v) => [$v['version'] === 'latest' ? 0 : 1, $v['created'] ?? '', $v['version']])->values()->all();
 
-        return ['image' => $repo, 'versions' => $versions, 'nodes' => $nodes];
+        return ['image' => $repo, 'versions' => $versions, 'nodes' => $nodes] + ($dep ? ['deployment_node' => $node ? ['id' => $node['id'], 'name' => $node['name']] : null] : []);
     }
 
     /** GET nodes: eligible enterprise nodes with free CPU / RAM / disk. */
