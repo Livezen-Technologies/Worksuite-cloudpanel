@@ -42,6 +42,19 @@ return [
     // are listed directly through the agent (`docker images`, host-mode cron.exec) and cached.
     'images_stale_after' => 300,
     'images_command' => "docker images --format '{{.Repository}}:{{.Tag}}'",
+    // `enterprise:images` (every 2 minutes) scans each node an enterprise deployment runs on, at most once per
+    // images_scan_every seconds, skipping nodes not heard from for images_offline_after seconds. A scan still
+    // waiting for its agent is reused for images_pending_ttl seconds instead of queueing another.
+    'images_scan_every' => (int) env('ENTERPRISE_IMAGES_SCAN_EVERY', 110),
+    'images_offline_after' => 600,
+    'images_pending_ttl' => 600,
+    // The Updates tab's Refresh waits this long (s) for the agents to answer, polling every images_refresh_poll_ms.
+    'images_refresh_timeout' => (int) env('ENTERPRISE_IMAGES_REFRESH_TIMEOUT', 20),
+    'images_refresh_poll_ms' => 500,
+    // POST updates for a tag not seen on the deployment's node: scan that node first (wait up to this, s)
+    // unless it was scanned within images_request_rescan_after seconds.
+    'images_request_timeout' => 10,
+    'images_request_rescan_after' => 30,
     'bootstrap_exit_codes' => ['ok' => [0, 3], 'licence_failed' => [5]],
     // User the bootstrap, status and licence-refresh commands run as inside the web container.
     // Root (0:0): `worksuite-entrypoint` writes /var/www/html/.env and chowns the writable volume,

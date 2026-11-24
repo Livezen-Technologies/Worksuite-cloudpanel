@@ -10,6 +10,7 @@ use App\Models\EnterpriseDeployment;
 use App\Models\EnterpriseUpdate;
 use App\Models\Project;
 use App\Models\RestoreJob;
+use App\Models\Server;
 use App\Models\User;
 use App\Support\Tenant;
 use Illuminate\Support\Carbon;
@@ -95,13 +96,34 @@ class EnterpriseUpdateService
         return $p !== null && $channel === $p[0].'.'.$p[1];
     }
 
-    /** Newer tags on the nodes, newest first. */
+    /**
+     * Newer tags, newest first, from the enterprise nodes and the deployment's own node. Each carries on_node:
+     * only a tag on the deployment's node can be deployed there (no registry); one seen only elsewhere is listed
+     * with not_on_node so the tab can say "load it on <node>" instead of hiding it.
+     */
     public function available(EnterpriseDeployment $dep): array
     {
-        $all = $this->deployments->versions($dep->organization_id)['versions'] ?? [];
+        $all = $this->deployments->versions($dep->organization_id, $dep)['versions'] ?? [];
 
         return collect($all)->filter(fn ($v) => self::newer((string) $v['version'], $dep->version))
             ->sort(fn ($x, $y) => self::parse($y['version']) <=> self::parse($x['version']))->values()->all();
+    }
+
+    /** The newest available tag on the channel that is on the deployment's node. */
+    public static function target(array $available, string $channel): ?string
+    {
+        return collect($available)->first(fn ($v) => ($v['on_node'] ?? true) && self::onChannel($v['version'], $channel))['version'] ?? null;
+    }
+
+    /**
+     * The tab's Refresh: scan the deployment's node and the enterprise nodes now, wait (bounded) for the agents,
+     * and return the tab state built from the fresh lists, with what each node answered under `refresh`.
+     */
+    public function refresh(EnterpriseDeployment $dep): array
+    {
+        $nodes = $this->deployments->refreshImages($this->deployments->versionNodes($dep->organization_id, $dep));
+
+        return $this->state($dep) + ['refresh' => ['at' => now()->toIso8601ZuluString(), 'nodes' => $nodes]];
     }
 
     // ------------------------------------------------------------------ settings
@@ -207,7 +229,8 @@ class EnterpriseUpdateService
             'can_update' => $this->updatable($dep) === null,
             'blocked_reason' => $this->updatable($dep),
             'available' => $available,
-            'latest' => collect($available)->first(fn ($v) => self::onChannel($v['version'], $settings['channel']))['version'] ?? null,
+            'latest' => self::target($available, $settings['channel']),
+            'node' => ($n = Server::allTenants()->find($dep->server_id)) ? ['id' => $n->id, 'name' => $n->name] : null,
             'settings' => array_diff_key($settings, self::INTERNAL),
             'next_window' => $settings['mode'] === 'auto' ? self::nextWindow($settings['window'], now())?->toIso8601ZuluString() : null,
             'next_notice' => $this->nextNotice($dep, $settings, $available),
@@ -260,9 +283,19 @@ class EnterpriseUpdateService
         if ($version === $dep->version) {
             throw ApiException::validation(['version' => ["The deployment already runs {$version}."]]);
         }
-        $loaded = collect($this->deployments->versions($dep->organization_id)['versions'] ?? [])->firstWhere('version', $version);
+        $loaded = collect($this->deployments->versions($dep->organization_id, $dep)['versions'] ?? [])->firstWhere('version', $version);
+        if ((! $loaded || ! ($loaded['on_node'] ?? true)) && $trigger !== 'auto' && ($server = Server::allTenants()->find($dep->server_id))
+            && ! $this->scannedWithin($server, (int) config('enterprise.images_request_rescan_after', 30))) {
+            // Just loaded and not reported yet: ask the deployment's node before refusing.
+            $this->deployments->refreshImages([$server], (int) config('enterprise.images_request_timeout', 10));
+            $loaded = collect($this->deployments->versions($dep->organization_id, $dep)['versions'] ?? [])->firstWhere('version', $version);
+        }
         if (! $loaded) {
             throw ApiException::validation(['version' => [EnterpriseProvisioningService::image($version).' is not loaded on the enterprise nodes.']]);
+        }
+        if (! ($loaded['on_node'] ?? true)) {
+            $node = Server::allTenants()->find($dep->server_id)?->name ?? "the deployment's node";
+            throw ApiException::validation(['version' => [EnterpriseProvisioningService::image($version).' is on '.implode(', ', (array) $loaded['nodes'])." but not on {$node}, where this deployment runs. Load it there (docker load), then try again."]]);
         }
         if ($trigger === 'auto' && ($done = EnterpriseUpdate::where('enterprise_deployment_id', $dep->id)->where('to_version', $version)->where('dedupe_key', 'auto')->first())) {
             return $done;
@@ -288,6 +321,13 @@ class EnterpriseUpdateService
         }
 
         return $run->fresh();
+    }
+
+    private function scannedWithin(Server $server, int $seconds): bool
+    {
+        $at = \Illuminate\Support\Facades\Cache::get('enterprise.images.'.$server->id)['checked_at'] ?? null;
+
+        return $at !== null && Carbon::parse($at)->gt(now()->subSeconds($seconds));
     }
 
     public function cancel(EnterpriseDeployment $dep, string $id, ?User $user): EnterpriseUpdate
@@ -372,7 +412,7 @@ class EnterpriseUpdateService
         if ($s['mode'] === 'off') {
             return;
         }
-        $target = collect($this->available($dep))->first(fn ($v) => self::onChannel($v['version'], $s['channel']))['version'] ?? null;
+        $target = self::target($this->available($dep), $s['channel']);
         if (! $target) {
             return;
         }
@@ -430,7 +470,7 @@ class EnterpriseUpdateService
     private function nextNotice(EnterpriseDeployment $dep, array $s, array $available): ?array
     {
         $hours = (int) $s['notice_hours'];
-        $target = collect($available)->first(fn ($v) => self::onChannel($v['version'], $s['channel']))['version'] ?? null;
+        $target = self::target($available, $s['channel']);
         if ($s['mode'] !== 'auto' || $hours === 0 || ! $target || $this->autoRan($dep, $target)) {
             return null;
         }

@@ -87,6 +87,7 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         $uc = \App\Http\Controllers\Enterprise\DeploymentUpdateController::class;
         $u = ['ref' => '[A-Za-z0-9_-]{1,64}', 'updateId' => '[0-9a-fA-F-]{36}'];
         Route::get('deployments/{ref}/updates', [$uc, 'show'])->where($u)->name('deployments.updates');
+        Route::post('deployments/{ref}/updates/refresh', [$uc, 'refresh'])->where($u)->middleware('throttle:6,1')->name('deployments.updates.refresh');
         Route::match(['put', 'patch'], 'deployments/{ref}/updates/settings', [$uc, 'settings'])->where($u)->name('deployments.updates.settings');
         Route::post('deployments/{ref}/updates', [$uc, 'store'])->where($u)->middleware('throttle:10,1')->name('deployments.updates.store');
         Route::post('deployments/{ref}/updates/{updateId}/cancel', [$uc, 'cancel'])->where($u)->name('deployments.updates.cancel');

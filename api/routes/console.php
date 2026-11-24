@@ -612,3 +612,7 @@ Artisan::command('enterprise:updates', function (\App\Services\EnterpriseUpdateS
     $this->info('Advanced '.$updates->tick().' enterprise update(s).');
 })->purpose('Run due enterprise updates (backup, redeploy, health, rollback) and the auto/notify policies');
 Schedule::command('enterprise:updates')->everyMinute()->withoutOverlapping();
+Artisan::command('enterprise:images', function (\App\Services\EnterpriseProvisioningService $svc) {
+    $this->info('Asked '.$svc->scanDeploymentNodes().' node(s) for their worksuite-server images.');
+})->purpose('Scan the images on every node an enterprise deployment runs on (and the enterprise nodes) so new tags show on the Updates tab');
+Schedule::command('enterprise:images')->everyTwoMinutes()->withoutOverlapping();
