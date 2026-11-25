@@ -196,7 +196,7 @@ class FirewallController extends Controller
     public function storeIp(Request $request)
     {
         $data = $request->validate([
-            'list' => 'required|in:allow,block',
+            'list' => 'required|in:allow,block,exempt',
             'cidr' => 'required|string|max:64',
             'note' => 'nullable|string|max:255',
             'expires_at' => 'nullable|date|after:now',

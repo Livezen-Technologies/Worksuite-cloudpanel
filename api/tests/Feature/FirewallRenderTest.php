@@ -69,9 +69,53 @@ class FirewallRenderTest extends TestCase
         $this->assertSame('60s', $limit['period']);
         $this->assertSame(300, $limit['burst']);
         $this->assertArrayHasKey('ipStrategy', $limit['sourceCriterion']);
-        // One router still: a site-wide rule needs no extra router.
-        $this->assertSame(['dmp-shop-example-com'], array_keys($yaml['http']['routers']));
+        // A site-wide rule needs no path router; the only extra one is the rate-limit exemption (default /mcp).
+        $this->assertSame(['dmp-shop-example-com', 'dmp-shop-example-com-nolimit'], array_keys($yaml['http']['routers']));
         unset($domain);
+    }
+
+    public function test_exempt_ips_and_mcp_path_skip_rate_limits_but_keep_other_middlewares(): void
+    {
+        [$org, $secret] = $this->verifiedDomain();
+        app(Tenant::class)->as($org->id, function () {
+            FirewallRule::create(['name' => 'Flood guard', 'paths' => ['*'], 'limit' => 100, 'window_seconds' => 60, 'counted_by' => 'ip', 'action' => 'block']);
+            FirewallRule::create(['name' => 'Login guard', 'paths' => ['/login'], 'limit' => 5, 'window_seconds' => 60, 'counted_by' => 'ip', 'action' => 'block']);
+            \App\Models\FirewallIpList::create(['list' => 'exempt', 'cidr' => '203.0.113.7/32', 'note' => 'Office']);
+        });
+        $yaml = $this->yamlFor($secret, $org->id);
+        $routers = $yaml['http']['routers'];
+        $this->assertArrayHasKey('dmp-shop-example-com-nolimit', $routers);
+        $ex = $routers['dmp-shop-example-com-nolimit'];
+        $this->assertStringContainsString('ClientIP(`203.0.113.7/32`)', $ex['rule']);
+        $this->assertStringContainsString('PathPrefix(`/mcp`)', $ex['rule']);
+        $this->assertStringContainsString('Host(`shop.example.com`)', $ex['rule']);
+        foreach ($ex['middlewares'] ?? [] as $m) {
+            $this->assertArrayNotHasKey('rateLimit', $yaml['http']['middlewares'][$m] ?? [], 'the exempt router carries no rate limit');
+        }
+        $this->assertSame(50000, $ex['priority']);
+        // Above the domain's path rule router, below locks (99000) and IP blocks (900000).
+        foreach ($routers as $n => $r) {
+            if (str_contains($n, '-fw-')) {
+                $this->assertLessThan(50000, $r['priority']);
+            }
+        }
+        $this->assertSame($routers['dmp-shop-example-com']['service'], $ex['service']);
+    }
+
+    public function test_no_rate_limit_means_no_exempt_router_and_paths_can_be_cleared(): void
+    {
+        [$org, $secret] = $this->verifiedDomain();
+        $yaml = $this->yamlFor($secret, $org->id);
+        $this->assertArrayNotHasKey('dmp-shop-example-com-nolimit', $yaml['http']['routers'], 'nothing to exempt from');
+
+        app(Tenant::class)->as($org->id, fn () => FirewallRule::create(['name' => 'Flood', 'paths' => ['*'], 'limit' => 100, 'window_seconds' => 60, 'counted_by' => 'ip', 'action' => 'block']));
+        $o = \App\Models\Organization::find($org->id);
+        // The way SettingsController saves it: the key is set directly, so an empty list replaces the default.
+        $settings = $o->settings ?? [];
+        $settings['firewall']['ratelimit_exempt_paths'] = [];
+        $o->forceFill(['settings' => $settings])->save();
+        $yaml = $this->yamlFor($secret, $org->id);
+        $this->assertArrayNotHasKey('dmp-shop-example-com-nolimit', $yaml['http']['routers'], 'an organisation that cleared the paths and has no exempt IPs gets no exemption');
     }
 
     public function test_path_scoped_rule_gets_its_own_higher_priority_router(): void
@@ -84,7 +128,7 @@ class FirewallRenderTest extends TestCase
         ]));
         $yaml = $this->yamlFor($secret, $org->id);
         $routers = $yaml['http']['routers'];
-        $this->assertCount(2, $routers, 'a path-scoped rule adds a router');
+        $this->assertCount(3, $routers, 'a path-scoped rule adds a router (plus the rate-limit exemption for /mcp)');
         $extra = collect($routers)->first(fn ($r, $k) => str_contains($k, '-fw-'));
         $this->assertStringContainsString('PathPrefix(`/login`)', $extra['rule']);
         $this->assertStringContainsString('PathPrefix(`/wp-login.php`)', $extra['rule']);

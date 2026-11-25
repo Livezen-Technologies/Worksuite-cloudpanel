@@ -227,6 +227,8 @@ return [
             'trigger_rate_limit' => false,
             'trigger_anonymiser' => false,
             'trigger_country' => true,
+            // Requests to these paths are never rate-limited (MCP servers and other machine clients). Exempt IPs are an IP list.
+            'ratelimit_exempt_paths' => ['/mcp'],
             'under_attack' => false,            // FW-010
             'under_attack_domain_id' => null,
         ],

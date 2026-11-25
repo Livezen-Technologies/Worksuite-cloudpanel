@@ -133,6 +133,45 @@ class FirewallConfigService
         return $out;
     }
 
+    /**
+     * Who and what is never rate-limited on one domain: the "exempt" IP list (admin offices, MCP and
+     * other machine clients) plus the always-allowed admin ranges, and the organisation's exempt
+     * paths (default /mcp). Exempt traffic still passes every other control — IP blocks, locks,
+     * allow-list mode, CrowdSec and the WAF; only rate limits are skipped.
+     *
+     * @return array{ips: array<int,string>, paths: array<int,string>}
+     */
+    public function exemptFor(Domain $domain): array
+    {
+        $ips = \App\Models\FirewallIpList::allTenants()->active()->where('organization_id', $domain->organization_id)->where('list', 'exempt')
+            ->tap(fn ($q) => \App\Support\FirewallScope::forDomain($q, $domain))->pluck('cidr')
+            ->merge(config('platform.firewall.always_allow', []))->filter()->unique()->values()->all();
+        $org = \App\Models\Organization::find($domain->organization_id);
+        $set = $org?->settings['firewall'] ?? [];
+        // An organisation that saved its own list (even an empty one) replaces the default.
+        $paths = array_key_exists('ratelimit_exempt_paths', $set) ? (array) $set['ratelimit_exempt_paths'] : (array) config('platform.default_settings.firewall.ratelimit_exempt_paths', []);
+        $paths = array_values(array_unique(array_filter(array_map(fn ($p) => is_string($p) ? trim($p) : '', $paths), fn ($p) => $p !== '' && str_starts_with($p, '/'))));
+        // ClientIP() only sees the visitor when clients connect directly; behind a CDN only paths can be exempted.
+        if ((int) config('platform.traefik.forwarded_depth', 0) !== 0) {
+            $ips = [];
+        }
+
+        return ['ips' => $ips, 'paths' => $paths];
+    }
+
+    /** Traefik rule clause matching exempt traffic, or null when nothing is exempt. */
+    public static function exemptClause(array $exempt): ?string
+    {
+        $parts = array_merge(
+            array_map(fn ($c) => 'ClientIP(`'.$c.'`)', $exempt['ips']),
+            array_map(fn ($p) => str_contains($p, '*')
+                ? 'PathRegexp(`^'.str_replace('\\*', '.*', preg_quote(rtrim($p, '*').'*', '`')).'`)'
+                : 'PathPrefix(`'.$p.'`)', $exempt['paths'])
+        );
+
+        return $parts ? implode(' || ', $parts) : null;
+    }
+
     /** Rules in force for one domain: its own, plus the organisation-wide ones. */
     public function rulesFor(Domain $domain): Collection
     {

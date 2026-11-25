@@ -43,6 +43,8 @@ class SettingsController extends Controller
             'firewall.challenge_type' => 'sometimes|in:managed,javascript,recaptcha',
             'firewall.country_mode' => 'sometimes|in:block,allow',
             'firewall.provider' => 'sometimes|in:turnstile,hcaptcha,recaptcha',
+            'firewall.ratelimit_exempt_paths' => 'sometimes|array|max:20',
+            'firewall.ratelimit_exempt_paths.*' => ['string', 'max:200', 'regex:#^/[A-Za-z0-9/_\-.*]*$#'],
             'firewall.site_key' => 'sometimes|nullable|string|max:255',
             'firewall.secret_key' => 'sometimes|nullable|string|max:255',
             'firewall.min_score' => 'sometimes|numeric|min:0|max:1',

@@ -213,6 +213,19 @@ class TraefikConfigService implements HandlesCommandResults
             if ($fw['site']) {
                 $routers[$name]['middlewares'] = array_merge($routers[$name]['middlewares'] ?? [], $fw['site']);
             }
+            // Rate-limit exemptions: exempt IPs and paths (MCP) get a router above the domain's own and its
+            // path rules, with every middleware except the rate limits. Locks (99000) and IP blocks (900000)
+            // still sit above it, and CrowdSec / WAF are added to it below like any of the domain's routers.
+            $limits = array_values(array_filter(array_keys($fw['middlewares']), fn ($m) => isset($fw['middlewares'][$m]['rateLimit'])));
+            if ($limits && ($clause = FirewallConfigService::exemptClause($this->firewall->exemptFor($domain)))) {
+                $keep = array_values(array_diff($routers[$name]['middlewares'] ?? [], $limits));
+                $routers[$name.'-nolimit'] = array_filter([
+                    'rule' => '('.$rule.') && ('.$clause.')',
+                    'entryPoints' => [config('platform.traefik.entrypoint')], 'service' => $service,
+                    'priority' => 50000, 'middlewares' => $keep ?: null, 'tls' => $routers[$name]['tls'] ?? null,
+                ]);
+                $fw['routers'][$name.'-nolimit'] = $routers[$name.'-nolimit'];
+            }
             // FW-001 via CrowdSec: the bouncer runs first on the domain's router and on
             // every path router, so a banned IP never reaches a rate limit or the app.
             if (CrowdSecConfigService::enabled() && ($org = \App\Models\Organization::find($domain->organization_id))) {
