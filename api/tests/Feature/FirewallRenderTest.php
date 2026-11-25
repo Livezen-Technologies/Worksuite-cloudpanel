@@ -110,7 +110,10 @@ class FirewallRenderTest extends TestCase
 
         app(Tenant::class)->as($org->id, fn () => FirewallRule::create(['name' => 'Flood', 'paths' => ['*'], 'limit' => 100, 'window_seconds' => 60, 'counted_by' => 'ip', 'action' => 'block']));
         $o = \App\Models\Organization::find($org->id);
-        $o->forceFill(['settings' => array_replace_recursive($o->settings ?? [], ['firewall' => ['ratelimit_exempt_paths' => []]])])->save();
+        // The way SettingsController saves it: the key is set directly, so an empty list replaces the default.
+        $settings = $o->settings ?? [];
+        $settings['firewall']['ratelimit_exempt_paths'] = [];
+        $o->forceFill(['settings' => $settings])->save();
         $yaml = $this->yamlFor($secret, $org->id);
         $this->assertArrayNotHasKey('dmp-shop-example-com-nolimit', $yaml['http']['routers'], 'an organisation that cleared the paths and has no exempt IPs gets no exemption');
     }
@@ -125,7 +128,7 @@ class FirewallRenderTest extends TestCase
         ]));
         $yaml = $this->yamlFor($secret, $org->id);
         $routers = $yaml['http']['routers'];
-        $this->assertCount(2, $routers, 'a path-scoped rule adds a router');
+        $this->assertCount(3, $routers, 'a path-scoped rule adds a router (plus the rate-limit exemption for /mcp)');
         $extra = collect($routers)->first(fn ($r, $k) => str_contains($k, '-fw-'));
         $this->assertStringContainsString('PathPrefix(`/login`)', $extra['rule']);
         $this->assertStringContainsString('PathPrefix(`/wp-login.php`)', $extra['rule']);
