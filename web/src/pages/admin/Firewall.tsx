@@ -480,26 +480,29 @@ export default function Firewall() {
       {tab === 'ips' && (
         <>
           <div className="mb-3"><DomainIpAccess /></div>
-          <Card title="IP allow and block lists" pad={false} actions={<button type="button" className="btn btn-primary" onClick={() => setIpForm({ list: 'block' })}>Add IP</button>}>
+          <Card title="IP allow, block and rate-limit exempt lists" pad={false} actions={<button type="button" className="btn btn-primary" onClick={() => setIpForm({ list: 'block' })}>Add IP</button>}>
           <DataTable label="IP allow and block lists" rows={ipLists} rowKey={(r) => String(r.id)} pageSize={25}
             searchKeys={(r) => `${r.cidr} ${r.note ?? ''}`}
             empty={<Empty>No addresses listed. Your address is {String(item?.your_ip ?? 'unknown')}.</Empty>}
             filters={[
               { id: 'allow', label: 'Allowed', test: (r) => r.list === 'allow' },
               { id: 'block', label: 'Blocked', test: (r) => r.list === 'block' },
+              { id: 'exempt', label: 'Never rate-limited', test: (r) => r.list === 'exempt' },
             ]}
             actions={(r) => [
                 { label: `Remove ${String(r.cidr)}`, icon: 'trash', danger: true, confirm: `${String(r.cidr)} is taken off the list.`, onClick: () => run({ method: 'DELETE', path: `/firewall/ips/${r.id}`, label: 'Remove IP', success: `${String(r.cidr)} removed` }).then(() => refetch()).catch(() => {}) },
               ]}
             columns={[
               { key: 'cidr', header: 'Address or range', sortable: true, render: (r) => <span className="font-mono text-xs">{String(r.cidr)}</span> },
-              { key: 'list', header: 'List', render: (r) => <Badge tone={r.list === 'allow' ? 'g' : 'r'}>{String(r.list)}</Badge> },
+              { key: 'list', header: 'List', render: (r) => <Badge tone={r.list === 'allow' ? 'g' : r.list === 'exempt' ? 'n' : 'r'}>{r.list === 'exempt' ? 'never rate-limited' : String(r.list)}</Badge> },
               { key: 'scope', header: 'Applies to', render: (r) => String(r.scope ?? 'all domains') },
               { key: 'note', header: 'Note', render: (r) => String(r.note ?? '—') },
               { key: 'expires_at', header: 'Expires', render: (r) => r.expired ? <Badge tone="n">expired</Badge>
                 : <span className="font-mono text-xs">{r.expires_at ? String(r.expires_at).replace('T', ' ').slice(0, 16) : 'never'}</span> },
             ]} />
           </Card>
+          <ExemptPaths value={Array.isArray(settings.ratelimit_exempt_paths) ? (settings.ratelimit_exempt_paths as string[]) : ['/mcp']}
+            onSave={(paths) => saveSetting({ ratelimit_exempt_paths: paths }, 'Rate-limit exempt paths saved')} />
         </>
       )}
 
@@ -534,7 +537,7 @@ export default function Firewall() {
 
       <FormModal open={!!ipForm} onClose={() => setIpForm(null)} title="Add an IP address or range"
         initial={ipForm ?? {}} submitLabel="Add" onSubmit={saveIp} fields={[
-          { name: 'list', label: 'List', type: 'select', options: [{ value: 'block', label: 'Block list' }, { value: 'allow', label: 'Allow list' }] },
+          { name: 'list', label: 'List', type: 'select', options: [{ value: 'block', label: 'Block list' }, { value: 'allow', label: 'Allow list' }, { value: 'exempt', label: 'Never rate-limited (admins, MCP and API clients)' }] },
           { name: 'cidr', label: 'Address or CIDR range', required: true, mono: true, placeholder: '203.0.113.0/24', hint: `Your address is ${String(item?.your_ip ?? 'unknown')}.` },
           { name: 'scope', label: 'Applies to', type: 'select', options: domainOptions },
           { name: 'expires_in', label: 'Expires', type: 'select', options: EXPIRY },
@@ -554,5 +557,23 @@ export default function Firewall() {
         {String(remove?.name)} will stop limiting {((remove?.paths as string[]) ?? []).join(', ') || 'this site'} immediately.
       </ConfirmDialog>
     </>
+  )
+}
+
+
+/** Paths that are never rate-limited on any domain (MCP servers and other machine clients). */
+function ExemptPaths({ value, onSave }: { value: string[]; onSave: (paths: string[]) => void }) {
+  const [text, setText] = useState(value.join('\n'))
+  const paths = text.split(/[\n,]+/).map((p) => p.trim()).filter(Boolean)
+  const bad = paths.filter((p) => !/^\/[A-Za-z0-9/_\-.*]*$/.test(p))
+  return (
+    <Card title="Paths never rate-limited">
+      <p className="mt-0 mb-3 text-sm text-muted">Requests to these paths skip rate-limit rules on every domain, for example MCP servers (<span className="font-mono">/mcp</span>) and webhooks. IP blocks, locks, CrowdSec and the WAF still apply. Exempt addresses go on the IP list above as "Never rate-limited"; the always-allowed admin ranges are exempt automatically.</p>
+      <Field label="One path per line (prefix match; * matches anything)">
+        <textarea className="input font-mono" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+      </Field>
+      {bad.length > 0 && <p className="text-xs text-red-600">A path must start with / and use letters, numbers, / _ - . or *: {bad.join(', ')}</p>}
+      <FormActions><button type="button" className="btn btn-primary" disabled={bad.length > 0} onClick={() => onSave(paths)}>Save paths</button></FormActions>
+    </Card>
   )
 }

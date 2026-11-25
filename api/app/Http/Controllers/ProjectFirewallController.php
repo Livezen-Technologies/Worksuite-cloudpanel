@@ -60,7 +60,7 @@ class ProjectFirewallController extends Controller
     public function storeIp(Request $request, string $id)
     {
         [$project] = $this->project($request, $id, 'manage');
-        $data = $request->validate(['list' => 'required|in:allow,block', 'cidr' => 'required|string|max:64', 'note' => 'nullable|string|max:255', 'expires_at' => 'nullable|date|after:now', 'confirm' => 'sometimes|boolean']);
+        $data = $request->validate(['list' => 'required|in:allow,block,exempt', 'cidr' => 'required|string|max:64', 'note' => 'nullable|string|max:255', 'expires_at' => 'nullable|date|after:now', 'confirm' => 'sometimes|boolean']);
         $cidr = FirewallIpList::normalise($data['cidr']);
         if (! $cidr) {
             throw ApiException::validation(['cidr' => ['Enter an IP address or a CIDR range, such as 203.0.113.0/24.']]);

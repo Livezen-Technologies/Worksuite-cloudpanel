@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.43.0] — 2026-11-25
+
+### Added
+- Firewall: rate-limit exemptions. A new IP list, "Never rate-limited", for admin offices, MCP servers and other machine clients, edited on the Firewall screen beside the allow and block lists; the always-allowed admin ranges (FIREWALL_ALWAYS_ALLOW) are exempt automatically. "Paths never rate-limited" (default `/mcp`) does the same for paths on every domain. Exempt traffic gets its own Traefik router above the domain's routers and path rules with every middleware except the rate limits, so IP blocks, application locks, allow-list mode, CrowdSec and the WAF still apply. Behind a CDN (forwarded depth above 0) only paths can be exempted, because Traefik cannot see the visitor's address there.
+
 ## [1.42.0] — 2026-11-24
 
 ### Fixed
