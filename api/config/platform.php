@@ -134,6 +134,26 @@ return [
         // X-Forwarded-For (only when every request comes through N trusted proxies, e.g. a CDN).
         // Anything above 0 without such a proxy lets clients spoof their address.
         'forwarded_depth' => (int) env('TRAEFIK_FORWARDED_DEPTH', 0),
+        // EDGE-SCAN: on the enterprise edges, requests for these paths are answered 403 by
+        // Traefik itself (a router above every other one per enterprise domain) and never reach
+        // the app node. Each entry is a Go (RE2) regular expression matched case-insensitively
+        // against the request path; entries are OR-ed together. Keep them to things no app
+        // serves: an entry that matches anything under /.well-known/ (ACME challenges, OIDC,
+        // security.txt...) or an ordinary app path is dropped at render time. Panel-01 and other
+        // non-edge ingress servers are never affected. TRAEFIK_EDGE_BLOCK_SCANNERS=false turns it off.
+        'edge_block_scanners' => (bool) env('TRAEFIK_EDGE_BLOCK_SCANNERS', true),
+        'edge_blocked_paths' => [
+            '/\.(?:env|git|svn|hg|bzr|ds_store|htaccess|htpasswd|aws|ssh|docker|vscode|idea)', // dot-files at any depth (never .well-known)
+            '/(?:wp-login|xmlrpc|wp-config)\.php',
+            '^/(?:wp-admin|wp-includes)(?:/|$)',
+            '^/(?:phpmyadmin|pma|myadmin|mysqladmin|adminer)(?:[/._-]|$)',
+            '/vendor/phpunit/',
+            '/phpinfo\.php',
+            '^/cgi-bin/',
+        ],
+        // Certificate sync: an ingress not heard from for this long no longer counts towards a
+        // domain's certificate (its expiry would otherwise hold the earliest-expiry figure for ever).
+        'cert_observation_stale_hours' => (int) env('TRAEFIK_CERT_OBSERVATION_STALE_HOURS', 72),
     ],
 
     // A locked app's public maintenance page (hooks/maintenance/{app}).

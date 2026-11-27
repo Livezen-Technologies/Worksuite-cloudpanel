@@ -469,6 +469,15 @@ Artisan::command('proxy:sync-certs', function (\App\Services\TraefikConfigServic
     $this->info('proxy.certs commands queued: '.($traefik::enabled() ? $traefik->syncCertificates() : 0));
 })->purpose('Read certificate expiry from Traefik acme.json on ingress servers (DOM-002)');
 
+Artisan::command('proxy:prune-certs {--dry-run : list what would be deleted and change nothing} {--keep=10 : renewals of history to keep per domain} {--domain= : only this domain name}', function (\App\Services\CertificateHistoryPruner $pruner) {
+    $dry = (bool) $this->option('dry-run');
+    $rows = $pruner->prune($dry, (int) $this->option('keep'), $this->option('domain') ?: null);
+    foreach ($rows as $r) {
+        $this->line(sprintf('%s: %d rows, keep %d, %s %d', $r['domain'], $r['rows'], $r['keep'], $dry ? 'would delete' : 'deleted', $r['delete']));
+    }
+    $this->info(sprintf('%s %d superseded certificate rows across %d domains.', $dry ? 'Dry run: would delete' : 'Deleted', array_sum(array_column($rows, 'delete')), count($rows)));
+})->purpose('Delete superseded duplicate certificate rows, keeping one per renewal (idempotent)');
+
 Artisan::command('uptime:check', function (\App\Services\UptimeService $uptime) {
     $r = $uptime->checkAll();
     $i = $uptime->checkInfrastructure();

@@ -9,6 +9,19 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.49.0] — 2026-11-27
+
+### Added
+- The enterprise edges (frontdoor-01 and frontdoor-02) now answer scanner probes themselves with 403, so the requests never reach the app node. Bots probing for `/.env`, `/.git/…`, `/.DS_Store`, `wp-login.php`, `xmlrpc.php`, phpMyAdmin and similar were costing the single-vCPU pmm node enough CPU that it intermittently answered 503 "service busy". Each enterprise domain gets a `-scanners` router at priority 990000 with a `PathRegexp` matcher and an `ipAllowList` that nobody passes. The patterns come from `platform.traefik.edge_blocked_paths` (Go regular expressions, matched case-insensitively), and `TRAEFIK_EDGE_BLOCK_SCANNERS=false` turns the block off. A pattern that would match anything under `/.well-known/` (ACME challenges, OIDC, security.txt and the like) or an ordinary app path is dropped when the config is rendered. panel-01 and the other non-edge ingress servers render exactly as before. (#254)
+- `php artisan proxy:prune-certs [--dry-run] [--keep=10] [--domain=<name>]` deletes the superseded certificate rows the sync piled up. Only `replaced` and `expired` rows are candidates. Rows whose expiry falls within a day of each other count as one renewal, and the command keeps the first row seen for each renewal, for the newest `--keep` renewals. Active, issuing and failed rows are never touched, and running it again deletes nothing. (#254)
+
+### Fixed
+- A domain served by both edges no longer gets a new certificate row on every `proxy:sync-certs` (#254). Each edge holds its own Let's Encrypt certificate, and their expiries are seconds apart. The sync replaced the active row whenever the reporting edge's expiry differed, so pmm.worksuite.lk had about 460 rows, computerage.worksuite.lk about 890 and salonashi.worksuite.lk about 540. The active row now records what each ingress holds (new `certificates.observations` column: fingerprint, validity and when it was last seen) and the earliest expiry among them. A new row is written only when an ingress actually renews (a different certificate with a later expiry). Other changes:
+  - Reports from an ingress that no longer routes the domain are ignored. panel-01 still holds old copies for domains that moved to the edges, such as admin.salonashi.com.
+  - An ingress that has not been heard from for 72 hours stops counting (`TRAEFIK_CERT_OBSERVATION_STALE_HOURS`).
+  - An `issuing` placeholder is cleared, and the domain returns to HTTPS active as soon as a matching certificate is seen.
+  - An expired certificate is no longer written again on every sync.
+
 ## [1.48.0] — 2026-11-27
 
 ### Added
