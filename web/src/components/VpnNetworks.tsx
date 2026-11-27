@@ -26,13 +26,20 @@ export function VpnNetworks() {
   const { run, busy } = useAction()
   const [create, setCreate] = useState(false)
   const [del, setDel] = useState<R | null>(null)
+  const [deploy, setDeploy] = useState<R | null>(null)
   return (
     <>
       <Card title="VPN networks" subtitle="Private networks people connect to with a VPN client, separate from the server mesh"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>Create VPN network</button>}>
         {!isLoading && rows.length === 0 ? <Empty icon="shield" action={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>Create VPN network</button>}>No VPN networks yet.</Empty> : (
           <DataTable label="VPN networks" tableId="vpn-networks" rows={rows} loading={isLoading} rowKey={(n) => String(n.id)} rowLabel={(n) => String(n.name)}
-            actions={(n) => [{ label: 'Delete', icon: 'trash', danger: true, confirm: false, disabled: !['draft', 'failed', 'stopped'].includes(String(n.status)), onClick: () => setDel(n) }]}
+            actions={(n) => [
+              ...(n.status === 'active' || n.status === 'deploying'
+                ? [{ label: 'Refresh status', icon: 'refresh', disabled: busy, onClick: () => { run({ path: `/vpn/networks/${n.id}/status`, label: `Check ${n.name}` }).catch(() => {}) } },
+                   { label: 'Stop on gateway', icon: 'stop', menuOnly: true, disabled: busy, confirm: `Stop ${n.name}? Connected devices lose access until it is deployed again.`, onClick: () => { run({ path: `/vpn/networks/${n.id}/stop`, label: `Stop ${n.name}`, success: `${n.name} stopping` }).catch(() => {}) } }]
+                : [{ label: 'Deploy to gateway', icon: 'play', disabled: busy || n.protocol !== 'wireguard', onClick: () => setDeploy(n) }]),
+              { label: 'Delete', icon: 'trash', danger: true, confirm: false, disabled: !['draft', 'failed', 'stopped'].includes(String(n.status)), onClick: () => setDel(n) },
+            ]}
             columns={[
               { key: 'name', header: 'Network', value: (n) => String(n.name), render: (n) => <span className="font-semibold">{String(n.name)}</span> },
               { key: 'protocol', header: 'Protocol', value: (n) => String(n.protocol), render: (n) => PROTOCOLS[n.protocol as keyof typeof PROTOCOLS]?.label ?? String(n.protocol) },
@@ -40,14 +47,25 @@ export function VpnNetworks() {
               { key: 'gateway', header: 'Gateway', value: (n) => String(n.gateway_name ?? '') },
               { key: 'port', header: 'Port', value: (n) => `${n.transport}/${n.port}`, render: (n) => <span className="font-mono text-xs">{String(n.transport).toUpperCase()} {String(n.port)}</span> },
               { key: 'routing', header: 'Routing', value: (n) => String(n.routing), render: (n) => (n.routing === 'full' ? 'Full tunnel' : 'Split tunnel') },
-              { key: 'status', header: 'Status', value: (n) => String(n.status), render: (n) => <Badge tone={statusTone(String(n.status))}>{n.status === 'draft' ? 'not deployed' : String(n.status)}</Badge> },
+              { key: 'status', header: 'Status', value: (n) => String(n.status), render: (n) => (
+                <span className="flex flex-col gap-0.5">
+                  <Badge tone={statusTone(String(n.status))}>{n.status === 'draft' ? 'not deployed' : String(n.status)}</Badge>
+                  {n.status === 'failed' && n.last_error ? <span className="text-xs text-[var(--r-fg)] max-w-[260px] truncate" title={String(n.last_error)}>{String(n.last_error)}</span> : null}
+                </span>) },
+              { key: 'devices', header: 'Devices online', kind: 'number', value: (n) => ((n.gateway_status as R | null)?.peers as R[] | undefined)?.filter((p) => p.last_handshake).length ?? null,
+                render: (n) => { const peers = ((n.gateway_status as R | null)?.peers as R[] | undefined); return peers ? `${peers.filter((p) => p.last_handshake).length} / ${peers.length}` : <span className="text-muted">—</span> } },
             ]} />
         )}
       </Card>
       <CreateVpnNetworkWizard open={create} onClose={() => setCreate(false)} />
+      <ConfirmDialog open={!!deploy} onClose={() => setDeploy(null)} title={`Deploy ${deploy?.name}?`} confirmLabel="Deploy" busy={busy}
+        onConfirm={() => run({ path: `/vpn/networks/${deploy!.id}/deploy`, label: `Deploy ${deploy!.name}`, success: `${deploy!.name} is deploying` }).then(() => setDeploy(null)).catch(() => {})}>
+        <p className="m-0">The agent on <b>{String(deploy?.gateway_name ?? 'the gateway')}</b> sets up WireGuard on UDP {String(deploy?.port)}: its own key, IP forwarding and a firewall that lets VPN devices reach only the private network{deploy?.routing === 'full' ? ' and, through NAT, the internet' : ''}. If any step fails it puts everything back as it was.</p>
+        <p className="m-0 mt-2 text-sm text-muted">The gateway needs wireguard-tools and nftables, and an agent new enough to know VPN networks. No devices can connect yet: adding users and devices is the next phase.</p>
+      </ConfirmDialog>
       <ConfirmDialog open={!!del} onClose={() => setDel(null)} danger title={`Delete ${del?.name}?`} confirmLabel="Delete network" busy={busy}
         onConfirm={() => run({ method: 'DELETE', path: `/vpn/networks/${del!.id}`, label: `Delete ${del!.name}`, success: `${del!.name} deleted` }).then(() => setDel(null)).catch(() => {})}>
-        <p className="m-0">It has not been deployed, so nothing changes on the gateway.</p>
+        <p className="m-0">It is not running on its gateway, so nothing changes there.</p>
       </ConfirmDialog>
     </>
   )

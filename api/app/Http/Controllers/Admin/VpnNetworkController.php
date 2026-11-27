@@ -37,6 +37,9 @@ class VpnNetworkController extends Controller
     public function update(Request $request, string $id)
     {
         $net = VpnNetwork::findOrFail($id);
+        if (in_array($net->status, ['active', 'deploying'], true) && $request->hasAny(['protocol', 'gateway_server_id', 'cidr', 'port', 'transport'])) {
+            throw ValidationException::withMessages(['status' => 'Stop the network before changing its protocol, gateway, range or port.']);
+        }
         $data = $this->validated($request, $net);
         $net->update($data);
         app(AuditLogger::class)->log('vpn.network.update', 'vpn_networks', $net->id, array_keys($data));
@@ -54,6 +57,32 @@ class VpnNetworkController extends Controller
         $net->delete();
 
         return response()->noContent();
+    }
+
+    public function deploy(Request $request, string $id, \App\Services\VpnService $vpn)
+    {
+        $net = VpnNetwork::findOrFail($id);
+        $job = $vpn->deploy($net, $request->user()?->id);
+        app(AuditLogger::class)->log('vpn.network.deploy', 'vpn_networks', $net->id, ['name' => $net->name, 'gateway' => $net->gateway_server_id]);
+
+        return $this->data(['job_id' => $job->id, 'network' => $net->fresh()], 202);
+    }
+
+    public function stop(Request $request, string $id, \App\Services\VpnService $vpn)
+    {
+        $net = VpnNetwork::findOrFail($id);
+        $job = $vpn->stop($net, $request->user()?->id);
+        app(AuditLogger::class)->log('vpn.network.stop', 'vpn_networks', $net->id, ['name' => $net->name]);
+
+        return $this->data(['job_id' => $job?->id, 'network' => $net->fresh()], 202);
+    }
+
+    public function status(string $id, \App\Services\VpnService $vpn)
+    {
+        $net = VpnNetwork::findOrFail($id);
+        $job = $vpn->refresh($net);
+
+        return $this->data(['job_id' => $job?->id, 'network' => $net->fresh()], $job ? 202 : 200);
     }
 
     /** Free address ranges and default ports, for the wizard. */

@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.48.0] — 2026-11-27
+
+### Added
+- VPN phase 2 — deploying a VPN network to its gateway. Agent: new `vpn.apply` and `vpn.status` commands. Each network gets its own WireGuard interface (`wsv` + 12 characters of its id) and private key, made on the gateway and never sent anywhere; IP forwarding; and its own nftables table that denies VPN devices by default — they may reach the gateway only for DNS and ping, never each other, the server mesh and its container range (split tunnel), and in a full tunnel also the internet but no other private range; forwarded traffic is NATed to the gateway. Rules are checked with `nft --check` first, and a failure at any step restores the previous config and rules (or removes the interface on a first deploy). Panel: Deploy, Stop and Refresh status on each VPN network (`POST /vpn/networks/{id}/deploy|stop|status`), a confirmation that says what will change on the gateway, the status and agent error in the list, devices online from the last status, audit entries, and protocol/gateway/range/port locked while a network runs. OpenVPN networks cannot be deployed yet. Needs the 1.48.0 agent on the gateway.
+
 ## [1.47.0] — 2026-11-27
 
 ### Added
