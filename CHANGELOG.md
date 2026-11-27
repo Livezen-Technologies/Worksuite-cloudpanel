@@ -9,6 +9,14 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.44.0] — 2026-11-27
+
+### Added
+- Logs & Terminal: Project, Application and Container selects. The project narrows on the server (`GET /containers?project_id=`, matching a container's own project or its app's), the application narrows within it ("No application" finds databases, Redis and workers), and both tabs share the picker. Container rows now carry `project_id` and `project_name`.
+
+### Fixed
+- The container picker loaded only the first 100 containers, so on a larger fleet some never appeared; it now asks for 200 and a project narrows further.
+
 ## [1.43.0] — 2026-11-25
 
 ### Added
