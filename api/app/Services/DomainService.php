@@ -163,6 +163,34 @@ class DomainService
     }
 
     /**
+     * The records the customer must create, each with the status the last check found:
+     * verified | missing | unchecked (never checked yet). Every list of a domain's DNS uses this,
+     * so a record (the ACME-DLG delegation CNAME included) always shows with its state.
+     */
+    public function recordsWithStatus(Domain $domain): array
+    {
+        $last = DnsCheck::allTenants()->where('domain_id', $domain->id)->latest('created_at')->first();
+        $seen = collect($last?->records ?? []);
+
+        return array_map(function ($r) use ($seen) {
+            $hit = $seen->first(fn ($c) => ($c['type'] ?? null) === $r['type'] && ($c['name'] ?? null) === $r['name'] && rtrim((string) ($c['value'] ?? ''), '.') === rtrim((string) $r['value'], '.'));
+
+            return $r + ['purpose' => $this->purposeOf($domain, $r), 'status' => $hit ? (in_array($hit['status'] ?? null, ['verified', 'pass'], true) ? 'verified' : 'missing') : 'unchecked'];
+        }, $this->expectedRecords($domain));
+    }
+
+    /** routing | ownership | www | certificate (expectedRecords() outside a project names none). */
+    private function purposeOf(Domain $domain, array $r): string
+    {
+        return $r['purpose'] ?? match (true) {
+            str_starts_with($r['name'], '_acme-challenge.') => 'certificate',
+            $r['name'] === $this->ownershipName($domain) => 'ownership',
+            $r['name'] === 'www.'.$domain->name => 'www',
+            default => 'routing',
+        };
+    }
+
+    /**
      * PDNS: records for a domain added through a project. They name the cluster ingress, never the
      * node a container runs on: a subdomain is a CNAME to the ingress host name when one is set,
      * an apex domain gets A (and AAAA) records for the ingress addresses.
@@ -479,7 +507,7 @@ class DomainService
             'ownership_verified' => ! $domain->ownership_token || (bool) $domain->ownership_verified_at,
             'dns_status' => $domain->dns_status,
             'https_status' => $domain->https_status,
-            'records' => $this->expectedRecords($domain),
+            'records' => $this->recordsWithStatus($domain),
             'certificate' => $certificate ? [
                 'issuer' => $certificate->issuer, 'status' => $certificate->status,
                 'expires_at' => $certificate->expires_at?->toIso8601ZuluString(),

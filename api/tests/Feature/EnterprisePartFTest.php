@@ -72,6 +72,48 @@ class EnterprisePartFTest extends TestCase
         $this->assertEqualsCanonicalizing(['51.254.220.203', '51.254.213.183'], $dns->json('data.ingress.ips'));
     }
 
+    public function test_every_record_of_an_edge_custom_domain_shows_in_the_dns_lists_with_its_status(): void
+    {
+        // ACME-DLG: the platform zone the certificate challenge is delegated to.
+        [, $platformOrg] = $this->org();
+        $cf = \App\Models\DnsProviderAccount::allTenants()->create(['organization_id' => $platformOrg->id, 'name' => 'CF', 'type' => 'cloudflare', 'credentials' => ['token' => 't']]);
+        \App\Models\DnsZone::allTenants()->create(['organization_id' => $platformOrg->id, 'dns_provider_id' => $cf->id, 'name' => 'worksuite.lk', 'remote_id' => 'z1', 'status' => 'active']);
+        config(['platform.acme_delegation_zone' => 'worksuite.lk']);
+        [$id, $token, $org] = $this->ready('ent_dlg', 'dlgco');
+        $edges = ['51.254.220.203', '51.254.213.183'];
+        $this->server($org, ['name' => 'frontdoor-01', 'ip' => $edges[0], 'tags' => ['ingress', 'enterprise-edge']]);
+        $this->server($org, ['name' => 'frontdoor-02', 'ip' => $edges[1], 'tags' => ['ingress', 'enterprise-edge']]);
+        $base = "/api/v1/enterprise/deployments/{$id}";
+        $custom = $this->api($token)->withHeader('Idempotency-Key', 'd1')->postJson("{$base}/dns/domains", ['name' => 'onesource.dlgco.test'])->assertStatus(201)->json('data.id');
+        $d = Domain::allTenants()->find($custom);
+        $target = \App\Services\AcmeDelegation::target($d);
+        $cname = fn (array $records) => collect($records)->first(fn ($r) => $r['type'] === 'CNAME' && $r['name'] === '_acme-challenge.onesource.dlgco.test');
+
+        // Connected domains / DNS records (the overview the enterprise tab passes through).
+        $row = collect($this->api($token)->getJson("{$base}/dns")->assertOk()->json('data.domains'))->firstWhere('id', $custom);
+        $this->assertSame(['value' => $target, 'purpose' => 'certificate', 'status' => 'unchecked'], array_intersect_key($cname($row['records']), array_flip(['value', 'purpose', 'status'])));
+        $this->assertEqualsCanonicalizing(['routing', 'routing', 'ownership', 'certificate'], collect($row['records'])->pluck('purpose')->all());
+
+        // After a validation: A and TXT verified, the CNAME missing until the customer adds it.
+        $dns = app(\App\Contracts\DnsResolver::class);
+        $dns->set('onesource.dlgco.test', 'A', $edges);
+        $dns->set('_livezen-verify.onesource.dlgco.test', 'TXT', ['livezen-verify='.$d->ownership_token]);
+        $v = $this->api($token)->withHeader('Idempotency-Key', 'd2')->postJson("{$base}/dns/domains/{$custom}/validate")->assertOk();
+        $this->assertSame('fail', $cname($v->json('data.records'))['status']);
+        $this->assertSame('fail', collect($v->json('data.checks'))->firstWhere('key', 'acme_delegation')['status']);
+        $show = $this->api($token)->getJson("{$base}/dns/domains/{$custom}")->assertOk()->json('data.records');
+        $this->assertSame('missing', $cname($show)['status']);
+        $this->assertSame(['verified'], collect($show)->where('purpose', '!=', 'certificate')->pluck('status')->unique()->values()->all());
+
+        $dns->set('_acme-challenge.onesource.dlgco.test', 'CNAME', [$target.'.']);
+        $this->api($token)->withHeader('Idempotency-Key', 'd3')->postJson("{$base}/dns/domains/{$custom}/validate")->assertOk();
+        $this->assertSame('verified', $cname($this->api($token)->getJson("{$base}/dns/domains/{$custom}")->json('data.records'))['status']);
+
+        // Cloud Admin's deployment view (domains[].records) carries the same record, purpose and status.
+        $view = collect($this->api($token)->getJson($base)->assertOk()->json('data.domains'))->firstWhere('domain', 'onesource.dlgco.test');
+        $this->assertSame(['type' => 'CNAME', 'name' => '_acme-challenge.onesource.dlgco.test', 'value' => $target, 'ttl' => 300, 'purpose' => 'certificate', 'status' => 'verified'], $cname($view['records']));
+    }
+
     public function test_firewall_is_the_project_firewall_and_the_grant_ends_with_the_request(): void
     {
         [$id, $token] = $this->ready();
