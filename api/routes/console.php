@@ -283,6 +283,35 @@ Artisan::command('domains:check-dns', function (DomainService $domains, \App\Ser
     }
 })->purpose('Re-check pending DNS every 2 minutes (UDOM-003) and notify project domain state changes (PDNS-2)');
 
+Artisan::command('domains:acme-delegate {--dry-run : list what would change}', function () {
+    // ACME-DLG: Enterprise custom domains added before delegation existed are still on HTTP-01,
+    // which fails on the edges. Moves those that have never had a certificate to DNS-01 by
+    // delegation and prints the CNAME each one needs. Idempotent; never touches a domain that
+    // has an active certificate.
+    $due = Domain::allTenants()->with('application')->where('challenge', 'http-01')->where('platform_subdomain', false)->get()
+        ->filter(fn (Domain $d) => $d->https_status !== 'active' && \App\Services\AcmeDelegation::eligible($d)
+            && ! \App\Models\Certificate::allTenants()->where('domain_id', $d->id)->where('status', 'active')->exists());
+    if ($due->isEmpty()) {
+        $this->info('Nothing to switch.');
+
+        return 0;
+    }
+    foreach ($due as $domain) {
+        $name = \App\Services\AcmeDelegation::recordName($domain);
+        $target = \App\Services\AcmeDelegation::target($domain);
+        if (! $this->option('dry-run')) {
+            app(Tenant::class)->as($domain->organization_id, function () use ($domain, $name, $target) {
+                $domain->update(['challenge' => 'dns-01']);
+                app(\App\Services\AuditLogger::class)->log('domain.acme_delegated', 'domains', $domain->id,
+                    ['domain' => $domain->name, 'record' => "{$name} CNAME {$target}"], $domain->organization_id, null, 'system');
+            });
+        }
+        $this->line(($this->option('dry-run') ? '[dry run] ' : '').$domain->name.": http-01 → dns-01. Customer adds: {$name} CNAME {$target}.");
+    }
+
+    return 0;
+})->purpose('Move Enterprise custom domains on the edges without a certificate to DNS-01 by CNAME delegation (ACME-DLG)');
+
 Artisan::command('dns:refresh-psl', function () {
     // PDNS-2: fetch the current Public Suffix List into storage; the bundled copy stays as the fallback.
     $body = \Illuminate\Support\Facades\Http::timeout(30)->get('https://publicsuffix.org/list/public_suffix_list.dat')->throw()->body();

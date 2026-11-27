@@ -21,6 +21,11 @@ return [
             'Quad9' => 'https://dns.quad9.net:5053/dns-query',
         ],
     ],
+    // ACME-DLG: customer-owned Enterprise domains on the edges get DNS-01 through a CNAME
+    // _acme-challenge.<name> → <label>.<subdomain>.<zone>. The zone must be a DnsZone the panel
+    // manages (its token goes to the edges' Traefik); empty turns delegation off.
+    'acme_delegation_zone' => env('ACME_DELEGATION_ZONE', env('ENTERPRISE_DOMAIN', 'worksuite.lk')),
+    'acme_delegation_subdomain' => env('ACME_DELEGATION_SUBDOMAIN', 'acme'),
     'panel_url' => env('PANEL_URL', env('APP_URL', 'http://localhost')),
     // The release, from the repository's VERSION file (one source of truth; see CHANGELOG.md).
     'version' => trim((string) @file_get_contents(base_path('../VERSION'))) ?: env('APP_VERSION', 'dev'),

@@ -45,6 +45,11 @@ class DomainService
         if (! empty($data['dns_token'])) {
             $this->setDnsToken($domain, $data['dns_token']);
         }
+        // ACME-DLG: on the edges HTTP-01 cannot work (each edge orders its own certificate), so a
+        // customer-owned Enterprise domain gets DNS-01 through a delegation CNAME instead.
+        if (empty($data['challenge']) && $domain->challenge === 'http-01' && AcmeDelegation::eligible($domain)) {
+            $domain->update(['challenge' => 'dns-01']);
+        }
         // PDNS: a project domain the customer chose to manage by hand is never written to the zone.
         if ($zone && $method !== 'manual') {
             $domain->publishedRecords = $this->publishToZone($domain);
@@ -148,7 +153,9 @@ class DomainService
         if ($domain->www_redirect) {
             $records[] = ['type' => 'CNAME', 'name' => 'www.'.$domain->name, 'value' => $domain->name];
         }
-        if ($domain->challenge === 'dns-01') {
+        if (AcmeDelegation::zoneFor($domain)) {
+            $records[] = array_diff_key(AcmeDelegation::record($domain), ['purpose' => 1]);
+        } elseif ($domain->challenge === 'dns-01') {
             $records[] = ['type' => 'TXT', 'name' => '_acme-challenge.'.ltrim($domain->name, '*.'), 'value' => substr(hash('sha256', $domain->id), 0, 43)];
         }
 
@@ -189,7 +196,11 @@ class DomainService
         if ($domain->ownership_token) {
             $records[] = ['type' => 'TXT', 'name' => $this->ownershipName($domain), 'value' => $this->ownershipValue($domain), 'purpose' => 'ownership'];
         }
-        if ($domain->challenge === 'dns-01') {
+        if (AcmeDelegation::zoneFor($domain)) {
+            // ACME-DLG: the challenge is delegated by CNAME to a zone the panel writes, so this
+            // replaces the TXT (a CNAME cannot share its name with any other record).
+            $records[] = AcmeDelegation::record($domain);
+        } elseif ($domain->challenge === 'dns-01') {
             $records[] = ['type' => 'TXT', 'name' => '_acme-challenge.'.ltrim($name, '*.'), 'value' => substr(hash('sha256', $domain->id), 0, 43), 'purpose' => 'certificate'];
         }
 
@@ -293,7 +304,11 @@ class DomainService
             }
             $records[] = $record + ['status' => $ok ? 'verified' : 'waiting', 'found' => $values];
         }
-        $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified');
+        // ACME-DLG: a missing delegation CNAME holds back a domain that has no certificate yet (its
+        // router then appears with the CNAME in place, so Traefik orders at once), but never takes
+        // a domain that is already serving a valid certificate offline.
+        $live = $domain->https_status === 'active';
+        $allOk = collect($records)->every(fn ($r) => $r['status'] === 'verified' || ($live && AcmeDelegation::isDelegationRecord($domain, $r)));
         $owned = collect($records)->first(fn ($r) => ($r['purpose'] ?? null) === 'ownership');
         if ($owned && $owned['status'] === 'verified' && ! $domain->ownership_verified_at) {
             $domain->update(['ownership_verified_at' => now()]);
@@ -455,6 +470,7 @@ class DomainService
             'challenge' => $domain->challenge,
             'dns_provider' => $domain->dns_provider,
             'has_dns_token' => (bool) $domain->dns_secret_id,
+            'acme_delegation' => AcmeDelegation::zoneFor($domain) ? ['name' => AcmeDelegation::recordName($domain), 'type' => 'CNAME', 'target' => AcmeDelegation::target($domain)] : null,
             'dns_zone' => ($z = $domain->dns_secret_id ? null : \App\Models\DnsZone::forDomain($domain->name, $domain->organization_id)) ? ['id' => $z->id, 'name' => $z->name, 'provider' => $z->provider?->type] : null,
             'project_id' => $domain->project_id,
             'is_primary' => (bool) $domain->is_primary,

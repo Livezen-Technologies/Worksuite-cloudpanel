@@ -58,6 +58,9 @@ class DnsValidationService
             : $this->skip('cname_target', 'CNAME target', 'This domain uses A records, not a CNAME.');
         $checks[] = $edges ? $this->skip('ingress_endpoint', 'Ingress endpoint', 'Enterprise domains point at the edge servers directly.') : $this->ingressEndpoint($host, $ingressIps);
         $checks[] = $platform || ! $routing ? $this->skip('propagation', 'Propagation across public resolvers', 'Nothing to propagate.') : $this->propagation($routing);
+        if (AcmeDelegation::zoneFor($domain)) {
+            $checks[] = $this->delegation($domain);
+        }
         $checks[] = $this->certificate($domain);
         $checks[] = $this->https($domain);
         $checks[] = $this->backend($app);
@@ -89,6 +92,23 @@ class DnsValidationService
         return $this->check('ownership', 'Domain ownership (TXT)', in_array($this->domains->ownershipValue($domain), $values, true),
             "{$name} TXT ".$this->domains->ownershipValue($domain), $values ? implode(', ', $values) : 'no TXT record',
             'Add the TXT record shown. The domain does not go live until ownership is proven.');
+    }
+
+    /** ACME-DLG: _acme-challenge.<name> must be a CNAME to the delegation target, and nothing else. */
+    private function delegation(Domain $domain): array
+    {
+        $name = AcmeDelegation::recordName($domain);
+        $target = AcmeDelegation::target($domain);
+        $cname = array_map(fn ($v) => rtrim($v, '.'), $this->lookup($name, 'CNAME'));
+        $txt = $cname ? [] : $this->lookup($name, 'TXT');
+        $message = match (true) {
+            $cname !== [] => "{$name} points at ".implode(', ', $cname)." instead. Change the CNAME to {$target}.",
+            $txt !== [] => "{$name} has a TXT record, not a CNAME. Remove it and add: {$name} CNAME {$target}",
+            default => "Add {$name} CNAME {$target} at your DNS provider. The certificate is issued through it, and HTTPS cannot work without it.",
+        };
+
+        return $this->check('acme_delegation', 'Certificate delegation (CNAME)', in_array($target, $cname, true), "{$name} CNAME {$target}",
+            $cname ? implode(', ', $cname) : ($txt ? 'TXT '.implode(', ', $txt) : 'no CNAME'), $message);
     }
 
     private function ingressCheck(array $a, array $ingressIps, ?Application $app): array
