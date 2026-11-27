@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.46.1] — 2026-11-27
+
+### Fixed
+- Volumes & Storage showed no project or application for any volume on a real fleet: the agent reports how many containers use a volume, not which, so no mount records exist. Owner, project and applications are now inferred from Docker's naming when no record links them — `db-<name>-data` is that database's volume and `<stack>_<name>` belongs to the containers of that Compose stack on the same server. On panel-01 this names 38 of 155 volumes; anonymous hash volumes stay blank.
+
 ## [1.46.0] — 2026-11-27
 
 ### Added

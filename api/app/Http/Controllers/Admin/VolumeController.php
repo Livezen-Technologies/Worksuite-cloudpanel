@@ -22,7 +22,7 @@ class VolumeController extends Controller
         // (an app's, which on a shared server may be another customer's, else the volume's own).
         $all = fn ($q) => $q->withoutGlobalScope('organization');
         $query = Volume::withCount('mounts')->with([
-            'organization:id,name', 'project:id,name,organization_id',
+            'organization:id,name', 'project:id,name,organization_id', 'project.organization:id,name',
             'mounts' => $all, 'mounts.container' => $all,
             'mounts.container.application' => fn ($q) => $q->withoutGlobalScope('organization')->select('id', 'name', 'project_id', 'organization_id'),
             'mounts.container.application.organization:id,name',
@@ -34,7 +34,13 @@ class VolumeController extends Controller
             'project_id',
         ], function (Volume $v) {
             $apps = $v->mounts->map(fn ($m) => $m->container?->application)->filter()->unique('id')->values();
-            $owner = $apps->first()?->organization ?? $v->organization;
+            if ($apps->isEmpty() && ! $v->project) {
+                // The agent reports how many containers use a volume, not which, so infer from Docker's naming.
+                [$inferApps, $inferProject] = $this->inferOwner($v);
+                $apps = $inferApps;
+                $v->setRelation('project', $inferProject);
+            }
+            $owner = $apps->first()?->organization ?? $v->project?->organization ?? $v->organization;
             $row = collect($v->toArray())->except(['mounts', 'project', 'organization'])->all();
 
             return $row + [
@@ -44,6 +50,37 @@ class VolumeController extends Controller
                 'owner_name' => $owner?->name,
             ];
         }));
+    }
+
+    /** @var array<string, \Illuminate\Support\Collection> per-server containers, loaded once per request */
+    private array $containersByServer = [];
+
+    /**
+     * Owner of a volume no mount record links: `db-<name>-data` is that database's volume, and
+     * `<stack>_<name>` is a Compose volume of the containers labelled with that stack on the same server.
+     *
+     * @return array{0: \Illuminate\Support\Collection, 1: ?\App\Models\Project}
+     */
+    private function inferOwner(Volume $v): array
+    {
+        $containers = $this->containersByServer[$v->server_id] ??= \App\Models\Container::allTenants()->where('server_id', $v->server_id)
+            ->with(['application' => fn ($q) => $q->withoutGlobalScope('organization')->select('id', 'name', 'project_id', 'organization_id'),
+                'application.organization:id,name', 'application.project:id,name,organization_id', 'project:id,name,organization_id'])
+            ->get(['id', 'name', 'labels', 'application_id', 'project_id', 'server_id']);
+
+        if (preg_match('/^db-(.+)-data$/', $v->name, $m)) {
+            $matched = $containers->where('name', 'db-'.$m[1]);
+        } elseif (str_contains($v->name, '_')) {
+            $stack = strstr($v->name, '_', true);
+            $matched = $containers->filter(fn ($c) => (((array) $c->labels)['com.docker.compose.project'] ?? null) === $stack);
+        } else {
+            $matched = collect();
+        }
+
+        $apps = $matched->map(fn ($c) => $c->application)->filter()->unique('id')->values();
+        $project = $matched->map(fn ($c) => $c->project ?? $c->application?->project)->filter()->first();
+
+        return [$apps, $project];
     }
 
     public function show(string $id)
