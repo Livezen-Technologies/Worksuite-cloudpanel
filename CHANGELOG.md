@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.49.1] — 2026-11-27
+
+### Fixed
+- VPN gateways: the agent brings a VPN interface up with `ip` and `wg` directly instead of `wg-quick`. On Ubuntu 26.04 (frontdoor-01) the `wg-quick` AppArmor profile cannot run `ip` or `wg` under the agent's NoNewPrivileges — verified on the host — and `wg-quick` still exits 0, so 1.48.0 would have reported a VPN as up when it was not. The agent now also checks the interface really exists before reporting success, and a failed change restores the previous peers with `wg setconf`.
+
 ## [1.49.0] — 2026-11-27
 
 ### Added

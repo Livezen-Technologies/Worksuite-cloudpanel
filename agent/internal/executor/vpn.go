@@ -135,6 +135,17 @@ func vpnConfig(s VPNSpec, priv string, withAddress bool) string {
 
 func vpnTable(iface string) string { return "dockermgr_" + iface }
 
+// stripAddress turns a saved interface file into the form wg setconf accepts.
+func stripAddress(conf string) string {
+	var out []string
+	for _, l := range strings.Split(conf, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "Address") {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // vpnRules is the nftables table for one VPN interface: default deny for client traffic,
 // with the allowed destinations, and NAT out of the gateway for a full tunnel.
 func vpnRules(s VPNSpec) string {
@@ -170,10 +181,34 @@ func vpnRules(s VPNSpec) string {
 	return b.String()
 }
 
+// Interfaces are managed with ip and wg directly, not wg-quick: on Ubuntu 26.04 the wg-quick
+// AppArmor profile cannot run ip or wg under the agent's NoNewPrivileges, and wg-quick still
+// exits 0, so a failed bring-up would look like success.
+func (e *Executor) vpnLinkUp(ctx context.Context, s VPNSpec, syncPath string) error {
+	env := baseEnv()
+	if o, err := e.run(ctx, "", env, "ip", "link", "add", "dev", s.Interface, "type", "wireguard"); err != nil {
+		return fmt.Errorf("ip link add (is the wireguard kernel module available?): %v: %s", err, strings.TrimSpace(string(o)))
+	}
+	if o, err := e.run(ctx, "", env, "wg", "setconf", s.Interface, syncPath); err != nil {
+		return fmt.Errorf("wg setconf: %v: %s", err, strings.TrimSpace(string(o)))
+	}
+	if o, err := e.run(ctx, "", env, "ip", "address", "replace", s.Address, "dev", s.Interface); err != nil {
+		return fmt.Errorf("ip address: %v: %s", err, strings.TrimSpace(string(o)))
+	}
+	if o, err := e.run(ctx, "", env, "ip", "link", "set", "dev", s.Interface, "up"); err != nil {
+		return fmt.Errorf("ip link set up: %v: %s", err, strings.TrimSpace(string(o)))
+	}
+	return nil
+}
+
+func (e *Executor) vpnLinkDel(ctx context.Context, iface string) {
+	_, _ = e.run(ctx, "", baseEnv(), "ip", "link", "del", "dev", iface)
+}
+
 func (e *Executor) vpnDown(ctx context.Context, iface string) {
 	env := baseEnv()
 	_, _ = e.run(ctx, "", env, "nft", "delete", "table", "inet", vpnTable(iface))
-	_, _ = e.run(ctx, "", env, "wg-quick", "down", iface)
+	e.vpnLinkDel(ctx, iface)
 	_ = os.Remove(filepath.Join(e.wgDir(), iface+".conf"))
 	_ = os.Remove(filepath.Join(e.StateDir, "vpn", iface+".nft"))
 }
@@ -193,8 +228,8 @@ func (e *Executor) vpnApply(ctx context.Context, raw []byte, progress func(int, 
 		e.vpnDown(ctx, s.Interface)
 		return map[string]any{"interface": s.Interface, "up": false}, nil
 	}
-	if !e.meshLook("wg") || !e.meshLook("nft") {
-		return nil, errors.New("wireguard-tools and nftables must be installed on the gateway")
+	if !e.meshLook("wg") || !e.meshLook("nft") || !e.meshLook("ip") {
+		return nil, errors.New("wireguard-tools, iproute2 and nftables must be installed on the gateway")
 	}
 	env := baseEnv()
 	priv, pub, err := e.vpnKey(s.Interface)
@@ -223,10 +258,14 @@ func (e *Executor) vpnApply(ctx context.Context, raw []byte, progress func(int, 
 			_ = os.Remove(rulesPath)
 		}
 		if wasLive && prevConfErr == nil {
-			_, _ = e.run(ctx, "", env, "wg-quick", "down", s.Interface)
-			_, _ = e.run(ctx, "", env, "wg-quick", "up", s.Interface)
+			// Put the previous peers and key back on the running interface.
+			prev := filepath.Join(e.StateDir, "wireguard", s.Interface+".prev.conf")
+			if os.WriteFile(prev, []byte(stripAddress(string(prevConf))), 0o600) == nil {
+				_, _ = e.run(ctx, "", env, "wg", "setconf", s.Interface, prev)
+				_ = os.Remove(prev)
+			}
 		} else if !wasLive {
-			_, _ = e.run(ctx, "", env, "wg-quick", "down", s.Interface)
+			e.vpnLinkDel(ctx, s.Interface)
 		}
 		return fmt.Errorf("%v (rolled back)", cause)
 	}
@@ -252,19 +291,29 @@ func (e *Executor) vpnApply(ctx context.Context, raw []byte, progress func(int, 
 	if err := os.WriteFile(confPath, []byte(vpnConfig(s, priv, true)), 0o600); err != nil {
 		return nil, err
 	}
+	sync := filepath.Join(e.StateDir, "wireguard", s.Interface+".sync.conf")
+	if err := os.MkdirAll(filepath.Dir(sync), 0o700); err != nil {
+		return nil, rollback(err)
+	}
+	if err := os.WriteFile(sync, []byte(vpnConfig(s, priv, false)), 0o600); err != nil {
+		return nil, rollback(err)
+	}
 	if wasLive {
-		sync := filepath.Join(e.StateDir, "wireguard", s.Interface+".sync.conf")
-		if err := os.WriteFile(sync, []byte(vpnConfig(s, priv, false)), 0o600); err != nil {
-			return nil, rollback(err)
-		}
 		if o, err := e.run(ctx, "", env, "wg", "syncconf", s.Interface, sync); err != nil {
 			return nil, rollback(fmt.Errorf("wg syncconf: %v: %s", err, strings.TrimSpace(string(o))))
 		}
 		if o, err := e.run(ctx, "", env, "ip", "address", "replace", s.Address, "dev", s.Interface); err != nil {
 			return nil, rollback(fmt.Errorf("ip address: %v: %s", err, strings.TrimSpace(string(o))))
 		}
-	} else if o, err := e.run(ctx, "", env, "wg-quick", "up", s.Interface); err != nil {
-		return nil, rollback(fmt.Errorf("wg-quick up: %v: %s", err, strings.TrimSpace(string(o))))
+	} else {
+		e.vpnLinkDel(ctx, s.Interface) // a stale link without config would make "ip link add" fail
+		if err := e.vpnLinkUp(ctx, s, sync); err != nil {
+			return nil, rollback(err)
+		}
+	}
+	// Prove it is really up rather than trusting exit codes.
+	if _, err := e.run(ctx, "", env, "wg", "show", s.Interface); err != nil {
+		return nil, rollback(fmt.Errorf("%s is not up after applying", s.Interface))
 	}
 
 	progress(70, "loading firewall rules")
