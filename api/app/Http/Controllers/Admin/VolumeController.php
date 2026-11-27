@@ -18,10 +18,32 @@ class VolumeController extends Controller
 
     public function index(Request $request)
     {
-        return response()->json(Lists::paginate(Volume::withCount('mounts'), $request, ['name'], ['name', 'created_at', 'size_gb'], [
+        // Who it belongs to: the project, the apps whose containers mount it, and the owning organisation
+        // (an app's, which on a shared server may be another customer's, else the volume's own).
+        $all = fn ($q) => $q->withoutGlobalScope('organization');
+        $query = Volume::withCount('mounts')->with([
+            'organization:id,name', 'project:id,name,organization_id',
+            'mounts' => $all, 'mounts.container' => $all,
+            'mounts.container.application' => fn ($q) => $q->withoutGlobalScope('organization')->select('id', 'name', 'project_id', 'organization_id'),
+            'mounts.container.application.organization:id,name',
+        ]);
+
+        return response()->json(Lists::paginate($query, $request, ['name'], ['name', 'created_at', 'size_gb'], [
             'server_id', 'type', 'storage_pool_id',
             'unprotected' => fn ($q, $v) => $v ? $q->whereNotIn('id', \App\Models\BackupPolicy::where('target_type', 'volume')->whereNotNull('target_id')->select('target_id')) : $q,
-        ], fn (Volume $v) => $v->toArray() + ['consumers' => $v->mounts_count, 'warning' => $v->has_backup_policy ? null : 'No backup policy']));
+            'project_id',
+        ], function (Volume $v) {
+            $apps = $v->mounts->map(fn ($m) => $m->container?->application)->filter()->unique('id')->values();
+            $owner = $apps->first()?->organization ?? $v->organization;
+            $row = collect($v->toArray())->except(['mounts', 'project', 'organization'])->all();
+
+            return $row + [
+                'consumers' => $v->mounts_count, 'warning' => $v->has_backup_policy ? null : 'No backup policy',
+                'project_name' => $v->project?->name,
+                'applications' => $apps->pluck('name')->all(),
+                'owner_name' => $owner?->name,
+            ];
+        }));
     }
 
     public function show(string $id)

@@ -21,8 +21,17 @@ class NetworkController extends Controller
 
     public function index(Request $request)
     {
-        return response()->json(Lists::paginate(Network::query(), $request, ['name', 'subnet'], ['name', 'created_at', 'driver'], ['server_id', 'driver', 'status'],
-            fn (Network $n) => $n->toArray() + ['containers' => null]));
+        // Owner, project and apps: an environment network's project (and its organisation) and the apps in that environment.
+        $query = Network::query()->with(['organization:id,name', 'project:id,name,organization_id', 'project.organization:id,name',
+            'applications' => fn ($q) => $q->whereNotNull('environment_id')->select('id', 'name', 'environment_id')]);
+
+        return response()->json(Lists::paginate($query, $request, ['name', 'subnet'], ['name', 'created_at', 'driver'], ['server_id', 'driver', 'status', 'project_id'],
+            fn (Network $n) => collect($n->toArray())->except(['organization', 'project', 'applications'])->all() + [
+                'containers' => null,
+                'owner_name' => ($n->project?->organization ?? $n->organization)?->name,
+                'project_name' => $n->project?->name,
+                'applications' => $n->environment_id ? $n->applications->pluck('name')->unique()->values()->all() : [],
+            ]));
     }
 
     public function show(string $id)

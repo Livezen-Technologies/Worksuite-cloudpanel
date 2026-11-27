@@ -16,6 +16,8 @@ class VolumeMount extends Model
 
     protected $hidden = [];
 
+    public function container() { return $this->belongsTo(Container::class)->withoutGlobalScope('organization'); }
+
     protected function casts(): array
     {
         return [
