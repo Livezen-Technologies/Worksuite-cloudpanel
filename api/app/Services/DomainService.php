@@ -172,7 +172,7 @@ class DomainService
         $last = DnsCheck::allTenants()->where('domain_id', $domain->id)->latest('created_at')->first();
         $seen = collect($last?->records ?? []);
 
-        return array_map(function ($r) use ($seen) {
+        return array_map(function ($r) use ($seen, $domain) {
             $hit = $seen->first(fn ($c) => ($c['type'] ?? null) === $r['type'] && ($c['name'] ?? null) === $r['name'] && rtrim((string) ($c['value'] ?? ''), '.') === rtrim((string) $r['value'], '.'));
 
             return $r + ['purpose' => $this->purposeOf($domain, $r), 'status' => $hit ? (in_array($hit['status'] ?? null, ['verified', 'pass'], true) ? 'verified' : 'missing') : 'unchecked'];
