@@ -21,10 +21,13 @@ class ContainerController extends Controller
         $query = Container::query();
         app(Authorizer::class)->scopeAssigned($request->user(), 'resources.view', $query);
 
-        $query->with('application:id,name');
+        $query->with(['application:id,name,project_id', 'application.project:id,name', 'project:id,name']);
 
         return response()->json(Lists::paginate($query, $request, ['name', 'image'], ['name', 'state', 'cpu_pct', 'mem_mb', 'created_at', 'started_at'], [
             'server_id', 'health', 'application_id',
+            // A container's project is its own (service containers) or its app's.
+            'project_id' => fn ($q, $v) => $q->where(fn ($w) => $w->where('project_id', $v)
+                ->orWhereHas('application', fn ($a) => $a->where('project_id', $v))),
             'state' => fn ($q, $v) => match ($v) {
                 'unhealthy' => $q->where('health', 'unhealthy'),
                 'stopped' => $q->whereIn('state', ['exited', 'created', 'dead']),
@@ -34,10 +37,13 @@ class ContainerController extends Controller
             // What people search the list by besides name and image: the app, and the Compose stack and service.
             $labels = (array) ($c->labels ?? []);
             $row = $c->toArray();
-            unset($row['application']);
+            unset($row['application'], $row['project']);
+            $project = $c->project ?? $c->application?->project;
 
             return $row + [
                 'application_name' => $c->application?->name,
+                'project_id' => $project?->id,
+                'project_name' => $project?->name,
                 'compose_project' => $labels['com.docker.compose.project'] ?? null,
                 'compose_service' => $labels['com.docker.compose.service'] ?? null,
             ];

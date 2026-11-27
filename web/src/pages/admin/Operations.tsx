@@ -499,7 +499,15 @@ export function Monitoring() {
 export function Logs() {
   const serverName = useServerName()
   const [tab, setTab] = useState<'logs' | 'term' | 'audit'>('logs')
-  const containers = useList<Container>('/containers')
+  // Project → application → container: the project narrows on the server (a fleet has more
+  // containers than one page holds); the application narrows what that project returned.
+  const [pid, setPid] = useState('')
+  const [aid, setAid] = useState('')
+  const projects = useList<R>(tab === 'audit' ? null : '/projects', { per_page: 200 })
+  const containers = useList<Container>('/containers', { per_page: 200, ...(pid ? { project_id: pid } : {}) })
+  const apps = [...new Map(containers.rows.filter((x) => x.application_id).map((x) => [x.application_id as string, x.application_name ?? 'Application'])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+  const shown = containers.rows.filter((x) => !aid || (aid === '-' ? !x.application_id : x.application_id === aid))
   const [cid, setCid] = useState('')
   const [term, setTerm] = useState(false)
   // Filters run on the server, so older entries are reachable and Export gets exactly what is shown.
@@ -507,7 +515,7 @@ export function Logs() {
   const auditQuery = Object.fromEntries(Object.entries(af).filter(([, v]) => v)) as Record<string, string>
   const audit = useList<R>(tab === 'audit' ? '/audit-logs' : null, { per_page: 200, ...auditQuery })
   const facets = useOne<R>(tab === 'audit' ? '/audit-logs/facets' : null)
-  const c = containers.rows.find((x) => x.id === cid) ?? containers.rows.find((x) => x.state === 'running')
+  const c = shown.find((x) => x.id === cid) ?? shown.find((x) => x.state === 'running') ?? shown[0]
   const toast = useToast()
   const [exporting, setExporting] = useState(false)
   const [integrity, setIntegrity] = useState<{ valid: boolean; checked: number; broken_at: number | null } | null>(null)
@@ -521,7 +529,20 @@ export function Logs() {
     setExporting(true)
     try { await downloadFile('/audit-logs/export', auditQuery, 'audit-log.csv') } catch (e) { toast.error(e, 'Could not export the audit log') } finally { setExporting(false) }
   }
-  const picker = <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>{containers.rows.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}</Select>
+  const picker = (
+    <div className="flex flex-wrap gap-2">
+      <Select className="input !w-auto" aria-label="Project" value={pid} onChange={(e) => { setPid(e.target.value); setAid(''); setCid('') }}>
+        <option value="">All projects</option>{projects.rows.map((p) => <option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>)}
+      </Select>
+      <Select className="input !w-auto" aria-label="Application" value={aid} onChange={(e) => { setAid(e.target.value); setCid('') }}>
+        <option value="">All applications</option>{apps.map(([id, name]) => <option key={id} value={id}>{name}</option>)}<option value="-">No application</option>
+      </Select>
+      <Select className="input !w-auto" aria-label="Container" value={c?.id ?? ''} onChange={(e) => setCid(e.target.value)}>
+        {shown.length === 0 && <option value="">No containers</option>}
+        {shown.map((x) => <option key={x.id} value={x.id}>{x.name} · {serverName(x as unknown as R)}</option>)}
+      </Select>
+    </div>
+  )
   return (
     <>
       <PageHeader title="Logs & Terminal" subtitle="Live log streams, audited exec sessions and the audit trail" />

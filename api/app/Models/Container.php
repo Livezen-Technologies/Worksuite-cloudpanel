@@ -32,6 +32,8 @@ class Container extends Model
     public function server() { return $this->belongsTo(Server::class)->withoutGlobalScope('organization'); }
     public function application() { return $this->belongsTo(Application::class); }
 
+    public function project() { return $this->belongsTo(Project::class)->withoutGlobalScope('organization'); }
+
     public function getUptimeSecondsAttribute(): ?int
     {
         return $this->state === 'running' && $this->started_at ? (int) $this->started_at->diffInSeconds(now()) : null;
