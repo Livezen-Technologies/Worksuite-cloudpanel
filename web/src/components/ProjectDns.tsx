@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { api } from '../api/client'
 import { useAction, useOne } from '../api/hooks'
 import { Card, Empty, Field, StatTile } from './Card'
@@ -25,17 +25,22 @@ interface Check { key: string; label: string; status: 'pass' | 'warn' | 'fail' |
 
 const PURPOSE: Record<string, string> = { routing: 'Routes traffic to the ingress', ownership: 'Proves you own the domain', www: 'www redirect', certificate: 'Certificate challenge' }
 
+/** verified | missing | unchecked, from the domain's last DNS check (records outside a validation run). */
+const RECORD_STATE: Record<string, string> = { verified: 'verified', missing: 'missing', unchecked: 'not checked' }
+
 export function RecordsTable({ records, showActual = false }: { records: Rec[]; showActual?: boolean }) {
+  const showState = !showActual && records.some((r) => r.status && RECORD_STATE[r.status])
   return (
     <div className="overflow-x-auto border border-line rounded-lg">
       <table className="tbl min-w-[620px]">
-        <thead><tr className="text-left text-xs text-muted bg-head"><th className="p-2.5">Type</th><th className="p-2.5">Name</th><th className="p-2.5">{showActual ? 'Expected' : 'Value'}</th>{showActual && <th className="p-2.5">Found</th>}<th className="p-2.5">Purpose</th><th className="p-2.5"><span className="sr-only">Copy</span></th></tr></thead>
+        <thead><tr className="text-left text-xs text-muted bg-head"><th className="p-2.5">Type</th><th className="p-2.5">Name</th><th className="p-2.5">{showActual ? 'Expected' : 'Value'}</th>{showActual && <th className="p-2.5">Found</th>}{showState && <th className="p-2.5">Status</th>}<th className="p-2.5">Purpose</th><th className="p-2.5"><span className="sr-only">Copy</span></th></tr></thead>
         <tbody>{records.map((r) => (
           <tr key={r.type + r.name + r.value} className="border-t border-line">
             <td className="p-2.5 font-mono font-semibold">{r.type}</td>
             <td className="p-2.5 font-mono break-all">{r.name}</td>
             <td className="p-2.5 font-mono break-all">{r.value}</td>
             {showActual && <td className="p-2.5 font-mono break-all">{r.actual?.length ? r.actual.join(', ') : <span className="text-muted">nothing</span>} {r.status && <StatusBadge status={r.status === 'pass' ? 'verified' : 'missing'} />}</td>}
+            {showState && <td className="p-2.5">{r.status && RECORD_STATE[r.status] ? <StatusBadge status={RECORD_STATE[r.status]} /> : null}</td>}
             <td className="p-2.5 text-xs text-muted">{PURPOSE[r.purpose ?? ''] ?? ''}</td>
             <td className="p-2.5"><CopyButton value={r.value} label="Copy" /></td>
           </tr>
@@ -102,7 +107,8 @@ function Connected({ data, perms, onManage, onAdd, base }: { data: R; perms: Set
             <tbody>
               {domains.length === 0 && <tr><td colSpan={6} className="!p-0"><Empty icon="globe">No domains yet. Add a custom domain or a free Livezen Cloud subdomain.</Empty></td></tr>}
               {domains.map((x) => (
-                <tr key={String(x.id)} className="border-t border-line">
+                <Fragment key={String(x.id)}>
+                <tr className="border-t border-line">
                   <td className="py-3 px-5 font-mono font-semibold">{String(x.name)} {x.is_primary ? <Badge tone="b">Primary</Badge> : null}{x.platform_subdomain ? <Badge tone="n">Livezen</Badge> : null}</td>
                   <td className="p-2.5">{String(x.app_name ?? '—')}</td>
                   <td className="p-2.5"><StatusBadge status={x.ownership_verified ? String(x.dns_status) : 'awaiting ownership'} /></td>
@@ -114,6 +120,11 @@ function Connected({ data, perms, onManage, onAdd, base }: { data: R; perms: Set
                     {perms.has('remove') && <button type="button" className="btn btn-sm ml-2" onClick={() => setDel(x)}>Remove</button>}
                   </td>
                 </tr>
+                {/* Every record the customer must create, with its last-checked state. */}
+                {!x.platform_subdomain && ((x.records as Rec[]) ?? []).length > 0 && (
+                  <tr><td colSpan={6} className="px-5 pb-3 pt-0"><RecordsTable records={x.records as Rec[]} /></td></tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -11,7 +11,7 @@ function json(status: number, body: unknown) { return new Response(JSON.stringif
 const domain = {
   id: 'd1', name: 'shop.example.com', app_id: 'a1', app_name: 'web', is_primary: true, dns_status: 'pending', https_status: 'pending', ownership_verified: false,
   status: 'awaiting ownership', platform_subdomain: false, dns_zone: null,
-  records: [{ type: 'CNAME', name: 'shop.example.com', value: 'ingress.livezencloud.test', purpose: 'routing' }, { type: 'TXT', name: '_livezen-verify.shop.example.com', value: 'livezen-verify=abc', purpose: 'ownership' }],
+  records: [{ type: 'CNAME', name: 'shop.example.com', value: 'ingress.livezencloud.test', purpose: 'routing', status: 'verified' }, { type: 'TXT', name: '_livezen-verify.shop.example.com', value: 'livezen-verify=abc', purpose: 'ownership', status: 'missing' }],
 }
 
 describe('Project DNS & Domains', () => {
@@ -41,9 +41,18 @@ describe('Project DNS & Domains', () => {
 
   it('lists connected domains with counts and primary flag', async () => {
     renderIt()
-    expect(await screen.findByText('shop.example.com')).toBeInTheDocument()
+    expect(await screen.findByText('shop.example.com', { selector: 'td.font-semibold' })).toBeInTheDocument()
     expect(screen.getByText('Primary')).toBeInTheDocument()
     expect(screen.getByText('awaiting ownership', { selector: 'td' })).toBeInTheDocument()
+  })
+
+  it('lists every record a connected domain needs, with purpose and status', async () => {
+    renderIt()
+    expect(await screen.findByText('_livezen-verify.shop.example.com')).toBeInTheDocument()
+    expect(screen.getByText('ingress.livezencloud.test')).toBeInTheDocument()
+    expect(screen.getByText('Proves you own the domain')).toBeInTheDocument()
+    expect(screen.getByText('verified')).toBeInTheDocument()
+    expect(screen.getByText('missing')).toBeInTheDocument()
   })
 
   it('runs Validate DNS and shows each check with expected and found values', async () => {

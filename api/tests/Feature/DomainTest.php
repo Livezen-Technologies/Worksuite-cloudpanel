@@ -16,8 +16,8 @@ class DomainTest extends TestCase
         $app = app(Tenant::class)->as($org->id, fn () => Application::create(['name' => 'site', 'kind' => 'customer', 'source_type' => 'image', 'image' => 'nginx', 'size' => 'small', 'server_id' => $server->id, 'port' => 80]));
 
         $domain = $this->api($token)->postJson('/api/v1/app/domains', ['domain' => 'Example.com', 'app_id' => $app->id, 'redirect_www' => true])->assertCreated()
-            ->assertJsonPath('data.records.0', ['type' => 'A', 'name' => 'example.com', 'value' => '198.51.100.7'])
-            ->assertJsonPath('data.records.1', ['type' => 'CNAME', 'name' => 'www.example.com', 'value' => 'example.com'])
+            ->assertJsonPath('data.records.0', ['type' => 'A', 'name' => 'example.com', 'value' => '198.51.100.7', 'purpose' => 'routing', 'status' => 'unchecked'])
+            ->assertJsonPath('data.records.1', ['type' => 'CNAME', 'name' => 'www.example.com', 'value' => 'example.com', 'purpose' => 'www', 'status' => 'unchecked'])
             ->json('data');
 
         $verify = $this->api($token)->postJson("/api/v1/app/domains/{$domain['id']}/verify")->assertOk();

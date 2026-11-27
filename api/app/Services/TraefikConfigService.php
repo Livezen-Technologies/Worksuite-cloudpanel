@@ -96,7 +96,8 @@ class TraefikConfigService implements HandlesCommandResults
     public function resolverFor(Domain $domain): string
     {
         if ($domain->challenge === 'dns-01') {
-            $zone = $domain->dns_secret_id ? null : DnsZone::forDomain($domain->name, $domain->organization_id);
+            // ACME-DLG: a delegated domain's challenge is written in the delegation zone.
+            $zone = $domain->dns_secret_id ? null : (DnsZone::forDomain($domain->name, $domain->organization_id) ?? AcmeDelegation::zoneFor($domain));
             $provider = $zone ? self::ZONE_PROVIDERS[$zone->provider->type] : ($domain->dns_provider ?: 'cloudflare');
 
             return config('platform.traefik.dns_resolver_prefix').$provider;
@@ -477,7 +478,8 @@ class TraefikConfigService implements HandlesCommandResults
         // DNS-013: domains without their own token use the credentials of the zone that holds them.
         // Lego reads one set of variables per provider, so a token given on a domain wins.
         foreach (Domain::allTenants()->where('challenge', 'dns-01')->whereNull('dns_secret_id')->get() as $domain) {
-            $zone = DnsZone::forDomain($domain->name, $domain->organization_id);
+            // ACME-DLG: a delegated domain uses the delegation zone's token (lego follows the CNAME there).
+            $zone = DnsZone::forDomain($domain->name, $domain->organization_id) ?? AcmeDelegation::zoneFor($domain);
             $c = $zone?->provider?->credentials ?? [];
             $out += match ($zone?->provider?->type) {
                 'cloudflare' => ['CF_DNS_API_TOKEN' => (string) ($c['token'] ?? '')],

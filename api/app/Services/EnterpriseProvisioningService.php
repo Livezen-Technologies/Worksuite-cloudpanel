@@ -913,7 +913,7 @@ class EnterpriseProvisioningService implements HandlesCommandResults
 
             return $d ? ['name' => $d->name, 'dns_status' => self::dnsState($d->dns_status), 'https_status' => self::tlsState($d->https_status),
                 'dns_raw' => $d->dns_status, 'https_raw' => $d->https_status ?? 'pending',
-                'records' => $d->platform_subdomain ? [] : rescue(fn () => $this->domains->expectedRecords($d), [], false)] : null;
+                'records' => $d->platform_subdomain ? [] : rescue(fn () => $this->domains->recordsWithStatus($d), [], false)] : null;
         };
         $custom = $domainView($dep->custom_domain);
         $customLive = $custom && $custom['dns_status'] === 'ok' && $custom['https_status'] === 'ok';
@@ -1364,13 +1364,15 @@ class EnterpriseProvisioningService implements HandlesCommandResults
         $kind = $d->name === $dep->hostname ? 'platform' : 'custom';
         $published = (array) (collect($dep->steps ?? [])->firstWhere('name', $kind === 'platform' ? 'domain' : 'custom_domain')['dns'] ?? []);
         $bad = collect($published)->first(fn ($r) => in_array($r['status'] ?? '', ['conflict', 'failed'], true) && ($r['name'] ?? '') === $d->name);
-        $records = $d->platform_subdomain ? [] : rescue(fn () => $this->domains->expectedRecords($d), [], false);
+        $records = $d->platform_subdomain ? [] : rescue(fn () => $this->domains->recordsWithStatus($d), [], false);
 
         return [
             'domain' => $d->name, 'name' => $d->name, 'kind' => $kind, 'primary' => $d->name === $primary,
             'status' => $bad ? 'failed' : self::dnsState($d->dns_status), 'tls_status' => self::tlsState($d->https_status),
             'dns_raw' => $d->dns_status, 'https_raw' => $d->https_status ?? 'pending',
-            'records' => collect($records)->map(fn ($r) => ['type' => $r['type'], 'name' => $r['name'], 'value' => $r['value'], 'ttl' => $r['ttl'] ?? 300])->values()->all(),
+            // purpose: routing | ownership | www | certificate; status: verified | missing | unchecked.
+            'records' => collect($records)->map(fn ($r) => ['type' => $r['type'], 'name' => $r['name'], 'value' => $r['value'], 'ttl' => $r['ttl'] ?? 300,
+                'purpose' => $r['purpose'], 'status' => $r['status']])->values()->all(),
             'checked_at' => $d->updated_at?->toIso8601ZuluString(),
             'error' => $bad['message'] ?? null,
         ];
