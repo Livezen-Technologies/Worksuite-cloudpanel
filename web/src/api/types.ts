@@ -14,7 +14,7 @@ export type ServerStatus = 'pending' | 'online' | 'warning' | 'maintenance' | 'o
 /** One mounted local filesystem. disk_gb/disk_pct describe the root one only. */
 export interface ServerDisk { mount: string; device?: string | null; fstype?: string | null; size_mb?: number; used_mb?: number; used_pct?: number }
 export interface Server {
-  id: string; name: string; hostname: string; ip: string; environment: string; region: string; tags: string[]
+  id: string; name: string; hostname: string; ip: string; environment: string; region: string; tags: string[]; category?: string
   status: ServerStatus; os?: string; kernel?: string; docker_version?: string; cpu_cores?: number; ram_mb?: number; disk_gb?: number
   cpu_pct?: number; ram_pct?: number; disk_pct?: number; container_count?: number; agent_version?: string; last_heartbeat_at?: string | null
   provider?: string; roles?: string[]; agent_latest?: string; agent_outdated?: boolean; disks?: ServerDisk[]
