@@ -165,7 +165,15 @@ class DomainService
         $name = $domain->name;
         $host = $this->ingressHostname();
         $records = [];
-        if ($this->isSubdomain($name) && $host && ! $domain->wildcard) {
+        $edges = $this->enterpriseEdgeIps($domain);
+        if ($edges) {
+            // XNODE-2: an Enterprise deployment is served only by the edge servers, never by the
+            // cluster ingress, so a CNAME to the ingress host would send visitors (and Let's Encrypt)
+            // to a server that answers 404. Name every edge instead, as the deployment's own address does.
+            foreach ($edges as $ip) {
+                $records[] = ['type' => 'A', 'name' => $name, 'value' => $ip, 'purpose' => 'routing'];
+            }
+        } elseif ($this->isSubdomain($name) && $host && ! $domain->wildcard) {
             $records[] = ['type' => 'CNAME', 'name' => $name, 'value' => $host, 'purpose' => 'routing'];
         } else {
             foreach ($this->ingressIps() as $ip) {
@@ -186,6 +194,16 @@ class DomainService
         }
 
         return $records;
+    }
+
+    /** The edge servers' addresses when the domain belongs to an Enterprise deployment and edges exist; [] otherwise. */
+    public function enterpriseEdgeIps(Domain $domain): array
+    {
+        if (! \App\Services\TraefikConfigService::isEnterpriseDomain($domain)) {
+            return [];
+        }
+
+        return \App\Services\TraefikConfigService::edgeServers()->pluck('ip')->filter()->values()->all();
     }
 
     public function ownershipName(Domain $domain): string

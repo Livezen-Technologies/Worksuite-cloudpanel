@@ -37,6 +37,11 @@ class DnsValidationService
         $cname = array_map(fn ($v) => rtrim($v, '.'), $this->lookup($name, 'CNAME'));
         $ingressIps = $this->domains->ingressIps();
         $host = $this->domains->ingressHostname();
+        // An Enterprise deployment's domain must point at the edge servers, not the cluster ingress.
+        $edges = $this->domains->enterpriseEdgeIps($domain);
+        if ($edges) {
+            $ingressIps = $edges;
+        }
         $routing = collect($expected)->first(fn ($r) => in_array($r['type'], ['A', 'AAAA', 'CNAME'], true) && $r['name'] === $domain->name);
         $app = $domain->application_id ? Application::find($domain->application_id) : null;
         $platform = (bool) $domain->platform_subdomain;
@@ -51,7 +56,7 @@ class DnsValidationService
             ? $this->check('cname_target', 'CNAME target', in_array(rtrim($routing['value'], '.'), $cname, true), $routing['value'], $cname ? implode(', ', $cname) : 'no CNAME',
                 $cname ? 'The CNAME points somewhere else. Change it to '.$routing['value'].'.' : 'No CNAME record yet.')
             : $this->skip('cname_target', 'CNAME target', 'This domain uses A records, not a CNAME.');
-        $checks[] = $this->ingressEndpoint($host, $ingressIps);
+        $checks[] = $edges ? $this->skip('ingress_endpoint', 'Ingress endpoint', 'Enterprise domains point at the edge servers directly.') : $this->ingressEndpoint($host, $ingressIps);
         $checks[] = $platform || ! $routing ? $this->skip('propagation', 'Propagation across public resolvers', 'Nothing to propagate.') : $this->propagation($routing);
         $checks[] = $this->certificate($domain);
         $checks[] = $this->https($domain);
@@ -64,7 +69,7 @@ class DnsValidationService
             'domain_id' => $domain->id, 'domain' => $domain->name, 'ok' => $ok, 'checked_at' => now()->toIso8601ZuluString(),
             'checks' => $checks, 'records' => $records,
             'dns_status' => $statuses['dns_status'] ?? $domain->dns_status, 'https_status' => $domain->https_status,
-            'ingress' => ['hostname' => $host, 'ips' => $ingressIps],
+            'ingress' => ['hostname' => $edges ? null : $host, 'ips' => $ingressIps],
         ];
     }
 

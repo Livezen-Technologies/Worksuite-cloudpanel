@@ -54,6 +54,24 @@ class EnterprisePartFTest extends TestCase
         return [$id, $token, $org, $ownerToken];
     }
 
+    public function test_a_custom_domain_on_an_edge_served_deployment_lists_the_edges_a_records_not_a_cname(): void
+    {
+        config(['platform.ingress.hostname' => 'ingress.example.test']);
+        [$id, $token, $org] = $this->ready('ent_edge', 'edgeco');
+        $this->server($org, ['name' => 'frontdoor-01', 'ip' => '51.254.220.203', 'tags' => ['ingress', 'enterprise-edge']]);
+        $this->server($org, ['name' => 'frontdoor-02', 'ip' => '51.254.213.183', 'tags' => ['ingress', 'enterprise-edge']]);
+        $base = "/api/v1/enterprise/deployments/{$id}";
+
+        $custom = $this->api($token)->withHeader('Idempotency-Key', 'e1')->postJson("{$base}/dns/domains", ['name' => 'onesource.edgeco.test'])->assertStatus(201)->json('data.id');
+        $routing = collect(app(\App\Services\DomainService::class)->projectRecords(Domain::allTenants()->find($custom)))->where('purpose', 'routing')->values();
+
+        $this->assertSame(['A'], $routing->pluck('type')->unique()->values()->all(), 'no CNAME to the cluster ingress');
+        $this->assertEqualsCanonicalizing(['51.254.220.203', '51.254.213.183'], $routing->pluck('value')->all());
+        $dns = $this->api($token)->getJson("{$base}/dns")->assertOk();
+        $this->assertNull($dns->json('data.ingress.hostname'));
+        $this->assertEqualsCanonicalizing(['51.254.220.203', '51.254.213.183'], $dns->json('data.ingress.ips'));
+    }
+
     public function test_firewall_is_the_project_firewall_and_the_grant_ends_with_the_request(): void
     {
         [$id, $token] = $this->ready();
