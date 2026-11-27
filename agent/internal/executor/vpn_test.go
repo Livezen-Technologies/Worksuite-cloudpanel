@@ -29,10 +29,12 @@ func (f *fakeVPN) run(_ context.Context, _ string, _ []string, name string, args
 			return []byte("interface: " + args[1] + "\n"), nil
 		}
 		return nil, errors.New("Unable to access interface")
-	case name == "wg-quick" && args[0] == "up":
-		f.live[args[1]] = true
-	case name == "wg-quick" && args[0] == "down":
-		f.live[args[1]] = false
+	case name == "wg-quick":
+		return nil, errors.New("wg-quick must not be used")
+	case name == "ip" && len(args) >= 6 && args[0] == "link" && args[1] == "add":
+		f.live[args[3]] = true
+	case name == "ip" && len(args) == 4 && args[0] == "link" && args[1] == "del":
+		f.live[args[3]] = false
 	case name == "nft" && len(args) == 2 && args[0] == "-f" && f.failNft && strings.HasSuffix(args[1], "wsv1.nft"):
 		return []byte("Error: syntax"), errors.New("exit 1")
 	}
@@ -97,8 +99,10 @@ func TestVPNApplyWritesConfigRulesAndKey(t *testing.T) {
 	if fwd, _ := os.ReadFile(filepath.Join(dir, "proc", "net", "ipv4", "ip_forward")); strings.TrimSpace(string(fwd)) != "1" {
 		t.Error("ip_forward not enabled")
 	}
-	if !f.ran("wg-quick", "up", "wsv1") {
-		t.Error("interface not brought up")
+	for _, want := range [][]string{{"ip", "link", "add", "dev", "wsv1", "type", "wireguard"}, {"wg", "setconf", "wsv1", filepath.Join(dir, "state", "wireguard", "wsv1.sync.conf")}, {"ip", "address", "replace", "10.90.0.1/24", "dev", "wsv1"}, {"ip", "link", "set", "dev", "wsv1", "up"}} {
+		if !f.ran(want[0], want[1:]...) {
+			t.Errorf("did not run %v: %v", want, f.calls)
+		}
 	}
 
 	// A second apply on the live interface swaps peers without taking it down.
@@ -106,7 +110,7 @@ func TestVPNApplyWritesConfigRulesAndKey(t *testing.T) {
 	if _, err := e.Handle(context.Background(), cmd("v2", "vpn.apply", strings.Replace(payload, `"peers":[{"public_key":"`+vpnPeerKey+`","address":"10.90.0.10/32"}]`, `"peers":[]`, 1), now)); err != nil {
 		t.Fatal(err)
 	}
-	if f.ran("wg-quick", "up", "wsv1") || !f.ran("wg", "syncconf", "wsv1", filepath.Join(dir, "state", "wireguard", "wsv1.sync.conf")) {
+	if f.ran("ip", "link", "add", "dev", "wsv1", "type", "wireguard") || !f.ran("wg", "syncconf", "wsv1", filepath.Join(dir, "state", "wireguard", "wsv1.sync.conf")) {
 		t.Errorf("live change should syncconf: %v", f.calls)
 	}
 }
@@ -133,7 +137,7 @@ func TestVPNApplyRollsBackWhenRulesFailToLoad(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "wg", "wsv1.conf")); !os.IsNotExist(err) {
 		t.Error("config left behind after a failed first apply")
 	}
-	if f.live["wsv1"] || !f.ran("wg-quick", "down", "wsv1") {
+	if f.live["wsv1"] || !f.ran("ip", "link", "del", "dev", "wsv1") {
 		t.Error("interface left up after a failed first apply")
 	}
 }
