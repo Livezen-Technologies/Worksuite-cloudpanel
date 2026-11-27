@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { useList, useOne, useAction } from '../../api/hooks'
+import { errorMessage, isApiError } from '../../api/client'
 import { Card, Field, PageHeader, StatTile, Empty } from '../../components/Card'
 import { Badge } from '../../components/Badge'
 import { Icon } from '../../components/Icon'
@@ -290,18 +291,114 @@ export function Companies() {
 
 /* ------------------------------------------------------------------ groups */
 
+type Clause = { field: string; op: string; value?: string | number | string[] }
+type Rules = { all?: Clause[]; any?: Clause[] }
+
 type Group = {
   id: string; name: string; slug: string; kind: string; discount_percent: number
   colour: string | null; description: string | null; is_system: boolean; members: number
+  rules: Rules | null; plan_overrides: Record<string, number> | null
+  rules_run_at: string | null; rules_matched: number | null
+}
+
+type RuleFields = { fields: { key: string; numeric: boolean }[]; operators: string[] }
+
+/** The operators that take no value, and the ones that take a list. */
+const VALUELESS = ['is_null', 'not_null']
+const LISTED = ['in', 'not_in']
+
+const OP_LABEL: Record<string, string> = {
+  eq: 'is', ne: 'is not', gt: 'is more than', gte: 'is at least', lt: 'is less than',
+  lte: 'is at most', in: 'is one of', not_in: 'is none of', contains: 'contains',
+  is_null: 'is empty', not_null: 'is set',
+}
+
+const BLANK_CLAUSE: Clause = { field: 'customer_type', op: 'eq', value: '' }
+
+/**
+ * A refused rule set says *which* rule is wrong in the field errors; the
+ * envelope's own message is only "the given data was invalid", which would
+ * leave the operator guessing.
+ */
+const ruleMessage = (e: unknown) =>
+  (isApiError(e) && Object.values(e.fields)[0]?.[0]) || errorMessage(e)
+
+/**
+ * The rule builder for a dynamic group. It only ever produces field/op/value
+ * triples from the server's own whitelist -- there is no free-text query to
+ * type, because the evaluator would refuse one anyway.
+ */
+function RuleBuilder({ rules, fields, onChange }: {
+  rules: Rules; fields: RuleFields | undefined; onChange: (r: Rules) => void
+}) {
+  const mode: 'all' | 'any' = rules.any ? 'any' : 'all'
+  const clauses = (rules[mode] ?? []) as Clause[]
+  const set = (next: Clause[]) => onChange({ [mode]: next } as Rules)
+
+  const edit = (i: number, patch: Partial<Clause>) =>
+    set(clauses.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted">A customer belongs when</span>
+        <Select className="input w-auto" value={mode}
+          onChange={(e) => onChange({ [e.target.value]: clauses } as Rules)}>
+          <option value="all">every rule matches</option>
+          <option value="any">any rule matches</option>
+        </Select>
+      </div>
+
+      {clauses.map((c, i) => {
+        const field = fields?.fields.find((f) => f.key === c.field)
+        return (
+          <div key={i} className="flex flex-wrap items-center gap-2">
+            <Select className="input w-auto" value={c.field} onChange={(e) => edit(i, { field: e.target.value, value: '' })}>
+              {(fields?.fields ?? []).map((f) => (
+                <option key={f.key} value={f.key}>{f.key.replace(/_/g, ' ')}</option>
+              ))}
+            </Select>
+            <Select className="input w-auto" value={c.op} onChange={(e) => edit(i, { op: e.target.value, value: '' })}>
+              {(fields?.operators ?? []).map((o) => <option key={o} value={o}>{OP_LABEL[o] ?? o}</option>)}
+            </Select>
+            {!VALUELESS.includes(c.op) && (
+              <input className="input flex-1 min-w-32" type={field?.numeric ? 'number' : 'text'}
+                placeholder={LISTED.includes(c.op) ? 'comma separated' : 'value'}
+                value={Array.isArray(c.value) ? c.value.join(', ') : String(c.value ?? '')}
+                onChange={(e) => edit(i, {
+                  value: LISTED.includes(c.op)
+                    ? e.target.value.split(',').map((v) => v.trim()).filter(Boolean)
+                    : field?.numeric ? Number(e.target.value) : e.target.value,
+                })} />
+            )}
+            <button type="button" className="btn btn-sm" aria-label="Remove rule"
+              onClick={() => set(clauses.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
+          </div>
+        )
+      })}
+
+      <button type="button" className="btn btn-sm w-fit" onClick={() => set([...clauses, { ...BLANK_CLAUSE }])}>
+        Add rule
+      </button>
+    </div>
+  )
 }
 
 const BLANK_GROUP = { name: '', kind: 'static', discount_percent: 0, description: '' }
 
+const EMPTY_RULES: Rules = { all: [{ ...BLANK_CLAUSE }] }
+
+type Preview = { total: number; sample: { id: string; name: string; status: string; customer_type: string; country: string | null; active_services: number }[] }
+
 export function CustomerGroups() {
   const groups = useList<Group>('/customer-groups')
+  const fields = useOne<RuleFields>('/customer-group-fields')
   const { run, busy } = useAction()
   const [form, setForm] = useState<typeof BLANK_GROUP | null>(null)
   const [edit, setEdit] = useState<Group | null>(null)
+  const [rules, setRules] = useState<Rules>(EMPTY_RULES)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [ruleError, setRuleError] = useState<string | null>(null)
 
   const create = async () => {
     if (!form) return
@@ -313,9 +410,34 @@ export function CustomerGroups() {
     if (!edit) return
     await run({
       method: 'PATCH', path: `/customer-groups/${edit.id}`,
-      body: { discount_percent: edit.discount_percent, description: edit.description, colour: edit.colour },
+      body: {
+        discount_percent: edit.discount_percent, description: edit.description, colour: edit.colour,
+        ...(edit.kind === 'dynamic' ? { rules } : {}),
+      },
       label: 'Save group', success: 'Group saved',
     }).then(() => { setEdit(null); groups.refetch() }).catch(() => {})
+  }
+
+  const openEdit = (g: Group) => {
+    setEdit(g)
+    setRules(g.rules ?? EMPTY_RULES)
+    setPreview(null)
+    setRuleError(null)
+  }
+
+  /**
+   * Counts what the rules on screen would match, without saving them. The
+   * toast is suppressed -- a preview is not an event worth announcing -- so a
+   * rejected rule set is reported next to the builder instead.
+   */
+  const runPreview = async () => {
+    if (!edit) return
+    setRuleError(null)
+    await run<{ data: Preview }>({
+      method: 'POST', path: `/customer-groups/${edit.id}/preview-rules`, body: { rules },
+      label: 'Preview rules', silent: true,
+    }).then((d) => setPreview(d.data))
+      .catch((e: unknown) => setRuleError(ruleMessage(e)))
   }
 
   return (
@@ -324,9 +446,16 @@ export function CustomerGroups() {
         actions={<button type="button" className="btn btn-primary" onClick={() => setForm({ ...BLANK_GROUP })}>New group</button>} />
 
       <DataTable label="Customer groups" rows={groups.rows} loading={groups.isLoading} rowKey={(r) => r.id}
-        onRowClick={(r) => setEdit(r)} empty="No groups yet."
+        onRowClick={(r) => openEdit(r)} empty="No groups yet."
         actions={(r) => [
-          { label: 'Edit', icon: 'pencil', onClick: () => setEdit(r) },
+          { label: 'Edit', icon: 'pencil', onClick: () => openEdit(r) },
+          {
+            label: 'Recompute members', icon: 'refresh', disabled: busy || r.kind !== 'dynamic' || !r.rules,
+            onClick: () => run({
+              method: 'POST', path: `/customer-groups/${r.id}/recompute`, label: 'Recompute',
+              success: 'Membership refreshed from the rules',
+            }).then(() => groups.refetch()).catch(() => {}),
+          },
           {
             label: 'Delete', icon: 'trash', danger: true, disabled: busy || r.is_system,
             confirm: `Group ${r.name} is deleted and its members un-grouped.`,
@@ -345,8 +474,9 @@ export function CustomerGroups() {
         ]} />
 
       <p className="mt-3 text-xs text-muted">
-        A dynamic group's membership rules arrive with the next phase; today every group is filled by hand from a
-        customer's profile. Where two of a customer's groups carry a discount, the larger one applies.
+        A dynamic group is refilled from its rules each night, and on demand from the row's menu; a customer added
+        by hand stays whatever the rules say. Where two of a customer's groups carry a discount, the larger one
+        applies, and it reaches the invoice as a line of its own.
       </p>
 
       <Drawer open={!!form} onClose={() => setForm(null)} title="New customer group">
@@ -356,7 +486,7 @@ export function CustomerGroups() {
             <Field label="Membership">
               <Select className="input" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
                 <option value="static">Filled by hand</option>
-                <option value="dynamic">By rule (rules come next phase)</option>
+                <option value="dynamic">By rule (set the rules after creating it)</option>
               </Select>
             </Field>
             <Field label="Discount %" hint="Applied by Finance when this customer is billed.">
@@ -383,6 +513,40 @@ export function CustomerGroups() {
             <Field label="Notes">
               <input className="input" value={edit.description ?? ''} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
             </Field>
+
+            {edit.kind === 'dynamic' && (
+              <>
+                <Field label="Membership rules" hint="Checked against every account that is not archived.">
+                  <RuleBuilder rules={rules} fields={fields.item} onChange={(r) => { setRules(r); setPreview(null) }} />
+                </Field>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={runPreview}>Preview matches</button>
+                  {edit.rules_run_at && (
+                    <span className="text-xs text-muted">
+                      last run {new Date(edit.rules_run_at).toLocaleString()} · {edit.rules_matched ?? 0} matched
+                    </span>
+                  )}
+                </div>
+                {ruleError && <p className="text-sm text-danger">{ruleError}</p>}
+                {preview && (
+                  <Card title={`${preview.total} customer${preview.total === 1 ? '' : 's'} would match`}
+                    subtitle={preview.total > preview.sample.length ? `showing the first ${preview.sample.length}` : undefined}>
+                    {preview.sample.length === 0 ? <Empty>Nothing matches these rules yet.</Empty> : (
+                      <ul className="m-0 grid gap-1 p-0 text-sm [list-style:none]">
+                        {preview.sample.map((r) => (
+                          <li key={r.id} className="flex items-center justify-between gap-2">
+                            <span>{r.name}</span>
+                            <span className="text-xs text-muted">{r.customer_type} · {r.active_services} service{r.active_services === 1 ? '' : 's'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Card>
+                )}
+                <p className="text-xs text-muted">Saving the rules does not move anyone; use “Recompute members” for that.</p>
+              </>
+            )}
+
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={busy} onClick={saveEdit}>Save group</button>

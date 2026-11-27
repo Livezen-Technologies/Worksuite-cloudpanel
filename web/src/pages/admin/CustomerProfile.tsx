@@ -22,6 +22,10 @@ export default function CustomerProfile() {
   const nav = useNavigate()
   const { item: c, isLoading, refetch } = useOne<R>(`/customers/${id}`)
   const plans = useList<R>('/plans')
+  // CUST-4: the role each member holds is on /customers/{id}; what that role
+  // actually permits, and whether the person also works for other customers,
+  // comes from the Customers section's own read.
+  const access = useOne<R>(`/customer-accounts/${id}/users`)
   const { run, busy } = useAction()
   const [tab, setTab] = useState<Tab>(() => ((['overview', 'members', 'apps', 'domains', 'billing', 'activity', 'settings'] as Tab[]).find((t) => location.hash === `#${t}`) ?? 'overview'))
   useEffect(() => { history.replaceState(null, '', `#${tab}`) }, [tab])
@@ -41,6 +45,9 @@ export default function CustomerProfile() {
   const suspended = c.status === 'suspended'
   const closed = c.status === 'closed'
   const act = (path: string, label: string, body?: R) => run({ path: `/customers/${id}/${path}`, body, label, success: `${label} done` }).then(() => refetch()).catch(() => {})
+  const accessRows = (access.item?.users ?? []) as R[]
+  const accessOf = (userId: unknown) => accessRows.find((u) => u.user_id === userId)
+  const permsOf = (userId: unknown) => ((accessOf(userId)?.permissions ?? []) as string[])
   const initials = String(c.name).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
   return (
@@ -99,6 +106,16 @@ export default function CustomerProfile() {
           columns={[
             { key: 'name', header: 'Name', render: (r) => <div><div className="font-semibold">{r.name}</div><div className="text-xs text-muted">{r.email}</div></div> },
             { key: 'role', header: 'Role', render: (r) => <Badge tone="n">{String(r.role).replace(/_/g, ' ')}</Badge> },
+            { key: 'permissions', header: 'May do', value: (r) => String(permsOf(r.id).length), render: (r) => {
+              const perms = permsOf(r.id)
+              return perms.length
+                ? <span className="text-xs text-muted" title={perms.join(', ')}>{perms.length} permission{perms.length === 1 ? '' : 's'}</span>
+                : <span className="text-xs text-muted">—</span>
+            } },
+            { key: 'other_accounts', header: 'Also in', value: (r) => String(accessOf(r.id)?.other_accounts ?? 0), render: (r) => {
+              const other = Number(accessOf(r.id)?.other_accounts ?? 0)
+              return other ? <Badge tone="b">{other} other customer{other === 1 ? '' : 's'}</Badge> : <span className="text-xs text-muted">this one only</span>
+            } },
             { key: 'mfa', header: 'Two-factor', value: (r) => (r.mfa_enabled ? 'on' : 'off'), render: (r) => <Badge tone={r.mfa_enabled ? 'g' : 'y'}>{r.mfa_enabled ? 'on' : 'off'}</Badge> },
             { key: 'status', header: 'Status', render: (r) => <StatusBadge status={String(r.status)} /> },
             { key: 'last', header: 'Last sign-in', value: (r) => String(r.last_login_at ?? ''), render: (r) => (r.last_login_at ? ago(String(r.last_login_at)) : 'never') },

@@ -214,6 +214,45 @@ class CustomerService
             ->max('g.discount_percent');
     }
 
+    /**
+     * The pricing an account's groups give it: the largest discount, the group
+     * that granted it, and any per-plan price overrides.
+     *
+     * Finance asks this one question rather than reading groups itself, so the
+     * "largest discount wins" rule has exactly one home. Where two groups
+     * override the same plan, the cheaper price wins -- the customer is never
+     * worse off for being in an extra group.
+     *
+     * @return array{discount_percent:int, group_id:?string, group_name:?string, plan_overrides:array<string,int>}
+     */
+    public function pricingFor(Organization $org): array
+    {
+        $groups = DB::table('customer_group_members as m')
+            ->join('customer_groups as g', 'g.id', '=', 'm.customer_group_id')
+            ->where('m.organization_id', $org->id)
+            ->select('g.id', 'g.name', 'g.discount_percent', 'g.plan_overrides')
+            ->orderByDesc('g.discount_percent')->orderBy('g.name')->get();
+
+        $overrides = [];
+        foreach ($groups as $g) {
+            foreach (json_decode($g->plan_overrides ?? '[]', true) ?: [] as $planId => $cents) {
+                $cents = (int) $cents;
+                if (! isset($overrides[$planId]) || $cents < $overrides[$planId]) {
+                    $overrides[$planId] = $cents;
+                }
+            }
+        }
+
+        $best = $groups->first();
+
+        return [
+            'discount_percent' => (int) ($best->discount_percent ?? 0),
+            'group_id' => ($best && $best->discount_percent > 0) ? $best->id : null,
+            'group_name' => ($best && $best->discount_percent > 0) ? $best->name : null,
+            'plan_overrides' => $overrides,
+        ];
+    }
+
     /** Append to the customer's timeline and move its last-activity stamp. */
     public function record(Organization $org, string $kind, string $summary, array $meta = [], ?string $actorId = null, ?string $userId = null): CustomerActivity
     {
