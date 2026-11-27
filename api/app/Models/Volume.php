@@ -34,6 +34,8 @@ class Volume extends Model
     protected $appends = ['has_backup_policy', 'consumers'];
     public function server() { return $this->belongsTo(Server::class); }
     public function mounts() { return $this->hasMany(VolumeMount::class); }
+
+    public function project() { return $this->belongsTo(Project::class)->withoutGlobalScope('organization'); }
     public function getHasBackupPolicyAttribute(): bool
     {
         return BackupPolicy::where('target_type', 'volume')->where('target_id', $this->id)->exists();

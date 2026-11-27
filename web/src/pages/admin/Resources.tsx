@@ -2,17 +2,29 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAction, useList, useServerName } from '../../api/hooks'
 import type { Server } from '../../api/types'
-import { Card, Meter, PageHeader, StatTile, Empty, Loading } from '../../components/Card'
+import { Card, Meter, PageHeader, StatTile, Empty } from '../../components/Card'
 import { Badge, StatusBadge, toneFor } from '../../components/Badge'
-import { DataTable } from '../../components/DataTable'
+import { DataTable, type Column } from '../../components/DataTable'
 import { ConfirmDialog, Modal } from '../../components/Overlay'
 import { FormModal } from '../../components/FormModal'
 import { useToast } from '../../components/Toasts'
+import { NewDatabaseWizard } from '../../components/NewDatabaseWizard'
 import { ago, daysUntil, mb, str, unwrap } from '../../lib/format'
 import { num, type R } from '../../lib/util'
 import Select from '../../components/Select'
 
 const mono = (v: unknown) => <span className="font-mono text-[11.5px] text-muted">{str(v)}</span>
+/** Owner, Project and Application columns shared by the Volumes and Networks lists. */
+function ownershipColumns(): Column<R>[] {
+  const dash = <span className="text-muted">—</span>
+  return [
+    { key: 'owner', header: 'Owner', value: (r) => String(r.owner_name ?? '') || null, render: (r) => (r.owner_name ? String(r.owner_name) : dash) },
+    { key: 'project', header: 'Project', value: (r) => String(r.project_name ?? '') || null, render: (r) => (r.project_name ? String(r.project_name) : dash) },
+    { key: 'applications', header: 'Application', value: (r) => ((r.applications as string[] | undefined) ?? []).join(', ') || null,
+      render: (r) => { const a = (r.applications as string[] | undefined) ?? []; return a.length ? <span className="truncate block max-w-[220px]" title={a.join(', ')}>{a[0]}{a.length > 1 ? ` +${a.length - 1}` : ''}</span> : dash } },
+  ]
+}
+
 function useServerOptions() {
   const { rows } = useList<Server>('/servers')
   return rows.map((s) => ({ value: s.id, label: s.name }))
@@ -122,7 +134,7 @@ export function Images() {
 
 export function Networks() {
   const serverName = useServerName()
-  const { rows, isLoading } = useList<R>('/networks')
+  const { rows, isLoading } = useList<R>('/networks', { per_page: 200 })
   const servers = useServerOptions()
   const { run } = useAction()
   const [create, setCreate] = useState(false)
@@ -149,6 +161,7 @@ export function Networks() {
           { key: 'name', header: 'Name', render: (r) => <span className="font-semibold">{r.name}</span> },
           { key: 'driver', header: 'Driver' },
           { key: 'subnet', header: 'Subnet', render: (r) => mono(r.subnet) },
+          ...ownershipColumns(),
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'containers', header: 'Containers', value: (r) => num(r.container_count ?? r.containers) },
           { key: 'exposure', header: 'Exposure', render: (r) => <Badge tone={/public/i.test(String(r.exposure)) ? 'b' : /approved|exception/i.test(String(r.exposure)) ? 'y' : 'g'}>{r.exposure ?? 'private'}</Badge> },
@@ -175,7 +188,7 @@ export function Networks() {
 export function Volumes() {
   const serverName = useServerName()
   const pools = useList<R>('/storage-pools')
-  const { rows, isLoading } = useList<R>('/volumes')
+  const { rows, isLoading } = useList<R>('/volumes', { per_page: 200 })
   const servers = useServerOptions()
   const { run } = useAction()
   const [create, setCreate] = useState(false)
@@ -204,6 +217,7 @@ export function Volumes() {
           { key: 'type', header: 'Type' },
           { key: 'server', header: 'Server', value: (r) => serverName(r) },
           { key: 'size', header: 'Size', value: (r) => num(r.size_mb ?? r.size_gb), render: (r) => r.size ?? (r.size_gb ? `${r.size_gb} GB` : mb(r.size_mb)) },
+          ...ownershipColumns(),
           { key: 'consumers', header: 'Used by', value: (r) => str(r.consumers ?? r.containers) },
           { key: 'backup', header: 'Backup', render: (r) => (r.backup_policy || r.backup_policy_id) ? <StatusBadge status={r.backup_status ?? 'protected'} /> : <Badge tone="y">no policy</Badge> },
         ]} />
@@ -286,48 +300,59 @@ export function Domains() {
   )
 }
 
-const ENGINES: Record<string, string> = { postgresql: 'PG', mysql: 'MY', mariadb: 'MD', redis: 'RD', mongodb: 'MG' }
+const ENGINES: Record<string, string> = { postgres: 'PG', postgresql: 'PG', mysql: 'MY', mariadb: 'MD', redis: 'RD', mongodb: 'MG' }
+
 export function Databases() {
   const serverName = useServerName()
-  const { rows, isLoading } = useList<R>('/databases', undefined, { refetchInterval: 20000 })
-  const servers = useServerOptions()
+  const { rows, isLoading, error, refetch } = useList<R>('/databases', { per_page: 200 }, { refetchInterval: 20000 })
   const { run, busy } = useAction()
+  const toast = useToast()
   const [create, setCreate] = useState(false)
   const [restore, setRestore] = useState<R | null>(null)
+  const [remove, setRemove] = useState<R | null>(null)
+  const credRef = (d: R) => String(d.secret_ref ?? d.credentials_ref ?? 'secret://' + d.name)
+  const copy = async (text: string, what: string) => {
+    try { await navigator.clipboard.writeText(text); toast.success(`${what} copied`) } catch { toast.error(new Error('Clipboard unavailable'), `Could not copy ${what.toLowerCase()}`) }
+  }
   return (
     <>
       <PageHeader title="Databases" subtitle="Managed database containers with application-consistent backups"
         actions={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>New database</button>} />
-      {isLoading ? <Loading label="Loading…" /> : rows.length === 0 ? <Card><Empty>No databases yet.</Empty></Card> : (
-        <ul className="list-none m-0 p-0 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-          {rows.map((d) => (
-            <li key={d.id} className="card p-5 flex flex-col gap-3">
-              <div className="flex items-center gap-3">
-                <span aria-hidden="true" className="w-10 h-10 rounded-lg bg-track flex items-center justify-center font-bold text-sm">{ENGINES[String(d.engine).toLowerCase()] ?? String(d.engine ?? '?').slice(0, 2).toUpperCase()}</span>
-                <div className="flex-1 min-w-0"><div className="font-semibold truncate">{d.name}</div><div className="text-xs text-muted">{d.engine} {d.version} · {serverName(d)}</div></div>
-                <StatusBadge status={d.status ?? 'healthy'} />
-              </div>
-              <dl className="m-0 grid grid-cols-3 gap-2 text-sm">
-                <div><dt className="text-xs text-muted">Size</dt><dd className="m-0 font-semibold">{d.size ?? mb(d.size_mb)}</dd></div>
-                <div><dt className="text-xs text-muted">Connections</dt><dd className="m-0 font-semibold">{d.connections ?? '—'}</dd></div>
-                <div><dt className="text-xs text-muted">Last backup</dt><dd className="m-0 font-semibold">{ago(d.last_backup_at)}</dd></div>
-              </dl>
-              <div className="flex gap-2 flex-wrap">
-                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => run({ path: `/databases/${d.id}/backup`, label: `Back up ${d.name}` }).catch(() => {})}>Back up now</button>
-                <button type="button" className="btn btn-sm" onClick={() => setRestore(d)}>Restore</button>
-              </div>
-              <div className="text-xs text-muted">Credentials: <span className="font-mono">{d.secret_ref ?? d.credentials_ref ?? 'secret://' + d.name}</span></div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="m-0 text-xs text-muted">Credentials are stored as encrypted secrets and injected by reference — never shown in container environment listings.</p>
-      <FormModal open={create} onClose={() => setCreate(false)} title="New database" submitLabel="Create database" initial={{ engine: 'postgresql' }}
-        fields={[{ name: 'name', label: 'Name', required: true }, { name: 'engine', label: 'Template', type: 'select', required: true, options: [{ value: 'postgresql', label: 'PostgreSQL' }, { value: 'mysql', label: 'MySQL' }, { value: 'mariadb', label: 'MariaDB' }, { value: 'redis', label: 'Redis' }, { value: 'mongodb', label: 'MongoDB' }] }, { name: 'version', label: 'Version', placeholder: 'latest' }, { name: 'server_id', label: 'Server', type: 'select', options: servers, required: true }]}
-        onSubmit={(v) => run({ path: '/databases', body: v, label: `Create ${v.name}` })} />
+      <DataTable label="Databases" tableId="databases" rows={rows} loading={isLoading} error={error ? String((error as Error).message ?? error) : null} onRetry={() => refetch()}
+        rowKey={(d) => String(d.id)} rowLabel={(d) => String(d.name)} minWidth={900}
+        searchKeys={(d) => `${d.name} ${d.engine} ${d.version} ${serverName(d)}`} searchPlaceholder="Search databases"
+        empty={<Empty icon="db" action={<button type="button" className="btn btn-primary" onClick={() => setCreate(true)}>New database</button>}>No databases yet.</Empty>}
+        filters={[{ id: 'failed', label: 'Failed', test: (d) => d.status === 'failed' }, { id: 'nobackup', label: 'Never backed up', test: (d) => !d.last_backup_at }]}
+        columns={[
+          { key: 'name', header: 'Database', value: (d) => String(d.name), render: (d) => (
+            <span className="flex items-center gap-3 min-w-0">
+              <span aria-hidden="true" className="w-9 h-9 flex-none rounded-lg bg-track flex items-center justify-center font-bold text-xs">{ENGINES[String(d.engine).toLowerCase()] ?? String(d.engine ?? '?').slice(0, 2).toUpperCase()}</span>
+              <span className="min-w-0"><span className="block font-semibold truncate">{String(d.name)}</span><span className="block text-xs text-muted">{String(d.engine)} {String(d.version ?? '')}</span></span>
+            </span>) },
+          { key: 'status', header: 'Status', value: (d) => String(d.status ?? ''), options: ['running', 'creating', 'failed', 'stopped'], render: (d) => <StatusBadge status={String(d.status ?? 'healthy')} /> },
+          { key: 'server', header: 'Server', value: (d) => serverName(d) },
+          { key: 'size', header: 'Size', kind: 'number', align: 'right', value: (d) => num(d.size_mb), render: (d) => String(d.size ?? mb(d.size_mb)) },
+          { key: 'connections', header: 'Connections', kind: 'number', align: 'right', value: (d) => (d.connections == null ? null : num(d.connections)), render: (d) => String(d.connections ?? '—') },
+          { key: 'last_backup', header: 'Last backup', kind: 'date', value: (d) => String(d.last_backup_at ?? ''), render: (d) => ago(d.last_backup_at as string) },
+          { key: 'environment', header: 'Environment', value: (d) => String(d.environment ?? ''), hidden: true },
+          { key: 'credentials', header: 'Credentials', value: credRef, hidden: true, render: (d) => <span className="font-mono text-xs">{credRef(d)}</span> },
+        ]}
+        actions={(d) => [
+          { label: 'Back up now', icon: 'archive', disabled: busy || d.status === 'failed', onClick: () => { run({ path: `/databases/${d.id}/backup`, label: `Back up ${d.name}` }).catch(() => {}) } },
+          { label: 'Restore from backup', icon: 'refresh', disabled: !d.last_backup_at, onClick: () => setRestore(d) },
+          { label: 'Copy credentials reference', icon: 'copy', menuOnly: true, onClick: () => { void copy(credRef(d), 'Credentials reference') } },
+          { label: 'Copy host name', icon: 'copy', menuOnly: true, onClick: () => { void copy(`db-${d.name}`, 'Host name') } },
+          { label: 'Delete', icon: 'trash', danger: true, confirm: false, onClick: () => setRemove(d) },
+        ]} />
+      <p className="m-0 text-xs text-muted">Credentials are stored as encrypted secrets and injected by reference — never shown in container environment listings. Apps on the same network reach a database at <span className="font-mono">db-&lt;name&gt;</span>.</p>
+      <NewDatabaseWizard open={create} onClose={() => setCreate(false)} />
       <ConfirmDialog open={!!restore} onClose={() => setRestore(null)} danger confirmText={restore?.name} title={`Restore ${restore?.name}?`} confirmLabel="Restore" busy={busy}
         onConfirm={() => run({ path: `/databases/${restore!.id}/restore`, body: {}, label: `Restore ${restore!.name}` }).then(() => setRestore(null)).catch(() => {})}>
         <p className="m-0">The latest backup replaces current data. Connected apps may see errors until the restore finishes.</p>
+      </ConfirmDialog>
+      <ConfirmDialog open={!!remove} onClose={() => setRemove(null)} danger confirmText={remove ? String(remove.name) : undefined} title={`Delete ${remove?.name}?`} confirmLabel="Delete database" busy={busy}
+        onConfirm={() => run({ method: 'DELETE', path: `/databases/${remove!.id}`, label: `Delete ${remove!.name}`, success: `${remove!.name} deleted` }).then(() => setRemove(null)).catch(() => {})}>
+        <p className="m-0">The database record goes; its container and data volume stay on the server until removed under Containers and Volumes. {remove?.environment === 'production' ? 'Production databases need an approval first.' : ''}</p>
       </ConfirmDialog>
     </>
   )

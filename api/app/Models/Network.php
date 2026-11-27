@@ -25,4 +25,9 @@ class Network extends Model
     }
 
     public function server() { return $this->belongsTo(Server::class); }
+
+    public function project() { return $this->belongsTo(Project::class)->withoutGlobalScope('organization'); }
+
+    /** The apps in the environment this network serves (environment networks only). */
+    public function applications() { return $this->hasMany(Application::class, 'environment_id', 'environment_id')->withoutGlobalScope('organization'); }
 }

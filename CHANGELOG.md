@@ -9,6 +9,19 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.46.0] — 2026-11-27
+
+### Added
+- Databases: a four-step New database wizard (engine, settings, placement, review) on the shared wizard frame. Engines as cards with version quick picks, a checked name, environment, memory limit and project, server cards with Database servers first, the server's real networks with `internal` preselected, and pre-flight checks before creating.
+- Databases: table, list and grid views (the shared DataTable) with search, filters (Failed, Never backed up), export, and per-database actions: Back up now, Restore from backup, Copy credentials reference, Copy host name, Delete (typed confirmation; production still needs an approval).
+- Networks: the same Owner, Project and Application columns (an environment network's project and the apps in that environment), a `project_id` filter, and 200 rows instead of 100.
+- Volumes & Storage: Owner, Project and Application columns. The API now returns `owner_name`, `project_name` and `applications` (the apps whose containers mount the volume) and filters by `project_id`.
+
+### Fixed
+- New database sent `postgresql`, which the API rejects (`postgres`), so PostgreSQL could not be created from the panel.
+- A database on a server without an `internal` network failed at creation ("network internal not found"); the wizard now shows the server's networks and stops when there is none.
+- Volumes & Storage listed only the first 100 volumes; it now loads 200.
+
 ## [1.45.0] — 2026-11-27
 
 ### Added
