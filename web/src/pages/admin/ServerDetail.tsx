@@ -15,6 +15,8 @@ import { TunnelPanel } from '../../components/TunnelPanel'
 import { AdoptRoutesPanel } from '../../components/AdoptRoutesPanel'
 import { ServerCapacityCard } from '../../components/ServerCapacityCard'
 import { ServerFirewallPanel } from '../../components/ServerFirewallPanel'
+import Select from '../../components/Select'
+import { SERVER_CATEGORIES, categoryLabel } from '../../lib/serverCategories'
 
 const TABS = ['Overview', 'Containers', 'Applications', 'Networks', 'Volumes', 'Storage', 'Monitoring', 'Logs', 'Security', 'Firewall', 'Backups', 'Cleanup', 'Tunnel', 'Routes', 'Agent', 'Settings'] as const
 type Tab = (typeof TABS)[number]
@@ -69,7 +71,7 @@ export default function ServerDetail() {
   if (isLoading || !s) return <Card>{isLoading ? 'Loading server…' : 'Server not found.'}</Card>
   const series = (metrics.item?.series ?? metrics.item ?? {}) as R
   const disks = (s.disks ?? []) as ServerDisk[]
-  const f = edit ?? { name: s.name, environment: s.environment, region: s.region, tags: (s.tags ?? []).join(', ') }
+  const f = edit ?? { name: s.name, category: s.category ?? 'hosting', environment: s.environment, region: s.region, tags: (s.tags ?? []).join(', ') }
 
   return (
     <>
@@ -102,7 +104,7 @@ export default function ServerDetail() {
           </div>
           <Card title="System">
             <dl className="grid gap-x-6 gap-y-3 m-0 text-sm" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-              {([['Hostname', s.hostname], ['OS', s.os], ['Kernel', s.kernel], ['Docker', s.docker_version], ['Agent', s.agent_version], ['Last heartbeat', ago(s.last_heartbeat_at)], ['Environment', s.environment], ['Region', s.region], ['Tags', str(s.tags)], ['Roles', (s.roles ?? ['app']).join(', ')]] as const).map(([k, v]) => (
+              {([['Hostname', s.hostname], ['OS', s.os], ['Kernel', s.kernel], ['Docker', s.docker_version], ['Agent', s.agent_version], ['Last heartbeat', ago(s.last_heartbeat_at)], ['Category', categoryLabel(s.category)], ['Environment', s.environment], ['Region', s.region], ['Tags', str(s.tags)], ['Roles', (s.roles ?? ['app']).join(', ')]] as const).map(([k, v]) => (
                 <div key={k}><dt className="text-xs text-muted">{k}</dt><dd className="m-0 font-semibold">{v ?? '—'}</dd></div>
               ))}
             </dl>
@@ -164,6 +166,7 @@ export default function ServerDetail() {
             <form className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
               onSubmit={(e) => { e.preventDefault(); run({ method: 'PATCH', path: `/servers/${s.id}`, body: { ...f, tags: String(f.tags).split(',').map((x: string) => x.trim()).filter(Boolean) }, label: 'Save server', success: 'Server saved' }).then(() => setEdit(null)).catch(() => {}) }}>
               <Field label="Name"><input className="input" value={f.name} onChange={(e) => setEdit({ ...f, name: e.target.value })} /></Field>
+              <Field label="Category"><Select className="input" aria-label="Category" value={f.category} onChange={(e) => setEdit({ ...f, category: e.target.value })}>{SERVER_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
               <Field label="Environment"><input className="input" value={f.environment} onChange={(e) => setEdit({ ...f, environment: e.target.value })} /></Field>
               <Field label="Region"><input className="input" value={f.region} onChange={(e) => setEdit({ ...f, region: e.target.value })} /></Field>
               <Field label="Tags"><input className="input" value={f.tags} onChange={(e) => setEdit({ ...f, tags: e.target.value })} /></Field>

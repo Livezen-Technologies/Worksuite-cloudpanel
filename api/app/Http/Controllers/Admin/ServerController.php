@@ -25,6 +25,7 @@ class ServerController extends Controller
             'ip' => 'nullable|ip',
             'environment' => ['sometimes', Rule::in(['production', 'staging', 'development'])],
             'region' => 'nullable|string|max:60',
+            'category' => ['sometimes', Rule::in(['servers', 'dns', 'hosting', 'database', 'backup', 'storage', 'cache'])],
             'tags' => 'nullable|array', 'tags.*' => 'string|max:40',
             'roles' => 'sometimes|array|min:1', 'roles.*' => 'in:app,builder,vps',
             'provider' => 'nullable|string|max:40',
@@ -50,7 +51,7 @@ class ServerController extends Controller
         $statusFilter = $request->query('status');
 
         $result = Lists::paginate($query, $request, ['name', 'hostname', 'ip'], ['name', 'created_at', 'last_heartbeat_at', 'cpu_pct', 'ram_pct'], [
-            'environment', 'region', 'server_group_id',
+            'environment', 'region', 'server_group_id', 'category',
             'tag' => fn ($q, $v) => $q->whereRaw('CAST(tags AS TEXT) LIKE ?', ['%"'.$v.'"%']),
             'status' => fn ($q, $v) => match ($v) {
                 'maintenance' => $q->where('maintenance', true),

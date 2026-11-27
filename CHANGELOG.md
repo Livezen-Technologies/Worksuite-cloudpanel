@@ -9,6 +9,14 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.45.0] — 2026-11-27
+
+### Added
+- Servers: a category for each server — Servers, DNS, Hosting, Database, Backup, Storage or Cache (default Hosting). It is set in Add server and the server's Settings, shows as a tag on the card and in the overview, filters the list (`GET /servers?category=`), and "Group by → Category" splits the Servers page into those sections in that order.
+
+### Fixed
+- `web/package.json` now carries the version again: 1.44.0 raised `VERSION` by hand and left it at 1.43.0.
+
 ## [1.44.0] — 2026-11-27
 
 ### Added

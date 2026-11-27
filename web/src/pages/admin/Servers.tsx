@@ -12,6 +12,7 @@ import { Icon } from '../../components/Icon'
 import { CopyButton } from '../../components/CopyButton'
 import { unwrap } from '../../lib/format'
 import type { R } from '../../lib/util'
+import { SERVER_CATEGORIES, categoryLabel } from '../../lib/serverCategories'
 import Select from '../../components/Select'
 
 const meterColor = (v: number) => (v >= 85 ? 'var(--r-fg)' : v >= 70 ? 'var(--y-fg)' : 'var(--accent)')
@@ -56,7 +57,7 @@ export function ServerCard({ s }: { s: Server }) {
         ))}
       </div>
       <div className="flex flex-wrap gap-1.5 text-xs">
-        {[s.environment, s.os, s.docker_version ? `Docker ${s.docker_version}` : null, `${s.container_count ?? 0} containers`].filter(Boolean).map((t) => (
+        {[categoryLabel(s.category), s.environment, s.os, s.docker_version ? `Docker ${s.docker_version}` : null, `${s.container_count ?? 0} containers`].filter(Boolean).map((t) => (
           <span key={t as string} className="px-2 py-0.5 rounded-md bg-track text-muted font-medium">{t}</span>
         ))}
         {s.agent_outdated && <span className="px-2 py-0.5 rounded-md bg-y-bg text-y-fg font-semibold" title={`Running ${s.agent_version}; ${s.agent_latest} is available`}>Agent {s.agent_version} → {s.agent_latest}</span>}
@@ -79,7 +80,7 @@ const REGIONS = ['eu-central', 'ap-southeast', 'us-east']
 export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [step, setStep] = useState(0)
   const [reach, setReach] = useState(0)
-  const [form, setForm] = useState({ name: '', hostname: '', ip: '', environment: 'production', region: 'eu-central', provider: 'Hetzner', tags: '' })
+  const [form, setForm] = useState({ name: '', hostname: '', ip: '', environment: 'production', category: 'hosting', region: 'eu-central', provider: 'Hetzner', tags: '' })
   const [method, setMethod] = useState<'agent' | 'ssh'>('agent')
   const [server, setServer] = useState<Server | null>(null)
   const [enroll, setEnroll] = useState<{ token: string; expires_at: string; install_command: string } | null>(null)
@@ -189,6 +190,7 @@ export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () 
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Environment"><Select className="input" disabled={locked} value={form.environment} onChange={set('environment')}><option>production</option><option>staging</option><option>development</option></Select></Field>
         <Field label="Region"><Select className="input" disabled={locked} value={form.region} onChange={set('region')}>{REGIONS.map((r) => <option key={r}>{r}</option>)}</Select></Field>
+        <Field label="Category"><Select className="input" aria-label="Category" disabled={locked} value={form.category} onChange={set('category')}>{SERVER_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
         <Field label="Tags" hint="Comma separated"><input className="input" disabled={locked} value={form.tags} onChange={set('tags')} /></Field>
       </div>
     </div>,
@@ -244,18 +246,21 @@ export function AddServerWizard({ open, onClose }: { open: boolean; onClose: () 
 export default function Servers() {
   const [params, setParams] = useSearchParams()
   const { rows, isLoading } = useList<Server>('/servers', undefined, { refetchInterval: 15000 })
-  const [group, setGroup] = useState<'none' | 'environment' | 'region'>('none')
+  const [group, setGroup] = useState<'none' | 'category' | 'environment' | 'region'>('none')
   const [view, setViewState] = useState<'cards' | 'list'>(() => { try { return localStorage.getItem('servers:view') === 'list' ? 'list' : 'cards' } catch { return 'cards' } })
   const setView = (v: 'cards' | 'list') => { setViewState(v); try { localStorage.setItem('servers:view', v) } catch { /* private mode */ } }
   const open = params.get('add') === '1'
-  const groups = group === 'none' ? [['', rows] as const] : Object.entries(rows.reduce<Record<string, Server[]>>((a, s) => { const k = String((s as unknown as R)[group] ?? '—'); (a[k] ??= []).push(s); return a }, {}))
+  const groups = group === 'none' ? [['', rows] as const]
+    : group === 'category'
+      ? SERVER_CATEGORIES.map(([v, l]) => [l, rows.filter((s) => (s.category ?? 'hosting') === v)] as const).filter(([, list]) => list.length > 0)
+      : Object.entries(rows.reduce<Record<string, Server[]>>((a, s) => { const k = String((s as unknown as R)[group] ?? '—'); (a[k] ??= []).push(s); return a }, {}))
   const { run: updRun, busy: updBusy } = useAction()
   return (
     <>
       <PageHeader title="Servers" subtitle="VPS and dedicated servers connected through the outbound agent"
         actions={<>
           <label className="flex items-center gap-2 text-sm text-muted">Group by
-            <Select className="input !w-auto" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}><option value="none">None</option><option value="environment">Environment</option><option value="region">Region</option></Select>
+            <Select className="input !w-auto" aria-label="Group by" value={group} onChange={(e) => setGroup(e.target.value as typeof group)}><option value="none">None</option><option value="category">Category</option><option value="environment">Environment</option><option value="region">Region</option></Select>
           </label>
           <div className="flex rounded-lg border border-line overflow-hidden" role="group" aria-label="Server view">
             {([['cards', 'grid', 'Cards'], ['list', 'list', 'List']] as const).map(([v, icon, label]) => (
