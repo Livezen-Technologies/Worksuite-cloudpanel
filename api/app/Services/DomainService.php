@@ -169,7 +169,8 @@ class DomainService
      */
     public function recordsWithStatus(Domain $domain): array
     {
-        $last = DnsCheck::allTenants()->where('domain_id', $domain->id)->latest('created_at')->first();
+        // Ids are time-ordered, so they break ties between checks written in the same second.
+        $last = DnsCheck::allTenants()->where('domain_id', $domain->id)->latest('created_at')->latest('id')->first();
         $seen = collect($last?->records ?? []);
 
         return array_map(function ($r) use ($seen, $domain) {
