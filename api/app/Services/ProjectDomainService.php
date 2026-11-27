@@ -90,9 +90,23 @@ class ProjectDomainService
             ],
             'domains' => $list,
             'apps' => $this->apps($project)->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'status' => $a->status])->values(),
-            'ingress' => ['hostname' => $this->domains->ingressHostname(), 'ips' => $this->domains->ingressIps()],
+            'ingress' => $this->ingress($project),
             'platform_domain' => config('platform.domain'),
         ];
+    }
+
+    /**
+     * Where the project's domains must point. An Enterprise deployment's project is served by the
+     * edge servers only, so its customers get the edges' A records and no ingress host name.
+     */
+    private function ingress(Project $project): array
+    {
+        $enterprise = $this->apps($project)->contains(fn ($a) => ! empty($a->source['enterprise_deployment_id']));
+        $edges = $enterprise ? \App\Services\TraefikConfigService::edgeServers()->pluck('ip')->filter()->values()->all() : [];
+
+        return $edges
+            ? ['hostname' => null, 'ips' => $edges, 'edges' => true]
+            : ['hostname' => $this->domains->ingressHostname(), 'ips' => $this->domains->ingressIps()];
     }
 
     public function present(Domain $domain): array
