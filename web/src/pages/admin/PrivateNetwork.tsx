@@ -7,6 +7,8 @@ import { ConfirmDialog, Modal } from '../../components/Overlay'
 import Select from '../../components/Select'
 import { ago } from '../../lib/format'
 import { type R } from '../../lib/util'
+import { Tabs } from '../../components/Tabs'
+import { VpnNetworks } from '../../components/VpnNetworks'
 
 type Lock = { allow: string[]; port: number; pending_until: string | null; confirmed_at: string | null }
 type Member = { id: string; name: string; ip: string; mesh_ip: string; public_key: string | null; joined_at: string; online: boolean; ssh_lock: Lock | null; status: { up?: boolean; error?: string; dns_error?: string; peers?: R[]; checked_at?: string; port_opened?: string | null } | null }
@@ -14,6 +16,7 @@ type Page = { subnet: string; port: number; zone: string; members: Member[]; can
 
 /** PNET-1..5: WireGuard mesh between servers, *.internal names and admin VPN devices. */
 export default function PrivateNetwork() {
+  const [tab, setTab] = useState<'mesh' | 'vpn'>('mesh')
   const page = useOne<Page>('/mesh', undefined, { refetchInterval: 15000 })
   const { run, busy } = useAction()
   const [join, setJoin] = useState('')
@@ -29,7 +32,9 @@ export default function PrivateNetwork() {
   return (
     <>
       <PageHeader title="Private network" subtitle={`WireGuard mesh ${p.subnet} on UDP ${p.port}; names under .${p.zone}`}
-        actions={<button type="button" className="btn" disabled={busy || p.members.length === 0} onClick={() => run({ path: '/mesh/apply', label: 'Re-apply mesh', success: 'Mesh configuration sent' }).catch(() => {})}>Re-apply</button>} />
+        actions={tab === 'mesh' ? <button type="button" className="btn" disabled={busy || p.members.length === 0} onClick={() => run({ path: '/mesh/apply', label: 'Re-apply mesh', success: 'Mesh configuration sent' }).catch(() => {})}>Re-apply</button> : undefined} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'mesh', label: 'Server mesh' }, { id: 'vpn', label: 'VPN networks' }]} />
+      {tab === 'vpn' ? <VpnNetworks /> : <>
       <Card title="Servers" subtitle="Each server keeps its own private key; allow UDP on the mesh port in its firewall">
         {p.members.length === 0 ? <Empty>No servers on the private network yet.</Empty> : (
           <DataTable label="Mesh members" rows={p.members} rowKey={(m) => m.id} actions={(m) => [{ label: `Remove ${m.name}`, icon: 'trash', danger: true, confirm: false, onClick: () => setLeave(m) }]}
@@ -89,6 +94,7 @@ export default function PrivateNetwork() {
         onConfirm={() => { const m = leave; setLeave(null); if (m) run({ path: `/mesh/servers/${m.id}`, method: 'DELETE', label: 'Leave mesh', success: 'Server removed' }).catch(() => {}) }}>
         Its WireGuard interface and internal DNS are stopped, and the other servers drop it as a peer.
       </ConfirmDialog>
+      </>}
     </>
   )
 }
