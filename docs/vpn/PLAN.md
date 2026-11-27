@@ -13,7 +13,7 @@ Source: the owner's "WorkSuite Cloud – VPN & Private Network Enhancement" spec
 
 ## Phases (one PR each; merge and deploy only on the owner's OK)
 1. **VPN networks** — `vpn_networks` table, API (`/api/v1/vpn/networks`, suggest), Create VPN network wizard, list. Records only. *(1.47.0)*
-2. **Gateway deployment** — agent installs WireGuard on the gateway, keys, IP forwarding, nftables, DNS; validate/rollback/retry with deployment logs (`vpn_deployment_jobs`). Needs an agent release and rollout.
+2. **Gateway deployment** — agent `vpn.apply`/`vpn.status`: interface, key made on the gateway, IP forwarding, default-deny nftables + NAT, nft --check then rollback on failure; panel Deploy/Stop/Refresh status. Deployment logs use the existing jobs table. Private DNS for VPN clients is left to phase 4 (needs CoreDNS bound to the VPN address). *(1.48.0; needs the agent rolled out to the gateway)*
 3. **Users & devices** — `vpn_users`, `vpn_devices`, `vpn_ip_allocations`; keys generated on the device where possible; expiry, revoke, device limits, connection log.
 4. **Project & application access** — project Network & VPN tab, app Networking tab; inherit/VPN-only/hybrid; internal hostnames; databases never open to every VPN user by default.
 5. **Access policies & monitoring** — policy engine enforced as gateway firewall rules and peer management; Overview dashboard (peers, handshakes, traffic).

@@ -15,7 +15,7 @@ class VpnNetwork extends Model
 
     protected function casts(): array
     {
-        return ['private_dns' => 'boolean', 'port' => 'integer'];
+        return ['private_dns' => 'boolean', 'port' => 'integer', 'gateway_status' => 'array', 'deployed_at' => 'datetime'];
     }
 
     public function gateway() { return $this->belongsTo(Server::class, 'gateway_server_id'); }

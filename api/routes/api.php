@@ -221,6 +221,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('vpn/networks', [Admin\VpnNetworkController::class, 'store'])->name('vpn.networks.store');
         Route::patch('vpn/networks/{id}', [Admin\VpnNetworkController::class, 'update'])->name('vpn.networks.update');
         Route::delete('vpn/networks/{id}', [Admin\VpnNetworkController::class, 'destroy'])->name('vpn.networks.destroy');
+        Route::post('vpn/networks/{id}/deploy', [Admin\VpnNetworkController::class, 'deploy'])->name('vpn.networks.deploy');
+        Route::post('vpn/networks/{id}/stop', [Admin\VpnNetworkController::class, 'stop'])->name('vpn.networks.stop');
+        Route::post('vpn/networks/{id}/status', [Admin\VpnNetworkController::class, 'status'])->name('vpn.networks.status');
         Route::post('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'lockSsh'])->name('mesh.ssh-lock');
         Route::post('mesh/servers/{id}/ssh-lock/confirm', [Admin\MeshController::class, 'confirmSsh'])->name('mesh.ssh-lock.confirm');
         Route::delete('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'unlockSsh'])->name('mesh.ssh-lock.destroy');

@@ -195,6 +195,10 @@ func (e *Executor) dispatch(ctx context.Context, c protocol.Command, progress fu
 		return e.meshApply(ctx, c.Payload, progress)
 	case "mesh.status":
 		return e.meshStatus(ctx)
+	case "vpn.apply":
+		return e.vpnApply(ctx, c.Payload, progress)
+	case "vpn.status":
+		return e.vpnStatus(ctx, c.Payload)
 	case "tunnel.lockdown":
 		return e.tunnelLock(ctx, c.Payload)
 	case "mesh.confirm":
