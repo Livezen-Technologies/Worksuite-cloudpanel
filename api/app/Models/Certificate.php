@@ -21,6 +21,7 @@ class Certificate extends Model
         return [
             'checked_at' => 'datetime',
             'names' => 'array',
+            'observations' => 'array',
             'issued_at' => 'datetime',
             'expires_at' => 'datetime',
         ];

@@ -111,6 +111,50 @@ class TraefikConfigService implements HandlesCommandResults
         return 'dmp-'.trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(str_replace('*.', 'wildcard.', $domain->name))), '-');
     }
 
+    /** EDGE-SCAN: above every other router, IP blocks (900000) and page takeovers (100000+) included. */
+    public const SCANNER_PRIORITY = 990000;
+
+    /** EDGE-SCAN: an ipAllowList nobody passes (the edges see the TCP peer), so Traefik answers 403. */
+    public const SCANNER_DENY = 'dmp-edge-scanner-deny';
+
+    /** Paths no app may lose to the scanner block, whatever the configured patterns say. */
+    public const SCANNER_SAFE_PATHS = [
+        '/', '/index.php', '/login', '/api/v1/health', '/assets/app.js', '/favicon.ico',
+        '/.well-known/acme-challenge/x', '/.well-known/openid-configuration', '/.well-known/security.txt',
+        '/.well-known/assetlinks.json', '/.well-known/apple-app-site-association', '/.well-known/change-password',
+    ];
+
+    /**
+     * EDGE-SCAN: the PathRegexp matcher for platform.traefik.edge_blocked_paths, or null when
+     * blocking is off or no usable pattern is left. A pattern that does not compile, contains a
+     * backtick (it would end the rule's string) or matches one of SCANNER_SAFE_PATHS is dropped.
+     */
+    public static function scannerPathRule(): ?string
+    {
+        if (! config('platform.traefik.edge_block_scanners', true)) {
+            return null;
+        }
+        $keep = [];
+        foreach ((array) config('platform.traefik.edge_blocked_paths', []) as $p) {
+            $p = trim((string) $p);
+            if ($p === '' || str_contains($p, '`') || str_contains($p, '~')) {
+                continue;
+            }
+            // PCRE and RE2 agree on this subset (classes, groups, anchors, (?:...)), so a PCRE
+            // check is a faithful stand-in for what Traefik will match.
+            $re = '~'.$p.'~i';
+            if (@preg_match($re, '') === false) {
+                continue;
+            }
+            if (collect(self::SCANNER_SAFE_PATHS)->contains(fn ($safe) => preg_match($re, $safe) === 1)) {
+                continue;
+            }
+            $keep[] = $p;
+        }
+
+        return $keep ? 'PathRegexp(`(?i)(?:'.implode('|', $keep).')`)' : null;
+    }
+
     /** XNODE-2: an enterprise edge ingress (tagged config platform.traefik.edge_tag). */
     public static function isEdge(Server $server): bool
     {
@@ -277,6 +321,24 @@ class TraefikConfigService implements HandlesCommandResults
         // Empty unless the pages service has to be declared here rather than
         // discovered by Traefik's docker provider.
         $services += $pageServices;
+        // EDGE-SCAN: bots probing enterprise domains for /.env, /.git, wp-login.php and the like
+        // are answered 403 by the edge itself instead of costing the app node a request. Edges
+        // only, so panel-01's render is unchanged.
+        if (self::isEdge($server) && ($block = self::scannerPathRule())) {
+            foreach ($this->domainsFor($server, $dedicated) as $domain) {
+                $name = self::routerName($domain);
+                if (! self::isEnterpriseDomain($domain) || ! isset($routers[$name]['service'], $routers[$name]['rule'])) {
+                    continue;
+                }
+                $middlewares[self::SCANNER_DENY] ??= ['ipAllowList' => ['sourceRange' => ['127.0.0.1/32']]];
+                $routers[$name.'-scanners'] = array_filter([
+                    'rule' => '('.$routers[$name]['rule'].') && '.$block,
+                    'entryPoints' => $routers[$name]['entryPoints'] ?? [config('platform.traefik.entrypoint')],
+                    'service' => $routers[$name]['service'], 'priority' => self::SCANNER_PRIORITY,
+                    'middlewares' => [self::SCANNER_DENY], 'tls' => $routers[$name]['tls'] ?? null,
+                ]);
+            }
+        }
         // Traefik rejects an empty routers map ("routers cannot be a standalone
         // element") and drops the whole file-provider configuration when it sees
         // one - taking every other site on the ingress down with it. With nothing
@@ -504,13 +566,19 @@ class TraefikConfigService implements HandlesCommandResults
         return ($explicit ?? []) + $out;
     }
 
+    /** Whether ingress is dedicated (configured or tagged servers) rather than each app server's own Traefik. */
+    private static function dedicated(): bool
+    {
+        return (bool) config('platform.traefik.ingress_server_ids') || Server::allTenants()->get()->contains(fn ($s) => in_array('ingress', $s->tags ?? [], true) || self::isEdge($s));
+    }
+
     /** Pushes the rendered config to every ingress server whose content changed. Returns commands queued. */
     public function push(bool $force = false): int
     {
         if (! self::enabled()) {
             return 0;
         }
-        $dedicated = (bool) config('platform.traefik.ingress_server_ids') || Server::allTenants()->get()->contains(fn ($s) => in_array('ingress', $s->tags ?? [], true) || self::isEdge($s));
+        $dedicated = self::dedicated();
         $secrets = $this->dnsSecrets();
         $count = 0;
         foreach ($this->ingressServers() as $server) {
@@ -560,14 +628,27 @@ class TraefikConfigService implements HandlesCommandResults
 
             return;
         }
-        $updated = $this->applyCertificates($command->output['certificates'] ?? []);
+        $updated = $this->applyCertificates($command->output['certificates'] ?? [], $command->server_id);
         $this->jobs->succeed($job, ['certificates' => count($command->output['certificates'] ?? []), 'updated' => $updated]);
     }
 
-    /** Matches acme.json entries to domains and records expiry (no key material ever arrives here). */
-    public function applyCertificates(array $certs): int
+    /**
+     * Matches acme.json entries to domains and records expiry (no key material ever arrives here).
+     *
+     * Every ingress orders and holds its own certificate, so the two enterprise edges report
+     * different certificates for the same domain (expiries seconds apart). One row stands for the
+     * domain's certificate set: `observations` keeps what each ingress holds, `expires_at` is the
+     * earliest of them, and a new row is written only when an ingress's certificate is renewed
+     * (a later expiry than the one it held). An ingress that no longer routes the domain (an old
+     * copy left in panel-01's acme.json after the domain moved to the edges) is ignored.
+     *
+     * @return int rows created or whose expiry changed
+     */
+    public function applyCertificates(array $certs, ?string $serverId = null): int
     {
-        $updated = 0;
+        // One certificate per domain per report: the newest among the entries naming it (a
+        // domain may sit in several resolvers' stores, or under its own and a wildcard name).
+        $best = [];
         foreach ($certs as $cert) {
             if (empty($cert['domain']) || empty($cert['not_after'])) {
                 continue;
@@ -575,35 +656,120 @@ class TraefikConfigService implements HandlesCommandResults
             $names = array_merge([$cert['domain']], $cert['sans'] ?? []);
             $domains = Domain::allTenants()->whereIn('name', array_merge($names, array_map(fn ($n) => '*.'.ltrim($n, '*.'), $names)))->get();
             foreach ($domains as $domain) {
-                app(Tenant::class)->as($domain->organization_id, function () use ($domain, $cert, $names, &$updated) {
-                    $expires = Carbon::parse($cert['not_after']);
-                    // Renewal normally happens 30 days out; one still this close has not renewed.
-                    if ($expires->isFuture() && now()->diffInDays($expires) <= 14) {
-                        app(EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
-                            'domain' => $domain->name, 'days' => (string) (int) now()->diffInDays($expires),
-                            'reason' => 'Automatic renewal has not replaced it yet. Check that DNS still points at the platform.',
-                        ], $domain->id, 1440);
-                    }
-                    $current = Certificate::where('domain_id', $domain->id)->whereIn('status', ['active', 'issuing'])->latest()->first();
-                    if ($current && $current->status === 'active' && $current->expires_at?->equalTo($expires)) {
-                        $current->update(['checked_at' => now()]);
-
-                        return;
-                    }
-                    // The "issuing" placeholder is superseded by the real certificate.
-                    Certificate::where('domain_id', $domain->id)->where('status', 'issuing')->delete();
-                    Certificate::where('domain_id', $domain->id)->where('status', 'active')->update(['status' => 'replaced']);
-                    Certificate::create([
-                        'domain_id' => $domain->id, 'issuer' => $cert['issuer'] ?? 'letsencrypt', 'status' => $expires->isPast() ? 'expired' : 'active',
-                        'names' => $names, 'resolver' => $cert['resolver'] ?? null,
-                        'issued_at' => isset($cert['not_before']) ? Carbon::parse($cert['not_before']) : null, 'expires_at' => $expires, 'checked_at' => now(),
-                    ]);
-                    $domain->update(['https_status' => $expires->isPast() ? 'failed' : 'active']);
-                    $updated++;
-                });
+                $expires = Carbon::parse($cert['not_after']);
+                if (! isset($best[$domain->id]) || $expires->gt($best[$domain->id][2])) {
+                    $best[$domain->id] = [$domain, $cert + ['_names' => $names], $expires];
+                }
             }
+        }
+        $routedBy = $serverId && $best ? $this->routedBy() : [];
+        $key = $serverId ?? 'ingress';
+        $updated = 0;
+        foreach ($best as [$domain, $cert, $expires]) {
+            $servers = $routedBy[$domain->id] ?? null;
+            if ($servers !== null && ! in_array($serverId, $servers, true)) {
+                continue;   // a stale copy on an ingress that does not serve this domain
+            }
+            app(Tenant::class)->as($domain->organization_id, function () use ($domain, $cert, $expires, $key, $servers, &$updated) {
+                $names = $cert['_names'];
+                // Renewal normally happens 30 days out; one still this close has not renewed.
+                if ($expires->isFuture() && now()->diffInDays($expires) <= 14) {
+                    app(EmailTemplateService::class)->notifyOrganization($domain->organization_id, 'certificate_expiring', [
+                        'domain' => $domain->name, 'days' => (string) (int) now()->diffInDays($expires),
+                        'reason' => 'Automatic renewal has not replaced it yet. Check that DNS still points at the platform.',
+                    ], $domain->id, 1440);
+                }
+                $seen = [
+                    'fingerprint' => (string) ($cert['fingerprint'] ?? sha1(json_encode([$cert['not_before'] ?? null, $cert['not_after'], $cert['issuer'] ?? null]))),
+                    'not_before' => isset($cert['not_before']) ? Carbon::parse($cert['not_before'])->toIso8601ZuluString() : null,
+                    'not_after' => $expires->toIso8601ZuluString(),
+                    'seen_at' => now()->toIso8601ZuluString(),
+                ];
+                $current = Certificate::where('domain_id', $domain->id)->whereIn('status', ['active', 'expired'])->latest()->first();
+                // The "issuing" placeholder is superseded by any real certificate.
+                Certificate::where('domain_id', $domain->id)->where('status', 'issuing')->delete();
+                $observed = $current ? $this->liveObservations((array) ($current->observations ?? []), $key, $servers) : [];
+                $renewed = ! $current || $this->isRenewal($current, $observed, $key, $seen, $expires);
+                $observed[$key] = $seen;
+                $attrs = $this->certificateAttributes($observed) + [
+                    'issuer' => $cert['issuer'] ?? $current?->issuer ?? 'letsencrypt',
+                    'names' => $names, 'resolver' => $cert['resolver'] ?? $current?->resolver, 'checked_at' => now(),
+                ];
+                if ($renewed) {
+                    Certificate::where('domain_id', $domain->id)->whereIn('status', ['active', 'expired'])->update(['status' => 'replaced']);
+                    Certificate::create(['domain_id' => $domain->id] + $attrs);
+                    $updated++;
+                } else {
+                    if (! $current->expires_at?->equalTo($attrs['expires_at'])) {
+                        $updated++;
+                    }
+                    $current->update($attrs);
+                }
+                $https = $attrs['status'] === 'expired' ? 'failed' : 'active';
+                if ($domain->https_status !== $https) {
+                    $domain->update(['https_status' => $https]);
+                }
+            });
         }
 
         return $updated;
+    }
+
+    /** Domain id => the ingress server ids whose rendered config routes it. */
+    private function routedBy(): array
+    {
+        $dedicated = self::dedicated();
+        $map = [];
+        foreach ($this->ingressServers() as $server) {
+            foreach ($this->domainsFor($server, $dedicated) as $domain) {
+                $map[$domain->id][] = $server->id;
+            }
+        }
+
+        return $map;
+    }
+
+    /** A row's observations minus ingresses that stopped routing the domain or went quiet. */
+    private function liveObservations(array $observed, string $key, ?array $servers): array
+    {
+        $stale = now()->subHours(max(1, (int) config('platform.traefik.cert_observation_stale_hours', 72)));
+
+        return array_filter($observed, fn ($o, $k) => $k === $key || (
+            is_array($o) && ! empty($o['not_after']) && ($servers === null || in_array($k, $servers, true))
+            && ! empty($o['seen_at']) && Carbon::parse($o['seen_at'])->gte($stale)
+        ), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Whether this report is a new certificate rather than one the row already stands for: the
+     * ingress held a different one that expired earlier. An ingress reporting for the first time
+     * joins the row while other ingresses' copies are on it. A row with no live observations (one
+     * written before they existed, or every ingress quiet) counts as the same certificate when the
+     * expiry is at most a day later (the edges' copies are seconds apart), so the first sync after
+     * the upgrade adopts the active row instead of adding one.
+     */
+    private function isRenewal(Certificate $current, array $observed, string $key, array $seen, Carbon $expires): bool
+    {
+        if ($before = $observed[$key] ?? null) {
+            return $before['fingerprint'] !== $seen['fingerprint'] && Carbon::parse($before['not_after'])->lt($expires);
+        }
+        if ($observed) {
+            return false;
+        }
+
+        return ! $current->expires_at || $current->expires_at->copy()->addDay()->lt($expires);
+    }
+
+    /** expires_at / issued_at / status from the earliest-expiring certificate any ingress holds. */
+    private function certificateAttributes(array $observed): array
+    {
+        $first = collect($observed)->sortBy(fn ($o) => $o['not_after'])->first();
+        $expires = Carbon::parse($first['not_after']);
+
+        return [
+            'observations' => $observed, 'expires_at' => $expires,
+            'issued_at' => $first['not_before'] ? Carbon::parse($first['not_before']) : null,
+            'status' => $expires->isPast() ? 'expired' : 'active',
+        ];
     }
 }
