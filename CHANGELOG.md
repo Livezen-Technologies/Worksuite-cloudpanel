@@ -9,6 +9,11 @@ Dates are the dates the work landed on `main`.
 
 ## [Unreleased]
 
+## [1.47.0] — 2026-11-27
+
+### Added
+- VPN networks (VPN phase 1, see `docs/vpn/PLAN.md`): Private network now has Server mesh and VPN networks tabs. A Create VPN network wizard (network, gateway, addressing, review) saves a WireGuard or OpenVPN network with its gateway server, private range, port, transport, split or full tunnel and private DNS. The API (`GET/POST /vpn/networks`, `PATCH/DELETE /vpn/networks/{id}`, `GET /vpn/networks/suggest`) checks that ranges are private, start on their network address and overlap neither the mesh, the mesh container range, another VPN network nor a known Docker network, and that a gateway port is not taken or the mesh's. Changes are audited and scoped to the organisation. Networks are records only: nothing is installed on the gateway yet.
+
 ### Fixed
 - Certificates for customer-owned domains on Enterprise deployments served by the two edges (for example `onesource.pmm.lk`) never issued. Each edge orders its own certificate, so HTTP-01 failed on both: Let's Encrypt validated on whichever edge DNS sent it to, and that edge did not hold the token (403 unauthorized). These domains now use DNS-01 through CNAME delegation. The customer adds `_acme-challenge.<name> CNAME <label>.acme.worksuite.lk`, where the label is derived from the domain id. Both edges' `le-dns-cloudflare` resolver follows the CNAME and writes the TXT in worksuite.lk with the token they already hold. The delegation CNAME appears in the domain's DNS records in place of the `_acme-challenge` TXT, and the `_livezen-verify` ownership TXT stays. A domain without a certificate waits for the CNAME before it verifies. A missing CNAME never takes a domain with a live certificate offline. DNS validation has a new "Certificate delegation (CNAME)" check that says exactly what to add or change. The zone and label come from `ACME_DELEGATION_ZONE` (default `ENTERPRISE_DOMAIN`, worksuite.lk) and `ACME_DELEGATION_SUBDOMAIN` (default `acme`), and the zone must be a DNS zone the panel manages. Non-enterprise domains and panel-01's ingress are unchanged.
 

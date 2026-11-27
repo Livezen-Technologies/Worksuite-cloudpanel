@@ -198,6 +198,8 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::get('servers/{id}/tunnel', [Admin\TunnelController::class, 'show'])->name('servers.tunnel');
         Route::get('servers/{id}/proxy/adoptable', [Admin\ProxyAdoptionController::class, 'show'])->name('servers.proxy.adoptable');
         Route::get('mesh', [Admin\MeshController::class, 'show'])->name('mesh.show');
+        Route::get('vpn/networks', [Admin\VpnNetworkController::class, 'index'])->name('vpn.networks.index');
+        Route::get('vpn/networks/suggest', [Admin\VpnNetworkController::class, 'suggest'])->name('vpn.networks.suggest');
     });
     Route::middleware('perm:servers.manage')->group(function () {
         Route::post('servers', [Admin\ServerController::class, 'store'])->name('servers.store');
@@ -216,6 +218,9 @@ Route::middleware(['auth:sanctum', 'tenant', 'admin.network', 'throttle:api', 'i
         Route::post('mesh/servers/{id}', [Admin\MeshController::class, 'join'])->name('mesh.join');
         Route::delete('mesh/servers/{id}', [Admin\MeshController::class, 'leave'])->name('mesh.leave');
         Route::post('mesh/apply', [Admin\MeshController::class, 'apply'])->name('mesh.apply');
+        Route::post('vpn/networks', [Admin\VpnNetworkController::class, 'store'])->name('vpn.networks.store');
+        Route::patch('vpn/networks/{id}', [Admin\VpnNetworkController::class, 'update'])->name('vpn.networks.update');
+        Route::delete('vpn/networks/{id}', [Admin\VpnNetworkController::class, 'destroy'])->name('vpn.networks.destroy');
         Route::post('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'lockSsh'])->name('mesh.ssh-lock');
         Route::post('mesh/servers/{id}/ssh-lock/confirm', [Admin\MeshController::class, 'confirmSsh'])->name('mesh.ssh-lock.confirm');
         Route::delete('mesh/servers/{id}/ssh-lock', [Admin\MeshController::class, 'unlockSsh'])->name('mesh.ssh-lock.destroy');
